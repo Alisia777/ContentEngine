@@ -112,14 +112,16 @@ def test_edge_rejects_stale_or_unbound_repair_before_provider_state() -> None:
 def test_browser_prefills_repair_but_keeps_price_confirmation_separate() -> None:
     for token in (
         'generationRepairPolicy: "creator_generation_repair_policy"',
-        "generationRepairPolicy(reviewId)",
+        "generationRepairPolicy(reviewId, {",
+        "project_id: requiredProjectId(projectIdSnake || projectId)",
         "normalizeGenerationRepairPolicy",
         "GENERATION_REPAIR_COMPILER_VERSION",
         "activeGenerationRepairPolicy(",
         "generationRepairContext(form)",
         "repair_context: repairContext",
         "persistGenerationRepair(",
-        'navigate("/workspace/generation")',
+        "/workspace/generation?view=create&project_id=",
+        "flowHandoff(",
         "Исправление после QA применено",
         "комментарий проверяющего не копируется",
     ):
@@ -129,11 +131,11 @@ def test_browser_prefills_repair_but_keeps_price_confirmation_separate() -> None
         "loadGenerationRepairForReview(reviewId)",
         repair_decision,
     )
-    navigate = APP.index(
-        'navigate("/workspace/generation")',
+    handoff = APP.index(
+        "flowHandoff(",
         policy_fetch,
     )
-    assert repair_decision < policy_fetch < navigate
+    assert repair_decision < policy_fetch < handoff
     submit = APP[
         APP.index("async function submitRealGeneration(") :
         APP.index("async function submitMedia(", APP.index(

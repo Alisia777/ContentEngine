@@ -4,8 +4,8 @@
  * credentials, forms or application state.
  */
 
-const CURRENT_BUILD = "20260804.os4.8";
-const BUILD_BADGE = "Desktop · 4.7";
+const CURRENT_BUILD = "20260804.os4.10";
+const BUILD_BADGE = "Desktop · 4.10";
 const MANIFEST_URL = new URL("./build.json", import.meta.url);
 const CHECK_INTERVAL_MS = 10 * 60 * 1000;
 const VALID_BUILD_ID = /^[a-z0-9._-]{4,80}$/iu;
@@ -21,7 +21,7 @@ const runtime = {
 
 window.CONTENTENGINE_BUILD = Object.freeze({
   id: CURRENT_BUILD,
-  label: "ContentEngine Desktop v4.7",
+  label: "ContentEngine Desktop v4.10",
 });
 
 function cleanBuildId(value) {

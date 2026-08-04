@@ -47,13 +47,13 @@
   color: var(--ce-v4-dim, #91847c);
   border: 1px solid var(--ce-v4-line, rgba(255, 255, 255, 0.09));
   border-radius: 50%;
-  font-size: 11px;
+  font-size: var(--ce-v4-font-helper, 12px);
   font-weight: 850;
 }
 
 .ce-v4-review-guide__step > strong {
   overflow: hidden;
-  font-size: 12px;
+  font-size: var(--ce-v4-font-control, 14px);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -99,7 +99,7 @@
   grid-column: 1 / -1;
   margin: 0;
   color: var(--ce-v4-copper-bright, #ffb47e);
-  font-size: 10px;
+  font-size: var(--ce-v4-font-helper, 12px);
   font-weight: 850;
   letter-spacing: 0.11em;
   text-transform: uppercase;
@@ -117,13 +117,20 @@
 
 .ce-v4-review-panel__intro > span {
   color: var(--ce-v4-muted, #aa9d94);
-  font-size: 13px;
+  font-size: var(--ce-v4-font-control, 14px);
   line-height: 1.5;
 }
 
 .ce-v4-review-panel > :is(.card, .content-review-score-grid, form) {
   width: 100%;
   margin: 0;
+}
+
+.ce-v4-review-guided__panel-content {
+  max-height: none;
+  overflow-y: visible;
+  overscroll-behavior: auto;
+  scrollbar-gutter: auto;
 }
 
 .ce-v4-review-panel[data-ce-v4-review-result-panel="1"] .content-review-quality,
@@ -192,7 +199,7 @@
   color: var(--ce-v4-copper-bright, #ffb47e);
   border-radius: 10px;
   background: var(--ce-v4-copper-soft, rgba(236, 136, 75, 0.12));
-  font-size: 12px;
+  font-size: var(--ce-v4-font-helper, 12px);
   font-weight: 850;
 }
 
@@ -207,12 +214,12 @@
 }
 
 .ce-v4-review-risk-group__label > strong {
-  font-size: 13px;
+  font-size: var(--ce-v4-font-control, 14px);
 }
 
 .ce-v4-review-risk-group__label > small {
   color: var(--ce-v4-muted, #aa9d94);
-  font-size: 10px;
+  font-size: var(--ce-v4-font-helper, 12px);
 }
 
 .ce-v4-review-risk-group__chevron {
@@ -226,12 +233,11 @@
 }
 
 .ce-v4-review-risk-group__body {
-  max-height: min(54vh, 560px);
+  max-height: none;
   display: grid;
   gap: 9px;
-  overflow: auto;
+  overflow: visible;
   padding: 0 12px 12px;
-  scrollbar-color: rgba(236, 136, 75, 0.32) transparent;
 }
 
 .ce-v4-review-risk-group__body > .content-review-finding {
@@ -252,6 +258,7 @@
 .ce-v4-review-panel__actions .btn {
   min-height: 42px;
   margin: 0;
+  font-size: var(--ce-v4-font-control, 14px);
 }
 
 .ce-v4-review-panel [data-ce-v4-review-secondary] {
@@ -269,7 +276,7 @@
   max-width: 64ch;
   margin: 0 auto 0 0;
   color: var(--ce-v4-muted, #aa9d94);
-  font-size: 11px;
+  font-size: var(--ce-v4-font-helper, 12px);
   line-height: 1.45;
 }
 

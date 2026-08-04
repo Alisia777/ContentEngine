@@ -234,7 +234,7 @@ def test_outcome_learning_sql_disambiguates_values_and_confirmation() -> None:
 
 def test_api_declares_scope_registry_and_three_outcome_control_rpcs() -> None:
     api_source = _read(API_PATH)
-    assert re.search(r'\./supabase-api\.js\?v=20260804\.\d+', _read(APP_PATH))
+    assert './supabase-api.js?v=20260804.os4.10' in _read(APP_PATH)
     rpc_values = set(
         re.findall(r'"(creator_[a-z0-9_]*research_outcome_learning[a-z0-9_]*)"', api_source)
     )
@@ -250,6 +250,7 @@ def test_api_declares_scope_registry_and_three_outcome_control_rpcs() -> None:
         """
         const categoryId = "20000000-0000-4000-8000-000000000001";
         const productId = "30000000-0000-4000-8000-000000000001";
+        const projectId = "40000000-0000-4000-8000-000000000001";
         const scopeItem = (scope) => ({
           scope_key: `${scope.market_category_id}:${scope.platform}:${scope.model}`,
           scope,
@@ -265,7 +266,7 @@ def test_api_declares_scope_registry_and_three_outcome_control_rpcs() -> None:
           api.organizationId = "10000000-0000-4000-8000-000000000001";
           api.call = async (rpc, payload) => {
             calls.push({ rpc, payload });
-            if (rpc === "creator_product_research_status") {
+            if (rpc === "creator_project_research_status") {
               return {
                 run: { id: payload.run_id, status: "completed" },
               };
@@ -311,6 +312,7 @@ def test_api_declares_scope_registry_and_three_outcome_control_rpcs() -> None:
         ], async () => ({ ok: true, marker: "outcome" }));
         const status = await valid.api.productResearchStatus("run-valid", {
           outcome_scope: selectedScope,
+          projectId,
         });
         const outcomeCall = valid.calls.find(
           (item) => item.rpc === "creator_research_outcome_learning_status",
@@ -325,6 +327,7 @@ def test_api_declares_scope_registry_and_three_outcome_control_rpcs() -> None:
             platform: "telegram",
             model: "gen4_turbo",
           },
+          projectId,
         });
 
         return {
@@ -369,10 +372,11 @@ def test_outcome_status_is_a_bounded_satellite_without_losing_core_status() -> N
         API_PATH,
         """
         const categoryId = "20000000-0000-4000-8000-000000000001";
+        const projectId = "40000000-0000-4000-8000-000000000001";
         const api = Object.create(subject.CreatorApi.prototype);
         api.organizationId = "10000000-0000-4000-8000-000000000001";
         api.call = async (rpc, payload) => {
-          if (rpc === "creator_product_research_status") {
+          if (rpc === "creator_project_research_status") {
             return {
               run: { id: payload.run_id, status: "processing" },
               latest_draft: { brief: { scenarios: [{
@@ -423,7 +427,7 @@ def test_outcome_status_is_a_bounded_satellite_without_losing_core_status() -> N
         globalThis.setTimeout = (callback) => { queueMicrotask(callback); return 1; };
         globalThis.clearTimeout = () => {};
         try {
-          const status = await api.productResearchStatus("run-active");
+          const status = await api.productResearchStatus("run-active", { projectId });
           return {
             runStatus: status.run.status,
             scope: status.research_outcome_learning_scope,

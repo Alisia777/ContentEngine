@@ -24,9 +24,10 @@ def test_research_edge_is_authenticated_origin_bound_and_claims_before_openai() 
     assert config["functions"]["creator-product-research"]["verify_jwt"] is True
     assert 'auth: "user"' in source
     assert 'const PUBLIC_APP_ORIGIN = "https://alisia777.github.io"' in source
-    assert 'const allowed = new Set(["action", "research_id"])' in source
-    assert 'Object.keys(value).length !== 2' in source
-    assert '"creator_product_research_status"' in source
+    assert 'const allowed = new Set(["action", "research_id", "project_id"])' in source
+    assert 'Object.keys(value).length !== 3' in source
+    assert '!isUuid(value.project_id)' in source
+    assert '"creator_project_research_status"' in source
     assert '"system_claim_product_research"' in source
     assert '"system_complete_product_research"' in source
     claim = source.index('"system_claim_product_research"', source.index("withSupabase"))

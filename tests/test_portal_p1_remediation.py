@@ -61,7 +61,7 @@ def test_notifications_use_an_inline_v4_route_without_a_subwindow_layer() -> Non
     v4_redirect = app[app.index('if (action === "toggle-work-notifications")') :]
     v4_redirect = v4_redirect[: v4_redirect.index('if (!state.myWork.notificationsOpen')]
     assert "window.CONTENTENGINE_DESKTOP_V4 === true" in v4_redirect
-    assert 'window.location.hash = "#/workspace/work?view=notifications"' in v4_redirect
+    assert 'navigate("/workspace/work?view=notifications")' in v4_redirect
     assert "refreshNotificationLayer" not in v4_redirect
 
 

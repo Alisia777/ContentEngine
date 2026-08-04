@@ -365,21 +365,14 @@ export function achievementMarkup(courseCode, override = {}) {
     name: String(source.name || source.title || fallback.name).slice(0, 120),
     description: String(source.description || fallback.description).slice(0, 420),
   };
-  const petals = Array.from({ length: 14 }, (_, index) => `<i style="--petal:${index}" aria-hidden="true"></i>`).join("");
   return `
-    <section class="training-achievement" data-training-achievement data-course-code="${escapeHtml(courseCode)}" role="dialog" aria-modal="true" aria-labelledby="training-achievement-title" aria-describedby="training-achievement-description">
-      <div class="training-achievement__petals" aria-hidden="true">${petals}</div>
+    <section class="training-achievement training-achievement--inline" data-training-achievement data-course-code="${escapeHtml(courseCode)}" role="status" aria-live="polite" aria-labelledby="training-achievement-title" aria-describedby="training-achievement-description">
       <div class="training-achievement__card">
-        <p class="eyebrow">Новая ачивка</p>
         <div class="training-achievement__badge" aria-hidden="true"><span>${escapeHtml(achievement.icon)}</span></div>
         <p class="training-achievement__kicker">Блок завершён и сохранён</p>
         <h2 id="training-achievement-title">${escapeHtml(achievement.name)}</h2>
         <p id="training-achievement-description">${escapeHtml(achievement.description)}</p>
-        <div class="training-achievement__actions">
-          <button class="btn" type="button" data-action="close-training-achievement">Продолжить обучение <span aria-hidden="true">→</span></button>
-          <button class="btn btn-secondary" type="button" data-action="play-training-fanfare"><span aria-hidden="true">♫</span> Сыграть фанфары</button>
-        </div>
-        <p class="training-achievement__note">Звук включается только по вашему нажатию. Учебная ачивка не заменяет итоговый экзамен, сертификацию или назначение рабочей роли.</p>
+        <p class="training-achievement__note">Следующий обязательный шаг откроется автоматически.</p>
       </div>
     </section>
   `;

@@ -129,6 +129,18 @@ insert into content_factory.memberships (
   'owner', 'active'
 );
 
+insert into content_factory.workspace_folders (
+  id, organization_id, parent_id, name, color_token, kind, system_role,
+  status, position, created_by, updated_by
+) values (
+  'f1150000-0000-4000-8000-000000000001',
+  'f1100000-0000-4000-8000-000000000001', null,
+  'Generation Spec project', 'blue', 'project', null,
+  'active', 1024,
+  'f1000000-0000-4000-8000-000000000001',
+  'f1000000-0000-4000-8000-000000000001'
+);
+
 insert into content_factory.training_access_waivers (
   organization_id, profile_id, previous_role, granted_role,
   grant_reason, granted_by
@@ -162,11 +174,12 @@ insert into content_factory.products (
 );
 
 insert into content_factory.media_objects (
-  id, organization_id, owner_id, product_id, bucket_id, object_name,
+  id, organization_id, project_id, owner_id, product_id, bucket_id, object_name,
   mime_type, size_bytes, sha256, status, metadata, idempotency_key
 ) values (
   'f1300000-0000-4000-8000-000000000001',
   'f1100000-0000-4000-8000-000000000001',
+  'f1150000-0000-4000-8000-000000000001',
   'f1000000-0000-4000-8000-000000000001',
   'f1200000-0000-4000-8000-000000000001',
   'contentengine-private',
@@ -204,6 +217,11 @@ begin
     'f1000000-0000-4000-8000-000000000001',
     true
   );
+  perform set_config(
+    'contentengine.project_id',
+    'f1150000-0000-4000-8000-000000000001',
+    true
+  );
 end;
 $$;
 
@@ -223,6 +241,7 @@ begin
     policy_value := public.creator_generation_learning_policy(
       jsonb_build_object(
         'organization_id', 'f1100000-0000-4000-8000-000000000001',
+        'project_id', 'f1150000-0000-4000-8000-000000000001',
         'media_id', 'f1300000-0000-4000-8000-000000000001',
         'platform', 'wildberries',
         'model', 'gen4_turbo',
@@ -294,6 +313,7 @@ begin
     );
     select public.creator_start_real_generation(jsonb_build_object(
       'organization_id', 'f1100000-0000-4000-8000-000000000001',
+      'project_id', 'f1150000-0000-4000-8000-000000000001',
       'campaign_id', (
         select id from content_factory.generation_campaigns
         where organization_id = 'f1100000-0000-4000-8000-000000000001'
@@ -526,6 +546,7 @@ select throws_ok(
   $sql$, (
     select jsonb_build_object(
       'organization_id', 'f1100000-0000-4000-8000-000000000001',
+      'project_id', 'f1150000-0000-4000-8000-000000000001',
       'campaign_id', (
         select id from content_factory.generation_campaigns
         where organization_id = 'f1100000-0000-4000-8000-000000000001'
@@ -577,6 +598,7 @@ select is(
 update generation_spec_test_state state
 set start_result = public.creator_start_real_generation(jsonb_build_object(
   'organization_id', 'f1100000-0000-4000-8000-000000000001',
+  'project_id', 'f1150000-0000-4000-8000-000000000001',
   'campaign_id', (
     select id from content_factory.generation_campaigns
     where organization_id = 'f1100000-0000-4000-8000-000000000001'
@@ -889,6 +911,7 @@ select is(
 select is(
   (select public.creator_start_real_generation(jsonb_build_object(
     'organization_id', 'f1100000-0000-4000-8000-000000000001',
+    'project_id', 'f1150000-0000-4000-8000-000000000001',
     'campaign_id', (
       select id from content_factory.generation_campaigns
       where organization_id = 'f1100000-0000-4000-8000-000000000001'
@@ -949,6 +972,7 @@ select ok(
 select is(
   (select public.creator_start_real_generation(jsonb_build_object(
     'organization_id', 'f1100000-0000-4000-8000-000000000001',
+    'project_id', 'f1150000-0000-4000-8000-000000000001',
     'campaign_id', (
       select id from content_factory.generation_campaigns
       where organization_id = 'f1100000-0000-4000-8000-000000000001'
@@ -988,6 +1012,7 @@ select throws_ok(
   $sql$, (
     select jsonb_build_object(
       'organization_id', 'f1100000-0000-4000-8000-000000000001',
+      'project_id', 'f1150000-0000-4000-8000-000000000001',
       'idempotency_key', 'generation-spec-success-0001',
       'generation_spec_context', jsonb_build_object(
         'spec_id', patch_result #>> '{generation_spec,spec_id}',

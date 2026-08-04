@@ -51,6 +51,54 @@ const RUNTIME_OWNED_SELECTOR = [
   ".ce-v4-finder-kind",
 ].join(",");
 
+import "https://cdn.jsdelivr.net/npm/dompurify@3.4.13/dist/purify.min.js";
+
+const BLOCKED_MARKUP_ELEMENTS = [
+  "base",
+  "embed",
+  "iframe",
+  "link",
+  "meta",
+  "object",
+  "script",
+  "style",
+  "template",
+];
+
+const DOMPurify = globalThis.DOMPurify;
+
+function hardenWorkspaceMarkup(fragment) {
+  fragment.querySelectorAll("*").forEach((element) => {
+    [...element.attributes].forEach((attribute) => {
+      const name = attribute.name.toLowerCase();
+      if (
+        name === "style"
+          && /(?:@import|behavior\s*:|expression\s*\(|-moz-binding|url\s*\()/iu.test(attribute.value)
+      ) {
+        element.removeAttribute(attribute.name);
+      }
+    });
+    if (element.getAttribute("target") === "_blank") {
+      const rel = new Set(String(element.getAttribute("rel") || "").split(/\s+/u).filter(Boolean));
+      rel.add("noopener");
+      rel.add("noreferrer");
+      element.setAttribute("rel", [...rel].join(" "));
+    }
+  });
+}
+
+function parseWorkspaceMarkup(markup) {
+  if (!DOMPurify?.sanitize) throw new Error("Workspace HTML sanitizer is unavailable.");
+  const fragment = DOMPurify.sanitize(String(markup || ""), {
+    RETURN_DOM_FRAGMENT: true,
+    ADD_ATTR: ["target"],
+    FORBID_ATTR: ["srcdoc", "srcset"],
+    FORBID_TAGS: BLOCKED_MARKUP_ELEMENTS,
+  });
+  hardenWorkspaceMarkup(fragment);
+  return fragment;
+}
+
 function runtimeOwnedNode(node) {
   return node instanceof Element && node.matches(RUNTIME_OWNED_SELECTOR);
 }
@@ -342,8 +390,12 @@ function patchNode(current, next) {
 
 export function patchWorkspaceContent(container, markup) {
   if (!(container instanceof HTMLElement)) return false;
-  const template = document.createElement("template");
-  template.innerHTML = String(markup || "");
-  patchChildren(container, template.content);
+  const activeElement = container.contains(document.activeElement) ? document.activeElement : null;
+  patchChildren(container, parseWorkspaceMarkup(markup));
+  if (
+    activeElement instanceof HTMLElement
+    && activeElement.isConnected
+    && document.activeElement !== activeElement
+  ) activeElement.focus({ preventScroll: true });
   return true;
 }

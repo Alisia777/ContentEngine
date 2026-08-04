@@ -38,6 +38,7 @@ type Json =
 type QueueRow = {
   id: string;
   organization_id?: string;
+  project_id?: string;
   status?: string;
   media_object_id?: string;
   recipient_id?: string;
@@ -90,6 +91,7 @@ type Database = {
         Row: {
           id: string;
           organization_id: string;
+          project_id: string;
           status: string;
           mode: string;
           provider: string;
@@ -127,6 +129,7 @@ type Database = {
         Row: {
           id: string;
           organization_id: string;
+          project_id: string;
           created_by: string;
           status: string;
           created_at: string;
@@ -139,6 +142,7 @@ type Database = {
         Row: {
           id: string;
           organization_id: string;
+          project_id: string;
           media_object_id: string;
           requested_by: string;
           status: string;
@@ -1571,7 +1575,7 @@ const creatorBackgroundWorker = withSupabase<Database>({
       .schema("content_factory")
       .from("generation_jobs")
       .select(
-        "id, organization_id, requested_by, status, mode, provider, provider_next_poll_at, updated_at",
+        "id, organization_id, project_id, requested_by, status, mode, provider, provider_next_poll_at, updated_at",
       )
       .eq("mode", "real")
       .eq("provider", "runway")
@@ -1583,7 +1587,7 @@ const creatorBackgroundWorker = withSupabase<Database>({
     const researchQuery = supabaseAdmin
       .schema("content_factory")
       .from("product_research_runs")
-      .select("id, organization_id, created_by, status, created_at")
+      .select("id, organization_id, project_id, created_by, status, created_at")
       .eq("status", "queued")
       .order("created_at", { ascending: true })
       .limit(payload.research_limit);
@@ -1595,7 +1599,7 @@ const creatorBackgroundWorker = withSupabase<Database>({
       .schema("content_factory")
       .from("content_review_runs")
       .select(
-        "id, organization_id, requested_by, media_object_id, status, created_at, evidence_set_id, next_attempt_at",
+        "id, organization_id, project_id, requested_by, media_object_id, status, created_at, evidence_set_id, next_attempt_at",
       )
       .eq("status", "queued")
       // A null due time means an attempt already owns the row. Re-dispatching
@@ -1627,7 +1631,8 @@ const creatorBackgroundWorker = withSupabase<Database>({
     }
 
     const generationCandidates = generationResult.data.filter((row) =>
-      isQueueRow(row, true) && isUuid(row.requested_by)
+      isQueueRow(row, true) && isUuid(row.project_id) &&
+      isUuid(row.requested_by)
     ).map((row) => ({
       ...row,
       recipient_id: row.requested_by,
@@ -1646,13 +1651,14 @@ const creatorBackgroundWorker = withSupabase<Database>({
       staleStartingRows,
     );
     const researchRows = researchResult.data.filter((row) =>
-      isQueueRow(row, true) && isUuid(row.created_by)
+      isQueueRow(row, true) && isUuid(row.project_id) && isUuid(row.created_by)
     ).map((row) => ({
       ...row,
       recipient_id: row.created_by,
     }));
     const reviewRows = reviewResult.data.filter((row) =>
-      isQueueRow(row, true) && isUuid(row.media_object_id) &&
+      isQueueRow(row, true) && isUuid(row.project_id) &&
+      isUuid(row.media_object_id) &&
       isUuid(row.requested_by)
     ).map((row) => ({
       ...row,
@@ -1725,6 +1731,7 @@ const creatorBackgroundWorker = withSupabase<Database>({
         body: {
           action: "status",
           organization_id: row.organization_id as string,
+          project_id: row.project_id as string,
           job_id: row.id,
         },
         organizationId: row.organization_id as string,
@@ -1734,7 +1741,11 @@ const creatorBackgroundWorker = withSupabase<Database>({
       ...researchRows.map((row): DispatchTarget => ({
         kind: "research",
         functionName: "creator-product-research",
-        body: { action: "analyze", research_id: row.id },
+        body: {
+          action: "analyze",
+          research_id: row.id,
+          project_id: row.project_id as string,
+        },
         organizationId: row.organization_id as string,
         recipientId: row.recipient_id as string,
         entityId: row.id,
@@ -1742,7 +1753,11 @@ const creatorBackgroundWorker = withSupabase<Database>({
       ...autonomousReviews.map((row): DispatchTarget => ({
         kind: "review",
         functionName: "creator-content-review",
-        body: { action: "analyze", review_id: row.id },
+        body: {
+          action: "analyze",
+          review_id: row.id,
+          project_id: row.project_id as string,
+        },
         organizationId: row.organization_id as string,
         recipientId: row.recipient_id as string,
         entityId: row.id,

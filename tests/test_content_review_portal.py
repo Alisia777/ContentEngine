@@ -17,15 +17,15 @@ INDEX = (APP_DIR / "index.html").read_text(encoding="utf-8")
 def test_review_is_a_first_class_versioned_workspace_stage() -> None:
     assert '["review", "Проверка контента", "◈"]' in CATALOG
     flow = APP[APP.index("const FACTORY_FLOW") : APP.index("const HOME_SECTION_KEYS")]
-    assert re.search(r'key:\s*"review",\s*step:\s*"04"', flow)
-    assert "Шаг 4 из 6" in APP
-    assert "<h2>${FACTORY_FLOW.length} этапов одного результата</h2>" in APP
+    assert re.search(r'key:\s*"review",\s*step:\s*"03"', flow)
+    assert "Шаг 3 из 5" in APP
+    assert '<ol style="--workflow-step-count:${FACTORY_FLOW.length}">' in APP
     assert "review: renderContentReviewSection" in APP
     assert 'section === "review"' in APP
-    assert 'state.api.contentReviewCatalog({ limit: 50 })' in APP
-    assert './content-review-view.js?v=20260804.3' in APP
-    assert './content-review.css?v=20260804.3' in INDEX
-    assert './app.js?v=20260804.3' in INDEX
+    assert 'state.api.contentReviewCatalog({ limit: 50, projectId })' in APP
+    assert './content-review-view.js?v=20260804.os4.10' in APP
+    assert './content-review.css?v=20260804.os4.10' in INDEX
+    assert './app.js?v=20260804.os4.10' in INDEX
     assert "20260716.1" not in INDEX
     assert "20260716.1" not in "\n".join(
         line for line in APP.splitlines() if line.startswith("import ")
@@ -163,9 +163,15 @@ def test_browser_persists_bounded_frames_and_metrics_but_never_sends_raw_video()
     assert "normalizedFrameCount !== 5" in API
     assert 'prepareContentReviewEvidence: "creator_prepare_content_review_evidence"' in API
     assert 'commitContentReviewEvidence: "creator_commit_content_review_evidence"' in API
-    start = API[API.index("async startContentReview(") : API.index("contentReviewStatus(")]
-    assert 'action: "analyze"' in start
-    assert "review_id: reviewId" in start
+    generated_start = API.index("async startGeneratedVideoReview(")
+    start = API[API.index("async startContentReview(") : generated_start]
+    generated = API[generated_start : API.index("contentReviewStatus(")]
+    dispatch_pattern = re.compile(
+        r"invokeContentReview\(\{\s*action: \"analyze\",\s*"
+        r"review_id: reviewId,\s*project_id: normalizedProjectId,\s*\}\)"
+    )
+    for flow in (start, generated):
+        assert dispatch_pattern.search(flow)
     assert "frames:" not in start
     assert "evidence_id: evidenceId" in start
     assert "raw_video_sent: false" in APP
@@ -226,7 +232,7 @@ def test_ambiguous_evidence_commit_reuses_exact_manifest_and_key_without_reuploa
     assert flow.index("persistEvidence(pending)") < flow.index("commitStarted = true")
     assert "idempotencyKey: pending.commitIdempotencyKey" in flow
     assert 'status: "ready"' in flow
-    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 9" in APP
+    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 10" in APP
     assert "GENERATED_VIDEO_QA_STORAGE_VERSION = 6" in APP
     assert "upsert: false" in API
 
@@ -295,6 +301,7 @@ const {{ CreatorApi }} = await import({json.dumps(module_url)});
 const organizationId = "11111111-1111-4111-8111-111111111111";
 const userId = "22222222-2222-4222-8222-222222222222";
 const mediaId = "33333333-3333-4333-8333-333333333333";
+const projectId = "77777777-7777-4777-8777-777777777777";
 const evidenceId = "44444444-4444-4444-8444-444444444444";
 const reviewId = "55555555-5555-4555-8555-555555555555";
 const commitKey = "66666666-6666-4666-8666-666666666666";
@@ -323,10 +330,11 @@ api.commitBootstrapContext({{
   organization: {{ id: organizationId }},
   storage: {{ bucket: "contentengine-private", path_prefix: prefix }}
 }});
-const prepared = await api.prepareContentReviewEvidence({{ mediaId, frameCount: 5 }});
+const prepared = await api.prepareContentReviewEvidence({{ mediaId, frameCount: 5, projectId }});
 if (prepared.evidenceId !== evidenceId || prepared.frameObjectNames.length !== 5) throw new Error("prepare");
 await api.commitContentReviewEvidence({{
   evidenceId,
+  projectId,
   technicalMetrics: {{
         source_type: "video",
         frame_count: 5,
@@ -381,6 +389,7 @@ await api.commitContentReviewEvidence({{
 }});
 const started = await api.startContentReview({{
   media_id: mediaId,
+  project_id: projectId,
   platform: "youtube",
   content_kind: "informational",
   product_category: "other",
@@ -437,7 +446,8 @@ const started = await api.startContentReview({{
 await new Promise((resolve) => setTimeout(resolve, 0));
 if (started.run.id !== reviewId) throw new Error("run lost");
 if (started.analysis_request.status !== "background_queued") throw new Error("dispatch not queued");
-if (invoked.length !== 1 || Object.keys(invoked[0]).sort().join(",") !== "action,review_id") throw new Error(JSON.stringify(invoked));
+if (invoked.length !== 1 || Object.keys(invoked[0]).sort().join(",") !== "action,project_id,review_id") throw new Error(JSON.stringify(invoked));
+if (invoked[0].project_id !== projectId) throw new Error("dispatch project scope");
 const startPayload = calls.find(([name]) => name === "creator_start_content_review")[1];
 if (startPayload.evidence_id !== evidenceId || "frames" in startPayload) throw new Error("start payload");
 const commitPayload = calls.find(([name]) => name === "creator_commit_content_review_evidence")[1];
@@ -593,8 +603,8 @@ def test_exact_media_is_refreshed_loaded_and_watched_before_decision() -> None:
     assert 'data-exact-media-state="${mediaAvailable ? "loading" : "unavailable"}"' in VIEW
     assert "data-review-decision-submit disabled" in VIEW
     assert "Это подтверждение пользователя, а не автоматическое доказательство качества" in VIEW
-    assert "state.api.contentReviewStatus(reviewId)" in APP
-    assert "state.api.contentReviewCatalog({ limit: 50 })" in APP
+    assert "state.api.contentReviewStatus(reviewId, { projectId: currentWorkspaceProjectId() })" in APP
+    assert "state.api.contentReviewCatalog({ limit: 50, projectId })" in APP
     assert "Content review post-decision refresh failed" in APP
 
 
@@ -635,7 +645,7 @@ def test_generated_video_task_routes_to_content_review_instead_of_generic_accept
     assert 'data-action="open-generated-content-review"' in APP
     assert "Открыть проверку контента" in APP
     assert "state.contentReview.pendingMediaId = mediaId" in APP
-    assert 'navigate("/workspace/review")' in APP
+    assert 'navigate(`/workspace/review?project_id=${encodeURIComponent(projectId)}`)' in APP
     for code in (
         "content_review_generation_not_succeeded",
         "content_review_approval_evidence_required",
@@ -698,7 +708,7 @@ def test_successful_generated_video_prepares_durable_technical_qa_automatically(
         APP.index("async function loadGeneratedVideoQaMedia") :
         APP.index("async function prepareGeneratedVideoTechnicalQa")
     ]
-    assert "state.api.contentReviewCatalog({ limit: 50 })" in loader
+    assert "state.api.contentReviewCatalog({ limit: 50, projectId: currentWorkspaceProjectId() })" in loader
     assert "refreshSignedUrls: true" in loader
     assert 'media.kind !== "generated_video"' in loader
     assert "/^[0-9a-f]{64}$/u.test(media.sha256)" in loader

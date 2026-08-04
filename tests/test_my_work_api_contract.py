@@ -64,6 +64,7 @@ def test_my_work_read_contract_is_scoped_filtered_and_paginated() -> None:
     payload = _run_api(
         """
         await api.myWork({
+          project_id: "11111111-1111-4111-8111-111111111111",
           query: "Bombbar",
           item_types: ["task", "generation", "task"],
           statuses: ["blocked", "awaiting_decision"],
@@ -76,6 +77,7 @@ def test_my_work_read_contract_is_scoped_filtered_and_paginated() -> None:
     name, request_payload = payload["calls"][0]
     assert name == "creator_my_work"
     assert request_payload["organization_id"].endswith("0001")
+    assert request_payload["project_id"] == "11111111-1111-4111-8111-111111111111"
     assert request_payload["query"] == "Bombbar"
     assert request_payload["item_types"] == ["task", "generation"]
     assert request_payload["statuses"] == ["blocked", "awaiting_decision"]

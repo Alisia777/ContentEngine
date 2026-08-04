@@ -316,7 +316,7 @@ def test_spa_payload_and_workspace_fields_match_the_creator_rpc_migration() -> N
         for name in re.findall(r'"(creator_[a-z0-9_]+)"', adapter)
         if name != "creator_api_error"
     ]
-    assert len(set(rpc_names)) == 82
+    assert len(set(rpc_names)) == 89
     assert "creator_operational_health" in rpc_names
     assert "creator_generation_learning_policy" in rpc_names
     assert "creator_generation_repair_policy" in rpc_names
@@ -327,6 +327,23 @@ def test_spa_payload_and_workspace_fields_match_the_creator_rpc_migration() -> N
     assert "creator_ai_learning_control_room" in rpc_names
     assert "creator_register_ai_knowledge_source" in rpc_names
     assert "creator_decide_ai_teaching_card" in rpc_names
+    for function_name in (
+        "creator_project_flow",
+        "creator_create_workspace_project",
+        "creator_archive_workspace_project",
+        "creator_start_project_research",
+        "creator_project_research_status",
+        "creator_save_project_creative_brief_draft",
+        "creator_approve_project_creative_brief",
+    ):
+        assert function_name in rpc_names
+    for revoked_legacy_alias in (
+        "creator_start_product_research",
+        "creator_product_research_status",
+        "creator_save_creative_brief_draft",
+        "creator_approve_creative_brief",
+    ):
+        assert revoked_legacy_alias not in rpc_names
     for function_name in set(rpc_names):
         assert re.search(
             rf"function\s+public\.{re.escape(function_name)}\s*"
@@ -462,7 +479,7 @@ def test_password_reset_has_a_bounded_wait_and_always_unlocks_the_form() -> None
     assert "finally" in reset
     assert "if (form.isConnected) setFormBusy(form, false)" in reset
     assert "Promise.race([operation, timeout])" in app
-    assert './app.js?v=20260804.3' in index
+    assert './app.js?v=20260804.os4.10' in index
 
 
 def test_novice_workspace_has_required_tabs_and_last_mile_forms() -> None:

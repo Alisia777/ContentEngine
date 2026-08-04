@@ -23,7 +23,7 @@ def _between(source: str, start: str, end: str) -> str:
 
 def test_trash_is_an_inline_finder_route_and_dock_never_disappears() -> None:
     for marker in (
-        'window.location.hash = "#/workspace/board?view=trash"',
+        'openWorkspaceRoute("/workspace/board?view=trash")',
         'routeQuery().get("view") === "trash"',
         'const board = q(".workspace-board")',
         'board.append(parts.surface)',

@@ -271,6 +271,7 @@ type ContentEngineDatabase = {
         Row: {
           id: string;
           organization_id: string;
+          project_id: string;
           batch_id: string;
           campaign_id: string;
           status: string;
@@ -315,6 +316,7 @@ type ProductCategory =
 type CommonStartPayload = {
   action: "start";
   organization_id: string;
+  project_id: string;
   campaign_id: string;
   idempotency_key: string;
   sku: string;
@@ -458,12 +460,14 @@ type PreflightPayload = {
 type StatusPayload = {
   action: "status";
   organization_id: string;
+  project_id: string;
   job_id: string;
 };
 
 type ReconcilePayload = {
   action: "reconcile";
   organization_id: string;
+  project_id: string;
   job_id: string;
   incident_id: string;
   idempotency_key: string;
@@ -943,6 +947,7 @@ function readStartPayload(value: unknown): StartPayload | null {
   const required = new Set([
     "action",
     "organization_id",
+    "project_id",
     "campaign_id",
     "idempotency_key",
     "sku",
@@ -1059,6 +1064,9 @@ function readStartPayload(value: unknown): StartPayload | null {
     return null;
   }
   if (Object.hasOwn(value, "assignee_id") && !isUuid(value.assignee_id)) {
+    return null;
+  }
+  if (!isUuid(value.project_id)) {
     return null;
   }
   if (
@@ -1716,13 +1724,20 @@ function generationRepairPromptIsBound(
 
 function readStatusPayload(value: unknown): StatusPayload | null {
   if (!isRecord(value)) return null;
-  const allowed = new Set(["action", "organization_id", "job_id"]);
-  if (!hasOnlyKeys(value, allowed) || Object.keys(value).length !== 3) {
+  const required = new Set([
+    "action",
+    "organization_id",
+    "project_id",
+    "job_id",
+  ]);
+  if (
+    !hasOnlyKeys(value, required) || Object.keys(value).length !== required.size
+  ) {
     return null;
   }
   if (
     value.action !== "status" || !isUuid(value.organization_id) ||
-    !isUuid(value.job_id)
+    !isUuid(value.project_id) || !isUuid(value.job_id)
   ) {
     return null;
   }
@@ -1734,6 +1749,7 @@ function readReconcilePayload(value: unknown): ReconcilePayload | null {
   const required = new Set([
     "action",
     "organization_id",
+    "project_id",
     "job_id",
     "incident_id",
     "idempotency_key",
@@ -1754,6 +1770,7 @@ function readReconcilePayload(value: unknown): ReconcilePayload | null {
   if (
     value.action !== "reconcile" ||
     !isUuid(value.organization_id) ||
+    !isUuid(value.project_id) ||
     !isUuid(value.job_id) ||
     !isUuid(value.incident_id) ||
     typeof value.idempotency_key !== "string" ||
@@ -2090,6 +2107,7 @@ function readReconciliationContext(
   if (
     job.id !== payload.job_id ||
     job.organization_id !== payload.organization_id ||
+    job.project_id !== payload.project_id ||
     job.status !== "starting" ||
     job.reconciliation_incident_id !== payload.incident_id ||
     typeof job.starting_at !== "string" ||
@@ -2649,21 +2667,26 @@ async function handleCreatorGenerate(
   const readCurrentStatus = async (
     organizationId: string,
     jobId: string,
+    projectId: string,
   ): Promise<StatusJob | null> => {
     if (internalWorker) {
       try {
-        const { data, error } = await supabaseAdmin
+        const query = supabaseAdmin
           .schema("content_factory")
           .from("generation_jobs")
           .select(
-            "id, organization_id, batch_id, campaign_id, status, mode, provider, input, output, estimated_cost_minor, actual_cost_minor, updated_at",
+            "id, organization_id, project_id, batch_id, campaign_id, status, mode, provider, input, output, estimated_cost_minor, actual_cost_minor, updated_at",
           )
           .eq("organization_id", organizationId)
+          .eq("project_id", projectId)
           .eq("id", jobId)
           .eq("mode", "real")
-          .eq("provider", "runway")
-          .maybeSingle();
-        if (error || !isRecord(data) || !isUuid(data.campaign_id)) return null;
+          .eq("provider", "runway");
+        const { data, error } = await query.maybeSingle();
+        if (
+          error || !isRecord(data) || data.project_id !== projectId ||
+          !isUuid(data.campaign_id)
+        ) return null;
         const { data: campaignData, error: campaignError } = await supabaseAdmin
           .schema("content_factory")
           .from("generation_campaigns")
@@ -2688,7 +2711,13 @@ async function handleCreatorGenerate(
     try {
       const { data, error } = await context.supabase.rpc(
         "creator_real_generation_status",
-        { p_payload: { organization_id: organizationId, job_id: jobId } },
+        {
+          p_payload: {
+            organization_id: organizationId,
+            project_id: projectId,
+            job_id: jobId,
+          },
+        },
       );
       if (error) return null;
       const job = readStatusJob(data);
@@ -2790,6 +2819,7 @@ async function handleCreatorGenerate(
         {
           p_payload: {
             organization_id: payload.organization_id,
+            project_id: payload.project_id,
             job_id: payload.job_id,
           },
         },
@@ -2854,9 +2884,10 @@ async function handleCreatorGenerate(
   const respondWithCurrent = async (
     organizationId: string,
     jobId: string,
-    batch?: { id: string; status: string },
+    batch: { id: string; status: string } | undefined,
+    projectId: string,
   ): Promise<Response> => {
-    const current = await readCurrentStatus(organizationId, jobId);
+    const current = await readCurrentStatus(organizationId, jobId, projectId);
     if (current === null) {
       return json(
         request,
@@ -2878,9 +2909,10 @@ async function handleCreatorGenerate(
   const respondProviderUnavailable = async (
     organizationId: string,
     jobId: string,
-    batch?: { id: string; status: string },
+    batch: { id: string; status: string } | undefined,
+    projectId: string,
   ): Promise<Response> => {
-    const current = await readCurrentStatus(organizationId, jobId);
+    const current = await readCurrentStatus(organizationId, jobId, projectId);
     return json(request, {
       ok: false,
       code: "provider_unavailable",
@@ -2897,6 +2929,7 @@ async function handleCreatorGenerate(
     let current = currentOverride ?? await readCurrentStatus(
       payload.organization_id,
       payload.job_id,
+      payload.project_id,
     );
     if (current === null) {
       return json(
@@ -2934,6 +2967,7 @@ async function handleCreatorGenerate(
         current = await readCurrentStatus(
           payload.organization_id,
           payload.job_id,
+          payload.project_id,
         ) ??
           current;
       }
@@ -2948,6 +2982,7 @@ async function handleCreatorGenerate(
         payload.organization_id,
         payload.job_id,
         batch,
+        payload.project_id,
       );
     }
     if (
@@ -3007,6 +3042,7 @@ async function handleCreatorGenerate(
         payload.organization_id,
         payload.job_id,
         batch,
+        payload.project_id,
       );
     }
     const providerTask = parseRunwayTask(providerValue);
@@ -3017,6 +3053,7 @@ async function handleCreatorGenerate(
         payload.organization_id,
         payload.job_id,
         batch,
+        payload.project_id,
       );
     }
     if (
@@ -3046,6 +3083,7 @@ async function handleCreatorGenerate(
         payload.organization_id,
         payload.job_id,
         batch,
+        payload.project_id,
       );
     }
     if (
@@ -3065,6 +3103,7 @@ async function handleCreatorGenerate(
         payload.organization_id,
         payload.job_id,
         batch,
+        payload.project_id,
       );
     }
     if (
@@ -3075,6 +3114,7 @@ async function handleCreatorGenerate(
         payload.organization_id,
         payload.job_id,
         batch,
+        payload.project_id,
       );
     }
     if (current.status === "submitted") {
@@ -3093,6 +3133,7 @@ async function handleCreatorGenerate(
       const refreshed = await readCurrentStatus(
         payload.organization_id,
         payload.job_id,
+        payload.project_id,
       );
       if (refreshed === null) {
         return json(request, {
@@ -3108,6 +3149,7 @@ async function handleCreatorGenerate(
           payload.organization_id,
           payload.job_id,
           batch,
+          payload.project_id,
         );
       }
       if (
@@ -3128,6 +3170,7 @@ async function handleCreatorGenerate(
         payload.organization_id,
         payload.job_id,
         batch,
+        payload.project_id,
       );
     }
 
@@ -3153,6 +3196,7 @@ async function handleCreatorGenerate(
           payload.organization_id,
           payload.job_id,
           batch,
+          payload.project_id,
         );
       }
       outputBytes = await readBoundedBytes(
@@ -3164,6 +3208,7 @@ async function handleCreatorGenerate(
         payload.organization_id,
         payload.job_id,
         batch,
+        payload.project_id,
       );
     }
     if (
@@ -3173,6 +3218,7 @@ async function handleCreatorGenerate(
         payload.organization_id,
         payload.job_id,
         batch,
+        payload.project_id,
       );
     }
     const digest = await sha256Hex(outputBytes);
@@ -3200,6 +3246,7 @@ async function handleCreatorGenerate(
         payload.organization_id,
         payload.job_id,
         batch,
+        payload.project_id,
       );
     }
 
@@ -3225,6 +3272,7 @@ async function handleCreatorGenerate(
     current = await readCurrentStatus(
       payload.organization_id,
       payload.job_id,
+      payload.project_id,
     );
     if (current === null || current.status !== "succeeded") {
       return json(
@@ -3370,6 +3418,8 @@ async function handleCreatorGenerate(
     return await respondWithCurrent(
       payload.organization_id,
       payload.job_id,
+      undefined,
+      payload.project_id,
     );
   };
 
@@ -3638,6 +3688,7 @@ async function handleCreatorGenerate(
       {
         p_payload: {
           organization_id: startPayload.organization_id,
+          project_id: startPayload.project_id,
           media_id: startPayload.media_ids[0],
           platform: startPayload.platform,
           model: startPayload.model,
@@ -3734,6 +3785,7 @@ async function handleCreatorGenerate(
         {
           p_payload: {
             organization_id: startPayload.organization_id,
+            project_id: startPayload.project_id,
             review_id: startPayload.repair_context.source_review_id,
           },
         },
@@ -3884,6 +3936,7 @@ async function handleCreatorGenerate(
   const current = await readCurrentStatus(
     startPayload.organization_id,
     startJob.id,
+    startPayload.project_id,
   );
   if (
     current === null || current.batchId !== startJob.batchId ||
@@ -3900,6 +3953,7 @@ async function handleCreatorGenerate(
   const statusRequest: StatusPayload = {
     action: "status",
     organization_id: startPayload.organization_id,
+    project_id: startPayload.project_id,
     job_id: startJob.id,
   };
   if (current.status !== "queued") {
@@ -3943,6 +3997,7 @@ async function handleCreatorGenerate(
       startPayload.organization_id,
       startJob.id,
       batch,
+      startPayload.project_id,
     );
   }
 
@@ -3953,6 +4008,7 @@ async function handleCreatorGenerate(
       startPayload.organization_id,
       startJob.id,
       batch,
+      startPayload.project_id,
     );
   }
   const providerReadiness = await checkRunwayProviderReadiness(
@@ -3966,6 +4022,7 @@ async function handleCreatorGenerate(
       startPayload.organization_id,
       startJob.id,
       batch,
+      startPayload.project_id,
     );
   }
   const signedReferenceUrls = await Promise.all(
@@ -3982,6 +4039,7 @@ async function handleCreatorGenerate(
       startPayload.organization_id,
       startJob.id,
       batch,
+      startPayload.project_id,
     );
   }
   const validReferenceUrls = signedReferenceUrls as string[];
@@ -4047,6 +4105,7 @@ async function handleCreatorGenerate(
       startPayload.organization_id,
       startJob.id,
       batch,
+      startPayload.project_id,
     );
   }
   if (!createResponse.ok) {
@@ -4060,6 +4119,7 @@ async function handleCreatorGenerate(
         startPayload.organization_id,
         startJob.id,
         batch,
+        startPayload.project_id,
       );
     }
     await markReconciliationRequired(
@@ -4070,6 +4130,7 @@ async function handleCreatorGenerate(
       startPayload.organization_id,
       startJob.id,
       batch,
+      startPayload.project_id,
     );
   }
 
@@ -4085,6 +4146,7 @@ async function handleCreatorGenerate(
       startPayload.organization_id,
       startJob.id,
       batch,
+      startPayload.project_id,
     );
   }
   const providerTask = parseCreatedRunwayTask(createdValue);
@@ -4097,6 +4159,7 @@ async function handleCreatorGenerate(
       startPayload.organization_id,
       startJob.id,
       batch,
+      startPayload.project_id,
     );
   }
   const submittedPayload: Record<string, Json> = {
@@ -4115,12 +4178,14 @@ async function handleCreatorGenerate(
       startPayload.organization_id,
       startJob.id,
       batch,
+      startPayload.project_id,
     );
   }
   return await respondWithCurrent(
     startPayload.organization_id,
     startJob.id,
     batch,
+    startPayload.project_id,
   );
 }
 

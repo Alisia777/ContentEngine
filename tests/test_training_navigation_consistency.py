@@ -15,7 +15,7 @@ def _between(source: str, start: str, end: str) -> str:
     return source[start_index : source.index(end, start_index)]
 
 
-def test_learning_and_workspace_process_maps_share_the_same_six_steps() -> None:
+def test_academy_reference_and_workspace_flow_share_the_same_five_actions() -> None:
     flow = _between(APP, "const FACTORY_FLOW", "const HOME_SECTION_KEYS")
     portal = _between(APP, "function portalWorkflowMarkup", "function courseCardMarkup")
     learning_home = _between(APP, "function renderLearningHome", "function renderAccountLaunch")
@@ -23,27 +23,26 @@ def test_learning_and_workspace_process_maps_share_the_same_six_steps() -> None:
     factory_header = _between(APP, "function factoryFlowMarkup", "function sectionBody")
 
     assert re.findall(r'key:\s*"([a-z]+)"', flow) == [
-        "home",
         "board",
         "generation",
         "review",
         "placement",
         "stats",
     ]
-    assert flow.count("learning:") == 6
+    assert flow.count("learning:") == 5
     assert "FACTORY_FLOW.map((item, index)" in portal
     assert "const steps = [" not in portal
     assert portal.count("FACTORY_FLOW.length") >= 2
     assert "--workflow-step-count:${FACTORY_FLOW.length}" in portal
-    assert "Один товар проходит ${FACTORY_FLOW.length} понятных этапов" in learning_home
-    assert "по ${FACTORY_FLOW.length} рабочим этапам" in learning_home
-    assert "<h2>${FACTORY_FLOW.length} этапов одного результата</h2>" in workspace_home
-    assert "--workflow-step-count:${FACTORY_FLOW.length}" in workspace_home
+    assert "const totalSteps = courses.length + 2" in learning_home
+    assert "Портал ведёт по шагам сам" in learning_home
+    assert "serverProjectNextAction(projectFlow.next_action, projectFlow)" in workspace_home
+    assert "workspace-home--single-action" in workspace_home
     assert "--workflow-step-count:${FACTORY_FLOW.length}" in factory_header
     assert "шесть понятных этапов" not in APP
     assert "по шести рабочим этапам" not in APP
     assert STYLES.count(
-        "repeat(var(--workflow-step-count, 6), minmax(0, 1fr))"
+        "repeat(var(--workflow-step-count, 5), minmax(0, 1fr))"
     ) == 3
 
 

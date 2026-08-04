@@ -23,6 +23,9 @@ MIGRATION_PATH = (
     ROOT
     / "supabase/migrations/202608040004_generated_video_sound_release_gate.sql"
 )
+PROJECT_MIGRATION_PATH = (
+    ROOT / "supabase/migrations/202608040005_project_scoped_workflow.sql"
+)
 
 
 def _run_module(path: Path, body: str) -> dict:
@@ -231,3 +234,23 @@ def test_database_gate_is_append_only_and_cannot_be_bypassed_by_api() -> None:
         assert token in migration
     assert "before update or delete" in migration.lower()
     assert "grant execute" in migration.lower()
+
+
+def test_project_scope_wraps_the_preserved_sound_gate_in_migration_order() -> None:
+    assert MIGRATION_PATH.name < PROJECT_MIGRATION_PATH.name
+    project_migration = PROJECT_MIGRATION_PATH.read_text(encoding="utf-8")
+
+    for alias in (
+        "creator_decide_content_review_pre_project_v47",
+        "creator_approve_generated_video_review_with_context_pre_project_v47",
+        "creator_content_review_status_pre_project_v47",
+        "creator_content_review_catalog_pre_project_v47",
+    ):
+        assert alias in project_migration
+
+    assert "creator_approve_generated_video_review_pre_sound_gate_v1" in (
+        project_migration
+    )
+    assert (
+        "project_payload_from_context_v47(p_payload)" in project_migration
+    )

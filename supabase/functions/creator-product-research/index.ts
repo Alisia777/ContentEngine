@@ -129,6 +129,10 @@ type ContentEngineDatabase = {
         Args: { p_payload: Json };
         Returns: Json;
       };
+      creator_project_research_status: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
       system_claim_product_research: {
         Args: { p_payload: Json };
         Returns: Json;
@@ -156,6 +160,7 @@ type ContentEngineDatabase = {
       product_research_runs: {
         Row: {
           id: string;
+          project_id: string;
           status: string;
         };
         Insert: Record<string, never>;
@@ -171,6 +176,7 @@ type ContentEngineDatabase = {
 type AnalyzePayload = {
   action: "analyze";
   research_id: string;
+  project_id: string;
 };
 
 type ResearchPhoto = {
@@ -308,10 +314,10 @@ function hasSameWordSequence(left: string, right: string): boolean {
 
 function readRequestPayload(value: unknown): AnalyzePayload | null {
   if (!isRecord(value)) return null;
-  const allowed = new Set(["action", "research_id"]);
+  const allowed = new Set(["action", "research_id", "project_id"]);
   if (
-    !hasOnlyKeys(value, allowed) || Object.keys(value).length !== 2 ||
-    !isUuid(value.research_id)
+    !hasOnlyKeys(value, allowed) || Object.keys(value).length !== 3 ||
+    !isUuid(value.research_id) || !isUuid(value.project_id)
   ) {
     return null;
   }
@@ -2353,6 +2359,7 @@ async function handleCreatorProductResearch(
 
   const statusPayload: Json = {
     run_id: payload.research_id,
+    project_id: payload.project_id,
   };
   const readCurrentStatus = async (): Promise<
     {
@@ -2367,6 +2374,7 @@ async function handleCreatorProductResearch(
           .from("product_research_runs")
           .select("id, status")
           .eq("id", payload.research_id)
+          .eq("project_id", payload.project_id)
           .maybeSingle();
         if (error || data === null) return null;
         return readPublicStatusEnvelope({
@@ -2379,7 +2387,7 @@ async function handleCreatorProductResearch(
     }
     try {
       const { data, error } = await context.supabase.rpc(
-        "creator_product_research_status",
+        "creator_project_research_status",
         { p_payload: statusPayload },
       );
       if (error) return null;

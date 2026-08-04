@@ -552,6 +552,7 @@ export function contentReviewWorkspaceMarkup({
   notice = "",
   canDecide = false,
   view = "",
+  restorePlacement = false,
 } = {}) {
   const normalized = catalog || { media: [], runs: [] };
   const selected = currentRun
@@ -603,7 +604,7 @@ export function contentReviewWorkspaceMarkup({
       ${activeView === "history"
         ? reviewHistoryMarkup(normalized.runs, selected?.id)
         : activeView === "current" || busy
-          ? `<section class="content-review-output" aria-live="polite">${reviewCurrentMarkup(selected, { phase, canDecide })}</section>`
+          ? `<section class="content-review-output" aria-live="polite">${reviewCurrentMarkup(selected, { phase, canDecide, restorePlacement })}</section>`
           : reviewFormMarkup(normalized.media, busy, activeMediaIds)}
     </div>
   `;
@@ -1144,7 +1145,7 @@ function reviewFormMarkup(media, busy, activeMediaIds = new Set()) {
   `;
 }
 
-function reviewCurrentMarkup(run, { phase, canDecide }) {
+function reviewCurrentMarkup(run, { phase, canDecide, restorePlacement = false }) {
   if (phase === "preparing") {
     return progressMarkup("Готовим техническую проверку", "Для фото считываем точный кадр и его параметры. Для MP4 готовим четыре контрольных кадра, атлас таймлайна и уровни звука. На этом шаге исходный MP4 не передаётся.", 1);
   }
@@ -1187,10 +1188,10 @@ function reviewCurrentMarkup(run, { phase, canDecide }) {
         <button class="btn btn-secondary btn-small" type="button" data-action="refresh-content-review" data-review-id="${escapeHtml(run.id)}">Проверить статус</button>
       </div>`;
   }
-  return reviewResultMarkup(run, canDecide);
+  return reviewResultMarkup(run, canDecide, { restorePlacement });
 }
 
-function reviewResultMarkup(run, canDecide) {
+function reviewResultMarkup(run, canDecide, { restorePlacement = false } = {}) {
   const result = run.result;
   const compliance = COMPLIANCE_META[result.complianceStatus] || COMPLIANCE_META.human_review;
   const blockers = contentReviewHasBlockers(run);
@@ -1236,6 +1237,7 @@ function reviewResultMarkup(run, canDecide) {
         canDecide: routedCanDecide,
         blockers,
         assignmentBlockReason,
+        restorePlacement,
       })}
       ${rulesetMarkup(run)}
     </article>
@@ -1488,7 +1490,7 @@ function generatedVideoSoundAssessmentMarkup(run) {
 
 function reviewDecisionMarkup(
   run,
-  { canDecide, blockers, assignmentBlockReason = "" },
+  { canDecide, blockers, assignmentBlockReason = "", restorePlacement = false },
 ) {
   if (run.decision) {
     return `
@@ -1496,6 +1498,17 @@ function reviewDecisionMarkup(
         <span aria-hidden="true">⌁</span>
         <div><p class="eyebrow">Неизменяемое решение человека</p><h3>${escapeHtml(decisionLabel(run.decision.decision))}</h3><p>${escapeHtml(run.decision.reason || "Причина не указана.")}</p><small>${escapeHtml(run.decision.decidedBy || "Ответственный участник")} · ${formatDate(run.decision.decidedAt)}</small>${soundAssessmentSummaryMarkup(run)}</div>
       </section>
+      ${restorePlacement && run.decision.decision === "approved" ? `
+        <section class="card content-review-next-action">
+          <div>
+            <p class="eyebrow">Следующий шаг</p>
+            <h3>Создать публикацию для этого материала</h3>
+            <p>Решение уже сохранено. Портал восстановит недостающую задачу и откроет её в этом же окне.</p>
+          </div>
+          <button class="btn btn-primary" type="button"
+                  data-action="restore-project-placement"
+                  data-review-id="${escapeHtml(run.id)}">Восстановить публикацию</button>
+        </section>` : ""}
       ${generationRepairNextActionMarkup(run)}`;
   }
   if (!canDecide) {

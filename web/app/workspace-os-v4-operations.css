@@ -17,9 +17,9 @@
   border-radius: 10px;
   color: var(--ce-v4-text);
   background: rgba(255,255,255,.025);
-  font: 680 .67rem/1 system-ui;
+  font: 680 14px/1 system-ui;
 }
-.ce-v4-task-filter > span { align-self: center; color: var(--ce-v4-muted); font-size: .61rem; font-variant-numeric: tabular-nums; }
+.ce-v4-task-filter > span { align-self: center; color: var(--ce-v4-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 
 .ce-v4-task-origin {
   display: grid;
@@ -34,25 +34,25 @@
 }
 .ce-v4-task-origin__mark { display: grid; width: 26px; height: 26px; border: 1px solid rgba(236,136,75,.22); border-radius: 8px; place-items: center; color: var(--ce-v4-copper-bright); font-size: .8rem; }
 .ce-v4-task-origin > span:last-child { display: grid; gap: 3px; }
-.ce-v4-task-origin small { color: var(--ce-v4-copper-bright); font-size: .52rem; font-weight: 820; letter-spacing: .12em; }
-.ce-v4-task-origin strong { color: var(--ce-v4-text); font-size: .72rem; }
-.ce-v4-task-origin span span { color: var(--ce-v4-muted); font-size: .64rem; line-height: 1.45; }
+.ce-v4-task-origin small { color: var(--ce-v4-copper-bright); font-size: 12px; font-weight: 820; letter-spacing: .12em; }
+.ce-v4-task-origin strong { color: var(--ce-v4-text); font-size: 14px; }
+.ce-v4-task-origin span span { color: var(--ce-v4-muted); font-size: 12px; line-height: 1.45; }
 
 body.contentengine-desktop-v4 .tasks-desk-shell {
-  height: calc(100dvh - var(--ce-v4-top) - var(--ce-v4-dock) - 44px) !important;
+  height: auto !important;
   min-height: 560px !important;
   border: 1px solid var(--ce-v4-line) !important;
   border-radius: 0 0 22px 22px !important;
-  overflow: hidden !important;
+  overflow: visible !important;
 }
 body.contentengine-desktop-v4 .tasks-desk-sidebar { min-width: 260px; border-right-color: var(--ce-v4-line) !important; }
-body.contentengine-desktop-v4 .tasks-desk-list { min-height: 0; overflow-y: auto; }
-body.contentengine-desktop-v4 .tasks-desk-list-item { min-height: 62px; font-size: .68rem; }
-body.contentengine-desktop-v4 .tasks-desk-list-item strong { font-size: .7rem; }
-body.contentengine-desktop-v4 .tasks-desk-list-item small { font-size: .58rem; }
-body.contentengine-desktop-v4 .tasks-desk-main { min-width: 0; min-height: 0; overflow: hidden; }
-body.contentengine-desktop-v4 .tasks-desk-stage { min-height: 0; overflow-y: auto; }
-body.contentengine-desktop-v4 .tasks-desk-card { min-height: 100%; padding-bottom: calc(var(--ce-v4-dock) + 18px) !important; }
+body.contentengine-desktop-v4 .tasks-desk-list { max-height: none; min-height: 0; overflow-y: visible; }
+body.contentengine-desktop-v4 .tasks-desk-list-item { min-height: 62px; font-size: 14px; }
+body.contentengine-desktop-v4 .tasks-desk-list-item strong { font-size: 14px; }
+body.contentengine-desktop-v4 .tasks-desk-list-item small { font-size: 12px; }
+body.contentengine-desktop-v4 .tasks-desk-main { min-width: 0; min-height: 0; overflow: visible; }
+body.contentengine-desktop-v4 .tasks-desk-stage { min-height: 0; overflow-y: visible; }
+body.contentengine-desktop-v4 .tasks-desk-card { min-height: auto; padding-bottom: 28px !important; }
 body.contentengine-desktop-v4 .tasks-desk-footer { z-index: 10; min-height: 56px; border-top: 1px solid var(--ce-v4-line); background: rgba(14,12,10,.94); }
 
 .ce-v4-risk-nav {
@@ -73,7 +73,7 @@ body.contentengine-desktop-v4 .tasks-desk-footer { z-index: 10; min-height: 56px
 }
 .ce-v4-risk-nav button { display: grid; width: 36px; height: 36px; padding: 0; border: 1px solid var(--ce-v4-line); border-radius: 10px; place-items: center; color: var(--ce-v4-muted); background: rgba(255,255,255,.025); cursor: pointer; }
 .ce-v4-risk-nav button:hover { color: var(--ce-v4-text); border-color: rgba(236,136,75,.24); background: rgba(236,136,75,.08); }
-.ce-v4-risk-nav strong { color: var(--ce-v4-text); font-size: .7rem; text-align: center; }
+.ce-v4-risk-nav strong { color: var(--ce-v4-text); font-size: 14px; text-align: center; }
 .content-review-findings > article.is-active,
 .content-review-findings > .content-review-finding.is-active,
 .content-review-findings > .content-review-risk.is-active,
@@ -92,7 +92,7 @@ body.contentengine-desktop-v4 .tasks-desk-footer { z-index: 10; min-height: 56px
 .ce-v4-publishing-empty__mark { display: grid; width: 62px; height: 62px; border: 1px solid rgba(236,136,75,.25); border-radius: 20px; place-items: center; color: var(--ce-v4-copper-bright); background: rgba(236,136,75,.075); font-size: 1.7rem; }
 .ce-v4-publishing-empty h2 { margin: 10px 0 0; font-size: clamp(1.6rem,3vw,2.6rem); }
 .ce-v4-publishing-empty p { max-width: 520px; margin: 0; color: var(--ce-v4-muted); line-height: 1.55; }
-.ce-v4-publishing-empty a { display: inline-flex; min-height: 44px; margin-top: 12px; padding: 0 16px; border: 1px solid rgba(236,136,75,.25); border-radius: 12px; align-items: center; color: #170e09; background: linear-gradient(135deg,#ffb47e,#e87836); font-size: .72rem; font-weight: 760; text-decoration: none; }
+.ce-v4-publishing-empty a { display: inline-flex; min-height: 44px; margin-top: 12px; padding: 0 16px; border: 1px solid rgba(236,136,75,.25); border-radius: 12px; align-items: center; color: #170e09; background: linear-gradient(135deg,#ffb47e,#e87836); font-size: 14px; font-weight: 760; text-decoration: none; }
 
 .ce-v4-table-search {
   display: grid;
@@ -104,11 +104,11 @@ body.contentengine-desktop-v4 .tasks-desk-footer { z-index: 10; min-height: 56px
   gap: 10px;
   background: rgba(255,255,255,.012);
 }
-.ce-v4-table-search input { min-height: 38px; padding: 0 11px; border: 1px solid var(--ce-v4-line); border-radius: 10px; color: var(--ce-v4-text); background: rgba(255,255,255,.025); font: 680 .7rem/1 system-ui; }
-.ce-v4-table-search span { color: var(--ce-v4-muted); font-size: .62rem; font-variant-numeric: tabular-nums; }
-body.contentengine-desktop-v4 .results-ledger-shell { overflow: hidden; }
-body.contentengine-desktop-v4 .results-ledger-panels { min-height: 0; overflow-y: auto; }
-body.contentengine-desktop-v4 table { font-size: .72rem; }
+.ce-v4-table-search input { min-height: 38px; padding: 0 11px; border: 1px solid var(--ce-v4-line); border-radius: 10px; color: var(--ce-v4-text); background: rgba(255,255,255,.025); font: 680 14px/1 system-ui; }
+.ce-v4-table-search span { color: var(--ce-v4-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+body.contentengine-desktop-v4 .results-ledger-shell { overflow: visible; }
+body.contentengine-desktop-v4 .results-ledger-panels { min-height: 0; overflow-y: visible; }
+body.contentengine-desktop-v4 table { font-size: 14px; }
 body.contentengine-desktop-v4 tbody tr { content-visibility: auto; contain-intrinsic-size: 48px; }
 
 /* Academy: one global Dock, local course navigation inside the window. */
@@ -130,7 +130,7 @@ body.contentengine-desktop-v4 :is(.learning-safety-card,.training-practical-card
 }
 
 @media (max-height: 760px) and (min-width: 821px) {
-  body.contentengine-desktop-v4 .tasks-desk-shell { height: calc(100dvh - 126px) !important; min-height: 500px !important; }
+  body.contentengine-desktop-v4 .tasks-desk-shell { height: auto !important; min-height: 500px !important; }
   body.contentengine-desktop-v4 .academy-v2-dock { min-height: 52px !important; padding: 5px 9px !important; }
   body.contentengine-desktop-v4 .academy-v2-dock button { min-height: 38px !important; }
 }

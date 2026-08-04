@@ -3504,7 +3504,7 @@ export function productResearchResultMarkup(record, {
         <label class="check-row product-research-approval"><input type="checkbox" name="approve_ack" ${approved ? "checked disabled" : ""} /><span><strong>Факты, формулировки и три сценария проверены человеком</strong><br /><small>${approved ? "Проверка завершена: задачи уже созданы и назначены выбранным участникам." : "При утверждении портал создаст задачи и назначит каждую выбранному выше исполнителю."}</small></span></label>
       </div>
       <div class="product-research-brief-actions">
-        <button class="btn" type="submit" data-research-submit="save" data-primary-action="true" ${saving || approving || approved ? "disabled" : ""}>${approved ? "Сохранение заблокировано" : saving ? "Сохраняем…" : "Сохранить черновик"}</button>
+        <button class="btn btn-secondary" type="submit" data-research-submit="save" ${saving || approving || approved ? "disabled" : ""}>${approved ? "Сохранение заблокировано" : saving ? "Сохраняем…" : "Сохранить черновик"}</button>
         <button class="btn" type="submit" data-research-submit="approve" data-primary-action="true" ${saving || approving || approved ? "disabled" : ""}>${approving ? "Создаём задачи…" : approved ? "Задачи уже созданы" : "Утвердить и создать 3 задачи →"}</button>
       </div>
     </form>

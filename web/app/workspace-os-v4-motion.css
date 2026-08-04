@@ -1,4 +1,4 @@
-/* ContentEngine Desktop v4.7 · calm, compositor-only motion system. */
+/* ContentEngine Desktop v4.9 · calm, compositor-only motion system. */
 
 :root {
   --ce-motion-instant: 90ms;
@@ -6,6 +6,7 @@
   --ce-motion-base: 210ms;
   --ce-motion-route: 260ms;
   --ce-motion-overlay: 280ms;
+  --ce-motion-handoff: 700ms;
   --ce-motion-ease: cubic-bezier(.2, .75, .25, 1);
   --ce-motion-exit: cubic-bezier(.4, 0, 1, 1);
   --ce-motion-spring: cubic-bezier(.16, 1, .3, 1);
@@ -28,6 +29,17 @@ html[data-ce-v4-loading="true"] body.contentengine-desktop-v4 #main-content .ce-
 
 html:not([data-ce-v4-loading="true"]) body.contentengine-desktop-v4 #main-content.route-enter .ce-v4-page {
   animation: ce-v4-route-enter var(--ce-motion-route) var(--ce-motion-spring) both !important;
+}
+
+/* Business actions may hold their inline success state for 600–800ms before
+   opening the exact next entity. The shell participates without moving chrome. */
+html[data-ce-v4-handoff="true"] body.contentengine-desktop-v4 .ce-v4-page.ce-v4-handoff-leaving {
+  opacity: .9;
+  transform: translate3d(0, -3px, 0) scale(.998);
+  transition:
+    opacity var(--ce-motion-handoff) var(--ce-motion-ease),
+    transform var(--ce-motion-handoff) var(--ce-motion-spring) !important;
+  will-change: opacity, transform;
 }
 
 /* A server-loaded section replaces its skeleton once, without reanimating on
@@ -62,6 +74,16 @@ body.contentengine-desktop-v4 .ce-v4-dock__item:active .ce-v4-dock__tile {
 body.contentengine-desktop-v4 .ce-v4-dock__item.is-launching .ce-v4-dock__tile {
   animation: ce-v4-dock-launch 390ms var(--ce-motion-spring) both !important;
   will-change: transform;
+}
+
+body.contentengine-desktop-v4 :is(
+  .ce-v4-project-switcher__trigger,
+  .ce-v4-project-progress__steps a,
+  .ce-v4-dock__count,
+  .ce-v4-menubar__notification-badge
+) {
+  transition-duration: var(--ce-motion-fast) !important;
+  transition-timing-function: var(--ce-motion-ease) !important;
 }
 
 body.contentengine-desktop-v4 .ce-v4-dock__item > i {
@@ -276,13 +298,34 @@ body.contentengine-desktop-v4 :is(
 }
 
 @media (max-width: 680px) {
+  body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar {
+    grid-template-columns: 34px minmax(0, 1fr) auto !important;
+    gap: 6px !important;
+  }
+
   body.contentengine-desktop-v4 .ce-v4-menubar__start {
+    display: flex !important;
+    min-width: 0;
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-menubar__start :is(.ce-v4-traffic, .ce-v4-menubar__identity) {
     display: none !important;
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-menubar__search {
+    height: 36px !important;
+    min-height: 36px !important;
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-menubar__search input {
+    height: 34px !important;
+    min-height: 0 !important;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   html[data-ce-v4-loading="true"] body.contentengine-desktop-v4 #main-content .ce-v4-page,
+  html[data-ce-v4-handoff="true"] body.contentengine-desktop-v4 .ce-v4-page.ce-v4-handoff-leaving,
   body.contentengine-desktop-v4 #workspace-content.ce-v4-content-reveal > .page-wrap,
   body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar,
   body.contentengine-desktop-v4 .ce-v4-dock__glass,
@@ -291,6 +334,7 @@ body.contentengine-desktop-v4 :is(
   .ce-v4-trash-backdrop,
   .ce-v4-confirm-backdrop,
   .ce-v4-confirm,
+  .ce-v4-project-menu,
   .ce-v4-system-toast {
     animation: none !important;
     opacity: 1 !important;

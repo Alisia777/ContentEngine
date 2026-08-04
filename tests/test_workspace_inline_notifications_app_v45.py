@@ -57,6 +57,7 @@ def test_v4_scaffold_exposes_authorized_inline_route_without_legacy_navigation()
         const visibleWorkspaceTabs = () => [["home"], ["work"], ["board"]];
         const workspaceNavigationTabs = () => [["work", "Моя работа", "✓"]];
         const consumeRouteTransitionClass = () => "";
+        const projectFlowSnapshotMarkup = () => "";
         const brandMarkup = () => "";
         const workspaceNavLinkMarkup = () => "";
         const sidebarFooterMarkup = () => "";

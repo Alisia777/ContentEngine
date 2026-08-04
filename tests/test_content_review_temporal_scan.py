@@ -144,7 +144,7 @@ def test_temporal_scan_is_bounded_and_materialized_as_one_external_atlas() -> No
     assert 'value.temporal_scan_status === "completed"' in api
     assert "value.temporal_scan_frame_count >= 12" in api
     assert "value.temporal_scan_frame_count <= 24" in api
-    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 9" in app
+    assert "CONTENT_REVIEW_DRAFT_STORAGE_VERSION = 10" in app
     assert "GENERATED_VIDEO_QA_STORAGE_VERSION = 6" in app
 
 

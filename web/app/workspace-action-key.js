@@ -11,15 +11,31 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3
 const ACTION_ROUTES = Object.freeze({
   "/workspace/home": Object.freeze({ defaultView: "today", views: ["today"] }),
   "/workspace/work": Object.freeze({ defaultView: "next", views: ["next", "queue", "views", "notifications"] }),
-  "/workspace/board": Object.freeze({ defaultView: "browse", views: ["browse", "organize", "trash"] }),
+  "/workspace/board": Object.freeze({
+    defaultView: "browse",
+    views: ["browse", "organize", "trash"],
+    entities: { folder: ["browse", "organize"] },
+  }),
   "/workspace/media": Object.freeze({ defaultView: "upload", views: ["upload", "recent"] }),
-  "/workspace/generation": Object.freeze({ defaultView: "create", views: ["create", "history", "products"], entities: { job: ["history"] } }),
-  "/workspace/review": Object.freeze({ defaultView: "new", views: ["new", "current", "history"], entities: { review: ["current", "history"] } }),
+  "/workspace/generation": Object.freeze({
+    defaultView: "create",
+    views: ["create", "history", "products"],
+    entities: { job: ["history", "create"], media: ["create"], review: ["create"] },
+  }),
+  "/workspace/review": Object.freeze({
+    defaultView: "new",
+    views: ["new", "current", "history"],
+    entities: { review: ["current", "history"], media: ["new"] },
+  }),
   "/workspace/placement": Object.freeze({ defaultView: "next", views: ["next", "history"], entities: { placement: ["next", "history"] } }),
-  "/workspace/stats": Object.freeze({ defaultView: "overview", views: ["overview", "new"], entities: { placement: ["overview"] } }),
+  "/workspace/stats": Object.freeze({ defaultView: "overview", views: ["overview", "new"], entities: { placement: ["overview", "new"] } }),
   "/workspace/payouts": Object.freeze({ defaultView: "next", views: ["next", "history"], entities: { payout: ["next", "history"] } }),
   "/workspace/tasks": Object.freeze({ defaultView: "next", views: ["next", "queue"], entities: { item: ["next", "queue"] } }),
-  "/workspace/research": Object.freeze({ defaultView: "evidence", views: ["evidence", "corrections", "brief", "approve", "handoff"] }),
+  "/workspace/research": Object.freeze({
+    defaultView: "evidence",
+    views: ["evidence", "corrections", "brief", "approve", "handoff"],
+    entities: { run: ["evidence", "corrections", "brief", "approve", "handoff"] },
+  }),
   "/workspace/ai": Object.freeze({
     defaultView: "overview",
     views: ["overview", "knowledge", "teach", "history"],
@@ -68,8 +84,19 @@ export function workspaceActionDescriptor(input) {
   const { path, query } = routeParts(input);
   const definition = ACTION_ROUTES[path];
   if (!definition) {
-    return Object.freeze({ path, view: "default", entityParameter: "", entityId: "", key: `${path}?view=default` });
+    return Object.freeze({
+      path,
+      view: "default",
+      projectId: "",
+      qualifiers: Object.freeze({}),
+      entityParameter: "",
+      entityId: "",
+      key: `${path}?view=default`,
+    });
   }
+
+  const requestedProjectId = singleQueryValue(query, "project_id");
+  const projectId = UUID_PATTERN.test(requestedProjectId) ? requestedProjectId : "";
 
   const entityCandidates = Object.entries(definition.entities || {}).map(([parameter, views]) => ({
     parameter,
@@ -96,15 +123,20 @@ export function workspaceActionDescriptor(input) {
   const qualifierSuffix = Object.entries(qualifiers)
     .map(([parameter, value]) => `&${parameter}=${encodeURIComponent(value)}`)
     .join("");
-  const entity = validEntityCandidates.find((candidate) => candidate.views.includes(view)) || null;
-  const entitySuffix = entity ? `&${entity.parameter}=${encodeURIComponent(entity.value)}` : "";
+  const entities = validEntityCandidates.filter((candidate) => candidate.views.includes(view));
+  const entity = entities[0] || null;
+  const projectSuffix = projectId ? `&project_id=${encodeURIComponent(projectId)}` : "";
+  const entitySuffix = entities
+    .map((candidate) => `&${candidate.parameter}=${encodeURIComponent(candidate.value)}`)
+    .join("");
   return Object.freeze({
     path,
     view,
+    projectId,
     qualifiers,
     entityParameter: entity?.parameter || "",
     entityId: entity?.value || "",
-    key: `${path}?view=${encodeURIComponent(view)}${qualifierSuffix}${entitySuffix}`,
+    key: `${path}?view=${encodeURIComponent(view)}${projectSuffix}${qualifierSuffix}${entitySuffix}`,
   });
 }
 

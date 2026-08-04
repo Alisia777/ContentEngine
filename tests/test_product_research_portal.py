@@ -116,10 +116,10 @@ def test_manager_workspace_exposes_research_without_changing_six_step_factory() 
 
 def test_browser_api_uses_narrow_research_rpcs_and_exact_edge_payload() -> None:
     for function_name in (
-        "creator_start_product_research",
-        "creator_product_research_status",
-        "creator_save_creative_brief_draft",
-        "creator_approve_creative_brief",
+        "creator_start_project_research",
+        "creator_project_research_status",
+        "creator_save_project_creative_brief_draft",
+        "creator_approve_project_creative_brief",
     ):
         assert function_name in API
 
@@ -131,21 +131,29 @@ def test_browser_api_uses_narrow_research_rpcs_and_exact_edge_payload() -> None:
     status = _between(
         API,
         "async productResearchStatus(runId, options = {})",
-        "configureResearchWatchlist",
+        "researchStageControlStatus",
     )
     save = _between(API, "  saveCreativeBriefDraft(runId", "  approveCreativeBrief(draftId")
     approve = _between(API, "  approveCreativeBrief(draftId", "  requireResearchRunId")
     invoke = _between(API, "async invokeProductResearch", "recordMetric(snapshot)")
     assert 'action: "analyze"' in start
     assert "research_id: runId" in start
-    assert "onRunCreated({ id: runId" in start
+    assert "paid_analysis_ack" in start
+    assert "const normalizedProjectId = requiredProjectId(" in start
+    assert "onRunCreated({" in start and "project_id: normalizedProjectId" in start
     assert "const normalizedRunId = this.requireResearchRunId(runId)" in status
-    assert "const scopedPayload = this.withOrganization({ run_id: normalizedRunId })" in status
-    assert "this.call(RPC.productResearchStatus, scopedPayload)" in status
+    assert "const scopedPayload = this.withOrganization({" in status
+    assert "run_id: normalizedRunId" in status
+    assert "const projectScopedPayload = {" in status
+    assert "project_id: requiredProjectId(options.project_id ?? options.projectId)" in status
+    assert "this.call(RPC.productResearchStatus, projectScopedPayload)" in status
     assert "title: draft?.title" in save
     assert "source_ids: draft?.source_ids" in save
     assert "task_blueprint: draft?.task_blueprint" in save
     assert "draft_id: normalizedDraftId" in approve
+    for source in (start, status, save, approve):
+        assert "requiredProjectId(" in source
+        assert "project_id" in source
     assert "body: payload" in invoke
     assert "body: this.withOrganization(payload)" not in invoke
 
@@ -358,7 +366,12 @@ def test_wildberries_research_reaches_the_paid_analysis_boundary() -> None:
         const calls = [];
         const api = Object.create(subject.CreatorApi.prototype);
         api.mutate = async (rpc, payload) => {
-          calls.push({ kind: "rpc", rpc, platforms: payload.platforms });
+          calls.push({
+            kind: "rpc",
+            rpc,
+            platforms: payload.platforms,
+            project_id: payload.project_id,
+          });
           return { run: { id: "research-run-1", status: "queued" } };
         };
         api.invokeProductResearch = async (payload) => {
@@ -369,12 +382,14 @@ def test_wildberries_research_reaches_the_paid_analysis_boundary() -> None:
           product_name: "Точный товар",
           sku: "WB-100",
           platforms: ["wildberries"],
+          project_id: "11111111-1111-4111-8111-111111111111",
           paid_analysis_ack: true,
         });
         const acceptedOzon = await api.startProductResearch({
           product_name: "Точный товар",
           sku: "OZON-100",
           platforms: ["ozon"],
+          project_id: "11111111-1111-4111-8111-111111111111",
           paid_analysis_ack: true,
         });
         let rejectedCode = "";
@@ -383,6 +398,7 @@ def test_wildberries_research_reaches_the_paid_analysis_boundary() -> None:
             product_name: "Точный товар",
             sku: "WB-100",
             platforms: ["telegram"],
+            project_id: "11111111-1111-4111-8111-111111111111",
             paid_analysis_ack: true,
           });
         } catch (error) {
@@ -402,26 +418,30 @@ def test_wildberries_research_reaches_the_paid_analysis_boundary() -> None:
         "calls": [
             {
                 "kind": "rpc",
-                "rpc": "creator_start_product_research",
+                "rpc": "creator_start_project_research",
                 "platforms": ["wildberries"],
+                "project_id": "11111111-1111-4111-8111-111111111111",
             },
             {
                 "kind": "edge",
                 "payload": {
                     "action": "analyze",
                     "research_id": "research-run-1",
+                    "project_id": "11111111-1111-4111-8111-111111111111",
                 },
             },
             {
                 "kind": "rpc",
-                "rpc": "creator_start_product_research",
+                "rpc": "creator_start_project_research",
                 "platforms": ["ozon"],
+                "project_id": "11111111-1111-4111-8111-111111111111",
             },
             {
                 "kind": "edge",
                 "payload": {
                     "action": "analyze",
                     "research_id": "research-run-1",
+                    "project_id": "11111111-1111-4111-8111-111111111111",
                 },
             },
         ],
@@ -559,7 +579,8 @@ def test_approval_saves_a_new_version_before_creating_tasks() -> None:
     assert "instructions: fitProductResearchTaskInstructions([" in blueprint
     assert "assignee_id: scenario.assignee_id" in blueprint
     assert "scenario.position === recommendedScenarioPosition ? 4 : 3" in blueprint
-    assert "createContentGenerationHandoff(record, recommendedIndex)" in autoprepare
+    assert "createContentGenerationHandoff(record, recommendedIndex, Date.now()," in autoprepare
+    assert "projectId: currentWorkspaceProjectId()" in autoprepare
     assert "persistContentGenerationHandoff(handoff)" in autoprepare
     for forbidden in (
         "realGenerationPreflight",
@@ -666,7 +687,15 @@ def test_research_run_and_approval_recover_after_reload() -> None:
     assert "persistProductResearchRunId(run?.id)" in APP
     assert "restoreProductResearchSession()" in APP
     assert "window.sessionStorage.getItem(key)" in APP
-    assert "state.api.productResearchStatus(runId)" in APP
+    poll = _between(
+        APP,
+        "async function pollProductResearchStatus({ silent = false } = {})",
+        "function aiProductCategoryIds()",
+    )
+    assert "const projectId = currentWorkspaceProjectId()" in poll
+    assert "state.api.productResearchStatus(runId, {" in poll
+    assert "...productResearchOutcomeStatusOptions()" in poll
+    assert "projectId," in poll
     assert "clearProductResearchRunId()" in APP
     assert 'name="scenario_${index}_assignee_id" required' in VIEW
 

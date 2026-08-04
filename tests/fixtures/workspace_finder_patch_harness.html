@@ -23,9 +23,18 @@
 
       const content = document.querySelector("#workspace-content");
       const result = document.querySelector("#result");
-      const boardMarkup = ({ updated = false } = {}) => `
+      const escapeHtmlAttribute = (value) => String(value || "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+      const boardMarkup = ({ updated = false, query = "" } = {}) => `
         <div class="page-wrap">
           <section class="workspace-board">
+            <form id="workspace-board-filter-form" role="search">
+              <input name="query" type="search" value="${escapeHtmlAttribute(query)}" aria-label="Найти проект, папку, SKU или файл" />
+            </form>
             <div class="workspace-board__layout">
               <aside class="workspace-board__sidebar">
                 <div class="workspace-board__sidebar-head"><strong>Папки</strong></div>
@@ -62,7 +71,7 @@
       await window.ContentEngineDesktopV4.flush();
 
       const toolbar = document.querySelector(".ce-v4-finder-toolbar");
-      const search = document.querySelector(".ce-v4-folder-search input");
+      const search = document.querySelector('#workspace-board-filter-form input[name="query"]');
       const sort = document.querySelector(".ce-v4-finder-sort");
       const board = document.querySelector(".workspace-board");
       const layout = document.querySelector(".workspace-board__layout");
@@ -71,10 +80,11 @@
       const beta = document.querySelector('[data-workspace-item-key="beta"]');
       sort.value = "status";
       sort.dispatchEvent(new Event("change", { bubbles: true }));
+      search.focus({ preventScroll: true });
       search.value = "beta";
       search.dispatchEvent(new Event("input", { bubbles: true }));
 
-      patchWorkspaceContent(content, boardMarkup({ updated: true }));
+      patchWorkspaceContent(content, boardMarkup({ updated: true, query: search.value }));
       window.ContentEngineDesktopV4.requestMount();
       await window.ContentEngineDesktopV4.flush();
 
@@ -85,7 +95,8 @@
         layoutIdentity: document.querySelector(".workspace-board__layout") === layout,
         sidebarIdentity: document.querySelector(".workspace-board__sidebar") === sidebar,
         toolbarIdentity: document.querySelector(".ce-v4-finder-toolbar") === toolbar,
-        searchIdentity: document.querySelector(".ce-v4-folder-search input") === search,
+        searchIdentity: document.querySelector('#workspace-board-filter-form input[name="query"]') === search,
+        searchFocus: document.activeElement === search,
         sortIdentity: document.querySelector(".ce-v4-finder-sort") === sort,
         sortValue: sort.value === "status",
         sortedOrder: cards.map((card) => card.dataset.workspaceItemKey).join(",") === "alpha,beta",
@@ -94,7 +105,7 @@
         filterValue: search.value === "beta",
         folderFilter: folders[0].hidden === true && folders[1].hidden === false,
         oneToolbar: document.querySelectorAll(".ce-v4-finder-toolbar").length === 1,
-        oneSearch: document.querySelectorAll(".ce-v4-folder-search").length === 1,
+        oneSearch: document.querySelectorAll('#workspace-board-filter-form input[name="query"]').length === 1,
       };
       const passed = Object.values(checks).every(Boolean);
       result.dataset.passed = String(passed);

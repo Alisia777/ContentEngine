@@ -383,6 +383,11 @@ begin
     'c0100000-0000-4000-8000-000000000001', true
   );
   perform set_config('request.jwt.claim.role', 'authenticated', true);
+  perform set_config(
+    'contentengine.project_id',
+    'c0100000-0000-4000-8000-000000000007',
+    true
+  );
 end;
 $$;
 insert into content_factory.organizations (id, name, slug, status)
@@ -395,6 +400,17 @@ insert into content_factory.memberships (
 ) values (
   'c0100000-0000-4000-8000-000000000002',
   'c0100000-0000-4000-8000-000000000001', 'owner', 'active'
+);
+insert into content_factory.workspace_folders (
+  id, organization_id, parent_id, name, color_token, kind, system_role,
+  status, position, created_by, updated_by
+) values (
+  'c0100000-0000-4000-8000-000000000007',
+  'c0100000-0000-4000-8000-000000000002', null,
+  'Category Readiness project', 'blue', 'project', null,
+  'active', 1024,
+  'c0100000-0000-4000-8000-000000000001',
+  'c0100000-0000-4000-8000-000000000001'
 );
 insert into content_factory.training_access_waivers (
   organization_id, profile_id, previous_role, granted_role,
@@ -427,11 +443,12 @@ insert into content_factory.products (
   'c0100000-0000-4000-8000-000000000001'
 );
 insert into content_factory.media_objects (
-  id, organization_id, owner_id, product_id, bucket_id, object_name,
+  id, organization_id, project_id, owner_id, product_id, bucket_id, object_name,
   mime_type, size_bytes, sha256, status, metadata, idempotency_key
 ) values (
   'c0100000-0000-4000-8000-000000000006',
   'c0100000-0000-4000-8000-000000000002',
+  'c0100000-0000-4000-8000-000000000007',
   'c0100000-0000-4000-8000-000000000001',
   'c0100000-0000-4000-8000-000000000003',
   'contentengine-private',
@@ -784,6 +801,7 @@ update correction_generation_state state
 set start_result = public.creator_start_real_generation(
   jsonb_build_object(
     'organization_id', 'c0100000-0000-4000-8000-000000000002',
+    'project_id', 'c0100000-0000-4000-8000-000000000007',
     'campaign_id', (
       select campaign.id
       from content_factory.generation_campaigns campaign

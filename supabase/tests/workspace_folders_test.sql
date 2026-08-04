@@ -467,14 +467,47 @@ begin
 end;
 $$;
 
+-- v4.7 makes every regular Finder folder a descendant of one explicit
+-- project root. Keep fixed project fixtures so the legacy folder/move RPC
+-- assertions exercise the production lineage guard instead of bypassing it.
+insert into content_factory.workspace_folders (
+  id, organization_id, parent_id, name, color_token, kind,
+  status, position, created_by, updated_by
+) values
+  (
+    '94400000-0000-4000-8000-000000000100',
+    '94100000-0000-4000-8000-000000000001',
+    null,
+    'Workspace test project',
+    'gold',
+    'project',
+    'active',
+    10000,
+    '94000000-0000-4000-8000-000000000001',
+    '94000000-0000-4000-8000-000000000001'
+  ),
+  (
+    '94400000-0000-4000-8000-000000000200',
+    '94100000-0000-4000-8000-000000000002',
+    null,
+    'Other workspace test project',
+    'slate',
+    'project',
+    'active',
+    10000,
+    '94000000-0000-4000-8000-000000000005',
+    '94000000-0000-4000-8000-000000000005'
+  );
+
 insert into content_factory.media_objects (
-  id, organization_id, owner_id, bucket_id, object_name,
+  id, organization_id, project_id, owner_id, bucket_id, object_name,
   mime_type, size_bytes, sha256, status, metadata,
   idempotency_key
 ) values
   (
     '94200000-0000-4000-8000-000000000001',
     '94100000-0000-4000-8000-000000000001',
+    '94400000-0000-4000-8000-000000000100',
     '94000000-0000-4000-8000-000000000001',
     'contentengine-private',
     '94100000-0000-4000-8000-000000000001/94000000-0000-4000-8000-000000000001/workspace/owner-photo.webp',
@@ -488,6 +521,7 @@ insert into content_factory.media_objects (
   (
     '94200000-0000-4000-8000-000000000002',
     '94100000-0000-4000-8000-000000000001',
+    '94400000-0000-4000-8000-000000000100',
     '94000000-0000-4000-8000-000000000001',
     'contentengine-private',
     '94100000-0000-4000-8000-000000000001/94000000-0000-4000-8000-000000000001/workspace/generated-video.mp4',
@@ -501,6 +535,7 @@ insert into content_factory.media_objects (
   (
     '94200000-0000-4000-8000-000000000003',
     '94100000-0000-4000-8000-000000000001',
+    '94400000-0000-4000-8000-000000000100',
     '94000000-0000-4000-8000-000000000002',
     'contentengine-private',
     '94100000-0000-4000-8000-000000000001/94000000-0000-4000-8000-000000000002/workspace/operator-video.mp4',
@@ -514,6 +549,7 @@ insert into content_factory.media_objects (
   (
     '94200000-0000-4000-8000-000000000004',
     '94100000-0000-4000-8000-000000000001',
+    '94400000-0000-4000-8000-000000000100',
     '94000000-0000-4000-8000-000000000003',
     'contentengine-private',
     '94100000-0000-4000-8000-000000000001/94000000-0000-4000-8000-000000000003/workspace/other-photo.webp',
@@ -527,6 +563,7 @@ insert into content_factory.media_objects (
   (
     '94200000-0000-4000-8000-000000000005',
     '94100000-0000-4000-8000-000000000002',
+    '94400000-0000-4000-8000-000000000200',
     '94000000-0000-4000-8000-000000000005',
     'contentengine-private',
     '94100000-0000-4000-8000-000000000002/94000000-0000-4000-8000-000000000005/workspace/outsider-photo.webp',
@@ -539,13 +576,14 @@ insert into content_factory.media_objects (
   );
 
 insert into content_factory.creator_tasks (
-  id, organization_id, assignee_id, created_by,
+  id, organization_id, project_id, assignee_id, created_by,
   task_type, title, instructions, status, priority,
   payout_minor, result, idempotency_key
 ) values
   (
     '94300000-0000-4000-8000-000000000001',
     '94100000-0000-4000-8000-000000000001',
+    '94400000-0000-4000-8000-000000000100',
     '94000000-0000-4000-8000-000000000001',
     '94000000-0000-4000-8000-000000000001',
     'general',
@@ -560,6 +598,7 @@ insert into content_factory.creator_tasks (
   (
     '94300000-0000-4000-8000-000000000002',
     '94100000-0000-4000-8000-000000000001',
+    '94400000-0000-4000-8000-000000000100',
     '94000000-0000-4000-8000-000000000002',
     '94000000-0000-4000-8000-000000000001',
     'video_review',
@@ -574,6 +613,7 @@ insert into content_factory.creator_tasks (
   (
     '94300000-0000-4000-8000-000000000003',
     '94100000-0000-4000-8000-000000000001',
+    '94400000-0000-4000-8000-000000000100',
     '94000000-0000-4000-8000-000000000003',
     '94000000-0000-4000-8000-000000000001',
     'general',
@@ -588,6 +628,7 @@ insert into content_factory.creator_tasks (
   (
     '94300000-0000-4000-8000-000000000004',
     '94100000-0000-4000-8000-000000000002',
+    '94400000-0000-4000-8000-000000000200',
     '94000000-0000-4000-8000-000000000005',
     '94000000-0000-4000-8000-000000000005',
     'general',
@@ -692,7 +733,8 @@ set root_result = public.creator_create_workspace_folder(
     'organization_id', '94100000-0000-4000-8000-000000000001',
     'idempotency_key', 'workspace-create-root-0001',
     'name', 'Campaign assets',
-    'color_token', 'gold'
+    'color_token', 'gold',
+    'parent_id', '94400000-0000-4000-8000-000000000100'
   )
 );
 update workspace_test_context
@@ -719,7 +761,8 @@ select is(
       'organization_id', '94100000-0000-4000-8000-000000000001',
       'idempotency_key', 'workspace-create-root-0001',
       'name', 'Campaign assets',
-      'color_token', 'gold'
+      'color_token', 'gold',
+      'parent_id', '94400000-0000-4000-8000-000000000100'
     )) -> 'folder' ->> 'id'
   )::uuid,
   (
@@ -757,7 +800,8 @@ select throws_ok(
   $$select public.creator_create_workspace_folder(jsonb_build_object(
     'organization_id', '94100000-0000-4000-8000-000000000001',
     'idempotency_key', 'workspace-create-root-0001',
-    'name', 'Changed retry'
+    'name', 'Changed retry',
+    'parent_id', '94400000-0000-4000-8000-000000000100'
   ))$$,
   '23505',
   'idempotency_key_conflict',
@@ -767,7 +811,8 @@ select throws_ok(
   $$select public.creator_create_workspace_folder(jsonb_build_object(
     'organization_id', '94100000-0000-4000-8000-000000000001',
     'idempotency_key', 'workspace-create-duplicate-0001',
-    'name', '  CAMPAIGN ASSETS  '
+    'name', '  CAMPAIGN ASSETS  ',
+    'parent_id', '94400000-0000-4000-8000-000000000100'
   ))$$,
   '23505',
   'workspace_folder_name_conflict',
@@ -820,7 +865,7 @@ insert into content_factory.workspace_folders (
   (
     '94400000-0000-4000-8000-000000000001',
     '94100000-0000-4000-8000-000000000001',
-    null,
+    '94400000-0000-4000-8000-000000000100',
     'Depth 1',
     'slate',
     'active',
@@ -893,17 +938,6 @@ insert into content_factory.workspace_folders (
     1,
     '94000000-0000-4000-8000-000000000001',
     '94000000-0000-4000-8000-000000000001'
-  ),
-  (
-    '94400000-0000-4000-8000-000000000008',
-    '94100000-0000-4000-8000-000000000001',
-    '94400000-0000-4000-8000-000000000007',
-    'Depth 8',
-    'slate',
-    'active',
-    1,
-    '94000000-0000-4000-8000-000000000001',
-    '94000000-0000-4000-8000-000000000001'
   );
 
 select is(
@@ -911,31 +945,31 @@ select is(
     with recursive tree as (
       select folder.id, folder.parent_id, 1 as depth
       from content_factory.workspace_folders folder
-      where folder.id = '94400000-0000-4000-8000-000000000001'
+      where folder.id = '94400000-0000-4000-8000-000000000100'
       union all
       select child.id, child.parent_id, tree.depth + 1
       from tree
       join content_factory.workspace_folders child
         on child.parent_id = tree.id
       where child.id between
-        '94400000-0000-4000-8000-000000000002'
-        and '94400000-0000-4000-8000-000000000008'
+        '94400000-0000-4000-8000-000000000001'
+        and '94400000-0000-4000-8000-000000000007'
     )
     select max(tree.depth)
     from tree
   ),
   8,
-  'folder hierarchy accepts the exact depth-eight boundary'
+  'project plus seven folder levels accepts the depth-eight boundary'
 );
 select throws_ok(
   $$insert into content_factory.workspace_folders (
     id, organization_id, parent_id, name, color_token,
     status, position, created_by, updated_by
   ) values (
-    '94400000-0000-4000-8000-000000000009',
-    '94100000-0000-4000-8000-000000000001',
     '94400000-0000-4000-8000-000000000008',
-    'Depth 9', 'slate', 'active', 1,
+    '94100000-0000-4000-8000-000000000001',
+    '94400000-0000-4000-8000-000000000007',
+    'Depth 8 folder', 'slate', 'active', 1,
     '94000000-0000-4000-8000-000000000001',
     '94000000-0000-4000-8000-000000000001'
   )$$,
@@ -945,7 +979,7 @@ select throws_ok(
 );
 select throws_ok(
   $$update content_factory.workspace_folders
-    set parent_id = '94400000-0000-4000-8000-000000000008'
+    set parent_id = '94400000-0000-4000-8000-000000000007'
     where id = '94400000-0000-4000-8000-000000000001'$$,
   '55000',
   'workspace_folder_cycle',
@@ -958,7 +992,7 @@ insert into content_factory.workspace_folders (
 ) values (
   '94400000-0000-4000-8000-000000000010',
   '94100000-0000-4000-8000-000000000002',
-  null,
+  '94400000-0000-4000-8000-000000000200',
   'Other organization folder',
   'slate',
   'active',
@@ -1160,6 +1194,7 @@ select is(
   (
     public.creator_workspace_browser(jsonb_build_object(
       'organization_id', '94100000-0000-4000-8000-000000000001',
+      'project_id', '94400000-0000-4000-8000-000000000100',
       'folder_id', (
         select nested_folder_id
         from workspace_test_context
@@ -1182,6 +1217,7 @@ select is(
   jsonb_array_length(
     public.creator_workspace_browser(jsonb_build_object(
       'organization_id', '94100000-0000-4000-8000-000000000001',
+      'project_id', '94400000-0000-4000-8000-000000000100',
       'folder_id', (
         select nested_folder_id
         from workspace_test_context
@@ -1196,6 +1232,7 @@ select is(
   jsonb_array_length(
     public.creator_workspace_browser(jsonb_build_object(
       'organization_id', '94100000-0000-4000-8000-000000000001',
+      'project_id', '94400000-0000-4000-8000-000000000100',
       'folder_id', (
         select nested_folder_id
         from workspace_test_context
@@ -1210,6 +1247,7 @@ select is(
   jsonb_array_length(
     public.creator_workspace_browser(jsonb_build_object(
       'organization_id', '94100000-0000-4000-8000-000000000001',
+      'project_id', '94400000-0000-4000-8000-000000000100',
       'folder_id', (
         select nested_folder_id
         from workspace_test_context
@@ -1224,6 +1262,7 @@ select is(
   (
     public.creator_workspace_browser(jsonb_build_object(
       'organization_id', '94100000-0000-4000-8000-000000000001',
+      'project_id', '94400000-0000-4000-8000-000000000100',
       'folder_id', (
         select nested_folder_id
         from workspace_test_context
@@ -1238,6 +1277,7 @@ select is(
   jsonb_array_length(
     public.creator_workspace_browser(jsonb_build_object(
       'organization_id', '94100000-0000-4000-8000-000000000001',
+      'project_id', '94400000-0000-4000-8000-000000000100',
       'folder_id', (
         select nested_folder_id
         from workspace_test_context
@@ -1246,6 +1286,7 @@ select is(
       'cursor', (
         public.creator_workspace_browser(jsonb_build_object(
           'organization_id', '94100000-0000-4000-8000-000000000001',
+          'project_id', '94400000-0000-4000-8000-000000000100',
           'folder_id', (
             select nested_folder_id
             from workspace_test_context
@@ -1280,7 +1321,8 @@ set empty_result = public.creator_create_workspace_folder(
   jsonb_build_object(
     'organization_id', '94100000-0000-4000-8000-000000000001',
     'idempotency_key', 'workspace-create-empty-0001',
-    'name', 'Empty archive candidate'
+    'name', 'Empty archive candidate',
+    'parent_id', '94400000-0000-4000-8000-000000000100'
   )
 );
 update workspace_test_context
@@ -1347,7 +1389,8 @@ select is(
 select is(
   (
     public.creator_workspace_browser(jsonb_build_object(
-      'organization_id', '94100000-0000-4000-8000-000000000001'
+      'organization_id', '94100000-0000-4000-8000-000000000001',
+      'project_id', '94400000-0000-4000-8000-000000000100'
     )) -> 'items'
   ) @> jsonb_build_array(jsonb_build_object(
     'type', 'task',
@@ -1360,14 +1403,15 @@ select is(
   (
     public.creator_workspace_browser(jsonb_build_object(
       'organization_id', '94100000-0000-4000-8000-000000000001',
+      'project_id', '94400000-0000-4000-8000-000000000100',
       'folder_id', null
     )) -> 'items'
   ) @> jsonb_build_array(jsonb_build_object(
     'type', 'task',
     'id', '94300000-0000-4000-8000-000000000002'
   )),
-  false,
-  'explicit null folder_id excludes items stored below a folder'
+  true,
+  'explicit null folder_id keeps the project-wide Finder scope'
 );
 select ok(
   not exists (
@@ -1375,17 +1419,20 @@ select ok(
     from jsonb_array_elements(
       public.creator_workspace_browser(jsonb_build_object(
         'organization_id', '94100000-0000-4000-8000-000000000001',
+        'project_id', '94400000-0000-4000-8000-000000000100',
         'folder_id', null
       )) -> 'items'
     ) item(value)
-    where item.value -> 'folder_id' is distinct from 'null'::jsonb
+    where item.value ->> 'project_id' is distinct from
+      '94400000-0000-4000-8000-000000000100'
   ),
-  'explicit null folder_id returns root locations only'
+  'explicit null folder_id returns only selected-project objects'
 );
 select is(
   (
     public.creator_workspace_browser(jsonb_build_object(
-      'organization_id', '94100000-0000-4000-8000-000000000001'
+      'organization_id', '94100000-0000-4000-8000-000000000001',
+      'project_id', '94400000-0000-4000-8000-000000000100'
     )) #>> '{capabilities,manage_folders}'
   )::boolean,
   true,
@@ -1396,7 +1443,8 @@ select ok(
     select 1
     from jsonb_array_elements(
       public.creator_workspace_browser(jsonb_build_object(
-        'organization_id', '94100000-0000-4000-8000-000000000001'
+        'organization_id', '94100000-0000-4000-8000-000000000001',
+        'project_id', '94400000-0000-4000-8000-000000000100'
       )) -> 'folders'
     ) folder(value)
     where (folder.value ->> 'can_edit')::boolean is distinct from true
@@ -1417,7 +1465,8 @@ $$;
 select is(
   (
     public.creator_workspace_browser(jsonb_build_object(
-      'organization_id', '94100000-0000-4000-8000-000000000001'
+      'organization_id', '94100000-0000-4000-8000-000000000001',
+      'project_id', '94400000-0000-4000-8000-000000000100'
     )) #>> '{capabilities,manage_folders}'
   )::boolean,
   false,
@@ -1493,7 +1542,8 @@ select throws_ok(
   $$select public.creator_create_workspace_folder(jsonb_build_object(
     'organization_id', '94100000-0000-4000-8000-000000000001',
     'idempotency_key', 'workspace-operator-create-denied-0001',
-    'name', 'Operator cannot create'
+    'name', 'Operator cannot create',
+    'parent_id', '94400000-0000-4000-8000-000000000100'
   ))$$,
   '42501',
   'role_not_allowed',
@@ -1512,7 +1562,8 @@ $$;
 
 select throws_ok(
   $$select public.creator_workspace_browser(jsonb_build_object(
-    'organization_id', '94100000-0000-4000-8000-000000000001'
+    'organization_id', '94100000-0000-4000-8000-000000000001',
+    'project_id', '94400000-0000-4000-8000-000000000100'
   ))$$,
   '42501',
   'role_not_allowed',
@@ -1531,7 +1582,8 @@ $$;
 
 select throws_ok(
   $$select public.creator_workspace_browser(jsonb_build_object(
-    'organization_id', '94100000-0000-4000-8000-000000000001'
+    'organization_id', '94100000-0000-4000-8000-000000000001',
+    'project_id', '94400000-0000-4000-8000-000000000100'
   ))$$,
   '42501',
   'final_exam_required',
@@ -1596,6 +1648,7 @@ select throws_ok(
 select throws_ok(
   $$select public.creator_workspace_browser(jsonb_build_object(
     'organization_id', '94100000-0000-4000-8000-000000000001',
+    'project_id', '94400000-0000-4000-8000-000000000100',
     'page_size', 101
   ))$$,
   '22023',
@@ -1607,6 +1660,7 @@ select throws_ok(
     'organization_id', '94100000-0000-4000-8000-000000000001',
     'idempotency_key', 'workspace-unknown-field-0001',
     'name', 'Strict payload',
+    'parent_id', '94400000-0000-4000-8000-000000000100',
     'unexpected', true
   ))$$,
   '22023',

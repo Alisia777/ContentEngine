@@ -61,14 +61,15 @@ const supabase = {{
 }};
 const api = new CreatorApi(supabase, {{ RPC_SCHEMA: "public", STORAGE_BUCKET: "contentengine-private" }});
 api.organizationId = "00000000-0000-4000-8000-000000000001";
+const projectId = "11111111-1111-4111-8111-111111111111";
 async function capture(input) {{
   try {{ await api.registerMedia(input); return {{ code: "ok" }}; }}
   catch (error) {{ return {{ code: error.code }}; }}
 }}
-const missingSku = await capture({{ kind: "product_photo", product_name: "Кровавый пилинг" }});
-const missingName = await capture({{ kind: "packshot", sku: "WB-1" }});
-await api.registerMedia({{ kind: "product_photo", sku: "  WB-159068498  ", product_name: "  Кровавый пилинг  " }});
-await api.registerMedia({{ kind: "creator_reference", sku: "must-not-leak", product_name: "must-not-leak" }});
+const missingSku = await capture({{ project_id: projectId, kind: "product_photo", product_name: "Кровавый пилинг" }});
+const missingName = await capture({{ project_id: projectId, kind: "packshot", sku: "WB-1" }});
+await api.registerMedia({{ project_id: projectId, kind: "product_photo", sku: "  WB-159068498  ", product_name: "  Кровавый пилинг  " }});
+await api.registerMedia({{ project_id: projectId, kind: "creator_reference", sku: "must-not-leak", product_name: "must-not-leak" }});
 process.stdout.write(JSON.stringify({{ missingSku, missingName, calls }}));
 '''
     )
@@ -79,9 +80,11 @@ process.stdout.write(JSON.stringify({{ missingSku, missingName, calls }}));
     product_payload = result["calls"][0]["payload"]
     assert product_payload["sku"] == "WB-159068498"
     assert product_payload["product_name"] == "Кровавый пилинг"
+    assert product_payload["project_id"] == "11111111-1111-4111-8111-111111111111"
     reference_payload = result["calls"][1]["payload"]
     assert "sku" not in reference_payload
     assert "product_name" not in reference_payload
+    assert reference_payload["project_id"] == "11111111-1111-4111-8111-111111111111"
 
 
 def test_database_remains_the_authoritative_product_media_guard() -> None:

@@ -51,6 +51,7 @@ def test_approved_research_scenario_compiles_to_generation_ready_seedance_prompt
         """
         const record = {
           approved: true,
+          project_id: "11111111-1111-4111-8111-111111111111",
           id: "research-1",
           draftId: "draft-1",
           productName: "Bombbar Протеиновый батончик Фисташка",
@@ -105,6 +106,7 @@ def test_handoff_carries_human_research_decision_into_required_prompt_guard() ->
         """
         const base = {
           approved: true,
+          projectId: "11111111-1111-4111-8111-111111111111",
           id: "research-managed",
           draftId: "draft-managed",
           productName: "Точный товар",
@@ -183,6 +185,7 @@ def test_every_filled_stage_correction_survives_the_bounded_handoff() -> None:
         const long = (prefix) => `${prefix} ${"важная правка ".repeat(80)}`;
         const record = {
           approved: true,
+          projectId: "11111111-1111-4111-8111-111111111111",
           id: "research-all-corrections",
           draftId: "draft-all-corrections",
           productName: "Точный товар",
@@ -228,6 +231,7 @@ def test_long_seedance_speech_is_blocked_until_operator_shortens_exact_line() ->
         """
         const record = {
           approved: true,
+          project_id: "11111111-1111-4111-8111-111111111111",
           id: "research-2",
           draftId: "draft-2",
           productName: "Точный товар",
@@ -270,6 +274,7 @@ def test_gen4_compiler_keeps_visual_action_and_explicitly_removes_audio() -> Non
         """
         const record = {
           approved: true,
+          project_id: "11111111-1111-4111-8111-111111111111",
           id: "research-3",
           draftId: "draft-3",
           productName: "Точный крем",
@@ -308,6 +313,7 @@ def test_photo_handoff_compiles_to_square_packshot_without_video_instructions() 
         """
         const record = {
           approved: true,
+          project_id: "11111111-1111-4111-8111-111111111111",
           id: "research-photo",
           draftId: "draft-photo",
           productName: "BOMBBAR PRO",
@@ -372,6 +378,7 @@ def test_steamer_prompt_preserves_real_scale_and_replaces_face_interaction() -> 
         """
         const record = {
           approved: true,
+          project_id: "11111111-1111-4111-8111-111111111111",
           id: "research-steamer",
           draftId: "draft-steamer",
           productName: "Пароварка большая",
@@ -940,6 +947,7 @@ def test_handoff_storage_is_bounded_versioned_and_expires() -> None:
         """
         const record = {
           approved: true,
+          project_id: "11111111-1111-4111-8111-111111111111",
           id: "research-4",
           draftId: "draft-4",
           productName: "Товар",
@@ -961,7 +969,43 @@ def test_handoff_storage_is_bounded_versioned_and_expires() -> None:
         "current": True,
         "expired": None,
         "malformed": None,
-        "version": 1,
+        "version": 2,
+    }
+
+
+def test_handoff_is_durably_bound_to_one_project() -> None:
+    result = _run_module(
+        """
+        const record = {
+          approved: true,
+          id: "research-project-scope",
+          draftId: "draft-project-scope",
+          productName: "Товар проекта",
+          sku: "PROJECT-SKU",
+          brief: {},
+          scenarios: [{ title: "Сценарий", platform: "instagram", hook: "Хук", script: "Реплика", shotList: "Кадр" }],
+        };
+        let missingProjectRejected = false;
+        try {
+          subject.createContentGenerationHandoff(record, 0, 10_000);
+        } catch {
+          missingProjectRejected = true;
+        }
+        const handoff = subject.createContentGenerationHandoff(record, 0, 10_000, {
+          projectId: "11111111-1111-4111-8111-111111111111",
+        });
+        const parsed = subject.parseContentGenerationHandoff(JSON.stringify(handoff), 10_001);
+        return {
+          missingProjectRejected,
+          projectId: parsed?.projectId || "",
+          wrongProjectMatches: parsed?.projectId === "22222222-2222-4222-8222-222222222222",
+        };
+        """
+    )
+    assert result == {
+        "missingProjectRejected": True,
+        "projectId": "11111111-1111-4111-8111-111111111111",
+        "wrongProjectMatches": False,
     }
 
 
@@ -970,6 +1014,7 @@ def test_operator_cannot_remove_product_and_claim_guards_from_handoff_prompt() -
         """
         const record = {
           approved: true,
+          project_id: "11111111-1111-4111-8111-111111111111",
           id: "research-5",
           draftId: "draft-5",
           productName: "Точный продукт",
@@ -1006,6 +1051,7 @@ def test_forbidden_claim_added_outside_safety_line_blocks_generation() -> None:
         """
         const record = {
           approved: true,
+          project_id: "11111111-1111-4111-8111-111111111111",
           id: "research-claims",
           draftId: "draft-claims",
           productName: "CONTENT ENGINE Glow Serum",
@@ -1116,7 +1162,7 @@ def test_portal_connects_approved_scenario_to_paid_generation_readiness() -> Non
     assert 'data-action="generate-research-scenario"' in VIEW
     assert 'data-scenario-index="${index}"' in VIEW
     assert "createContentGenerationHandoff(" in APP
-    assert 'navigate("/workspace/generation")' in APP
+    assert 'navigate(workspaceProjectHref("/workspace/generation?view=create", projectId))' in APP
     assert "applyContentGenerationHandoffToForm()" in APP
     assert "const promptReadiness = generationPromptInspection(form);" in APP
     assert APP.index("const promptReadiness = generationPromptInspection(form);") < APP.index(
@@ -1128,7 +1174,7 @@ def test_portal_connects_approved_scenario_to_paid_generation_readiness() -> Non
     assert "generationPromptInspection(form)" in APP
     assert "generation_job_id: jobId" in APP
     assert "creative_brief_draft_id: generationHandoff?.draftId" in APP
-    assert "./content-generation-handoff.js?v=20260804.3" in APP
-    assert "./app.js?v=20260804.3" in INDEX
+    assert "./content-generation-handoff.js?v=20260804.os4.10" in APP
+    assert "./app.js?v=20260804.os4.10" in INDEX
     handoff_header = STYLES.split(".generation-handoff__header {", 1)[1].split("}", 1)[0]
     assert "flex-direction: column;" in handoff_header

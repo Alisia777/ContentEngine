@@ -49,7 +49,7 @@ body.ce-v4-generation-guided-route .generation-launch-card > #mock-batch-form {
 .ce-v4-generation-guided__eyebrow {
   margin: 0 0 7px;
   color: var(--guided-accent-bright);
-  font-size: 0.7rem;
+  font-size: var(--ce-v4-font-helper, 12px);
   font-weight: 850;
   letter-spacing: 0.15em;
 }
@@ -65,7 +65,7 @@ body.ce-v4-generation-guided-route .generation-launch-card > #mock-batch-form {
   max-width: 66ch;
   margin: 9px 0 0;
   color: var(--guided-muted);
-  font-size: 0.88rem;
+  font-size: var(--ce-v4-font-control, 14px);
   line-height: 1.5;
 }
 
@@ -76,7 +76,7 @@ body.ce-v4-generation-guided-route .generation-launch-card > #mock-batch-form {
   border-radius: 999px;
   color: var(--guided-accent-bright);
   background: rgba(236, 136, 75, 0.08);
-  font-size: 0.76rem;
+  font-size: var(--ce-v4-font-helper, 12px);
   font-weight: 800;
   white-space: nowrap;
 }
@@ -141,14 +141,14 @@ body.ce-v4-generation-guided-route .generation-launch-card > #mock-batch-form {
   border: 1px solid var(--guided-line-strong);
   border-radius: 9px;
   color: inherit;
-  font-size: 0.67rem;
+  font-size: var(--ce-v4-font-helper, 12px);
   font-weight: 850;
 }
 
 .ce-v4-generation-guided__step strong {
   min-width: 0;
   overflow: hidden;
-  font-size: 0.72rem;
+  font-size: var(--ce-v4-font-control, 14px);
   line-height: 1.18;
   text-overflow: ellipsis;
 }
@@ -200,18 +200,18 @@ body.ce-v4-generation-guided-route .generation-launch-card > #mock-batch-form {
   max-width: 72ch;
   margin: 7px 0 21px;
   color: var(--guided-muted);
-  font-size: 0.84rem;
+  font-size: var(--ce-v4-font-control, 14px);
   line-height: 1.5;
 }
 
 .ce-v4-generation-guided__panel-content {
-  max-height: clamp(300px, 43vh, 510px);
+  max-height: none;
   display: grid;
   gap: 18px;
   padding: 2px 10px 8px 1px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
+  overflow-y: visible;
+  overscroll-behavior: auto;
+  scrollbar-gutter: auto;
 }
 
 .ce-v4-generation-guided__panel-content > :first-child {
@@ -241,7 +241,7 @@ body.ce-v4-generation-guided-route .generation-launch-card > #mock-batch-form {
   border-radius: 11px;
   color: #ffc0ba;
   background: rgba(239, 129, 121, 0.09);
-  font-size: 0.82rem;
+  font-size: var(--ce-v4-font-control, 14px);
   line-height: 1.45;
 }
 
@@ -253,7 +253,7 @@ body.ce-v4-generation-guided-route .generation-launch-card > #mock-batch-form {
 .ce-v4-generation-guided__summary-intro {
   margin: 0;
   color: var(--guided-muted);
-  font-size: 0.86rem;
+  font-size: var(--ce-v4-font-control, 14px);
 }
 
 .ce-v4-generation-guided__summary-list {
@@ -279,7 +279,7 @@ body.ce-v4-generation-guided-route .generation-launch-card > #mock-batch-form {
 
 .ce-v4-generation-guided__summary-row dt {
   color: var(--guided-muted);
-  font-size: 0.74rem;
+  font-size: var(--ce-v4-font-helper, 12px);
   font-weight: 800;
 }
 
@@ -287,7 +287,7 @@ body.ce-v4-generation-guided-route .generation-launch-card > #mock-batch-form {
   min-width: 0;
   margin: 0;
   color: var(--guided-text);
-  font-size: 0.82rem;
+  font-size: var(--ce-v4-font-control, 14px);
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
@@ -298,7 +298,7 @@ body.ce-v4-generation-guided-route .generation-launch-card > #mock-batch-form {
   border-radius: 11px;
   color: var(--ce-v4-warning, #e0b066);
   background: rgba(224, 176, 102, 0.08);
-  font-size: 0.8rem;
+  font-size: var(--ce-v4-font-control, 14px);
   line-height: 1.45;
 }
 
@@ -322,13 +322,14 @@ body.ce-v4-generation-guided-route .generation-launch-card > #mock-batch-form {
   justify-self: center;
   max-width: 58ch;
   color: var(--guided-muted);
-  font-size: 0.73rem;
+  font-size: var(--ce-v4-font-helper, 12px);
   line-height: 1.35;
   text-align: center;
 }
 
 .ce-v4-generation-guided__actions > :is(.ce-v4-generation-guided__back, .ce-v4-generation-guided__next, .ce-v4-generation-guided__submit) {
   min-width: 112px;
+  font-size: var(--ce-v4-font-control, 14px);
 }
 
 .ce-v4-generation-guided__submit.btn-block {
@@ -379,7 +380,7 @@ body.ce-v4-generation-guided-route .generation-launch-card > #mock-batch-form {
   }
 
   .ce-v4-generation-guided__panel-content {
-    max-height: 48vh;
+    max-height: none;
     padding-right: 5px;
   }
 

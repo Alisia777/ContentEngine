@@ -150,9 +150,9 @@ def test_my_work_is_a_first_class_simple_workspace_route() -> None:
     )[1].split("]);", 1)[0]
     assert '"work"' in simple_block
     assert 'work: renderMyWorkSection' in APP
-    assert 'state.api.myWork(myWorkRequestOptions(state.myWork.filters))' in APP
-    assert 'from "./my-work-view.js?v=20260804.os4.8"' in APP
-    assert './my-work.css?v=20260804.os4.8' in INDEX
+    assert 'state.api.myWork({ ...myWorkRequestOptions(state.myWork.filters), projectId })' in APP
+    assert 'from "./my-work-view.js?v=20260804.os4.10"' in APP
+    assert './my-work.css?v=20260804.os4.10' in INDEX
 
 
 def test_my_work_wires_saved_views_notifications_and_keyset_pagination() -> None:
@@ -172,7 +172,7 @@ def test_my_work_wires_saved_views_notifications_and_keyset_pagination() -> None
         "current.nextCursor",
         'is_default: makeDefault',
         'safeWorkspaceRouteEntityId("review")',
-        "state.api.contentReviewStatus(routeReviewId)",
+        "state.api.contentReviewStatus(routeReviewId, { projectId })",
         "scheduleWorkspaceDeepLinkFocus(section)",
         'data-task-id="${escapeHtml(item.id || item.task_id || "")}"',
         'data-placement-id="${escapeHtml(item.id || item.placement_id || "")}"',

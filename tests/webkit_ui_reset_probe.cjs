@@ -33,13 +33,12 @@ async function routeMotionResult(context) {
     qa.dataset.readyRoute = "";
     const shell = document.querySelector(".workspace-shell");
     const menubar = document.querySelector(".ce-v4-menubar");
-    const flowbar = document.querySelector(".ce-v4-flowbar");
     const dock = document.querySelector(".ce-v4-dock");
     const rect = (node) => {
       const value = node.getBoundingClientRect();
       return { x: value.x, y: value.y, width: value.width, height: value.height };
     };
-    const before = { menubar: rect(menubar), flowbar: rect(flowbar), dock: rect(dock) };
+    const before = { menubar: rect(menubar), dock: rect(dock) };
     const starts = [];
     const cancels = [];
     const inMain = (event) => (
@@ -86,7 +85,6 @@ async function routeMotionResult(context) {
 
     const after = {
       menubar: rect(document.querySelector(".ce-v4-menubar")),
-      flowbar: rect(document.querySelector(".ce-v4-flowbar")),
       dock: rect(document.querySelector(".ce-v4-dock")),
     };
     const maxDrift = (left, right) => Math.max(
@@ -105,19 +103,18 @@ async function routeMotionResult(context) {
       readyRoute: qa.dataset.readyRoute,
       shellSame: document.querySelector(".workspace-shell") === shell,
       menubarSame: document.querySelector(".ce-v4-menubar") === menubar,
-      flowbarSame: document.querySelector(".ce-v4-flowbar") === flowbar,
       dockSame: document.querySelector(".ce-v4-dock") === dock,
       menubarDrift: maxDrift(before.menubar, after.menubar),
-      flowbarDrift: maxDrift(before.flowbar, after.flowbar),
       dockDrift: maxDrift(before.dock, after.dock),
     };
   });
   await page.close();
 
-  const yMonotonic = result.samples.every((sample, index, rows) => (
+  const enterSamples = result.samples.filter((sample) => sample.animation === "ce-v4-route-enter");
+  const yMonotonic = enterSamples.every((sample, index, rows) => (
     index === 0 || sample.y <= rows[index - 1].y + 0.5
   ));
-  const opacityMonotonic = result.samples.every((sample, index, rows) => (
+  const opacityMonotonic = enterSamples.every((sample, index, rows) => (
     index === 0 || sample.opacity >= rows[index - 1].opacity - 0.01
   ));
   const mainAnchored = result.samples.every((sample) => (
@@ -126,6 +123,7 @@ async function routeMotionResult(context) {
   return {
     ...result,
     firstLoading: result.samples.find((sample) => sample.loading),
+    enterSampleCount: enterSamples.length,
     last: result.samples.at(-1),
     sampleCount: result.samples.length,
     yMonotonic,
@@ -201,12 +199,12 @@ async function desktopMenuResult(context) {
     flowbar: document.querySelector(".ce-v4-flowbar__link.is-active")?.dataset.ceV4FlowRoute || "",
   }));
 
-  await page.click('[data-ce-v4-flow-route="/workspace/review"]');
+  await page.click('.ce-v4-dock [data-ce-v4-route="/workspace/review"]');
   await page.waitForFunction(() => location.hash === "#/workspace/review");
   await page.evaluate(() => window.ContentEngineDesktopV4.flush());
   const switched = await page.evaluate(() => ({
     route: location.hash,
-    current: document.querySelector('[data-ce-v4-flow-route="/workspace/review"]')?.getAttribute("aria-current"),
+    current: document.querySelector('.ce-v4-dock [data-ce-v4-route="/workspace/review"]')?.getAttribute("aria-current"),
   }));
 
   await page.click("[data-ce-v4-tools-trigger]");
@@ -227,11 +225,9 @@ async function mobileMenuResult(browser) {
   await page.click("[data-ce-v4-tools-trigger]");
   const result = await page.evaluate(() => {
     const rect = document.querySelector("[data-ce-v4-tools-menu]").getBoundingClientRect();
-    const flowbar = document.querySelector(".ce-v4-flowbar").getBoundingClientRect();
     const dock = document.querySelector(".ce-v4-dock").getBoundingClientRect();
     return {
       rect: { x: rect.x, y: rect.y, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height },
-      flowbar: { x: flowbar.x, right: flowbar.right, width: flowbar.width },
       dock: { x: dock.x, right: dock.right, width: dock.width },
       viewport: { width: innerWidth, height: innerHeight },
       routeCount: document.querySelectorAll("[data-ce-v4-tools-route]").length,
@@ -255,14 +251,11 @@ async function reducedMotionResult(browser) {
   await page.click("[data-ce-v4-tools-trigger]");
   const result = await page.evaluate(() => {
     const menu = document.querySelector("[data-ce-v4-tools-menu]");
-    const flowLink = document.querySelector(".ce-v4-flowbar__link.is-active");
     return {
       animation: getComputedStyle(menu).animationName,
       transform: getComputedStyle(menu).transform,
       menubarAnimation: getComputedStyle(document.querySelector(".ce-v4-menubar")).animationName,
       dockAnimation: getComputedStyle(document.querySelector(".ce-v4-dock__glass")).animationName,
-      flowTransition: getComputedStyle(flowLink).transitionDuration,
-      flowTransform: getComputedStyle(flowLink).transform,
     };
   });
   await context.close();
@@ -437,12 +430,13 @@ async function dockMagnificationResult(browser) {
         && scroll.restoredTop === "137"
         && scroll.preservedLiveTop === "83",
       motionLoading: motion.loadingSamples >= 2
-        && Math.abs(motion.firstLoading.opacity - 0.74) <= 0.01
-        && Math.abs(motion.firstLoading.y - 8) <= 0.6
-        && Math.abs(motion.firstLoading.scale - 0.995) <= 0.002,
+        && Math.abs(motion.firstLoading.opacity - 0.96) <= 0.01
+        && Math.abs(motion.firstLoading.y) <= 0.1
+        && Math.abs(motion.firstLoading.scale - 1) <= 0.002,
       motionSingle: [...new Set(motion.starts)].join(",") === "ce-v4-route-enter"
         && !motion.cancels.includes("ce-v4-content-reveal"),
-      motionTrajectory: motion.yMonotonic
+      motionTrajectory: motion.enterSampleCount >= 2
+        && motion.yMonotonic
         && motion.opacityMonotonic
         && motion.mainAnchored
         && Math.abs(motion.last.opacity - 1) <= 0.01
@@ -452,53 +446,47 @@ async function dockMagnificationResult(browser) {
         && motion.readyRoute === "/workspace/board",
       motionIdentity: motion.shellSame
         && motion.menubarSame
-        && motion.flowbarSame
         && motion.dockSame
         && motion.menubarDrift <= 0.5
-        && motion.flowbarDrift <= 0.5
         && motion.dockDrift <= 0.5,
       menuOpen: !menu.opened.hidden
         && menu.opened.expanded === "true"
-        && menu.opened.routeCount === 3
+        && menu.opened.routeCount === 2
         && menu.opened.animation === "ce-v4-tools-menu-enter"
         && menu.opened.dialogCount === 0
         && menu.opened.backdropCount === 0,
-      menuKeyboard: menu.firstFocused === "/workspace/research"
+      menuKeyboard: menu.firstFocused === "/workspace/team"
         && menu.lastFocused === "/workspace/feedback"
         && menu.escaped.hidden
         && menu.escaped.triggerFocused,
       menuNavigation: menu.navigation.hidden
         && menu.navigation.current === "page"
-        && menu.navigation.dockRoutes === 6
-        && menu.navigation.flowbarRoutes === 6
-        && menu.navigation.flowbarCount === 1
-        && menu.navigation.dockLabels.join("|") === "Сегодня|Файлы|Создать|Проверить|Опубликовать|Результаты|Корзина"
+        && menu.navigation.dockRoutes === 8
+        && menu.navigation.flowbarRoutes === 0
+        && menu.navigation.flowbarCount === 0
+        && menu.navigation.dockLabels.join("|") === "Проекты|Файлы|Создать|Проверить|Опубликовать|Результаты|Исследования|ИИ-центр|Корзина"
         && menu.navigation.academy === 0
         && menu.navigation.shellCount === 1
         && menu.navigation.menubarCount === 1
         && menu.navigation.dockCount === 1
         && menu.navigation.horizontalOverflow === 0
         && menu.alias.dock === "/workspace/home"
-        && menu.alias.flowbar === "/workspace/home"
+        && menu.alias.flowbar === ""
         && menu.switched.route === "#/workspace/review"
-        && menu.switched.current === "step"
+        && menu.switched.current === "page"
         && menu.outsideClosed,
-      menuMobile: mobileMenu.routeCount === 3
-        && mobileMenu.flowbarRoutes === 6
-        && mobileMenu.dockLabels === 7
+      menuMobile: mobileMenu.routeCount === 2
+        && mobileMenu.flowbarRoutes === 0
+        && mobileMenu.dockLabels === 9
         && mobileMenu.rect.x >= 7
         && mobileMenu.rect.right <= 313
-        && mobileMenu.flowbar.x >= 0
-        && mobileMenu.flowbar.right <= 320
         && mobileMenu.dock.x >= 0
         && mobileMenu.dock.right <= 320
         && mobileMenu.horizontalOverflow === 0,
       reducedMotion: reducedMotion.animation === "none"
         && reducedMotion.transform === "none"
         && reducedMotion.menubarAnimation === "none"
-        && reducedMotion.dockAnimation === "none"
-        && reducedMotion.flowTransition === "0s"
-        && reducedMotion.flowTransform === "none",
+        && reducedMotion.dockAnimation === "none",
       dockMagnification: dockMagnification.hoverHierarchy
         && dockMagnification.focusHierarchy
         && dockMagnification.mixedHoverPriority
