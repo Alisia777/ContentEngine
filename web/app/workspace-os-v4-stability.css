@@ -211,7 +211,7 @@ body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar__identity
 
 body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar__identity small,
 body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar__clock {
-  font-size: 11px !important;
+  font-size: var(--ce-v4-font-helper) !important;
 }
 
 /* Retired duplicate shells remain inert even if a legacy route controller creates them. */
@@ -290,7 +290,7 @@ body.contentengine-desktop-v4[data-ce-v4-stable="true"] [data-ce-v4-contextbar="
   [class*="heading"]
 ) small {
   color: var(--ce-v4-muted) !important;
-  font-size: 11.5px !important;
+  font-size: var(--ce-v4-font-helper) !important;
   line-height: 1.35 !important;
 }
 
@@ -397,8 +397,13 @@ body.contentengine-desktop-v4[data-ce-v4-stable="true"] [data-ce-v4-local-dock="
   background: rgba(236,136,75,.095) !important;
 }
 
-body.contentengine-desktop-v4[data-ce-v4-stable="true"] [data-ce-v4-local-dock="true"] :is(small, span) {
-  font-size: 12.5px !important;
+body.contentengine-desktop-v4[data-ce-v4-stable="true"] [data-ce-v4-local-dock="true"] span {
+  font-size: var(--ce-v4-font-control) !important;
+  line-height: 1.3 !important;
+}
+
+body.contentengine-desktop-v4[data-ce-v4-stable="true"] [data-ce-v4-local-dock="true"] small {
+  font-size: var(--ce-v4-font-small) !important;
   line-height: 1.3 !important;
 }
 
@@ -476,7 +481,7 @@ body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-table-search > sp
 }
 
 body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-task-origin small {
-  font-size: 11.5px !important;
+  font-size: var(--ce-v4-font-helper) !important;
 }
 
 body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-task-origin strong {
@@ -584,7 +589,7 @@ body.contentengine-desktop-v4[data-ce-v4-stable="true"] :is(
   }
 
   body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-dock__label {
-    font-size: 10px !important;
+    font-size: var(--ce-v4-font-control) !important;
   }
 
   body.contentengine-desktop-v4[data-ce-v4-stable="true"] [data-ce-v4-contextbar="primary"] {

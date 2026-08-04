@@ -2,7 +2,7 @@ import {
   CreatorApi,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260804.os4.12";
+} from "./supabase-api.js?v=20260804.os4.13";
 import {
   approvedGenerationSpecContext,
   generationSpecCardMarkup,
@@ -10,8 +10,8 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecScope,
 } from "./generation-spec.js?v=20260803.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.12";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.12";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.13";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.13";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -74,9 +74,10 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260804.os4.12";
+} from "./product-research-view.js?v=20260804.os4.13";
 import {
   AI_PRODUCT_CATEGORIES,
+  aiHistoricalCaseFilter,
   aiLearningCategory,
   aiLearningControlRoomMarkup,
   aiLearningMarketScopeIndexMarkup,
@@ -84,7 +85,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260804.os4.12";
+} from "./ai-learning-control-room.js?v=20260804.os4.13";
 import {
   compileContentGenerationPrompt,
   compileSafeGenerationBrief,
@@ -97,7 +98,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260804.os4.12";
+} from "./content-generation-handoff.js?v=20260804.os4.13";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -111,7 +112,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260804.os4.12";
+} from "./generation-form-draft.js?v=20260804.os4.13";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -144,7 +145,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260804.os4.12";
+} from "./content-review-view.js?v=20260804.os4.13";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -173,7 +174,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260804.os4.12";
+} from "./workspace-board-view.js?v=20260804.os4.13";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -202,7 +203,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260804.os4.12";
+} from "./training-journey.js?v=20260804.os4.13";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -221,7 +222,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260804.os4.12";
+} from "./training-practical-review.js?v=20260804.os4.13";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -240,7 +241,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260804.os4.12";
+} from "./my-work-view.js?v=20260804.os4.13";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -269,6 +270,7 @@ const WORKSPACE_BOARD_VISIBLE_STEP = 80;
 const WORKSPACE_BOARD_MEMORY_CAP = 300;
 const WORKSPACE_BOARD_FALLBACK_NOTICE = "Не удалось обновить проекты и папки. Показаны последние доступные данные; повторите загрузку.";
 const WORKSPACE_PROJECT_STORAGE_KEY = "contentengine.desktop-v4.project";
+const WORKSPACE_ACCESS_REQUEST_STORAGE_PREFIX = "contentengine.workspace-access-request.v1";
 const WORKSPACE_PROJECT_FLOW_TIMEOUT_MS = 10_000;
 const WORKSPACE_FLOW_CONFIRMATION_MS = 700;
 const INVITE_REQUEST_TIMEOUT_MS = 25_000;
@@ -1219,6 +1221,22 @@ const state = {
     marketMutationKind: "",
     marketMutationId: 0,
     busyCardId: "",
+    busyHistoricalCaseId: "",
+    historicalCaseFilter: "all",
+    historicalImport: {
+      active: false,
+      inFlight: false,
+      status: "",
+      sourceId: "",
+      productCategory: "",
+      filename: "",
+      parsed: 0,
+      imported: 0,
+      quarantined: 0,
+      errors: 0,
+      recognizedCategories: [],
+      message: "",
+    },
     knowledgeMutationKind: "",
     notice: "",
     error: "",
@@ -1319,6 +1337,98 @@ function safeStorageRemove(storage, key) {
   } catch {
     // Cleanup is best effort and never broadens session persistence.
   }
+}
+
+function normalizeWorkspaceAccessRequestResult(raw) {
+  const source = raw?.data && typeof raw.data === "object" ? raw.data : raw;
+  if (!source || typeof source !== "object") return null;
+  const nested = source.request
+    ?? source.workspace_access_request
+    ?? source.workspaceAccessRequest
+    ?? source;
+  const request = nested?.request && typeof nested.request === "object"
+    ? nested.request
+    : nested;
+  if (!request || typeof request !== "object" || !String(request.status || "").trim()) return null;
+  const responsible = source.responsible_manager
+    ?? source.responsibleManager
+    ?? nested?.responsible_manager
+    ?? nested?.responsibleManager
+    ?? {};
+  return {
+    request: {
+      ...request,
+      status: String(request.status || "").trim().toLowerCase(),
+    },
+    responsible_manager: responsible && typeof responsible === "object" ? { ...responsible } : {},
+  };
+}
+
+function workspaceAccessRequestStorageKey(userId = state.user?.id) {
+  const normalized = String(userId || "").trim().toLowerCase();
+  return normalized ? `${WORKSPACE_ACCESS_REQUEST_STORAGE_PREFIX}:${normalized}` : "";
+}
+
+function readStoredWorkspaceAccessRequest() {
+  const key = workspaceAccessRequestStorageKey();
+  if (!key || typeof window === "undefined") return null;
+  try {
+    return normalizeWorkspaceAccessRequestResult(
+      JSON.parse(safeStorageGet(window.sessionStorage, key) || "null"),
+    );
+  } catch {
+    safeStorageRemove(window.sessionStorage, key);
+    return null;
+  }
+}
+
+function persistWorkspaceAccessRequest(result) {
+  const key = workspaceAccessRequestStorageKey();
+  if (!key || typeof window === "undefined") return;
+  const normalized = normalizeWorkspaceAccessRequestResult(result);
+  if (normalized?.request?.status === "pending") {
+    safeStorageSet(window.sessionStorage, key, JSON.stringify(normalized));
+  } else {
+    safeStorageRemove(window.sessionStorage, key);
+  }
+}
+
+function hydrateWorkspaceAccessRequest(
+  bootstrapRequest = state.bootstrap?.workspaceAccessRequest,
+) {
+  if (state.bootstrap?.workspaceAccess === true) {
+    persistWorkspaceAccessRequest(null);
+    state.workspaceAccessRequest.status = "idle";
+    state.workspaceAccessRequest.result = null;
+    state.workspaceAccessRequest.error = "";
+    return null;
+  }
+  const fromBootstrap = normalizeWorkspaceAccessRequestResult(
+    bootstrapRequest,
+  );
+  if (bootstrapRequest !== null && bootstrapRequest !== undefined) {
+    if (fromBootstrap?.request?.status !== "pending") {
+      persistWorkspaceAccessRequest(null);
+      state.workspaceAccessRequest.status = fromBootstrap ? "ready" : "idle";
+      state.workspaceAccessRequest.result = fromBootstrap;
+      state.workspaceAccessRequest.error = "";
+      return fromBootstrap;
+    }
+    state.workspaceAccessRequest.status = "ready";
+    state.workspaceAccessRequest.result = fromBootstrap;
+    state.workspaceAccessRequest.error = "";
+    persistWorkspaceAccessRequest(fromBootstrap);
+    return fromBootstrap;
+  }
+  const current = normalizeWorkspaceAccessRequestResult(state.workspaceAccessRequest.result);
+  const restored = readStoredWorkspaceAccessRequest();
+  const next = current || restored;
+  if (next?.request?.status !== "pending") return null;
+  state.workspaceAccessRequest.status = "ready";
+  state.workspaceAccessRequest.result = next;
+  state.workspaceAccessRequest.error = "";
+  persistWorkspaceAccessRequest(next);
+  return next;
 }
 
 function readStoredContentGenerationHandoff() {
@@ -2412,6 +2522,7 @@ async function loadBootstrap({ silent = false } = {}) {
     const bootstrap = normalizeBootstrap(raw);
     requestApi.commitBootstrapContext(raw);
     state.bootstrap = bootstrap;
+    hydrateWorkspaceAccessRequest(state.bootstrap.workspaceAccessRequest);
     state.courseCheckResults = Object.fromEntries(
       state.bootstrap.training.courseChecks.map((item) => [
         item.moduleCode,
@@ -2527,9 +2638,17 @@ async function refreshBootstrapAccessState({ force = false } = {}) {
   if (state.bootstrapRefreshPromise) return state.bootstrapRefreshPromise;
 
   const refreshPromise = (async () => {
+    const hadWorkspaceAccess = hasWorkspaceAccess();
     const bootstrap = await loadBootstrap({ silent: true });
     if (!bootstrap) return null;
     const startPath = authenticatedStartPath();
+    if (!hadWorkspaceAccess && hasWorkspaceAccess() && startPath === WORKSPACE_START_PATH) {
+      try {
+        if (await openFirstAvailableWorkspaceProject()) return bootstrap;
+      } catch (error) {
+        state.workspaceAccessRequest.error = actionErrorMessage(error);
+      }
+    }
     if (!authenticatedRouteCompatible(state.route.path, startPath)) {
       navigate(startPath, true);
     }
@@ -2622,6 +2741,27 @@ function normalizeBootstrap(raw) {
     reason: String(accessWaiverSource.reason || ""),
     grantedAt: accessWaiverSource.granted_at ?? accessWaiverSource.grantedAt ?? null,
   };
+  const workspaceAccessRequestSource = source.workspace_access_request
+    ?? source.workspaceAccessRequest
+    ?? source.access?.workspace_access_request
+    ?? source.access?.workspaceAccessRequest
+    ?? null;
+  const workspaceAccessRequest = normalizeWorkspaceAccessRequestResult(
+    workspaceAccessRequestSource?.request
+      ? workspaceAccessRequestSource
+      : workspaceAccessRequestSource
+        ? {
+            request: workspaceAccessRequestSource,
+            responsible_manager: source.responsible_manager
+              ?? source.responsibleManager
+              ?? source.access?.responsible_manager
+              ?? source.access?.responsibleManager
+              ?? workspaceAccessRequestSource.responsible_manager
+              ?? workspaceAccessRequestSource.responsibleManager
+              ?? {},
+          }
+        : null,
+  );
 
   return {
     accessState: String(source.state || ""),
@@ -2655,6 +2795,7 @@ function normalizeBootstrap(raw) {
       },
     },
     workspaceAccess,
+    workspaceAccessRequest,
     storage: {
       bucket: source.storage?.bucket || CONFIG.STORAGE_BUCKET,
       pathPrefix: source.storage?.path_prefix || "",
@@ -3716,6 +3857,7 @@ function clearAcademyBootstrapLoading(shell) {
 }
 
 function renderWorkspaceAccessRequired() {
+  hydrateWorkspaceAccessRequest();
   const profile = displayProfile();
   const role = String(state.bootstrap?.membership?.role || "").trim();
   const academyComplete = trainingAccessWaiverActive() || (
@@ -3749,7 +3891,7 @@ function renderWorkspaceAccessRequired() {
         </div>
       ` : ""}
       <div class="inline-actions" style="justify-content:center; margin-top:20px">
-        ${academyComplete ? `<button class="btn" type="button" data-action="request-workspace-access" data-primary-action="true" ${requestState.status === "loading" || requestPending ? "disabled" : ""}>${requestState.status === "loading" ? "Отправляем…" : requestPending ? "Запрос уже отправлен" : "Запросить доступ"}</button>` : ""}
+        ${academyComplete ? `<button class="btn" type="button" data-action="request-workspace-access" data-primary-action="true" ${requestState.status === "loading" || requestPending ? "disabled" : ""}>${requestState.status === "loading" ? "Отправляем…" : requestPending ? "Запрос уже отправлен" : "Запросить рабочий допуск"}</button>` : ""}
         <button class="btn btn-secondary" type="button" data-action="retry-bootstrap">Проверить доступ</button>
         <button class="btn btn-secondary" type="button" data-action="logout">Выйти</button>
       </div>
@@ -12958,7 +13100,7 @@ function payoutDecisionMarkup(item) {
     return `
       <form class="payout-paid-form form-stack" data-payout-id="${payoutId}" novalidate>
         <label class="field"><span>Номер внешней оплаты *</span><input name="external_payment_reference" required minlength="3" maxlength="180" placeholder="PAY-2026-000123" /></label>
-        <button class="btn btn-small" type="submit">Отметить выплаченной</button>
+        <button class="btn btn-small" type="submit" data-primary-action="true">Отметить выплаченной</button>
       </form>
     `;
   }
@@ -13625,8 +13767,14 @@ function renderAiLearningSection(sectionState) {
     view: currentAiLearningView(),
     loading: ["idle", "loading"].includes(sectionState.status),
     refreshing: sectionState.status === "refreshing",
-    busy: Boolean(state.aiLearning.knowledgeMutationKind),
+    busy: Boolean(
+      state.aiLearning.knowledgeMutationKind
+        || state.aiLearning.historicalImport.inFlight,
+    ),
     busyCardId: state.aiLearning.busyCardId,
+    busyHistoricalCaseId: state.aiLearning.busyHistoricalCaseId,
+    historicalCaseFilter: state.aiLearning.historicalCaseFilter,
+    historicalImport: state.aiLearning.historicalImport,
     notice: state.aiLearning.notice,
     error: state.aiLearning.error || (sectionState.error ? actionErrorMessage(sectionState.error) : ""),
     lastUpdatedAt: state.aiLearning.lastUpdatedAt,
@@ -13649,6 +13797,8 @@ function scheduleAiLearningPolling(delay = AI_LEARNING_POLL_INTERVAL_MS) {
     || document.visibilityState !== "visible"
     || !state.session
     || state.aiLearning.busyCardId
+    || state.aiLearning.busyHistoricalCaseId
+    || state.aiLearning.historicalImport.inFlight
     || state.aiLearning.knowledgeMutationKind
     || state.aiLearning.marketMutationKind
   ) return;
@@ -13663,6 +13813,8 @@ async function pollAiLearningControlRoom() {
     state.route.path !== "/workspace/ai"
     || document.visibilityState !== "visible"
     || state.aiLearning.busyCardId
+    || state.aiLearning.busyHistoricalCaseId
+    || state.aiLearning.historicalImport.inFlight
     || state.aiLearning.knowledgeMutationKind
     || state.aiLearning.marketMutationKind
   ) return null;
@@ -13895,7 +14047,12 @@ function invalidateHiddenAiLearningSnapshot() {
 }
 
 async function decideAiTeachingCard(control) {
-  if (state.aiLearning.busyCardId || state.aiLearning.knowledgeMutationKind) return;
+  if (
+    state.aiLearning.busyCardId
+    || state.aiLearning.busyHistoricalCaseId
+    || state.aiLearning.knowledgeMutationKind
+    || state.aiLearning.historicalImport.inFlight
+  ) return;
   const decisionForm = control.closest(".ai-learning-decision-form");
   const confirmation = decisionForm?.elements?.confirmation;
   if (!(confirmation instanceof HTMLInputElement) || !confirmation.checked) {
@@ -13970,6 +14127,347 @@ async function decideAiTeachingCard(control) {
   }
 }
 
+async function decideAiHistoricalCase(control) {
+  if (
+    state.aiLearning.busyCardId
+    || state.aiLearning.busyHistoricalCaseId
+    || state.aiLearning.knowledgeMutationKind
+    || state.aiLearning.historicalImport.inFlight
+  ) return;
+  const card = control.closest("[data-ai-historical-case]") || control;
+  const category = String(
+    control.dataset.productCategory
+      || card.dataset.productCategory
+      || currentAiLearningCategory(),
+  ).trim().toLowerCase();
+  const caseId = String(control.dataset.caseId || card.dataset.caseId || "")
+    .trim()
+    .toLowerCase();
+  const eventId = String(control.dataset.eventId || card.dataset.eventId || "")
+    .trim()
+    .toLowerCase();
+  const decision = String(control.dataset.decision || "").trim().toLowerCase();
+  const expectedScopeVersion = Number(
+    control.dataset.scopeVersion || card.dataset.scopeVersion,
+  );
+  const expectedEventCursor = Number(
+    control.dataset.eventCursor || card.dataset.eventCursor,
+  );
+  if (category !== currentAiLearningCategory()) {
+    toast("Категория уже изменилась. Решение по кейсу не отправлено.", "error");
+    return;
+  }
+  stopAiLearningPolling();
+  const mutationRequestId = state.aiLearning.requestId + 1;
+  state.aiLearning.requestId = mutationRequestId;
+  state.aiLearning.busyHistoricalCaseId = caseId;
+  state.aiLearning.notice = "";
+  state.aiLearning.error = "";
+  renderWorkspace("ai");
+  try {
+    const response = await state.api.decideAiHistoricalCase({
+      product_category: category,
+      case_id: caseId,
+      event_id: eventId,
+      expected_scope_version: expectedScopeVersion,
+      expected_event_cursor: expectedEventCursor,
+      decision,
+      confirmation: true,
+    });
+    if (mutationRequestId !== state.aiLearning.requestId) return;
+    const successMessage = decision === "confirm"
+      ? "Решение сохранено: журнал и readiness обновлены. Generation fallback включится только при внутренней product_id-привязке или однозначном совпадении SKU и достаточном числе согласованных кейсов."
+      : "Кейс сохранён в журнале, но исключён из обучения.";
+    if (aiLearningMutationIsVisible(category)) {
+      applyAuthoritativeAiLearningResponse(response, category);
+      state.aiLearning.notice = successMessage;
+    } else {
+      invalidateHiddenAiLearningSnapshot();
+      toast(successMessage, "success");
+    }
+    await track("ai_historical_case_decided", {
+      product_category: category,
+      case_id: caseId,
+      decision,
+    });
+  } catch (error) {
+    if (mutationRequestId !== state.aiLearning.requestId) return;
+    const diagnostic = String(
+      error?.serverCode || error?.code || error?.message || "",
+    );
+    state.aiLearning.error = actionErrorMessage(error);
+    if (/ai_historical_case_(?:stale|refresh_required|scope_version_conflict|event_cursor_conflict|quarantined)/u.test(diagnostic)) {
+      await loadAiLearningControlRoom({ silent: true });
+      state.aiLearning.error = /ai_historical_case_quarantined/u.test(diagnostic)
+        ? "Кейс находится в карантине: сначала сопоставьте товар и выведите кейс из карантина. Решение не повторялось."
+        : "Кейс уже изменился в другой вкладке. Решение не повторялось; проверьте свежий статус.";
+    }
+  } finally {
+    if (state.aiLearning.busyHistoricalCaseId === caseId) {
+      state.aiLearning.busyHistoricalCaseId = "";
+    }
+    if (state.route.path === "/workspace/ai") renderWorkspace("ai");
+    scheduleAiLearningPolling();
+  }
+}
+
+function aiHistoricalCaseImportFile(file, mimeType) {
+  const extension = String(file?.name || "").split(".").pop()?.toLowerCase();
+  return extension === "xlsx"
+    || extension === "csv"
+    || mimeType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    || mimeType === "text/csv";
+}
+
+function aiKnowledgeRegisteredSourceId(response, {
+  objectKey,
+  filename,
+  category,
+} = {}) {
+  const directCandidates = [
+    response?.source_id,
+    response?.sourceId,
+    response?.source?.source_id,
+    response?.source?.sourceId,
+    response?.data?.source_id,
+    response?.data?.sourceId,
+    response?.data?.source?.source_id,
+    response?.data?.source?.sourceId,
+  ];
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+  const direct = directCandidates.map((value) => String(value || "").trim())
+    .find((value) => uuid.test(value));
+  if (direct) return direct.toLowerCase();
+  const responseSnapshot = response?.snapshot || response?.data?.snapshot;
+  const candidates = [responseSnapshot, state.sections.ai.data].filter((value) => (
+    value && typeof value === "object" && !Array.isArray(value)
+  ));
+  for (const candidate of candidates) {
+    const snapshot = normalizeAiLearningControlRoom(candidate, { category });
+    const source = snapshot?.category?.sources?.find((item) => (
+      (objectKey && item.objectKey === objectKey)
+      || (filename && item.originalFilename === filename)
+    ));
+    if (uuid.test(String(source?.id || ""))) return String(source.id).toLowerCase();
+  }
+  return "";
+}
+
+function aiHistoricalImportResponseSummary(response) {
+  const batch = response?.batch && typeof response.batch === "object"
+    ? response.batch
+    : {};
+  const summary = response?.summary && typeof response.summary === "object"
+    ? response.summary
+    : {};
+  const count = (...values) => {
+    const value = values.find((candidate) => Number.isSafeInteger(Number(candidate)) && Number(candidate) >= 0);
+    return value === undefined ? 0 : Number(value);
+  };
+  const rawStatus = String(
+    batch.status || batch.import_status || batch.importStatus
+      || response?.status || response?.import_status || "processing",
+  ).trim().toLowerCase();
+  const responseStatus = String(
+    response?.status || response?.import_status || "",
+  ).trim().toLowerCase();
+  const status = ({
+    pending: "queued",
+    in_progress: "processing",
+    parsing: "processing",
+    importing: "processing",
+    imported: "completed",
+    done: "completed",
+    completed_with_quarantine: "completed",
+    quarantined: "completed",
+    parser_rejected: "failed",
+    parser_rejected_all: "failed",
+    error: "failed",
+  })[rawStatus] || rawStatus;
+  const parserRejectedAll = response?.ok === false
+    && responseStatus === "parser_rejected_all"
+    && response?.retryable === true
+    && response?.batch_persisted === true;
+  const errorCount = count(
+    summary.errors,
+    summary.error_count,
+    summary.errorCount,
+    response?.errors,
+    response?.error_count,
+    response?.errorCount,
+    response?.parser_quarantined,
+    response?.parserQuarantined,
+    batch.errors,
+    batch.error_count,
+    batch.errorCount,
+    batch.parser_quarantined_row_count,
+    batch.parserQuarantinedRowCount,
+  );
+  return {
+    status,
+    parsed: count(
+      summary.parsed,
+      summary.parsed_rows,
+      summary.parsedRows,
+      summary.case_count,
+      summary.caseCount,
+      response?.parsed,
+      response?.parsed_rows,
+      response?.parsedRows,
+      batch.parsed,
+      batch.parsed_rows,
+      batch.parsedRows,
+      batch.parsed_row_count,
+      batch.parsedRowCount,
+      batch.case_count,
+      batch.caseCount,
+    ),
+    imported: count(
+      summary.imported,
+      summary.imported_cases,
+      summary.importedCases,
+      summary.matched_case_count,
+      summary.matchedCaseCount,
+      response?.imported,
+      response?.imported_cases,
+      response?.importedCases,
+      response?.matched,
+      batch.imported,
+      batch.imported_cases,
+      batch.importedCases,
+      batch.matched_case_count,
+      batch.matchedCaseCount,
+    ),
+    quarantined: count(
+      summary.quarantined,
+      summary.quarantined_cases,
+      summary.quarantinedCases,
+      summary.quarantined_case_count,
+      summary.quarantinedCaseCount,
+      response?.quarantined,
+      response?.quarantined_cases,
+      response?.quarantinedCases,
+      response?.parser_quarantined,
+      response?.parserQuarantined,
+      batch.quarantined,
+      batch.quarantined_cases,
+      batch.quarantinedCases,
+      batch.quarantined_case_count,
+      batch.quarantinedCaseCount,
+      batch.parser_quarantined_row_count,
+      batch.parserQuarantinedRowCount,
+    ),
+    errors: parserRejectedAll ? Math.max(1, errorCount) : errorCount,
+    recognizedCategories: summary.per_category || summary.perCategory
+      || summary.category_counts || summary.categoryCounts
+      || summary.per_category_summary || summary.perCategorySummary
+      || response?.per_category || response?.perCategory
+      || response?.category_counts || response?.categoryCounts
+      || response?.per_category_summary || response?.perCategorySummary
+      || batch.per_category || batch.perCategory
+      || batch.category_counts || batch.categoryCounts
+      || batch.per_category_summary || batch.perCategorySummary
+      || [],
+    parserRejectedAll,
+    retryable: response?.retryable === true,
+  };
+}
+
+function aiHistoricalImportHasSnapshot(response) {
+  const candidate = response?.snapshot || response?.control_room
+    || response?.controlRoom || response?.data?.snapshot;
+  return Boolean(candidate && typeof candidate === "object" && !Array.isArray(candidate));
+}
+
+async function importAiHistoricalCasesFromRegisteredSource({
+  sourceId,
+  productCategory,
+  filename,
+} = {}) {
+  if (state.aiLearning.historicalImport.inFlight || state.aiLearning.busyHistoricalCaseId) return;
+  const category = aiLearningCategory(productCategory, currentAiLearningCategory());
+  const normalizedSourceId = String(sourceId || "").trim().toLowerCase();
+  const previous = state.aiLearning.historicalImport;
+  const sameSource = previous.sourceId === normalizedSourceId
+    && previous.productCategory === category;
+  stopAiLearningPolling();
+  const mutationRequestId = state.aiLearning.requestId + 1;
+  state.aiLearning.requestId = mutationRequestId;
+  state.aiLearning.historicalImport = {
+    active: true,
+    inFlight: true,
+    status: "processing",
+    sourceId: normalizedSourceId,
+    productCategory: category,
+    filename: String(filename || previous.filename || "").slice(0, 240),
+    parsed: sameSource ? previous.parsed : 0,
+    imported: sameSource ? previous.imported : 0,
+    quarantined: sameSource ? previous.quarantined : 0,
+    errors: sameSource ? previous.errors : 0,
+    recognizedCategories: sameSource ? previous.recognizedCategories : [],
+    message: "",
+  };
+  state.aiLearning.error = "";
+  if (state.route.path === "/workspace/ai") renderWorkspace("ai");
+  try {
+    const response = await state.api.invokeAiHistoricalCaseImport({
+      product_category: category,
+      source_id: normalizedSourceId,
+      adapter: "auto",
+    });
+    if (mutationRequestId !== state.aiLearning.requestId) return;
+    const summary = aiHistoricalImportResponseSummary(response);
+    const importMessage = summary.parserRejectedAll
+      ? "Таблица и отчёт разбора сохранены, но ни одна строка не прошла безопасную проверку. Повторите разбор после обновления адаптера или правил; тот же файл загружать заново не нужно. Если неверны сами данные, загрузите исправленный файл как новый источник."
+      : "";
+    state.aiLearning.historicalImport = {
+      ...state.aiLearning.historicalImport,
+      ...summary,
+      active: true,
+      inFlight: false,
+      message: importMessage,
+    };
+    if (aiLearningMutationIsVisible(category) && aiHistoricalImportHasSnapshot(response)) {
+      applyAuthoritativeAiLearningResponse(response, category);
+    } else if (aiLearningMutationIsVisible(category)) {
+      await loadAiLearningControlRoom({ silent: true });
+    } else {
+      invalidateHiddenAiLearningSnapshot();
+    }
+    state.aiLearning.notice = summary.status === "completed"
+      ? `Исторические кейсы добавлены: ${summary.imported}; в карантине: ${summary.quarantined}.`
+      : summary.parserRejectedAll
+        ? importMessage
+        : "Таблица принята в разбор. Статус и кейсы обновятся автоматически.";
+    state.aiLearning.error = summary.parserRejectedAll ? importMessage : "";
+    await track("ai_historical_case_import_requested", {
+      product_category: category,
+      source_id: normalizedSourceId,
+      filename: String(filename || "").slice(-120),
+    });
+  } catch (error) {
+    if (mutationRequestId !== state.aiLearning.requestId) return;
+    const message = actionErrorMessage(error);
+    state.aiLearning.historicalImport = {
+      ...state.aiLearning.historicalImport,
+      active: true,
+      inFlight: false,
+      status: "failed",
+      errors: Math.max(1, state.aiLearning.historicalImport.errors || 0),
+      message,
+    };
+    state.aiLearning.error = message;
+    const diagnostic = String(error?.serverCode || error?.code || error?.message || "");
+    if (/ai_historical_case_import_(?:stale|snapshot_invalid|scope_version_conflict)/u.test(diagnostic)) {
+      await loadAiLearningControlRoom({ silent: true });
+    }
+  } finally {
+    state.aiLearning.historicalImport.inFlight = false;
+    if (state.route.path === "/workspace/ai") renderWorkspace("ai");
+    scheduleAiLearningPolling();
+  }
+}
+
 function aiKnowledgeMimeType(file) {
   const declared = String(file?.type || "").trim().toLowerCase();
   if (AI_KNOWLEDGE_MIME_TYPES.has(declared)) return declared;
@@ -14016,7 +14514,12 @@ function finishAiKnowledgeMutation(form, { reset = false } = {}) {
 
 async function submitAiKnowledgeLink(form) {
   if (!form.reportValidity()) return;
-  if (state.aiLearning.busyCardId || state.aiLearning.knowledgeMutationKind) return;
+  if (
+    state.aiLearning.busyCardId
+    || state.aiLearning.busyHistoricalCaseId
+    || state.aiLearning.knowledgeMutationKind
+    || state.aiLearning.historicalImport.inFlight
+  ) return;
   const values = new FormData(form);
   const category = String(values.get("product_category") || "").trim().toLowerCase();
   stopAiLearningPolling();
@@ -14061,7 +14564,12 @@ async function submitAiKnowledgeLink(form) {
 
 async function submitAiKnowledgeFile(form) {
   if (!form.reportValidity()) return;
-  if (state.aiLearning.busyCardId || state.aiLearning.knowledgeMutationKind) return;
+  if (
+    state.aiLearning.busyCardId
+    || state.aiLearning.busyHistoricalCaseId
+    || state.aiLearning.knowledgeMutationKind
+    || state.aiLearning.historicalImport.inFlight
+  ) return;
   const values = new FormData(form);
   const file = form.elements.file?.files?.[0];
   const category = String(values.get("product_category") || "").trim().toLowerCase();
@@ -14103,13 +14611,42 @@ async function submitAiKnowledgeFile(form) {
     });
     uploaded = false;
     registered = true;
-    const successMessage = "Файл сохранён в закрытой базе знаний. До отдельного проверенного разбора его содержимое не влияет на промпт.";
+    const importsHistoricalCases = aiHistoricalCaseImportFile(file, mimeType);
+    const successMessage = importsHistoricalCases
+      ? "Таблица сохранена в закрытой базе знаний. Запускаем серверный разбор исторических кейсов."
+      : "Файл сохранён в закрытой базе знаний. До отдельного проверенного разбора его содержимое не влияет на промпт.";
     if (aiLearningMutationIsVisible(category)) {
       applyAuthoritativeAiLearningResponse(response, category);
       state.aiLearning.notice = successMessage;
     } else {
       invalidateHiddenAiLearningSnapshot();
       toast(successMessage, "success");
+    }
+    if (importsHistoricalCases) {
+      const sourceId = aiKnowledgeRegisteredSourceId(response, {
+        objectKey,
+        filename: file.name,
+        category,
+      });
+      if (sourceId) {
+        await importAiHistoricalCasesFromRegisteredSource({
+          sourceId,
+          productCategory: category,
+          filename: file.name,
+        });
+      } else {
+        state.aiLearning.historicalImport = {
+          ...state.aiLearning.historicalImport,
+          active: true,
+          inFlight: false,
+          status: "failed",
+          sourceId: "",
+          productCategory: category,
+          filename: file.name.slice(0, 240),
+          errors: 1,
+          message: "Файл зарегистрирован, но сервер не вернул идентификатор источника. Обновите статус — повторная загрузка не требуется.",
+        };
+      }
     }
     form.reset();
     await track("ai_knowledge_source_added", {
@@ -14736,6 +15273,7 @@ async function handleClick(event) {
 
   if (action === "select-ai-learning-category") {
     const category = aiLearningCategory(control.dataset.categoryKey);
+    state.aiLearning.historicalCaseFilter = "all";
     const scopeId = currentAiLearningMarketScopeId();
     navigate(`/workspace/ai?category=${encodeURIComponent(category)}&view=${encodeURIComponent(currentAiLearningView())}${scopeId ? `&scope=${encodeURIComponent(scopeId)}` : ""}`);
     return;
@@ -14770,6 +15308,14 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "select-ai-historical-case-filter") {
+    state.aiLearning.historicalCaseFilter = aiHistoricalCaseFilter(
+      control.dataset.historicalCaseFilter,
+    );
+    if (state.route.path === "/workspace/ai") renderWorkspace("ai");
+    return;
+  }
+
   if (action === "choose-ai-knowledge-file") {
     const form = control.closest("#ai-knowledge-file-form");
     const input = form?.elements?.file;
@@ -14780,6 +15326,20 @@ async function handleClick(event) {
 
   if (action === "decide-ai-teaching-card") {
     await decideAiTeachingCard(control);
+    return;
+  }
+
+  if (action === "decide-ai-historical-case") {
+    await decideAiHistoricalCase(control);
+    return;
+  }
+
+  if (action === "retry-ai-historical-case-import") {
+    await importAiHistoricalCasesFromRegisteredSource({
+      sourceId: control.dataset.sourceId,
+      productCategory: control.dataset.productCategory,
+      filename: control.dataset.filename || state.aiLearning.historicalImport.filename,
+    });
     return;
   }
 
@@ -16001,6 +16561,7 @@ async function handleClick(event) {
       const response = await state.api.requestWorkspaceAccess();
       state.workspaceAccessRequest.result = response;
       state.workspaceAccessRequest.status = "ready";
+      persistWorkspaceAccessRequest(response);
       await track("workspace_access_requested", {
         request_id: String((response?.data ?? response)?.request?.id || ""),
       });
@@ -24092,6 +24653,7 @@ function clearAuthenticatedState() {
   state.generationModelAcceptance.updatedAt = 0;
   state.aiLearning.requestId += 1;
   state.aiLearning.busyCardId = "";
+  state.aiLearning.busyHistoricalCaseId = "";
   state.aiLearning.knowledgeMutationKind = "";
   state.aiLearning.marketIndex = null;
   state.aiLearning.marketDetail = null;
@@ -24099,6 +24661,21 @@ function clearAuthenticatedState() {
   state.aiLearning.marketError = "";
   state.aiLearning.marketMutationKind = "";
   state.aiLearning.marketMutationId += 1;
+  state.aiLearning.historicalCaseFilter = "all";
+  state.aiLearning.historicalImport = {
+    active: false,
+    inFlight: false,
+    status: "",
+    sourceId: "",
+    productCategory: "",
+    filename: "",
+    parsed: 0,
+    imported: 0,
+    quarantined: 0,
+    errors: 0,
+    recognizedCategories: [],
+    message: "",
+  };
   state.aiLearning.notice = "";
   state.aiLearning.error = "";
   state.aiLearning.lastUpdatedAt = 0;

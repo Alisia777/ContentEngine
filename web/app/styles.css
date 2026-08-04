@@ -4583,7 +4583,7 @@ input[type="radio"] {
   color: var(--ink-soft);
   background: #f7f9f7;
   cursor: pointer;
-  font-size: 0.76rem;
+  font-size: 0.875rem;
   line-height: 1.25;
   text-align: left;
 }
@@ -4655,7 +4655,7 @@ input[type="radio"] {
 
 .lesson-step-rail small {
   color: #8da097;
-  font-size: 0.62rem;
+  font-size: 0.75rem;
 }
 
 .lesson-content {
@@ -4684,7 +4684,7 @@ input[type="radio"] {
   border-radius: 999px;
   color: #64766f;
   background: #f8faf9;
-  font-size: 0.6rem;
+  font-size: 0.75rem;
   font-weight: 750;
 }
 
@@ -4714,7 +4714,7 @@ input[type="radio"] {
 
 .lesson-takeaway span {
   color: var(--success);
-  font-size: 0.62rem;
+  font-size: 0.75rem;
   font-weight: 850;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -4765,7 +4765,7 @@ input[type="radio"] {
 .visual-title {
   margin: 0 0 15px;
   color: #49605a;
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   font-weight: 820;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -4822,7 +4822,7 @@ input[type="radio"] {
 .lesson-visual small {
   margin-top: 5px;
   color: var(--ink-soft);
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   line-height: 1.4;
 }
 
@@ -4843,7 +4843,7 @@ input[type="radio"] {
   gap: 6px;
   color: #71837c;
   background: #f4f7f5;
-  font-size: 0.65rem;
+  font-size: 0.75rem;
 }
 
 .interface-toolbar i {
@@ -4931,7 +4931,7 @@ input[type="radio"] {
 
 .visual-timeline li > span {
   color: var(--success);
-  font-size: 0.69rem;
+  font-size: 0.75rem;
   font-weight: 800;
 }
 
@@ -4952,7 +4952,7 @@ input[type="radio"] {
   margin-bottom: 8px;
   padding: 4px 7px;
   border-radius: 999px;
-  font-size: 0.6rem;
+  font-size: 0.75rem;
   font-weight: 850;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -4970,7 +4970,7 @@ input[type="radio"] {
 
 .comparison-grid li {
   margin: 5px 0;
-  font-size: 0.73rem;
+  font-size: 0.75rem;
 }
 
 .comparison-stop {
@@ -5020,7 +5020,7 @@ input[type="radio"] {
   margin-bottom: 11px;
   padding: 4px 7px;
   border-radius: 999px;
-  font-size: 0.58rem;
+  font-size: 0.75rem;
   font-weight: 850;
   text-transform: uppercase;
 }
@@ -5028,7 +5028,7 @@ input[type="radio"] {
 .visual-decision section > p {
   margin: 7px 0 0;
   color: var(--ink-soft);
-  font-size: 0.7rem;
+  font-size: 0.75rem;
 }
 
 .decision-stop { border-color: #ebc9c5 !important; }
@@ -5053,7 +5053,7 @@ input[type="radio"] {
 .visual-metrics section > span {
   display: block;
   color: var(--ink-soft);
-  font-size: 0.64rem;
+  font-size: 0.75rem;
   font-weight: 750;
 }
 
@@ -5105,7 +5105,7 @@ input[type="radio"] {
 .lesson-checklist li {
   margin: 4px 0;
   color: #4c5c57;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
 }
 
 .lesson-practice {
@@ -5143,7 +5143,7 @@ input[type="radio"] {
 .lesson-practice li {
   margin: 5px 0;
   color: #4e5c57;
-  font-size: 0.74rem;
+  font-size: 0.75rem;
 }
 
 .course-completion-card {
@@ -7147,7 +7147,7 @@ html[data-portal-theme="obsidian"] .generation-readiness {
     flex: 0 0 min(78vw, 280px);
     scroll-snap-align: start;
   }
-  .course-roadmap button { min-height: 52px; font-size: 0.82rem; }
+  .course-roadmap button { min-height: 52px; font-size: 0.875rem; }
   .lesson-card { grid-template-columns: 48px minmax(0, 1fr); }
   .lesson-step-rail { padding: 22px 0; }
   .lesson-step-rail > span { width: 34px; height: 34px; }

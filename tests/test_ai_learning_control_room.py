@@ -201,6 +201,120 @@ const makeCategory = (key) => ({
     ...item, current: 0, missing: item.target,
   }))).filter((item) => item.missing > 0),
   teaching_cards: key === "cosmetics" ? [teachingCard] : [],
+  historical_cases: key === "cosmetics" ? [
+    {
+      case_id: "31000000-0000-4000-8000-000000000001",
+      event_id: "32000000-0000-4000-8000-000000000001",
+      external_case_id: "harley:Контент_дашборд:5",
+      product_category: "cosmetics",
+      product_id: "35000000-0000-4000-8000-000000000001",
+      product_sku: "WW146424",
+      marketplace_sku: "146424",
+      product_title: "Зубная паста 50 мл",
+      brand: "Harley",
+      platform: "wildberries",
+      channel: "Instagram → WW",
+      outcome: "good",
+      outcome_dimension: "content_sales",
+      status_label: "Лидер",
+      metrics: {
+        views: 503,
+        orders: 32,
+        sales: 28,
+        buyout_rate: 0.875,
+        sale_to_view_rate: 0.0557,
+        period_start: "2026-06-01",
+        period_end: "2026-06-30",
+        raw_caption: "Этот длинный сырой текст никогда не должен попадать в интерфейс",
+      },
+      confidence: 0.94,
+      decision_status: "pending",
+      resolution_status: "matched",
+      provenance: { original_filename: "Harley.xlsx", sheet: "Контент_дашборд", row: 5 },
+      case_version: 4,
+      head_event_id: "32000000-0000-4000-8000-000000000001",
+      head_event_cursor: 9,
+      event_cursor: 9,
+    },
+    {
+      case_id: "31000000-0000-4000-8000-000000000002",
+      event_id: "32000000-0000-4000-8000-000000000002",
+      external_case_id: "qeep:Ozon_воронка:8",
+      product_category: "cosmetics",
+      marketplace_sku: "qeepinositol",
+      product_title: "Инозитол",
+      brand: "QEEP",
+      platform: "ozon",
+      channel: "marketplace",
+      outcome: "bad",
+      outcome_dimension: "buyout",
+      status_label: "Чинить выкуп",
+      metrics: { orders: 100, sales: 59, buyout_rate: 0.59, drr: 0.31 },
+      confidence: 0.88,
+      review_status: "confirmed",
+      late_exact_sku_binding_available: true,
+      historical_learning_binding_status: "late_unique_marketplace_sku",
+      source: { filename: "QEEP.xlsx", sheet: "Ozon_воронка", row: 8 },
+      scope_version: 4,
+      event_cursor: 8,
+    },
+    {
+      case_id: "31000000-0000-4000-8000-000000000003",
+      event_id: "32000000-0000-4000-8000-000000000003",
+      external_case_id: "harley:Контент_дашборд:12",
+      product_category: "cosmetics",
+      marketplace_sku: "WW192017",
+      product_title: "Ушные капли",
+      brand: "Harley",
+      platform: "instagram",
+      outcome: "review",
+      outcome_dimension: "data_quality",
+      status_label: "Несовпадение товара и ссылки",
+      metrics: { views: 68 },
+      confidence: 0.42,
+      decision_status: "pending",
+      resolution_status: "quarantined",
+      provenance: { original_filename: "Harley.xlsx", sheet: "Контент_дашборд", row: 12 },
+      case_version: 4,
+      head_event_id: "32000000-0000-4000-8000-000000000003",
+      head_event_cursor: 9,
+      event_cursor: 9,
+    },
+  ] : [],
+  historical_case_summary: key === "cosmetics" ? {
+    total: 3,
+    good: 1,
+    bad: 1,
+    review: 1,
+    pending: 2,
+    confirmed: 1,
+    rejected: 0,
+    quarantined: 1,
+  } : {},
+  historical_case_evidence: key === "cosmetics" ? {
+    version: "ai-historical-case-evidence-v1",
+    confirmed_case_count: 1,
+    confirmed_good_count: 0,
+    confirmed_bad_count: 1,
+    historical_learning_eligible_count: 1,
+    historical_learning_direct_product_binding_count: 0,
+    historical_learning_late_exact_sku_binding_count: 1,
+    missing_exact_product_binding_count: 0,
+    minimum_confirmed_cases_per_direction: 2,
+    angles: [{ creative_angle: "demonstration", confirmed_case_count: 1, good_case_count: 0, bad_case_count: 1, preferred_eligible: false, avoid_eligible: false }],
+  } : {},
+  batches: key === "cosmetics" ? [{
+    batch_id: "33000000-0000-4000-8000-000000000001",
+    source_id: "40000000-0000-4000-8000-000000000002",
+    filename: "Harley.xlsx",
+    import_status: "completed_with_quarantine",
+    case_count: 4,
+    matched_case_count: 3,
+    quarantined_case_count: 1,
+    error_count: 0,
+    per_category_summary: { cosmetics: { case_count: 3, quarantined_case_count: 1 } },
+    imported_at: "2026-08-04T10:05:00.000Z",
+  }] : [],
 });
 const envelope = {
   ok: true,
@@ -222,6 +336,7 @@ const envelope = {
   capabilities: {
     can_register_source: true,
     can_decide_teaching_card: true,
+    can_decide_historical_case: true,
   },
 };
 """
@@ -298,6 +413,21 @@ const legacyMarkup = subject.aiLearningControlRoomMarkup(normalized, {
   view: "overview",
   legacyReadOnly: true,
 });
+const reviewMarkup = subject.aiLearningControlRoomMarkup(normalized, {
+  category: "cosmetics",
+  view: "teach",
+  historicalCaseFilter: "review",
+});
+const matchedReviewEnvelope = structuredClone(envelope);
+matchedReviewEnvelope.categories[0].historical_cases[2].resolution_status = "matched";
+const matchedReviewMarkup = subject.aiLearningControlRoomMarkup(
+  subject.normalizeAiLearningControlRoom(matchedReviewEnvelope, { category: "cosmetics" }),
+  { category: "cosmetics", view: "teach", historicalCaseFilter: "review" },
+);
+const matchedReviewCard = matchedReviewMarkup.slice(
+  matchedReviewMarkup.indexOf('data-case-id="31000000-0000-4000-8000-000000000003"'),
+  matchedReviewMarkup.indexOf("</article>", matchedReviewMarkup.indexOf('data-case-id="31000000-0000-4000-8000-000000000003"')),
+);
 const wrongVersion = subject.normalizeAiLearningControlRoom({
   ...envelope,
   version: "ai-learning-control-room-v2",
@@ -330,6 +460,120 @@ const afterStale = subject.applyAiLearningControlRoomMutation(afterApproved, {
   ok: true,
   snapshot: staleEnvelope,
 });
+const zeroScopeEnvelope = structuredClone(envelope);
+zeroScopeEnvelope.categories[0].scope_version = 11;
+zeroScopeEnvelope.categories[0].historical_cases[0].case_version = 0;
+delete zeroScopeEnvelope.categories[0].historical_cases[0].scope_version;
+const zeroScopeMarkup = subject.aiLearningControlRoomMarkup(
+  subject.normalizeAiLearningControlRoom(zeroScopeEnvelope, { category: "cosmetics" }),
+  { category: "cosmetics", view: "teach" },
+);
+const zeroScopeStart = zeroScopeMarkup.indexOf('data-case-id="31000000-0000-4000-8000-000000000001"');
+const zeroScopeCard = zeroScopeMarkup.slice(
+  zeroScopeStart,
+  zeroScopeMarkup.indexOf("</article>", zeroScopeStart),
+);
+const zeroExactEnvelope = structuredClone(envelope);
+zeroExactEnvelope.categories[0].historical_case_evidence.historical_learning_eligible_count = 0;
+zeroExactEnvelope.categories[0].historical_case_evidence.historical_learning_direct_product_binding_count = 0;
+zeroExactEnvelope.categories[0].historical_case_evidence.historical_learning_late_exact_sku_binding_count = 0;
+zeroExactEnvelope.categories[0].historical_case_evidence.missing_exact_product_binding_count = 1;
+zeroExactEnvelope.categories[0].historical_case_evidence.angles[0] = {
+  ...zeroExactEnvelope.categories[0].historical_case_evidence.angles[0],
+  confirmed_case_count: 3,
+  good_case_count: 3,
+  preferred_eligible: true,
+};
+const zeroExactMarkup = subject.aiLearningControlRoomMarkup(
+  subject.normalizeAiLearningControlRoom(zeroExactEnvelope, { category: "cosmetics" }),
+  { category: "cosmetics", view: "teach" },
+);
+const persistedFailureEnvelope = structuredClone(envelope);
+persistedFailureEnvelope.categories[0].batches = [{
+  import_id: "persisted-parser-rejection",
+  source_id: "40000000-0000-4000-8000-000000000009",
+  original_filename: "QEEP_rejected.xlsx",
+  import_status: "parser_rejected",
+  parsed_row_count: 17,
+  parser_quarantined_row_count: 17,
+  case_count: 0,
+  matched_case_count: 0,
+  quarantined_case_count: 0,
+  per_category_summary: {},
+  imported_at: "2026-08-04T12:30:00.000Z",
+}];
+const persistedFailureMarkup = subject.aiLearningControlRoomMarkup(
+  subject.normalizeAiLearningControlRoom(persistedFailureEnvelope, { category: "cosmetics" }),
+  { category: "cosmetics", view: "teach" },
+);
+const persistedProcessingEnvelope = structuredClone(envelope);
+persistedProcessingEnvelope.categories[0].batches = [{
+  import_id: "newer-completed-import",
+  source_id: "40000000-0000-4000-8000-000000000006",
+  default_product_category: "cosmetics",
+  original_filename: "Harley_newer.xlsx",
+  import_status: "completed",
+  parsed_row_count: 18,
+  case_count: 18,
+  matched_case_count: 18,
+  quarantined_case_count: 0,
+  imported_at: "2026-08-04T13:00:00.000Z",
+}, {
+  import_id: "persisted-partial-import",
+  source_id: "40000000-0000-4000-8000-000000000008",
+  default_product_category: "baa",
+  original_filename: "QEEP_partial.xlsx",
+  import_status: "in_progress",
+  parsed_row_count: 100,
+  case_count: 100,
+  matched_case_count: 100,
+  quarantined_case_count: 0,
+  imported_at: "2026-08-04T12:45:00.000Z",
+}];
+const persistedProcessingMarkup = subject.aiLearningControlRoomMarkup(
+  subject.normalizeAiLearningControlRoom(persistedProcessingEnvelope, { category: "cosmetics" }),
+  { category: "cosmetics", view: "teach" },
+);
+const registeredSpreadsheetEnvelope = structuredClone(envelope);
+registeredSpreadsheetEnvelope.categories[0].knowledge_sources.push({
+  source_id: "40000000-0000-4000-8000-000000000007",
+  source_kind: "file",
+  title: "Harley historical cases",
+  original_filename: "Harley_registered.xlsx",
+  mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  status: "active",
+  created_at: "2026-08-04T12:50:00.000Z",
+});
+const registeredSpreadsheetMarkup = subject.aiLearningControlRoomMarkup(
+  subject.normalizeAiLearningControlRoom(registeredSpreadsheetEnvelope, { category: "cosmetics" }),
+  { category: "cosmetics", view: "knowledge" },
+);
+const authoritativeLocalMarkup = subject.aiLearningControlRoomMarkup(normalized, {
+  category: "cosmetics",
+  view: "teach",
+  historicalImport: {
+    active: true,
+    inFlight: false,
+    status: "failed",
+    sourceId: "40000000-0000-4000-8000-000000000002",
+    productCategory: "cosmetics",
+    filename: "stale-local.xlsx",
+    errors: 1,
+  },
+});
+const unrelatedLocalMarkup = subject.aiLearningControlRoomMarkup(normalized, {
+  category: "cosmetics",
+  view: "teach",
+  historicalImport: {
+    active: true,
+    inFlight: false,
+    status: "failed",
+    sourceId: "40000000-0000-4000-8000-000000000099",
+    productCategory: "cosmetics",
+    filename: "unrelated-local.xlsx",
+    errors: 1,
+  },
+});
 const categoryOf = (value, key) => value.categories.find((item) => (
   item.productCategory === key
   || item.product_category === key
@@ -353,6 +597,7 @@ const staleCosmetics = categoryOf(afterStale, "cosmetics");
 const approvedCategory = afterApproved.category || afterApproved.categoryDetail;
 const approvedCard = approvedCategory.teachingCards?.[0]
   || approvedCategory.teaching_cards?.[0];
+const historicalCases = normalized.category.historicalCases;
 return {
   available: normalized.available,
   categories: normalized.categories.length,
@@ -387,6 +632,54 @@ return {
   legacyArchiveOnly: legacyMarkup.includes("Архивная политика: влияние отключено")
     && legacyMarkup.includes("Архивный legacy-показатель")
     && !legacyMarkup.includes("Правила, которые реально учитывает ИИ"),
+  historicalCases: historicalCases.length,
+  historicalSummary: normalized.category.historicalCaseSummary,
+  historicalFilters: ["good", "bad", "review"].every((key) => (
+    markup.includes(`data-historical-case-filter="${key}"`)
+  )),
+  historicalDecision: markup.includes('data-action="decide-ai-historical-case"')
+    && markup.includes('data-decision="confirm"')
+    && markup.includes('data-decision="reject"')
+    && markup.includes('data-event-cursor="9"'),
+  quarantineBadge: markup.includes('class="is-quarantine"'),
+  compactMetrics: markup.includes("87,5%") && markup.includes("5,57%"),
+  rawCaptionHidden: !markup.includes("Этот длинный сырой текст"),
+  reviewFilterExact: reviewMarkup.includes("WW192017")
+    && !reviewMarkup.includes("WW146424")
+    && !reviewMarkup.includes("qeepinositol"),
+  importLedger: markup.includes("Последние импорты")
+    && markup.includes("Распознано по категориям"),
+  historicalEvidenceBoundary: markup.includes("Связь product_id")
+    && markup.includes("Однозначный SKU")
+    && markup.includes("Без точного совпадения")
+    && markup.includes("минимум 2 непротиворечивых кейса")
+    && markup.includes("ручное обучение и базовая политика всегда приоритетнее"),
+  productBindingDisclosure: markup.includes("Внутренняя привязка product_id")
+    && markup.includes("Однозначное совпадение SKU")
+    && markup.includes("SKU сохранён для поздней точной связи")
+    && markup.includes("product_sku")
+    && markup.includes("current_wb_article"),
+  matchedReviewCanConfirm: matchedReviewCard.includes('data-decision="confirm"')
+    && !/data-decision="confirm"[^>]*disabled/u.test(matchedReviewCard),
+  zeroCaseScopePreserved: zeroScopeCard.includes('data-scope-version="0"'),
+  zeroExactDoesNotClaimReady: !zeroExactMarkup.includes("Порог и точная товарная связь уже подтверждены")
+    && zeroExactMarkup.includes("Пока нет сочетания достаточного creative angle и точной товарной связи"),
+  persistedFailureRetry: persistedFailureMarkup.includes('data-action="retry-ai-historical-case-import"')
+    && persistedFailureMarkup.includes('data-source-id="40000000-0000-4000-8000-000000000009"')
+    && persistedFailureMarkup.includes('data-filename="QEEP_rejected.xlsx"')
+    && persistedFailureMarkup.includes("Таблица требует повторного разбора"),
+  persistedProcessingContinue: persistedProcessingMarkup.includes('data-action="retry-ai-historical-case-import"')
+    && persistedProcessingMarkup.includes('data-source-id="40000000-0000-4000-8000-000000000008"')
+    && persistedProcessingMarkup.includes('data-product-category="baa"')
+    && persistedProcessingMarkup.includes("Продолжить разбор"),
+  registeredSpreadsheetParse: registeredSpreadsheetMarkup.includes('data-action="retry-ai-historical-case-import"')
+    && registeredSpreadsheetMarkup.includes('data-source-id="40000000-0000-4000-8000-000000000007"')
+    && registeredSpreadsheetMarkup.includes("Разобрать кейсы"),
+  authoritativeImportWins: authoritativeLocalMarkup.includes("Разбор таблицы завершён")
+    && authoritativeLocalMarkup.includes("Harley.xlsx")
+    && !authoritativeLocalMarkup.includes("stale-local.xlsx"),
+  unrelatedLocalVisible: unrelatedLocalMarkup.includes("unrelated-local.xlsx")
+    && unrelatedLocalMarkup.includes("Таблица требует повторного разбора"),
   policyHeadingIds: [...markup.matchAll(/id="(ai-learning-policy-[^"]+-title)"/g)].map((match) => match[1]),
   authoritativeVersion: afterApproved.stateVersion ?? afterApproved.state_version,
   authoritativeCursor: afterApproved.eventCursor ?? afterApproved.event_cursor,
@@ -417,6 +710,34 @@ return {
         "exactDecisionIdentity": True,
         "accessibleStatus": True,
         "legacyArchiveOnly": True,
+        "historicalCases": 3,
+        "historicalSummary": {
+            "total": 3,
+            "good": 1,
+            "bad": 1,
+            "review": 1,
+            "pending": 2,
+            "confirmed": 1,
+            "rejected": 0,
+            "quarantined": 1,
+        },
+        "historicalFilters": True,
+        "historicalDecision": True,
+        "quarantineBadge": True,
+        "compactMetrics": True,
+        "rawCaptionHidden": True,
+        "reviewFilterExact": True,
+        "importLedger": True,
+        "historicalEvidenceBoundary": True,
+        "productBindingDisclosure": True,
+        "matchedReviewCanConfirm": True,
+        "zeroCaseScopePreserved": True,
+        "zeroExactDoesNotClaimReady": True,
+        "persistedFailureRetry": True,
+        "persistedProcessingContinue": True,
+        "registeredSpreadsheetParse": True,
+        "authoritativeImportWins": True,
+        "unrelatedLocalVisible": True,
         "policyHeadingIds": [
             "ai-learning-policy-overview-title",
             "ai-learning-policy-history-title",
@@ -427,6 +748,195 @@ return {
         "selectionPreserved": "cosmetics",
         "staleVersion": 4,
         "staleScore": 25,
+    }
+
+
+def test_baa_history_keeps_all_319_cases_and_review_is_not_quarantine() -> None:
+    result = _run_module(
+        VIEW_PATH,
+        AI_CONTROL_ROOM_FIXTURE
+        + r"""
+const qeepEnvelope = structuredClone(envelope);
+const baaCategory = qeepEnvelope.categories.find((item) => item.key === "baa");
+baaCategory.historical_cases = Array.from({ length: 319 }, (_, index) => {
+  const suffix = String(index + 1).padStart(12, "0");
+  return {
+    case_id: `41000000-0000-4000-8000-${suffix}`,
+    event_id: `42000000-0000-4000-8000-${suffix}`,
+    head_event_id: `42000000-0000-4000-8000-${suffix}`,
+    external_case_id: `qeep:baa:${index + 1}`,
+    product_category: "baa",
+    product_id: `43000000-0000-4000-8000-${suffix}`,
+    marketplace_sku: `QEEP-${index + 1}`,
+    product_title: `QEEP case ${index + 1}`,
+    brand: "QEEP",
+    platform: index % 2 ? "ozon" : "wildberries",
+    outcome: "review",
+    outcome_dimension: "funnel_review",
+    decision_status: "pending",
+    resolution_status: "matched",
+    case_version: 1,
+    head_event_cursor: index + 1,
+    metrics: { views: index + 100, orders: index + 1 },
+    provenance: { original_filename: "QEEP_BI.xlsx", sheet: "BAA", row: index + 2 },
+  };
+});
+baaCategory.batches = [{
+  import_id: "logical-qeep-import",
+  source_id: "44000000-0000-4000-8000-000000000001",
+  original_filename: "QEEP_BI_319.xlsx",
+  manifest_sha256: "d".repeat(64),
+  batch_count: 4,
+  completed_batch_count: 4,
+  case_count: 319,
+  matched_case_count: 314,
+  quarantined_case_count: 5,
+  import_status: "completed_with_quarantine",
+  per_category_summary: {
+    baa: { total: 319, matched: 314, quarantined: 5, review: 319 },
+  },
+  imported_at: "2026-08-04T12:00:00.000Z",
+}];
+delete baaCategory.historical_case_summary;
+const normalized = subject.normalizeAiLearningControlRoom(qeepEnvelope, {
+  category: "baa",
+});
+const markup = subject.aiLearningControlRoomMarkup(normalized, {
+  category: "baa",
+  view: "teach",
+  historicalCaseFilter: "review",
+});
+const ledgerStart = markup.indexOf('<details class="ai-learning-historical-batches"');
+const ledgerEnd = markup.indexOf("</details>", ledgerStart);
+const batchLedger = markup.slice(ledgerStart, ledgerEnd);
+return {
+  normalizedCases: normalized.category.historicalCases.length,
+  total: normalized.category.historicalCaseSummary.total,
+  review: normalized.category.historicalCaseSummary.review,
+  quarantined: normalized.category.historicalCaseSummary.quarantined,
+  renderedCards: (markup.match(/data-ai-historical-case(?:\s|>)/gu) || []).length,
+  confirmButtons: (markup.match(/data-decision="confirm"/gu) || []).length,
+  rejectButtons: (markup.match(/data-decision="reject"/gu) || []).length,
+  quarantineBadges: (markup.match(/class="is-quarantine"/gu) || []).length,
+  exactProductCopy: (markup.match(/class="ai-learning-historical-binding is-bound"/gu) || []).length,
+  logicalBatches: normalized.category.historicalCaseBatches.length,
+  logicalBatchId: normalized.category.historicalCaseBatches[0]?.id,
+  logicalBatchLedgerItems: (batchLedger.match(/<li>/gu) || []).length,
+};
+""",
+    )
+
+    assert result == {
+        "normalizedCases": 319,
+        "total": 319,
+        "review": 319,
+        "quarantined": 0,
+        "renderedCards": 319,
+        "confirmButtons": 319,
+        "rejectButtons": 319,
+        "quarantineBadges": 0,
+        "exactProductCopy": 319,
+        "logicalBatches": 1,
+        "logicalBatchId": "logical-qeep-import",
+        "logicalBatchLedgerItems": 1,
+    }
+
+
+def test_historical_case_decision_can_be_reversed_with_fresh_head_cas() -> None:
+    result = _run_module(
+        VIEW_PATH,
+        AI_CONTROL_ROOM_FIXTURE
+        + r"""
+const withDecision = (decisionStatus, stateVersion, eventCursor, headEventId) => {
+  const next = structuredClone(envelope);
+  next.state_version = stateVersion;
+  next.event_cursor = eventCursor;
+  const historicalCase = next.categories[0].historical_cases[0];
+  historicalCase.decision_status = decisionStatus;
+  historicalCase.case_version = stateVersion;
+  historicalCase.head_event_id = headEventId;
+  historicalCase.head_event_cursor = eventCursor;
+  return next;
+};
+const cardFrom = (snapshot) => {
+  const normalized = subject.normalizeAiLearningControlRoom(snapshot, {
+    category: "cosmetics",
+  });
+  const markup = subject.aiLearningControlRoomMarkup(normalized, {
+    category: "cosmetics",
+    view: "teach",
+  });
+  const start = markup.indexOf('data-case-id="31000000-0000-4000-8000-000000000001"');
+  return {
+    normalized,
+    card: markup.slice(start, markup.indexOf("</article>", start)),
+  };
+};
+const button = (card, decision) => (
+  card.match(new RegExp(`<button[^>]*data-decision="${decision}"[^>]*>`, "u"))?.[0] || ""
+);
+const confirmedEnvelope = withDecision(
+  "confirmed",
+  5,
+  15,
+  "36000000-0000-4000-8000-000000000001",
+);
+const rejectedEnvelope = withDecision(
+  "rejected",
+  6,
+  16,
+  "36000000-0000-4000-8000-000000000002",
+);
+const confirmed = cardFrom(confirmedEnvelope);
+const rejected = cardFrom(rejectedEnvelope);
+const afterConfirmToReject = subject.applyAiLearningControlRoomMutation(
+  confirmed.normalized,
+  { ok: true, snapshot: rejectedEnvelope },
+);
+const afterRejectToConfirm = subject.applyAiLearningControlRoomMutation(
+  rejected.normalized,
+  {
+    ok: true,
+    snapshot: withDecision(
+      "confirmed",
+      7,
+      17,
+      "36000000-0000-4000-8000-000000000003",
+    ),
+  },
+);
+const confirmedConfirm = button(confirmed.card, "confirm");
+const confirmedReject = button(confirmed.card, "reject");
+const rejectedConfirm = button(rejected.card, "confirm");
+const rejectedReject = button(rejected.card, "reject");
+return {
+  confirmCurrentDisabled: /\sdisabled(?:\s|>)/u.test(confirmedConfirm),
+  confirmToRejectEnabled: !/\sdisabled(?:\s|>)/u.test(confirmedReject)
+    && confirmed.card.includes("Изменить: не учить"),
+  rejectCurrentDisabled: /\sdisabled(?:\s|>)/u.test(rejectedReject),
+  rejectToConfirmEnabled: !/\sdisabled(?:\s|>)/u.test(rejectedConfirm)
+    && rejected.card.includes("Изменить: верно"),
+  confirmedCas: confirmedReject.includes('data-event-id="36000000-0000-4000-8000-000000000001"')
+    && confirmedReject.includes('data-scope-version="5"')
+    && confirmedReject.includes('data-event-cursor="15"'),
+  rejectedCas: rejectedConfirm.includes('data-event-id="36000000-0000-4000-8000-000000000002"')
+    && rejectedConfirm.includes('data-scope-version="6"')
+    && rejectedConfirm.includes('data-event-cursor="16"'),
+  confirmToRejectApplied: afterConfirmToReject.category.historicalCases[0].reviewStatus,
+  rejectToConfirmApplied: afterRejectToConfirm.category.historicalCases[0].reviewStatus,
+};
+""",
+    )
+
+    assert result == {
+        "confirmCurrentDisabled": True,
+        "confirmToRejectEnabled": True,
+        "rejectCurrentDisabled": True,
+        "rejectToConfirmEnabled": True,
+        "confirmedCas": True,
+        "rejectedCas": True,
+        "confirmToRejectApplied": "rejected",
+        "rejectToConfirmApplied": "confirmed",
     }
 
 
@@ -477,6 +987,15 @@ await api.decideAiTeachingCard({
   reason_code: "operator_confirmed",
   confirmation: true,
 });
+await api.decideAiHistoricalCase({
+  product_category: "cosmetics",
+  case_id: "31000000-0000-4000-8000-000000000001",
+  event_id: "32000000-0000-4000-8000-000000000001",
+  expected_scope_version: 4,
+  expected_event_cursor: 9,
+  decision: "confirm",
+  confirmation: true,
+});
 const beforeInvalid = calls.length;
 const rejected = [];
 for (const [name, operation] of [
@@ -503,6 +1022,15 @@ for (const [name, operation] of [
     reason_code: "operator_rejected",
     confirmation: false,
   })],
+  ["historical", () => api.decideAiHistoricalCase({
+    product_category: "cosmetics",
+    case_id: "31000000-0000-4000-8000-000000000001",
+    event_id: "32000000-0000-4000-8000-000000000001",
+    expected_scope_version: 4,
+    expected_event_cursor: 9,
+    decision: "approve",
+    confirmation: true,
+  })],
 ]) {
   try { await operation(); }
   catch { rejected.push(name); }
@@ -516,9 +1044,11 @@ return { calls, rejected, invalidReachedRpc: calls.length !== beforeInvalid };
         "creator_register_ai_knowledge_source",
         "creator_register_ai_knowledge_source",
         "creator_decide_ai_teaching_card",
+        "creator_decide_ai_historical_case",
     ]
     assert [item["kind"] for item in result["calls"]] == [
         "call",
+        "mutate",
         "mutate",
         "mutate",
         "mutate",
@@ -529,13 +1059,14 @@ return { calls, rejected, invalidReachedRpc: calls.length !== beforeInvalid };
         "rights",
         "decision",
         "confirmation",
+        "historical",
     ]
     assert result["invalidReachedRpc"] is False
 
-    read, link, file_source, decision = [
+    read, link, file_source, decision, historical = [
         item["payload"] for item in result["calls"]
     ]
-    for payload in (read, link, file_source, decision):
+    for payload in (read, link, file_source, decision, historical):
         assert payload["organization_id"] == "10000000-0000-4000-8000-000000000001"
         assert payload.get("product_category", payload.get("category")) in PRODUCT_CATEGORIES
     assert link["source_url"] == "https://example.com/category-guide"
@@ -552,6 +1083,296 @@ return { calls, rejected, invalidReachedRpc: calls.length !== beforeInvalid };
     assert decision["confirmation"] is True
     assert decision["card_hash"] == "a" * 64
     assert decision["expected_scope_version"] == 3
+    assert historical == {
+        "organization_id": "10000000-0000-4000-8000-000000000001",
+        "product_category": "cosmetics",
+        "case_id": "31000000-0000-4000-8000-000000000001",
+        "event_id": "32000000-0000-4000-8000-000000000001",
+        "expected_scope_version": 4,
+        "expected_event_cursor": 9,
+        "decision": "confirm",
+        "confirmation": True,
+    }
+
+
+def test_spreadsheet_import_uses_authenticated_edge_function_and_stable_idempotency() -> None:
+    result = _run_module(
+        API_PATH,
+        r"""
+globalThis.window = { sessionStorage: { getItem: () => null, setItem: () => {} } };
+const invocations = [];
+const api = Object.create(subject.CreatorApi.prototype);
+api.organizationId = "10000000-0000-4000-8000-000000000001";
+api.mutationKeys = {};
+api.supabase = {
+  auth: { getSession: async () => ({ data: { session: { access_token: "token" } }, error: null }) },
+  functions: { invoke: async (name, options) => {
+    invocations.push({ name, options });
+    if (options.body.source_id.endsWith("0003")) {
+      return {
+        data: {
+          ok: false,
+          status: "parser_rejected_all",
+          retryable: true,
+          batch_persisted: true,
+          batch: {
+            import_status: "parser_rejected",
+            parsed_row_count: 7,
+            parser_quarantined_row_count: 7,
+            per_category_summary: {},
+          },
+          snapshot: { version: "ai-learning-control-room-v1" },
+        },
+        error: null,
+      };
+    }
+    return {
+      data: {
+        ok: true,
+        status: "completed",
+        summary: { parsed_rows: 12, imported_cases: 8, quarantined_cases: 2 },
+      },
+      error: null,
+    };
+  } },
+};
+const payload = {
+  product_category: "baa",
+  source_id: "40000000-0000-4000-8000-000000000002",
+  adapter: "auto",
+  idempotency_key: "34000000-0000-4000-8000-000000000001",
+};
+const first = await api.invokeAiHistoricalCaseImport(payload);
+const second = await api.invokeAiHistoricalCaseImport(payload);
+const persistedPayload = {
+  ...payload,
+  source_id: "40000000-0000-4000-8000-000000000003",
+  idempotency_key: "34000000-0000-4000-8000-000000000002",
+};
+const persistedRejection = await api.invokeAiHistoricalCaseImport(persistedPayload);
+const persistedRetry = await api.invokeAiHistoricalCaseImport(persistedPayload);
+const beforeInvalid = invocations.length;
+let invalidRejected = false;
+try {
+  await api.invokeAiHistoricalCaseImport({ ...payload, source_id: "not-a-source" });
+} catch { invalidRejected = true; }
+return {
+  invocations,
+  first,
+  second,
+  persistedRejection,
+  persistedRetry,
+  invalidRejected,
+  invalidReachedEdge: invocations.length !== beforeInvalid,
+};
+""",
+    )
+
+    assert result["first"]["status"] == "completed"
+    assert result["second"]["status"] == "completed"
+    for receipt in (result["persistedRejection"], result["persistedRetry"]):
+        assert receipt["ok"] is False
+        assert receipt["status"] == "parser_rejected_all"
+        assert receipt["retryable"] is True
+        assert receipt["batch_persisted"] is True
+        assert receipt["batch"]["parser_quarantined_row_count"] == 7
+        assert receipt["snapshot"]["version"] == "ai-learning-control-room-v1"
+    assert result["invalidRejected"] is True
+    assert result["invalidReachedEdge"] is False
+    assert len(result["invocations"]) == 4
+    for invocation in result["invocations"]:
+        assert invocation["name"] == "creator-ai-case-import"
+        assert invocation["options"]["headers"] == {"Authorization": "Bearer token"}
+    for invocation in result["invocations"][:2]:
+        assert invocation["options"]["body"] == {
+            "organization_id": "10000000-0000-4000-8000-000000000001",
+            "action": "parse_and_import",
+            "product_category": "baa",
+            "source_id": "40000000-0000-4000-8000-000000000002",
+            "adapter": "auto",
+            "commit": True,
+            "idempotency_key": "34000000-0000-4000-8000-000000000001",
+        }
+    for invocation in result["invocations"][2:]:
+        assert invocation["options"]["body"] == {
+            "organization_id": "10000000-0000-4000-8000-000000000001",
+            "action": "parse_and_import",
+            "product_category": "baa",
+            "source_id": "40000000-0000-4000-8000-000000000003",
+            "adapter": "auto",
+            "commit": True,
+            "idempotency_key": "34000000-0000-4000-8000-000000000002",
+        }
+
+
+def test_edge_import_summary_prefers_top_level_receipt_counters() -> None:
+    function_source = _js_function(
+        _read(APP_PATH),
+        "aiHistoricalImportResponseSummary",
+    )
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        module_path = Path(temporary_directory) / "summary.mjs"
+        module_path.write_text(
+            f"export {function_source}\n",
+            encoding="utf-8",
+        )
+        result = _run_module(
+            module_path,
+            r"""
+const success = subject.aiHistoricalImportResponseSummary({
+  ok: true,
+  status: "completed",
+  parsed: 225,
+  imported: 220,
+  quarantined: 5,
+  errors: 5,
+  per_category: { baa: { total: 225, matched: 220, quarantined: 5 } },
+  batch: { status: "completed", planned: 3, accepted: 3 },
+});
+const persistedRejection = subject.aiHistoricalImportResponseSummary({
+  ok: false,
+  status: "parser_rejected_all",
+  retryable: true,
+  batch_persisted: true,
+  parsed: 17,
+  imported: 0,
+  quarantined: 17,
+  errors: 17,
+  per_category: {},
+  batch: {
+    import_status: "parser_rejected",
+    parsed_row_count: 17,
+    parser_quarantined_row_count: 17,
+    case_count: 0,
+    matched_case_count: 0,
+    quarantined_case_count: 0,
+  },
+});
+return { success, persistedRejection };
+""",
+        )
+
+    assert result["success"] == {
+        "status": "completed",
+        "parsed": 225,
+        "imported": 220,
+        "quarantined": 5,
+        "errors": 5,
+        "recognizedCategories": {
+            "baa": {"total": 225, "matched": 220, "quarantined": 5},
+        },
+        "parserRejectedAll": False,
+        "retryable": False,
+    }
+    assert result["persistedRejection"] == {
+        "status": "failed",
+        "parsed": 17,
+        "imported": 0,
+        "quarantined": 17,
+        "errors": 17,
+        "recognizedCategories": {},
+        "parserRejectedAll": True,
+        "retryable": True,
+    }
+
+
+def test_registered_source_lookup_reads_the_registration_response_snapshot() -> None:
+    function_source = _js_function(
+        _read(APP_PATH),
+        "aiKnowledgeRegisteredSourceId",
+    )
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        module_path = Path(temporary_directory) / "source-lookup.mjs"
+        module_path.write_text(
+            "const state = { sections: { ai: { data: null } } };\n"
+            "function normalizeAiLearningControlRoom(value) { return value; }\n"
+            f"export {function_source}\n",
+            encoding="utf-8",
+        )
+        result = _run_module(
+            module_path,
+            r"""
+const sourceId = "40000000-0000-4000-8000-000000000007";
+return {
+  sourceId: subject.aiKnowledgeRegisteredSourceId({
+    snapshot: {
+      category: {
+        sources: [{
+          id: sourceId,
+          objectKey: "org/knowledge/file.xlsx",
+          originalFilename: "file.xlsx",
+        }],
+      },
+    },
+  }, {
+    objectKey: "org/knowledge/file.xlsx",
+    filename: "file.xlsx",
+    category: "baa",
+  }),
+};
+""",
+        )
+
+    assert result == {
+        "sourceId": "40000000-0000-4000-8000-000000000007",
+    }
+
+
+def test_import_fingerprint_survives_transport_error_but_rotates_after_receipt() -> None:
+    result = _run_module(
+        API_PATH,
+        r"""
+const stored = new Map();
+globalThis.window = {
+  sessionStorage: {
+    getItem: (key) => stored.get(key) || null,
+    setItem: (key, value) => stored.set(key, value),
+  },
+};
+const invocations = [];
+let mode = "transport";
+const api = Object.create(subject.CreatorApi.prototype);
+api.organizationId = "10000000-0000-4000-8000-000000000001";
+api.mutationKeys = {};
+api.supabase = {
+  auth: { getSession: async () => ({ data: { session: { access_token: "token" } }, error: null }) },
+  functions: { invoke: async (_name, options) => {
+    invocations.push(structuredClone(options.body));
+    if (mode === "transport") {
+      return { data: null, error: { code: "edge_unavailable", message: "offline" } };
+    }
+    return {
+      data: {
+        ok: false,
+        status: "parser_rejected_all",
+        retryable: true,
+        batch_persisted: true,
+        batch: { import_status: "parser_rejected" },
+        snapshot: { version: "ai-learning-control-room-v1" },
+      },
+      error: null,
+    };
+  } },
+};
+const payload = {
+  product_category: "baa",
+  source_id: "40000000-0000-4000-8000-000000000004",
+  adapter: "auto",
+};
+for (let index = 0; index < 2; index += 1) {
+  try { await api.invokeAiHistoricalCaseImport(payload); } catch {}
+}
+mode = "persisted";
+await api.invokeAiHistoricalCaseImport(payload);
+await api.invokeAiHistoricalCaseImport(payload);
+return { keys: invocations.map((item) => item.idempotency_key) };
+""",
+    )
+
+    first_transport, second_transport, first_receipt, second_receipt = result["keys"]
+    assert first_transport == second_transport
+    assert first_receipt == first_transport
+    assert second_receipt != first_receipt
 
 
 def test_decision_handler_applies_the_authoritative_snapshot_without_side_effects() -> None:
@@ -560,6 +1381,11 @@ def test_decision_handler_applies_the_authoritative_snapshot_without_side_effect
     link = _js_function(app, "submitAiKnowledgeLink")
     file_source = _js_function(app, "submitAiKnowledgeFile")
     decision = _js_function(app, "decideAiTeachingCard")
+    historical_decision = _js_function(app, "decideAiHistoricalCase")
+    historical_import = _js_function(
+        app,
+        "importAiHistoricalCasesFromRegisteredSource",
+    )
     authoritative = _js_function(app, "applyAuthoritativeAiLearningResponse")
     finish_knowledge = _js_function(app, "finishAiKnowledgeMutation")
 
@@ -569,6 +1395,22 @@ def test_decision_handler_applies_the_authoritative_snapshot_without_side_effect
     assert link.count("registerAiKnowledgeSource(") == 1
     assert file_source.count("registerAiKnowledgeSource(") == 1
     assert decision.count("decideAiTeachingCard(") >= 1
+    assert historical_decision.count("decideAiHistoricalCase(") >= 1
+    assert "expected_event_cursor" in historical_decision
+    assert 'decision === "confirm"' in historical_decision
+    assert "applyAuthoritativeAiLearningResponse" in historical_decision
+    assert "stopAiLearningPolling()" in historical_decision
+    assert "busyHistoricalCaseId" in historical_decision
+    assert "mutationRequestId !== state.aiLearning.requestId" in historical_decision
+    assert "invokeAiHistoricalCaseImport(" in historical_import
+    assert "idempotency_key" not in historical_import
+    assert "crypto.randomUUID()" not in historical_import
+    assert "aiHistoricalImportHasSnapshot" in historical_import
+    assert "loadAiLearningControlRoom({ silent: true })" in historical_import
+    assert "location.reload" not in historical_import
+    assert "aiHistoricalCaseImportFile(file, mimeType)" in file_source
+    assert "aiKnowledgeRegisteredSourceId" in file_source
+    assert "importAiHistoricalCasesFromRegisteredSource" in file_source
     assert "applyAuthoritativeAiLearningResponse" in decision
     assert "applyAiLearningControlRoomMutation" in authoritative
     assert "section.data = next" in authoritative
@@ -594,8 +1436,19 @@ def test_decision_handler_applies_the_authoritative_snapshot_without_side_effect
     poll = _js_function(app, "pollAiLearningControlRoom")
     assert "knowledgeMutationKind" in schedule
     assert "knowledgeMutationKind" in poll
+    assert "busyHistoricalCaseId" in schedule
+    assert "busyHistoricalCaseId" in poll
+    assert "historicalImport.inFlight" in schedule
+    assert "historicalImport.inFlight" in poll
 
-    handlers = "\n".join((link, file_source, decision, authoritative))
+    handlers = "\n".join((
+        link,
+        file_source,
+        decision,
+        historical_decision,
+        historical_import,
+        authoritative,
+    ))
     for forbidden in (
         "location.reload",
         "window.location",

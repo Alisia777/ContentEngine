@@ -6,9 +6,9 @@
  * reads secrets or clones file inputs.
  */
 
-import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.12";
+import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.13";
 
-const BUILD = "20260804.os4.12";
+const BUILD = "20260804.os4.13";
 const STORAGE_KEY = "contentengine.desktop-v4.v1";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
 const PROJECT_CONTEXT_KEY = "contentengine.desktop-v4.project";

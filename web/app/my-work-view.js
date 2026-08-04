@@ -226,7 +226,7 @@ export function myWorkWorkspaceMarkup({
                       <div class="my-work-view-confirm" role="status">
                         <span>Удалить «${escapeHtml(view.name)}»?</span>
                         <div>
-                          <button class="btn btn-small my-work-view-confirm__delete" type="button" data-action="confirm-delete-my-work-view" data-view-id="${escapeHtml(view.id)}" data-view-version="${view.version}">Удалить</button>
+                          <button class="btn btn-danger btn-small my-work-view-confirm__delete" type="button" data-action="confirm-delete-my-work-view" data-primary-action="true" data-view-id="${escapeHtml(view.id)}" data-view-version="${view.version}">Удалить</button>
                           <button class="btn btn-secondary btn-small" type="button" data-action="cancel-delete-my-work-view">Отмена</button>
                         </div>
                       </div>
@@ -258,7 +258,7 @@ export function myWorkWorkspaceMarkup({
                 <span>Поиск по работе</span>
                 <input name="query" type="search" maxlength="120" value="${escapeHtml(normalizedFilters.query)}" placeholder="Товар, задача, статус…" />
               </label>
-              <button class="btn" type="submit">Найти</button>
+              <button class="btn btn-secondary" type="submit">Найти</button>
               <button class="btn btn-secondary" type="button" data-action="reset-my-work-filters" ${activeFilters ? "" : "disabled"}>Сбросить</button>
             </div>
             <fieldset class="my-work-filter-group">
@@ -295,7 +295,10 @@ export function myWorkWorkspaceMarkup({
               <span class="badge">${workMode === "next" ? (nextWorkItem ? "1" : "0") : formatNumber(normalizedWork.counts.total)}</span>
             </div>
             ${visibleWorkItems.length
-              ? visibleWorkItems.map((item) => workItemMarkup(item, workMode === "next")).join("")
+              ? visibleWorkItems.map((item) => workItemMarkup(
+                item,
+                workMode === "next" && !pendingDeleteViewId,
+              )).join("")
               : emptyWorkMarkup(activeFilters)}
             ${workMode === "queue" && normalizedWork.nextCursor ? `
               <button class="btn btn-secondary btn-block" type="button" data-action="load-more-my-work" ${loadingMore ? "disabled" : ""}>

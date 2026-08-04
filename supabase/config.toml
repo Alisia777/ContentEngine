@@ -107,6 +107,9 @@ verify_jwt = false
 [functions.creator-click]
 verify_jwt = false
 
+[functions.creator-ai-case-import]
+verify_jwt = true
+
 [functions.auth-email-webhook]
 verify_jwt = false
 

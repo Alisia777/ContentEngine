@@ -43,6 +43,25 @@ const AI_TEACHING_STATUSES = new Set([
   "rejected",
   "superseded",
 ]);
+const AI_HISTORICAL_CASE_FILTERS = new Set(["all", "good", "bad", "review"]);
+const AI_HISTORICAL_CASE_OUTCOMES = new Set(["good", "bad", "review"]);
+const AI_HISTORICAL_CASE_REVIEW_STATUSES = new Set([
+  "pending",
+  "confirmed",
+  "rejected",
+]);
+const AI_HISTORICAL_CASE_BINDING_STATUSES = new Set([
+  "direct_product_id",
+  "late_unique_product_sku",
+  "late_unique_marketplace_sku",
+  "missing_exact_binding",
+]);
+const AI_HISTORICAL_BATCH_STATUSES = new Set([
+  "queued",
+  "processing",
+  "completed",
+  "failed",
+]);
 
 export const AI_PRODUCT_CATEGORIES = Object.freeze([
   Object.freeze({ id: "cosmetics", value: "cosmetics", key: "cosmetics", slug: "cosmetics", label: "Косметика и уход" }),
@@ -474,6 +493,12 @@ function normalizeMarketGuidance(value, readiness) {
   };
 }
 
+/** Keeps the case filter URL/state-independent and constrained to known tabs. */
+export function aiHistoricalCaseFilter(value) {
+  const candidate = cleanText(value, 20).toLowerCase();
+  return AI_HISTORICAL_CASE_FILTERS.has(candidate) ? candidate : "all";
+}
+
 export function normalizeAiLearningControlRoom(value, options = {}) {
   const source = envelopeSource(value);
   const explicitVersion = cleanText(
@@ -659,9 +684,11 @@ export function aiLearningControlRoomMarkup(snapshot, options = {}) {
     : normalizeCategoryDetail(categorySummary, categorySummary);
   const status = statusMeta(category.status, category.score, category.available);
   const busyCardId = cleanText(options.busyCardId, 200);
+  const busyHistoricalCaseId = cleanText(options.busyHistoricalCaseId, 200);
+  const historicalCaseFilter = aiHistoricalCaseFilter(options.historicalCaseFilter);
   const busy = Boolean(
     options.busy || options.saving || options.loading || options.refreshing
-      || busyCardId,
+      || busyCardId || busyHistoricalCaseId,
   );
   const notice = cleanText(options.notice || control.notice, 800);
   const error = cleanText(options.error || control.error, 800);
@@ -672,6 +699,9 @@ export function aiLearningControlRoomMarkup(snapshot, options = {}) {
   const canUploadFile = control.available && control.capabilities.canUploadFile
     && !busy && !legacyReadOnly;
   const canDecide = control.available && control.capabilities.canDecide
+    && !busy && !legacyReadOnly;
+  const canDecideHistoricalCase = control.available
+    && control.capabilities.canDecideHistoricalCase
     && !busy && !legacyReadOnly;
   const updatedLabel = formatDateTime(options.lastUpdatedAt || control.asOf);
   const statusAnnouncement = legacyReadOnly
@@ -723,7 +753,7 @@ export function aiLearningControlRoomMarkup(snapshot, options = {}) {
     <div class="ai-learning-view-tabs" role="tablist" aria-label="Разделы командного пункта">
       ${viewTabMarkup("overview", "Обзор", view)}
       ${viewTabMarkup("knowledge", "База знаний", view)}
-      ${viewTabMarkup("teach", "Обучить", view, category.pendingTeachingCount)}
+      ${viewTabMarkup("teach", "Обучить", view, category.pendingTeachingCount + category.pendingHistoricalCaseCount)}
       ${viewTabMarkup("history", "История", view)}
     </div>
 
@@ -736,9 +766,13 @@ export function aiLearningControlRoomMarkup(snapshot, options = {}) {
     <div class="ai-learning-view-panel" id="ai-learning-panel-teach" role="tabpanel" aria-labelledby="ai-learning-tab-teach" ${view === "teach" ? "" : "hidden"} data-ce-patch-key="ai-learning-panel-teach">
       ${teachMarkup(category, control, {
         canDecide,
+        legacyReadOnly,
+        canDecideHistoricalCase,
         busy,
         busyCardId,
-        legacyReadOnly,
+        busyHistoricalCaseId,
+        historicalCaseFilter,
+        historicalImport: options.historicalImport,
       })}
     </div>
     <div class="ai-learning-view-panel" id="ai-learning-panel-history" role="tabpanel" aria-labelledby="ai-learning-tab-history" ${view === "history" ? "" : "hidden"} data-ce-patch-key="ai-learning-panel-history">
@@ -846,7 +880,10 @@ function knowledgeMarkup(category, control, { canAddLink, canUploadFile, busy })
     </div>
     <div class="ai-learning-source-list">
       ${category.sources.length
-        ? category.sources.map(sourceMarkup).join("")
+        ? category.sources.map((source) => sourceMarkup(source, category, {
+          canImportHistoricalCases: canUploadFile,
+          busy,
+        })).join("")
         : emptyMarkup("Источников пока нет", "Добавьте ссылку или файл: система зафиксирует происхождение и статус регистрации здесь.")}
     </div>
   </section>`;
@@ -854,9 +891,13 @@ function knowledgeMarkup(category, control, { canAddLink, canUploadFile, busy })
 
 function teachMarkup(category, control, {
   canDecide,
+  legacyReadOnly = false,
+  canDecideHistoricalCase,
   busy,
   busyCardId,
-  legacyReadOnly = false,
+  busyHistoricalCaseId,
+  historicalCaseFilter,
+  historicalImport,
 }) {
   return `<div class="ai-learning-teach-intro">
     <div>
@@ -876,12 +917,284 @@ function teachMarkup(category, control, {
     <p>${legacyReadOnly
       ? "Для управляемого решения откройте точную market category выше: там доступны source analysis, история версий и CAS-исправления."
       : "После authoritative-ответа меняется только указанное правило этой категории и его версия. Решение не переобучает базовую модель, не переносится на другие категории и не гарантирует результат."}</p>
+    ${legacyReadOnly ? "" : `
+    <strong>Для карточек правил ниже</strong>
+    <p>Подтверждение карточки суждения выпускает новую версию bounded‑правила категории. У исторических кейсов другой, более строгий порог влияния — он показан в отдельном блоке.</p>
+    `}
   </aside>
+  ${historicalCasesMarkup(category, control, {
+    canDecideHistoricalCase,
+    busy,
+    busyHistoricalCaseId,
+    filter: historicalCaseFilter,
+    historicalImport,
+  })}
+  <section class="ai-learning-section ai-learning-judgement-section" aria-labelledby="ai-learning-judgement-title">
+    <div class="ai-learning-section-heading">
+      <div><p class="ai-learning-eyebrow">Rule candidates</p><h2 id="ai-learning-judgement-title">Суждения ИИ по сигналам</h2></div>
+      <span>${category.teachingCards.length} карточек</span>
+    </div>
   <div class="ai-learning-teaching-list" aria-live="polite">
     ${category.teachingCards.length
       ? category.teachingCards.map((card) => teachingCardMarkup(card, category, control, { canDecide, busy, busyCardId })).join("")
       : emptyMarkup("Нет карточек для решения", "Новые карточки появятся после анализа проверенных источников и результатов контента.")}
-  </div>`;
+  </div>
+  </section>`;
+}
+
+function historicalCasesMarkup(category, control, {
+  canDecideHistoricalCase,
+  busy,
+  busyHistoricalCaseId,
+  filter,
+  historicalImport,
+}) {
+  const normalizedFilter = aiHistoricalCaseFilter(filter);
+  const cases = category.historicalCases.filter((item) => {
+    if (normalizedFilter === "all") return true;
+    if (normalizedFilter === "review") return item.outcome === "review";
+    return item.outcome === normalizedFilter;
+  });
+  const summary = category.historicalCaseSummary;
+  const filterSpecs = [
+    ["all", "Все", summary.total],
+    ["good", "Хорошо", summary.good],
+    ["bad", "Плохо", summary.bad],
+    ["review", "Проверить", summary.review],
+  ];
+  const liveMessage = busyHistoricalCaseId
+    ? "Сохраняем решение по историческому кейсу. Автообновление временно приостановлено."
+    : `${summary.pending} кейсов ждут решения человека; показано ${cases.length}.`;
+  return `<section class="ai-learning-section ai-learning-historical" aria-labelledby="ai-learning-historical-title" data-ce-patch-key="ai-historical-cases-${escapeHtml(category.key)}-${escapeHtml(normalizedFilter)}">
+    <div class="ai-learning-historical-head">
+      <div>
+        <p class="ai-learning-eyebrow">Historical outcomes</p>
+        <h2 id="ai-learning-historical-title">Исторические кейсы</h2>
+        <p>Фактические результаты из таблиц отделены от сырых подписей и промптов. Решение сразу обновляет журнал и метрики; генерация использует кейсы только после отдельных строгих проверок.</p>
+      </div>
+      <span class="ai-learning-historical-live" role="status" aria-live="polite" aria-atomic="true">${escapeHtml(liveMessage)}</span>
+    </div>
+    ${historicalEvidenceMarkup(category.historicalCaseEvidence)}
+    ${historicalImportMarkup(category, historicalImport, busy)}
+    <div class="ai-learning-historical-kpis" aria-label="Метрики исторических кейсов">
+      ${metricMarkup("Всего кейсов", summary.total, "в серверном снимке категории")}
+      ${metricMarkup("Хорошо", summary.good, "положительных исходов")}
+      ${metricMarkup("Плохо", summary.bad, "отрицательных исходов")}
+      ${metricMarkup("На проверке", summary.pending, "ещё не влияют на обучение")}
+      ${metricMarkup("Карантин", summary.quarantined, "не учить до проверки")}
+    </div>
+    <div class="ai-learning-historical-toolbar">
+      <div class="ai-learning-historical-filters" role="group" aria-label="Фильтр исторических кейсов">
+        ${filterSpecs.map(([key, label, count]) => `<button type="button" data-action="select-ai-historical-case-filter" data-historical-case-filter="${key}" aria-pressed="${normalizedFilter === key}" ${busy ? "disabled" : ""}>${escapeHtml(label)} <span>${count}</span></button>`).join("")}
+      </div>
+      <small>Источник, период и площадка сохраняются у каждого вывода.</small>
+    </div>
+    <div class="ai-learning-historical-list" aria-live="polite">
+      ${cases.length
+        ? cases.map((item) => historicalCaseMarkup(item, category, control, {
+          canDecideHistoricalCase,
+          busy,
+          busyHistoricalCaseId,
+        })).join("")
+        : emptyMarkup("Нет кейсов в этом фильтре", "Выберите другой исход или дождитесь завершения разбора таблицы.")}
+    </div>
+    ${historicalBatchLedgerMarkup(category.historicalCaseBatches, category, busy)}
+  </section>`;
+}
+
+function historicalEvidenceMarkup(evidence) {
+  const source = objectValue(evidence) || normalizeHistoricalCaseEvidence({});
+  const eligibleAngles = source.eligibleExactProduct > 0
+    ? arrayFrom(source.angles).filter(
+      (item) => item.preferredEligible || item.avoidEligible,
+    )
+    : [];
+  return `<aside class="ai-learning-historical-evidence" role="note">
+    <div>
+      <strong>Когда кейсы могут подсказать генерации</strong>
+      <p>Только последний подтверждённый исход вне карантина, с допустимым creative angle и точной товарной связью: внутренний <code>product_id</code> или однозначное совпадение <code>product_sku</code> / <code>current_wb_article</code>. Нечёткое и категорийное сопоставление запрещено. Нужно минимум ${source.threshold} непротиворечивых кейса одного направления; ручное обучение и базовая политика всегда приоритетнее fallback.</p>
+    </div>
+    <dl>
+      <div><dt>Подтверждено</dt><dd>${source.confirmed}</dd></div>
+      <div><dt>Точно применимы</dt><dd>${source.eligibleExactProduct}</dd></div>
+      <div><dt>Связь product_id</dt><dd>${source.directProductBinding}</dd></div>
+      <div><dt>Однозначный SKU</dt><dd>${source.lateExactSkuBinding}</dd></div>
+      <div><dt>Без точного совпадения</dt><dd>${source.missingExactProductBinding}</dd></div>
+      <div><dt>Порог направления</dt><dd>${source.threshold}</dd></div>
+    </dl>
+    ${eligibleAngles.length ? `<p class="ai-learning-historical-angle-ready">Категорийный порог пройден: ${eligibleAngles.map((item) => `${escapeHtml(item.key)} (${item.good} / ${item.bad})`).join(", ")}. В категории есть точно сопоставимые кейсы; применимость к выбранному товару сервер проверит отдельно.</p>` : `<p class="ai-learning-historical-angle-wait">Пока нет сочетания достаточного creative angle и точной товарной связи для generation fallback.</p>`}
+  </aside>`;
+}
+
+function historicalImportMarkup(category, rawImport, busy) {
+  const local = objectValue(rawImport) || {};
+  const latest = category.historicalCaseBatches[0] || {};
+  const localCategory = aiLearningCategory(local.productCategory || local.product_category);
+  const latestStatus = cleanText(latest.status, 30).toLowerCase();
+  const hasAuthoritativeLatest = AI_HISTORICAL_BATCH_STATUSES.has(latestStatus);
+  const localSourceId = cleanText(local.sourceId || local.source_id, 200);
+  const authoritativeCoversLocal = hasAuthoritativeLatest && Boolean(localSourceId)
+    && localSourceId === latest.sourceId;
+  const localVisible = Boolean(local.active) && localCategory === category.key
+    && (local.inFlight === true || !authoritativeCoversLocal);
+  const status = cleanText(
+    localVisible ? local.status : latest.status,
+    30,
+  ).toLowerCase();
+  if (!localVisible && !AI_HISTORICAL_BATCH_STATUSES.has(status)) return "";
+  const parsed = nonNegativeInteger(
+    localVisible ? local.parsed : latest.parsed,
+    0,
+  );
+  const imported = nonNegativeInteger(
+    localVisible ? local.imported : latest.imported,
+    0,
+  );
+  const quarantined = nonNegativeInteger(
+    localVisible ? local.quarantined : latest.quarantined,
+    0,
+  );
+  const errors = nonNegativeInteger(
+    localVisible ? local.errors : latest.errors,
+    0,
+  );
+  const filename = cleanText(
+    localVisible ? local.filename : latest.filename,
+    240,
+  );
+  const categoryCounts = localVisible
+    ? normalizeHistoricalCategoryCounts(
+      local.recognizedCategories || local.perCategory || local.per_category,
+    )
+    : arrayFrom(latest.categoryCounts);
+  const sourceId = cleanText(
+    localVisible ? local.sourceId : latest.sourceId,
+    200,
+  );
+  const retryable = ["queued", "processing", "failed"].includes(status)
+    && Boolean(sourceId);
+  const retryLabel = status === "failed" ? "Повторить разбор" : "Продолжить разбор";
+  const importCategory = localVisible
+    ? localCategory
+    : latest.defaultProductCategory || category.key;
+  const copy = status === "queued"
+    ? "Файл поставлен в очередь. Начинаем безопасный разбор листов."
+    : status === "processing"
+      ? "Читаем таблицу, проверяем метрики и отделяем спорные строки в карантин."
+      : status === "completed"
+        ? `Разобрано ${parsed}; добавлено ${imported}; карантин ${quarantined}; ошибок ${errors}.`
+        : cleanText(local.message, 500)
+          || `Разбор остановлен. Ошибок: ${errors}. Уже зарегистрированный источник не потерян.`;
+  return `<aside class="ai-learning-import-status is-${escapeHtml(status || "processing")}" role="status" aria-live="polite" aria-atomic="true" data-ce-patch-key="ai-historical-import-status">
+    <span class="ai-learning-import-pulse" aria-hidden="true"></span>
+    <div><strong>${status === "completed" ? "Разбор таблицы завершён" : status === "failed" ? "Таблица требует повторного разбора" : "Разбираем исторические кейсы"}</strong><p>${escapeHtml(copy)}</p>${filename ? `<small>${escapeHtml(filename)}</small>` : ""}${categoryCounts.length ? `<div class="ai-learning-import-categories"><span>Распознано по категориям:</span>${categoryCounts.map((item) => `<button type="button" data-action="select-ai-learning-category" data-category-key="${escapeHtml(item.key)}">${escapeHtml(item.label)} <b>${item.count}</b>${item.quarantined ? `<small>+${item.quarantined} карантин</small>` : ""}</button>`).join("")}</div>` : ""}</div>
+    ${retryable ? `<button type="button" data-action="retry-ai-historical-case-import" data-source-id="${escapeHtml(sourceId)}" data-product-category="${escapeHtml(importCategory)}" data-filename="${escapeHtml(filename)}" ${busy ? "disabled" : ""}>${retryLabel}</button>` : ""}
+  </aside>`;
+}
+
+function historicalCaseMarkup(item, category, control, {
+  canDecideHistoricalCase,
+  busy,
+  busyHistoricalCaseId,
+}) {
+  const caseBusy = Boolean(busyHistoricalCaseId && busyHistoricalCaseId === item.id);
+  const currentDecision = item.reviewStatus === "confirmed"
+    ? "confirm"
+    : item.reviewStatus === "rejected" ? "reject" : "";
+  const disabled = !canDecideHistoricalCase || busy || caseBusy
+    || !item.id || !item.eventId;
+  const confirmDisabled = disabled || item.quarantined || currentDecision === "confirm";
+  const rejectDisabled = disabled || currentDecision === "reject";
+  const confirmLabel = currentDecision === "reject"
+    ? "Изменить: верно"
+    : currentDecision === "confirm" ? "Верно ✓" : "Верно";
+  const rejectLabel = currentDecision === "confirm"
+    ? "Изменить: не учить"
+    : currentDecision === "reject" ? "Не учить ✓" : "Не учить";
+  const bindingTone = item.directProductBinding
+    ? "bound"
+    : item.lateExactSkuBinding ? "late" : item.lateBindingCandidate ? "candidate" : "unbound";
+  const bindingTitle = item.directProductBinding
+    ? "Внутренняя привязка product_id"
+    : item.lateExactSkuBinding
+      ? "Однозначное совпадение SKU"
+      : item.lateBindingCandidate
+        ? "SKU сохранён для поздней точной связи"
+        : "Нет точного идентификатора товара";
+  const bindingCopy = item.directProductBinding
+    ? "После подтверждения кейс может войти в evidence этого же product_id, если выполнены остальные пороги."
+    : item.lateExactSkuBinding
+      ? "Кейс может войти в evidence единственного товара, точно совпавшего по product_sku или current_wb_article; fuzzy-поиск не используется."
+      : item.lateBindingCandidate
+        ? "Если сейчас или позже ровно один товар совпадёт с этим product_sku или current_wb_article, кейс сможет примениться к нему. Неоднозначное и категорийное совпадение запрещено."
+        : "Пока кейс остаётся только в памяти и метриках; generation fallback его не использует.";
+  const title = item.productTitle || item.productSku || item.marketplaceSku
+    || "Исторический кейс без названия товара";
+  const identity = [item.brand, title].filter(Boolean).join(" · ");
+  const source = [
+    item.source.filename,
+    item.source.sheet ? `лист «${item.source.sheet}»` : "",
+    item.source.row ? `строка ${item.source.row}` : "",
+  ].filter(Boolean).join(" · ") || "Источник не указан";
+  const marketplaceIdentity = [
+    platformLabel(item.platform),
+    item.channel,
+    item.marketplaceSku || item.productSku,
+  ].filter(Boolean).join(" · ") || "Площадка не указана";
+  const outcomeLabel = historicalOutcomeLabel(item.outcome);
+  const scopeVersion = Number.isSafeInteger(item.scopeVersion)
+    ? item.scopeVersion
+    : category.scopeVersion;
+  const eventCursor = item.eventCursor || control.eventCursor;
+  return `<article class="ai-learning-historical-card is-${escapeHtml(item.outcome)} is-${escapeHtml(item.reviewStatus)}${caseBusy ? " is-busy" : ""}" data-ai-historical-case data-product-category="${escapeHtml(category.key)}" data-case-id="${escapeHtml(item.id)}" data-event-id="${escapeHtml(item.eventId)}" data-scope-version="${scopeVersion}" data-event-cursor="${eventCursor}" data-ce-patch-key="ai-historical-${escapeHtml(item.id)}-${escapeHtml(item.reviewStatus)}">
+    <header>
+      <div><p class="ai-learning-eyebrow">${escapeHtml(item.outcomeDimension || "фактический результат")}</p><h3>${escapeHtml(identity)}</h3></div>
+      <div class="ai-learning-historical-badges"><span class="is-${escapeHtml(item.outcome)}">${escapeHtml(outcomeLabel)}</span>${item.quarantined ? `<span class="is-quarantine">quarantine</span>` : ""}</div>
+    </header>
+    ${item.statusLabel ? `<p class="ai-learning-historical-status-label">${escapeHtml(item.statusLabel)}</p>` : ""}
+    <dl class="ai-learning-historical-context">
+      <div><dt>Площадка / SKU</dt><dd>${escapeHtml(marketplaceIdentity)}</dd></div>
+      <div><dt>Период</dt><dd>${escapeHtml(item.periodLabel || "Не указан")}</dd></div>
+      <div><dt>Источник</dt><dd>${escapeHtml(source)}</dd></div>
+      <div><dt>Уверенность</dt><dd>${escapeHtml(formatConfidence(item.confidence))}</dd></div>
+    </dl>
+    <p class="ai-learning-historical-binding is-${bindingTone}"><strong>${bindingTitle}</strong><span>${bindingCopy}</span></p>
+    <div class="ai-learning-historical-metrics" aria-label="Фактические метрики кейса">
+      ${item.metricItems.length
+        ? item.metricItems.map(historicalMetricMarkup).join("")
+        : `<span>В снимке нет безопасных агрегированных метрик.</span>`}
+    </div>
+    ${currentDecision ? `<div class="ai-learning-recorded-decision is-${item.reviewStatus === "confirmed" ? "good" : "bad"}" role="status"><strong>${item.reviewStatus === "confirmed" ? "Сейчас: верно" : "Сейчас: не учить"}</strong><span>Это активная версия решения в серверном журнале. Её можно исправить противоположной кнопкой.</span></div>` : ""}
+    <div class="ai-learning-historical-actions">
+        <p>«Верно» подтверждает исход, «Не учить» исключает его из evidence. Новое противоположное решение станет активной версией без перезагрузки; generation fallback всё равно требует точное сопоставление товара и порог доказательств.</p>
+        <div>
+          <button class="is-good" type="button" data-action="decide-ai-historical-case" data-product-category="${escapeHtml(category.key)}" data-case-id="${escapeHtml(item.id)}" data-event-id="${escapeHtml(item.eventId)}" data-scope-version="${scopeVersion}" data-event-cursor="${eventCursor}" data-current-decision="${escapeHtml(currentDecision)}" data-decision="confirm" ${confirmDisabled ? "disabled" : ""}${item.quarantined ? ' title="Сначала сопоставьте товар и выведите кейс из карантина"' : ""}>${caseBusy ? "Сохраняем…" : confirmLabel}</button>
+          <button class="is-bad" type="button" data-action="decide-ai-historical-case" data-product-category="${escapeHtml(category.key)}" data-case-id="${escapeHtml(item.id)}" data-event-id="${escapeHtml(item.eventId)}" data-scope-version="${scopeVersion}" data-event-cursor="${eventCursor}" data-current-decision="${escapeHtml(currentDecision)}" data-decision="reject" ${rejectDisabled ? "disabled" : ""}>${caseBusy ? "Сохраняем…" : rejectLabel}</button>
+        </div>
+        ${capabilityHint(control.capabilities.canDecideHistoricalCase, "решать судьбу исторических кейсов")}
+      </div>
+  </article>`;
+}
+
+function historicalMetricMarkup(metric) {
+  return `<span><small>${escapeHtml(metric.label)}</small><strong>${escapeHtml(metric.value)}</strong></span>`;
+}
+
+function historicalBatchLedgerMarkup(batches, category, busy) {
+  if (!batches.length) return "";
+  const incomplete = batches.filter((batch) => (
+    ["queued", "processing", "failed"].includes(batch.status) && batch.sourceId
+  ));
+  const visible = [...incomplete, ...batches.filter((batch) => (
+    !incomplete.some((candidate) => candidate.id === batch.id)
+  )).slice(0, 5)];
+  return `<details class="ai-learning-historical-batches"><summary>Последние импорты (${batches.length})</summary><ul>${visible.map((batch) => {
+    const retryable = ["queued", "processing", "failed"].includes(batch.status)
+      && Boolean(batch.sourceId);
+    const importCategory = batch.defaultProductCategory || category.key;
+    const actionLabel = batch.status === "failed" ? "Повторить разбор" : "Продолжить разбор";
+    return `<li><span>${escapeHtml(batch.filename || "Таблица")}</span><small>${escapeHtml(historicalBatchStatusLabel(batch.status))} · добавлено ${batch.imported} · карантин ${batch.quarantined}${batch.completedAt ? ` · ${escapeHtml(formatDateTime(batch.completedAt))}` : ""}</small>${retryable ? `<button type="button" data-action="retry-ai-historical-case-import" data-source-id="${escapeHtml(batch.sourceId)}" data-product-category="${escapeHtml(importCategory)}" data-filename="${escapeHtml(batch.filename)}" ${busy ? "disabled" : ""}>${actionLabel}</button>` : ""}</li>`;
+  }).join("")}</ul></details>`;
 }
 
 function historyMarkup(category, control, legacyReadOnly = false) {
@@ -944,9 +1257,21 @@ function gapMarkup(gap) {
   </article>`;
 }
 
-function sourceMarkup(source) {
+function sourceMarkup(source, category, { canImportHistoricalCases = false, busy = false } = {}) {
   const link = source.url
     ? `<a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer nofollow">Открыть <span aria-hidden="true">↗</span></a>`
+    : "";
+  const filename = source.originalFilename || source.title;
+  const lowerFilename = filename.toLocaleLowerCase("en-US");
+  const spreadsheet = source.kind === "file"
+    && (lowerFilename.endsWith(".xlsx") || lowerFilename.endsWith(".csv")
+      || source.mimeType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      || source.mimeType === "text/csv");
+  const hasBatch = category.historicalCaseBatches.some((batch) => (
+    batch.sourceId === source.id
+  ));
+  const parseAction = spreadsheet && !hasBatch && source.status !== "rejected"
+    ? `<button type="button" data-action="retry-ai-historical-case-import" data-source-id="${escapeHtml(source.id)}" data-product-category="${escapeHtml(source.productCategory || category.key)}" data-filename="${escapeHtml(filename)}" ${!canImportHistoricalCases || busy ? "disabled" : ""}>Разобрать кейсы</button>`
     : "";
   return `<article class="ai-learning-source is-${escapeHtml(source.status)}" data-source-id="${escapeHtml(source.id)}" data-ce-patch-key="ai-source-${escapeHtml(source.id)}">
     <div class="ai-learning-source-kind" aria-hidden="true">${source.kind === "file" ? "▤" : "↗"}</div>
@@ -956,7 +1281,7 @@ function sourceMarkup(source) {
       <p>${escapeHtml(source.provenance || source.host || "Происхождение проверяется")}</p>
       <small>${formatDateTime(source.addedAt) ? `Добавлен ${escapeHtml(formatDateTime(source.addedAt))}` : "Дата добавления не указана"}${source.evidenceHash ? ` · ${escapeHtml(shortHash(source.evidenceHash))}` : ""}</small>
     </div>
-    ${link}
+    ${link}${parseAction}
   </article>`;
 }
 
@@ -1090,6 +1415,10 @@ function normalizeCategorySummary(raw, definition) {
     source.knowledge_sources || source.knowledgeSources || source.sources,
   );
   const cards = arrayFrom(source.teaching_cards || source.teachingCards);
+  const historicalSummary = normalizeHistoricalCaseSummary(
+    source.historical_case_summary || source.historicalCaseSummary,
+    [],
+  );
   return {
     available: hasData,
     key: definition.key,
@@ -1113,6 +1442,8 @@ function normalizeCategorySummary(raw, definition) {
       source.pending_teaching_count ?? source.pendingTeachingCount,
       cards.filter((item) => cleanText(item?.status, 40).toLowerCase() === "pending").length,
     ),
+    historicalCaseCount: historicalSummary.total,
+    pendingHistoricalCaseCount: historicalSummary.pending,
     scopeVersion: nonNegativeInteger(
       source.scope_version ?? source.scopeVersion,
       0,
@@ -1154,6 +1485,21 @@ function normalizeCategoryDetail(raw, summary) {
   const teachingCards = arrayFrom(
     source.teaching_cards || source.teachingCards,
   ).map(normalizeTeachingCard).filter(Boolean).slice(0, 100);
+  const historicalCases = arrayFrom(
+    source.historical_cases || source.historicalCases,
+  ).map(normalizeHistoricalCase).filter(Boolean).slice(0, 500);
+  const historicalCaseSummary = normalizeHistoricalCaseSummary(
+    source.historical_case_summary || source.historicalCaseSummary,
+    historicalCases,
+  );
+  const historicalCaseBatches = arrayFrom(
+    source.historical_case_batches || source.historicalCaseBatches
+      || source.batches,
+  ).map(normalizeHistoricalCaseBatch).filter(Boolean).slice(0, 50);
+  const historicalCaseEvidence = normalizeHistoricalCaseEvidence(
+    source.historical_case_evidence || source.historicalCaseEvidence
+      || readiness.historical_case_evidence || readiness.historicalCaseEvidence,
+  );
   const activity = arrayFrom(
     source.activity?.items || source.activity || source.history?.items
       || source.history,
@@ -1182,6 +1528,8 @@ function normalizeCategoryDetail(raw, summary) {
       sources.length || summary.sourceCount,
     ),
     pendingTeachingCount: teachingCards.filter((item) => item.status === "pending").length,
+    historicalCaseCount: historicalCaseSummary.total,
+    pendingHistoricalCaseCount: historicalCaseSummary.pending,
     scopeVersion: nonNegativeInteger(
       source.scope_version ?? source.scopeVersion,
       summary.scopeVersion,
@@ -1197,6 +1545,10 @@ function normalizeCategoryDetail(raw, summary) {
     gaps,
     sources,
     teachingCards,
+    historicalCases,
+    historicalCaseSummary,
+    historicalCaseBatches,
+    historicalCaseEvidence,
     activity,
     effectivePolicy: normalizePolicy(
       source.effective_policy || source.effectivePolicy,
@@ -1292,6 +1644,19 @@ function normalizeSource(raw, index) {
       source.provenance || source.lineage || source.publisher,
       500,
     ),
+    objectKey: cleanText(source.object_key || source.objectKey, 500),
+    originalFilename: cleanText(
+      source.original_filename || source.originalFilename || source.filename,
+      240,
+    ),
+    mimeType: cleanText(source.mime_type || source.mimeType, 160).toLowerCase(),
+    productCategory: (() => {
+      const candidate = cleanText(
+        source.product_category || source.productCategory,
+        80,
+      ).toLowerCase();
+      return AI_CATEGORY_BY_KEY.has(candidate) ? candidate : "";
+    })(),
     mediaId: cleanText(source.media_id || source.mediaId, 180),
     evidenceHash: cleanText(
       source.evidence_hash || source.evidenceHash || source.hash,
@@ -1373,6 +1738,405 @@ function normalizeTeachingCard(raw, index) {
     ),
     reason: cleanText(source.reason || source.decision?.reason, 800),
   };
+}
+
+function normalizeHistoricalCase(raw, index) {
+  const source = objectValue(raw);
+  if (!source) return null;
+  const outcomeCandidate = cleanText(source.outcome, 30).toLowerCase();
+  const outcome = AI_HISTORICAL_CASE_OUTCOMES.has(outcomeCandidate)
+    ? outcomeCandidate
+    : "review";
+  const reviewCandidate = cleanText(
+    source.review_status || source.reviewStatus
+      || source.decision_status || source.decisionStatus,
+    30,
+  ).toLowerCase();
+  const reviewStatus = AI_HISTORICAL_CASE_REVIEW_STATUSES.has(reviewCandidate)
+    ? reviewCandidate
+    : "pending";
+  const rawMetrics = objectValue(source.metrics) || {};
+  const rawSource = objectValue(source.source)
+    || objectValue(source.provenance)
+    || {};
+  const confidenceValue = Number(source.confidence);
+  const confidence = Number.isFinite(confidenceValue)
+    ? Math.max(0, Math.min(100, confidenceValue <= 1 ? confidenceValue * 100 : confidenceValue))
+    : null;
+  const periodStart = dateOnly(
+    source.period_start || source.periodStart || rawMetrics.period_start
+      || rawMetrics.periodStart || rawMetrics.date_from || rawMetrics.dateFrom,
+  );
+  const periodEnd = dateOnly(
+    source.period_end || source.periodEnd || rawMetrics.period_end
+      || rawMetrics.periodEnd || rawMetrics.date_to || rawMetrics.dateTo,
+  );
+  const explicitPeriod = cleanText(
+    source.period || source.period_label || source.periodLabel
+      || rawMetrics.period || rawMetrics.period_label || rawMetrics.periodLabel,
+    100,
+  );
+  const statusLabel = cleanText(
+    source.status_label || source.statusLabel,
+    180,
+  );
+  const productId = cleanText(source.product_id || source.productId, 200);
+  const productSku = cleanText(source.product_sku || source.productSku, 160);
+  const marketplaceSku = cleanText(
+    source.marketplace_sku || source.marketplaceSku,
+    160,
+  );
+  const bindingCandidate = cleanText(
+    source.historical_learning_binding_status
+      || source.historicalLearningBindingStatus,
+    50,
+  ).toLowerCase();
+  const bindingStatus = AI_HISTORICAL_CASE_BINDING_STATUSES.has(bindingCandidate)
+    ? bindingCandidate
+    : productId ? "direct_product_id" : "missing_exact_binding";
+  const directProductBinding = source.exact_product_binding_present === true
+    || source.exactProductBindingPresent === true
+    || Boolean(productId)
+    || bindingStatus === "direct_product_id";
+  const lateExactSkuBinding = !directProductBinding && (
+    source.late_exact_sku_binding_available === true
+    || source.lateExactSkuBindingAvailable === true
+    || bindingStatus === "late_unique_product_sku"
+    || bindingStatus === "late_unique_marketplace_sku"
+  );
+  return {
+    id: cleanText(
+      source.case_id || source.caseId || source.id,
+      200,
+    ) || `historical-case-${index + 1}`,
+    eventId: cleanText(
+      source.head_event_id || source.headEventId
+        || source.event_id || source.eventId,
+      200,
+    ),
+    externalCaseId: cleanText(
+      source.external_case_id || source.externalCaseId,
+      240,
+    ),
+    productCategory: aiLearningCategory(
+      source.product_category || source.productCategory,
+    ),
+    productId,
+    productSku,
+    marketplaceSku,
+    bindingStatus,
+    directProductBinding,
+    lateExactSkuBinding,
+    lateBindingCandidate: !directProductBinding && !lateExactSkuBinding
+      && Boolean(productSku || marketplaceSku),
+    productTitle: cleanText(
+      source.product_title || source.productTitle,
+      260,
+    ),
+    brand: cleanText(source.brand, 120),
+    platform: safeKey(source.platform, 60),
+    channel: cleanText(source.channel, 100),
+    outcome,
+    outcomeDimension: cleanText(
+      source.outcome_dimension || source.outcomeDimension,
+      120,
+    ),
+    statusLabel,
+    confidence,
+    reviewStatus,
+    quarantined: source.quarantined === true
+      || source.quarantine === true
+      || cleanText(
+        source.resolution_status || source.resolutionStatus,
+        30,
+      ).toLowerCase() === "quarantined"
+      || /quarantine|карантин/iu.test(statusLabel),
+    periodLabel: explicitPeriod || formatHistoricalPeriod(periodStart, periodEnd),
+    periodStart,
+    periodEnd,
+    metricItems: normalizeHistoricalMetricItems(rawMetrics),
+    source: {
+      filename: cleanText(
+        rawSource.filename || rawSource.original_filename
+          || rawSource.originalFilename,
+        240,
+      ),
+      sheet: cleanText(rawSource.sheet || rawSource.sheet_name || rawSource.sheetName, 120),
+      row: positiveInteger(rawSource.row || rawSource.row_number || rawSource.rowNumber, 0),
+    },
+    scopeVersion: nonNegativeInteger(
+      source.scope_version ?? source.scopeVersion
+        ?? source.case_version ?? source.caseVersion,
+      0,
+    ),
+    eventCursor: nonNegativeInteger(
+      source.head_event_cursor ?? source.headEventCursor
+        ?? source.event_cursor ?? source.eventCursor,
+      0,
+    ),
+  };
+}
+
+function normalizeHistoricalMetricItems(raw) {
+  const metrics = objectValue(raw) || {};
+  const specs = [
+    ["views", "Просмотры", "number", ["views", "impressions"]],
+    ["visits", "Визиты", "number", ["visits"]],
+    ["carts", "Корзины", "number", ["carts", "add_to_cart"]],
+    ["orders", "Заказы", "number", ["orders"]],
+    ["sales", "Продажи", "number", ["sales"]],
+    ["revenue", "Выручка", "currency", ["revenue", "sales_amount"]],
+    ["buyout", "Выкуп", "percent", ["buyout", "buyout_rate"]],
+    ["sale_view", "Продажи / просмотры", "percent", ["sale_to_view_rate", "sales_to_views", "sale_view_rate", "sale_per_view"]],
+    ["sales_1000", "Продажи / 1000 просмотров", "number", ["sales_per_1000_views"]],
+    ["visit_cart", "Визит → корзина", "percent", ["visit_to_cart_rate", "visit_cart_rate"]],
+    ["visit_order", "Визит → заказ", "percent", ["visit_to_order_rate", "conversion_rate", "cr"]],
+    ["ad_spend", "Расход РК", "currency", ["ad_spend", "campaign_spend"]],
+    ["drr", "ДРР", "percent", ["drr"]],
+    ["margin", "Маржа", "currency", ["margin"]],
+    ["margin_rate", "Маржа %", "percent", ["margin_rate", "margin_percent"]],
+  ];
+  return specs.map(([key, label, kind, aliases]) => {
+    const alias = aliases.find((candidate) => Object.hasOwn(metrics, candidate));
+    if (!alias) return null;
+    const number = Number(metrics[alias]);
+    if (!Number.isFinite(number)) return null;
+    return { key, label, value: formatHistoricalMetricValue(number, kind) };
+  }).filter(Boolean).slice(0, 8);
+}
+
+function normalizeHistoricalCaseSummary(raw, cases) {
+  const source = objectValue(raw) || {};
+  const computed = {
+    total: cases.length,
+    good: cases.filter((item) => item.outcome === "good").length,
+    bad: cases.filter((item) => item.outcome === "bad").length,
+    review: cases.filter((item) => item.outcome === "review").length,
+    pending: cases.filter((item) => item.reviewStatus === "pending").length,
+    confirmed: cases.filter((item) => item.reviewStatus === "confirmed").length,
+    rejected: cases.filter((item) => item.reviewStatus === "rejected").length,
+    quarantined: cases.filter((item) => item.quarantined).length,
+  };
+  return {
+    total: nonNegativeInteger(
+      source.total ?? source.total_cases ?? source.totalCases,
+      computed.total,
+    ),
+    good: nonNegativeInteger(
+      source.good ?? source.good_cases ?? source.goodCases,
+      computed.good,
+    ),
+    bad: nonNegativeInteger(
+      source.bad ?? source.bad_cases ?? source.badCases,
+      computed.bad,
+    ),
+    review: nonNegativeInteger(
+      source.review ?? source.review_cases ?? source.reviewCases,
+      computed.review,
+    ),
+    pending: nonNegativeInteger(
+      source.pending ?? source.pending_cases ?? source.pendingCases,
+      computed.pending,
+    ),
+    confirmed: nonNegativeInteger(
+      source.confirmed ?? source.confirmed_cases ?? source.confirmedCases,
+      computed.confirmed,
+    ),
+    rejected: nonNegativeInteger(
+      source.rejected ?? source.rejected_cases ?? source.rejectedCases,
+      computed.rejected,
+    ),
+    quarantined: nonNegativeInteger(
+      source.quarantined ?? source.quarantined_cases ?? source.quarantinedCases,
+      computed.quarantined,
+    ),
+  };
+}
+
+function normalizeHistoricalCaseEvidence(raw) {
+  const source = objectValue(raw) || {};
+  const angles = arrayFrom(source.angles).map((item) => {
+    const angle = objectValue(item);
+    if (!angle) return null;
+    const key = safeKey(angle.creative_angle || angle.creativeAngle, 80);
+    if (!key) return null;
+    return {
+      key,
+      confirmed: nonNegativeInteger(
+        angle.confirmed_case_count ?? angle.confirmedCaseCount,
+        0,
+      ),
+      good: nonNegativeInteger(angle.good_case_count ?? angle.goodCaseCount, 0),
+      bad: nonNegativeInteger(angle.bad_case_count ?? angle.badCaseCount, 0),
+      preferredEligible: angle.preferred_eligible === true,
+      avoidEligible: angle.avoid_eligible === true,
+    };
+  }).filter(Boolean).slice(0, 20);
+  return {
+    version: cleanText(source.version, 100),
+    confirmed: nonNegativeInteger(
+      source.confirmed_case_count ?? source.confirmedCaseCount,
+      0,
+    ),
+    eligibleExactProduct: nonNegativeInteger(
+      source.historical_learning_eligible_count
+        ?? source.historicalLearningEligibleCount,
+      0,
+    ),
+    directProductBinding: nonNegativeInteger(
+      source.historical_learning_direct_product_binding_count
+        ?? source.historicalLearningDirectProductBindingCount,
+      0,
+    ),
+    lateExactSkuBinding: nonNegativeInteger(
+      source.historical_learning_late_exact_sku_binding_count
+        ?? source.historicalLearningLateExactSkuBindingCount,
+      0,
+    ),
+    missingExactProductBinding: nonNegativeInteger(
+      source.missing_exact_product_binding_count
+        ?? source.missingExactProductBindingCount,
+      0,
+    ),
+    threshold: positiveInteger(
+      source.minimum_confirmed_cases_per_direction
+        || source.minimumConfirmedCasesPerDirection,
+      2,
+    ),
+    preferredAngle: safeKey(
+      source.advisory_preferred_creative_angle
+        || source.advisoryPreferredCreativeAngle,
+      80,
+    ),
+    avoidAngle: safeKey(
+      source.advisory_avoid_creative_angle
+        || source.advisoryAvoidCreativeAngle,
+      80,
+    ),
+    angles,
+  };
+}
+
+function normalizeHistoricalCaseBatch(raw, index) {
+  const source = objectValue(raw);
+  if (!source) return null;
+  const statusCandidate = cleanText(
+    source.status || source.import_status || source.importStatus,
+    30,
+  ).toLowerCase();
+  const statusAlias = ({
+    pending: "queued",
+    in_progress: "processing",
+    parsing: "processing",
+    importing: "processing",
+    imported: "completed",
+    done: "completed",
+    completed_with_quarantine: "completed",
+    quarantined: "completed",
+    parser_rejected: "failed",
+    parser_rejected_all: "failed",
+    error: "failed",
+  })[statusCandidate] || statusCandidate;
+  const status = AI_HISTORICAL_BATCH_STATUSES.has(statusAlias)
+    ? statusAlias
+    : "queued";
+  const rawSource = objectValue(source.source) || {};
+  const parserQuarantined = nonNegativeInteger(
+    source.parser_quarantined_row_count ?? source.parserQuarantinedRowCount,
+    0,
+  );
+  const databaseQuarantined = nonNegativeInteger(
+    source.quarantined_case_count ?? source.quarantinedCaseCount,
+    0,
+  );
+  const explicitQuarantined = source.quarantined ?? source.quarantined_cases
+    ?? source.quarantinedCases;
+  const explicitErrors = source.errors ?? source.error_count ?? source.errorCount;
+  return {
+    id: cleanText(
+      source.import_id || source.importId || source.batch_id || source.batchId
+        || source.id,
+      200,
+    )
+      || `historical-batch-${index + 1}`,
+    sourceId: cleanText(source.source_id || source.sourceId, 200),
+    defaultProductCategory: (() => {
+      const candidate = cleanText(
+        source.default_product_category || source.defaultProductCategory,
+        80,
+      ).toLowerCase();
+      return AI_CATEGORY_BY_KEY.has(candidate) ? candidate : "";
+    })(),
+    status,
+    filename: cleanText(
+      source.filename || source.original_filename || source.originalFilename
+        || rawSource.filename,
+      240,
+    ),
+    parsed: nonNegativeInteger(
+      source.parsed ?? source.parsed_rows ?? source.parsedRows
+        ?? source.parsed_row_count ?? source.parsedRowCount
+        ?? source.case_count ?? source.caseCount,
+      0,
+    ),
+    imported: nonNegativeInteger(
+      source.imported ?? source.imported_cases ?? source.importedCases
+        ?? source.matched_case_count ?? source.matchedCaseCount,
+      0,
+    ),
+    quarantined: explicitQuarantined === undefined
+      ? databaseQuarantined + parserQuarantined
+      : nonNegativeInteger(explicitQuarantined, 0),
+    errors: explicitErrors === undefined
+      ? parserQuarantined
+      : nonNegativeInteger(explicitErrors, 0),
+    completedAt: timestamp(
+      source.completed_at || source.completedAt
+        || source.imported_at || source.importedAt,
+    ),
+    createdAt: timestamp(
+      source.created_at || source.createdAt
+        || source.imported_at || source.importedAt,
+    ),
+    categoryCounts: normalizeHistoricalCategoryCounts(
+      source.per_category || source.perCategory || source.category_counts
+        || source.categoryCounts || source.per_category_summary
+        || source.perCategorySummary,
+    ),
+  };
+}
+
+function normalizeHistoricalCategoryCounts(raw) {
+  const source = objectValue(raw);
+  const items = source
+    ? Object.entries(source).map(([productCategory, value]) => ({
+      product_category: productCategory,
+      ...(objectValue(value) || { imported: value }),
+    }))
+    : arrayFrom(raw);
+  return items.map((item) => {
+    const value = objectValue(item);
+    if (!value) return null;
+    const key = cleanText(
+      value.product_category || value.productCategory || value.category,
+      80,
+    ).toLowerCase();
+    if (!AI_CATEGORY_BY_KEY.has(key)) return null;
+    return {
+      key,
+      label: AI_CATEGORY_BY_KEY.get(key).label,
+      count: nonNegativeInteger(
+        value.imported ?? value.count ?? value.cases ?? value.total
+          ?? value.case_count ?? value.caseCount,
+        0,
+      ),
+      quarantined: nonNegativeInteger(
+        value.quarantined ?? value.review
+          ?? value.quarantined_case_count ?? value.quarantinedCaseCount,
+        0,
+      ),
+    };
+  }).filter(Boolean);
 }
 
 function normalizeActivity(raw, index) {
@@ -1463,6 +2227,11 @@ function normalizeCapabilities(raw, actor) {
       source,
       ["decide", "can_decide", "canDecide", "teach", "can_teach", "canTeach", "can_decide_teaching_card", "canDecideTeachingCard"],
       broadWrite,
+    ),
+    canDecideHistoricalCase: capability(
+      source,
+      ["can_decide_historical_case", "canDecideHistoricalCase"],
+      false,
     ),
     canViewHistory: capability(
       source,
@@ -1606,6 +2375,79 @@ function sourceStatusLabel(value) {
     rejected: "Исключён",
     failed: "Ошибка",
   })[value] || "Статус неизвестен";
+}
+
+function historicalOutcomeLabel(value) {
+  return ({
+    good: "Хорошо",
+    bad: "Плохо",
+    review: "Проверить",
+  })[value] || "Проверить";
+}
+
+function historicalBatchStatusLabel(value) {
+  return ({
+    queued: "В очереди",
+    processing: "Разбирается",
+    completed: "Завершён",
+    failed: "Ошибка",
+  })[value] || "Статус неизвестен";
+}
+
+function platformLabel(value) {
+  return ({
+    wildberries: "Wildberries",
+    wb: "Wildberries",
+    ozon: "Ozon",
+    instagram: "Instagram",
+    youtube: "YouTube",
+    vk: "VK",
+  })[value] || cleanText(value, 60);
+}
+
+function formatConfidence(value) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? `${Math.round(value)}%`
+    : "Не указана";
+}
+
+function formatHistoricalMetricValue(value, kind) {
+  try {
+    if (kind === "currency") {
+      return new Intl.NumberFormat("ru-RU", {
+        style: "currency",
+        currency: "RUB",
+        maximumFractionDigits: 0,
+      }).format(value);
+    }
+    if (kind === "percent") {
+      const percent = Math.abs(value) <= 1 ? value * 100 : value;
+      return `${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(percent)}%`;
+    }
+    return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function dateOnly(value) {
+  const candidate = cleanText(value, 40);
+  if (!candidate) return "";
+  const direct = candidate.match(/^(\d{4})-(\d{2})-(\d{2})/u);
+  if (direct) return `${direct[1]}-${direct[2]}-${direct[3]}`;
+  const date = new Date(candidate);
+  return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 10) : "";
+}
+
+function formatHistoricalPeriod(start, end) {
+  if (!start && !end) return "";
+  const format = (value) => {
+    if (!value) return "";
+    const [year, month, day] = value.split("-");
+    return [day, month, year].filter(Boolean).join(".");
+  };
+  if (start && end && start !== end) return `${format(start)} — ${format(end)}`;
+  return format(start || end);
 }
 
 function policyStatusLabel(value) {

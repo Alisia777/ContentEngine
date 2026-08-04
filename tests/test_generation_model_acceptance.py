@@ -531,8 +531,8 @@ def test_portal_loads_and_invalidates_server_acceptance_status() -> None:
     assert "./generation-model-acceptance-view.js?v=20260728.1" in APP
     assert ".generation-model-acceptance__grid" in STYLES
     assert "./styles.css?v=20260730.4" in INDEX
-    assert "./app.js?v=20260804.os4.12" in INDEX
-    assert "./supabase-api.js?v=20260804.os4.12" in APP
+    assert "./app.js?v=20260804.os4.13" in INDEX
+    assert "./supabase-api.js?v=20260804.os4.13" in APP
 
 
 def test_visible_generation_acceptance_refreshes_without_rebuilding_the_form() -> None:
