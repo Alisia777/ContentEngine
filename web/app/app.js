@@ -1091,6 +1091,7 @@ const state = {
     requestId: 0,
     restoreAttempted: false,
     prefill: null,
+    preservedSnapshot: null,
     stageControl: {
       status: "idle",
       data: null,
@@ -1325,8 +1326,31 @@ function clearGenerationMediaSelection() {
 
 function prepareRecommendedResearchHandoff(record) {
   const recommendedIndex = Number(record?.recommendedScenarioIndex);
+  const normalizedResearchId = String(record?.id || "").trim().toLowerCase();
+  const stageControl = state.productResearch.stageControl;
+  const stageControlMatches = Boolean(
+    normalizedResearchId
+    && stageControl.data?.available === true
+    && String(stageControl.data.runId || "").trim().toLowerCase()
+      === normalizedResearchId,
+  );
+  const stageControlDraftId = String(
+    stageControl.data?.guidance?.currentDraftId || "",
+  ).trim().toLowerCase();
+  const recordDraftId = String(record?.draftId || "").trim().toLowerCase();
+  const generationHandoffAllowed = stageControlMatches
+    && stageControlDraftId
+    && recordDraftId === stageControlDraftId
+    && stageControl.data.guidance?.generationHandoffAllowed === true;
+  if (
+    stageControlMatches
+    && stageControl.data.guidance?.generationHandoffAllowed !== true
+  ) {
+    invalidateGenerationStateForResearch(normalizedResearchId);
+  }
   if (
     record?.approved !== true
+    || !generationHandoffAllowed
     || !Number.isInteger(recommendedIndex)
     || recommendedIndex < 0
     || recommendedIndex >= 3
@@ -11995,6 +12019,7 @@ function syncProductResearchAfterStageSnapshot(snapshot) {
         raw,
         state.productResearch.record,
       );
+      prepareRecommendedResearchHandoff(state.productResearch.record);
     }
   }).catch(() => {
     if (state.productResearch.stageControl.draftSyncId === currentDraftId) {
@@ -12049,9 +12074,16 @@ async function loadResearchStageControl({
     control.runId = normalizedRunId;
     control.branchId = normalized.selectedBranch.branchId;
     syncProductResearchAfterStageSnapshot(normalized);
+    if (normalized.guidance?.generationHandoffAllowed === true) {
+      prepareRecommendedResearchHandoff(state.productResearch.record);
+    } else {
+      invalidateGenerationStateForResearch(normalizedRunId);
+    }
     return normalized;
   } catch (error) {
     if (requestId !== control.requestId) return null;
+    invalidateGenerationStateForResearch(normalizedRunId);
+    control.data = null;
     control.status = "error";
     control.error = String(error?.message || "") === "research_stage_control_status_timeout"
       ? "Статус этапов не ответил вовремя. Никаких команд и платных запусков не повторялось."
@@ -12061,7 +12093,6 @@ async function loadResearchStageControl({
     if (
       requestId === control.requestId
       && state.route.path === "/workspace/research"
-      && state.route.query.get("view") === "corrections"
     ) renderWorkspace("research");
   }
 }
@@ -12107,7 +12138,7 @@ function renderProductResearchSection() {
       ? "handoff"
       : "evidence";
   if (
-    researchView === "corrections"
+    (researchView === "corrections" || research.record?.approved === true)
     && research.record?.id
     && ["ready", "approved"].includes(statusKind)
   ) {
@@ -12150,7 +12181,14 @@ function renderProductResearchSection() {
       members: productResearchAssignableMembers(),
       defaultAssigneeId: state.user?.id || "",
       recommendedPrepared: Boolean(
-        recommendedPosition >= 1
+        research.stageControl.data?.available === true
+        && research.stageControl.data.guidance?.generationHandoffAllowed === true
+        && String(
+          research.stageControl.data.guidance?.currentDraftId || "",
+        ).trim().toLowerCase() === String(
+          research.record.draftId || "",
+        ).trim().toLowerCase()
+        && recommendedPosition >= 1
         && activeHandoff
         && activeHandoff.researchId === research.record.id
         && activeHandoff.draftId === research.record.draftId
@@ -12172,6 +12210,7 @@ function renderProductResearchSection() {
       media,
       mediaLoading: ["idle", "loading"].includes(mediaState.status),
       error: research.error,
+      notice: research.notice,
       defaults: research.prefill || {},
     });
   }
@@ -13426,7 +13465,42 @@ async function handleClick(event) {
       toast("Сначала завершите точное исправление после QA. Новый сценарий не должен подменять активный repair-контекст.", "error");
       return;
     }
+    const previousRecord = state.productResearch.record;
+    const runId = String(previousRecord?.id || "").trim().toLowerCase();
+    control.disabled = true;
     try {
+      const stageControl = await loadResearchStageControl({
+        runId,
+        branchId: state.productResearch.stageControl.data?.selectedBranch?.branchId,
+        silent: true,
+      });
+      if (
+        !runId
+        || stageControl?.available !== true
+        || String(stageControl.runId || "").trim().toLowerCase() !== runId
+        || stageControl.guidance?.generationHandoffAllowed !== true
+        || String(stageControl.guidance?.currentDraftId || "")
+          .trim().toLowerCase() !== String(previousRecord?.draftId || "")
+          .trim().toLowerCase()
+        || String(state.productResearch.record?.id || "").trim().toLowerCase()
+          !== runId
+      ) {
+        invalidateGenerationStateForResearch(runId);
+        beginNewProductResearch({
+          previousRecord,
+          previousRunId: runId,
+          prefill: {
+            researchFocus: "Повторно собрать доказательства после изменения разбора источников",
+          },
+          notice: "Прежний снимок сохранён. Сервер запретил его передачу в генерацию, поэтому подготовлена новая форма; платный анализ не запущен.",
+        });
+        navigate("/workspace/research", true);
+        toast(
+          "Свежесть исследования не подтверждена. Проверьте предзаполненную форму и отдельно подтвердите новый анализ.",
+          "error",
+        );
+        return;
+      }
       const handoff = createContentGenerationHandoff(
         state.productResearch.record,
         Number(control.dataset.scenarioIndex),
@@ -13446,6 +13520,8 @@ async function handleClick(event) {
       navigate("/workspace/generation");
     } catch (error) {
       toast(actionErrorMessage(error), "error");
+    } finally {
+      if (control.isConnected) control.disabled = false;
     }
     return;
   }
@@ -13497,6 +13573,89 @@ async function handleClick(event) {
       control.dataset.generationSpecControl || "",
     ).trim().toLowerCase();
     if (!form) return;
+    if (specAction === "start_new_research") {
+      const generationSpec = state.generationSpec.data?.generationSpec;
+      const provenance = generationSpec?.research_provenance || {};
+      const exactScope = generationSpec?.exact_scope || {};
+      const researchId = String(provenance.research_id || "")
+        .trim()
+        .toLowerCase();
+      const currentResearch = state.productResearch.record;
+      const currentResearchId = String(currentResearch?.id || "")
+        .trim()
+        .toLowerCase();
+      if (
+        currentResearchId
+        && currentResearchId !== researchId
+        && productResearchStatusKind(currentResearch?.status) === "active"
+      ) {
+        navigate("/workspace/research", true);
+        toast(
+          "Сейчас выполняется другое платное исследование. Сначала дождитесь его терминального статуса; текущий запуск не был скрыт и новый не создавался.",
+          "error",
+        );
+        return;
+      }
+      const matchingRecord = String(
+        state.productResearch.record?.id || "",
+      ).trim().toLowerCase() === researchId
+        ? state.productResearch.record
+        : null;
+      const matchingHandoff = String(
+        state.contentGenerationHandoff?.researchId || "",
+      ).trim().toLowerCase() === researchId
+        ? state.contentGenerationHandoff
+        : null;
+      const contextRecord = matchingRecord || {
+        id: researchId,
+        draftId: String(provenance.creative_brief_draft_id || "").trim(),
+        productName: String(
+          matchingHandoff?.productName
+            || form.elements.product_name?.value
+            || "",
+        ).trim(),
+        sku: String(
+          matchingHandoff?.sku || form.elements.sku?.value || "",
+        ).trim(),
+        categoryAnalysis: {
+          categoryName: String(
+            exactScope.product_category
+              || form.elements.product_category?.value
+              || "",
+          ).trim(),
+        },
+        researchInput: {
+          sourceMediaIds: Array.isArray(exactScope.media_ids)
+            ? exactScope.media_ids
+            : [],
+          platforms: PRODUCT_RESEARCH_PLATFORM_SET.has(exactScope.platform)
+            ? [exactScope.platform]
+            : [],
+        },
+      };
+      const prefill = productResearchPrefillFromSnapshot(contextRecord, {
+        sourceMediaIds: Array.isArray(exactScope.media_ids)
+          ? exactScope.media_ids
+          : [],
+        platform: exactScope.platform,
+        previousResearchId: researchId,
+        researchFocus: "Повторно собрать доказательства после изменения разбора источников",
+      });
+      invalidateGenerationStateForResearch(researchId);
+      beginNewProductResearch({
+        previousRecord: contextRecord,
+        preservedRecord: matchingRecord,
+        previousRunId: researchId,
+        prefill,
+        notice: "Прежний снимок исследования сохранён. Подготовлена новая форма с исходными данными; платный анализ и генерация не запускались.",
+      });
+      navigate("/workspace/research", true);
+      toast(
+        "Разбор источника изменён. Проверьте предзаполненную форму и отдельно подтвердите запуск нового исследования.",
+        "info",
+      );
+      return;
+    }
     if (specAction === "confirm_spend") {
       form.elements.real_spend_confirmation?.focus({ preventScroll: true });
       toast("Версия ТЗ утверждена. Если хотите запуск, отдельно проверьте цену и поставьте подтверждение оплаты.", "info");
@@ -13740,6 +13899,19 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "restore-previous-product-research") {
+    const researchId = String(control.dataset.researchId || "")
+      .trim()
+      .toLowerCase();
+    if (!restorePreservedProductResearchSnapshot(researchId)) {
+      toast("Сохранённый снимок не найден в этой сессии. Обновите статус исследования по его ссылке.", "error");
+      return;
+    }
+    navigate("/workspace/research", true);
+    toast("Прежний снимок открыт без нового платного запуска.", "info");
+    return;
+  }
+
   if (action === "new-product-research") {
     if (productResearchStatusKind(state.productResearch.record?.status) === "active") {
       toast("Текущий платный анализ ещё не получил терминальный статус. Сначала обновите его, чтобы не создать второй запуск.", "error");
@@ -13747,24 +13919,24 @@ async function handleClick(event) {
       return;
     }
     const previousRecord = state.productResearch.record;
-    stopProductResearchPolling();
+    const stageControl = state.productResearch.stageControl.data;
+    const sourceFreshnessBlocked = stageControl?.available === true
+      && String(stageControl.runId || "").trim().toLowerCase()
+        === String(previousRecord?.id || "").trim().toLowerCase()
+      && stageControl.guidance?.generationHandoffAllowed !== true;
     clearProductResearchRunId();
-    state.productResearch.requestId += 1;
-    state.productResearch.phase = "idle";
-    state.productResearch.record = null;
-    state.productResearch.error = "";
-    state.productResearch.notice = "";
-    state.productResearch.restoreAttempted = true;
-    resetResearchStageControl();
-    state.productResearch.prefill = previousRecord
-      ? {
-        productName: previousRecord.productName || "",
-        sku: previousRecord.sku || "",
-        categoryName: previousRecord.categoryAnalysis?.categoryName || "",
-      }
-      : null;
-    if (state.route.query.has("research")) navigate("/workspace/research", true);
-    else renderWorkspace("research");
+    beginNewProductResearch({
+      previousRecord,
+      prefill: sourceFreshnessBlocked
+        ? {
+          researchFocus: "Повторно собрать доказательства после изменения разбора источников",
+        }
+        : {},
+      notice: previousRecord?.id
+        ? "Прежний снимок сохранён. Проверьте предзаполненные исходные данные; новый платный анализ не запущен."
+        : "Подготовлена новая форма. Платный анализ не запущен.",
+    });
+    navigate("/workspace/research", true);
     window.queueMicrotask(() => document.querySelector('#product-research-start-form input[name="product_name"]')?.focus());
     return;
   }
@@ -16195,6 +16367,171 @@ async function refreshGenerationSpec(form, { force = false } = {}) {
   }
 }
 
+function generationSpecResearchId() {
+  return String(
+    state.generationSpec.data?.generationSpec?.research_provenance?.research_id
+      || "",
+  ).trim().toLowerCase();
+}
+
+function invalidateGenerationStateForResearch(runId) {
+  const normalizedRunId = String(runId || "").trim().toLowerCase();
+  if (!normalizedRunId) return false;
+  const handoffMatches = String(
+    state.contentGenerationHandoff?.researchId || "",
+  ).trim().toLowerCase() === normalizedRunId;
+  const specResearchId = generationSpecResearchId();
+  const generationSpecExists = Boolean(
+    state.generationSpec.data?.generationSpec,
+  );
+  const generationSpecMatches = specResearchId === normalizedRunId
+    || (handoffMatches && generationSpecExists && !specResearchId);
+  if (!handoffMatches && !generationSpecMatches) return false;
+  if (handoffMatches) clearContentGenerationHandoff();
+  if (generationSpecMatches) resetGenerationSpecState();
+  clearGenerationFormDraft();
+  const form = document.querySelector("#mock-batch-form");
+  if (form?.elements?.real_spend_confirmation) {
+    form.elements.real_spend_confirmation.checked = false;
+  }
+  state.sections.generation.status = "idle";
+  state.sections.generation.error = null;
+  state.generationSpend.status = "idle";
+  state.generationSpend.error = null;
+  state.realGenerationStartNotice = "";
+  return true;
+}
+
+function productResearchObjectiveKey(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (["conversion", "awareness", "ugc", "education"].includes(normalized)) {
+    return normalized;
+  }
+  if (normalized.includes("ugc")) return "ugc";
+  if (normalized.includes("узнаваем")) return "awareness";
+  if (normalized.includes("применени") || normalized.includes("объясн")) {
+    return "education";
+  }
+  return "conversion";
+}
+
+function productResearchPrefillFromSnapshot(record, overrides = {}) {
+  const input = record?.researchInput && typeof record.researchInput === "object"
+    ? record.researchInput
+    : {};
+  const sourceMediaIds = [...new Set([
+    ...(Array.isArray(input.sourceMediaIds) ? input.sourceMediaIds : []),
+    ...(Array.isArray(overrides.sourceMediaIds) ? overrides.sourceMediaIds : []),
+  ].map((item) => String(item || "").trim()).filter(Boolean))].slice(0, 5);
+  const platforms = [...new Set([
+    ...(Array.isArray(input.platforms) ? input.platforms : []),
+    ...(Array.isArray(overrides.platforms) ? overrides.platforms : []),
+    String(overrides.platform || "").trim(),
+  ].filter((item) => PRODUCT_RESEARCH_PLATFORM_SET.has(item)))].slice(0, 8);
+  return {
+    productName: String(overrides.productName || record?.productName || "").trim(),
+    sku: String(overrides.sku || record?.sku || "").trim(),
+    categoryName: String(
+      overrides.categoryName
+        || record?.marketRegistry?.currentBinding?.canonicalName
+        || record?.categoryAnalysis?.categoryName
+        || "",
+    ).trim(),
+    researchFocus: String(
+      overrides.researchFocus
+        || input.researchFocus
+        || "",
+    ).trim(),
+    marketplaceUrl: String(
+      overrides.marketplaceUrl || input.marketplaceUrl || "",
+    ).trim(),
+    competitorReferences: String(
+      overrides.competitorReferences || input.competitorReferences || "",
+    ).trim(),
+    knownFacts: String(overrides.knownFacts || input.knownFacts || "").trim(),
+    objective: productResearchObjectiveKey(
+      overrides.objective || input.objectiveKey || input.objective,
+    ),
+    platforms,
+    sourceMediaIds,
+    previousResearchId: String(
+      overrides.previousResearchId || record?.id || "",
+    ).trim().toLowerCase(),
+  };
+}
+
+function beginNewProductResearch({
+  previousRecord = state.productResearch.record,
+  preservedRecord = previousRecord,
+  previousRunId = previousRecord?.id,
+  prefill = {},
+  notice = "",
+} = {}) {
+  const research = state.productResearch;
+  const normalizedRunId = String(previousRunId || "").trim().toLowerCase();
+  const matchingStageControl = research.stageControl.data?.available === true
+    && String(research.stageControl.data.runId || "").trim().toLowerCase()
+      === normalizedRunId
+    ? research.stageControl.data
+    : null;
+  research.preservedSnapshot = normalizedRunId
+    ? {
+      runId: normalizedRunId,
+      record: String(preservedRecord?.id || "").trim().toLowerCase()
+        === normalizedRunId
+        ? preservedRecord
+        : null,
+      stageControl: matchingStageControl,
+    }
+    : null;
+  stopProductResearchPolling();
+  clearProductResearchRunId();
+  research.requestId += 1;
+  research.phase = "idle";
+  research.record = null;
+  research.error = "";
+  research.notice = String(notice || "").trim();
+  research.restoreAttempted = true;
+  research.prefill = productResearchPrefillFromSnapshot(previousRecord, {
+    ...prefill,
+    previousResearchId: normalizedRunId,
+  });
+  resetResearchStageControl();
+  return research.prefill;
+}
+
+function restorePreservedProductResearchSnapshot(researchId) {
+  const research = state.productResearch;
+  const snapshot = research.preservedSnapshot;
+  const normalizedResearchId = String(researchId || "").trim().toLowerCase();
+  if (!snapshot?.runId || snapshot.runId !== normalizedResearchId) return false;
+  stopProductResearchPolling();
+  research.requestId += 1;
+  research.prefill = null;
+  research.error = "";
+  research.notice = "Открыт сохранённый снимок исследования. Платный анализ и генерация не запускались.";
+  research.restoreAttempted = true;
+  research.record = snapshot.record
+    || normalizeProductResearch({
+      run: { id: normalizedResearchId, status: "queued" },
+    });
+  research.phase = snapshot.record
+    ? productResearchRestingPhase(snapshot.record)
+    : "processing";
+  resetResearchStageControl();
+  if (snapshot.stageControl?.available === true) {
+    research.stageControl.status = "ready";
+    research.stageControl.data = snapshot.stageControl;
+    research.stageControl.runId = normalizedResearchId;
+    research.stageControl.branchId = String(
+      snapshot.stageControl.selectedBranch?.branchId || "",
+    );
+  }
+  persistProductResearchRunId(normalizedResearchId);
+  window.queueMicrotask(() => pollProductResearchStatus({ silent: true }));
+  return true;
+}
+
 async function runGenerationSpecControl(form, action, {
   targetSpecVersion = null,
 } = {}) {
@@ -18565,11 +18902,23 @@ async function submitProductResearchStart(form) {
     form.elements.competitor_references?.focus();
     return;
   }
-  const previous = normalizeProductResearch({ run: { status: "queued" } }, {
-    productName,
-    sku,
-    status: "queued",
-  });
+  const previous = {
+    ...normalizeProductResearch({ run: { status: "queued" } }, {
+      productName,
+      sku,
+      status: "queued",
+    }),
+    researchInput: {
+      objective,
+      objectiveKey,
+      marketplaceUrl,
+      sourceMediaIds,
+      platforms,
+      researchFocus,
+      competitorReferences,
+      knownFacts,
+    },
+  };
   stopProductResearchPolling();
   resetResearchStageControl();
   state.productResearch.requestId += 1;
@@ -19220,6 +19569,7 @@ async function submitProductResearchSourceCorrection(form) {
   research.notice = "";
   renderWorkspace("research");
   let mutationCompleted = false;
+  let generationContextInvalidated = false;
   try {
     await state.api.correctResearchSourceAnalysis({
       source_ledger_id: sourceLedgerId,
@@ -19229,11 +19579,19 @@ async function submitProductResearchSourceCorrection(form) {
       correction_reason: correctionReason,
     });
     mutationCompleted = true;
-    await refreshProductResearchCategoryLearning(runId);
-    research.notice = "Исправление добавлено новой версией; прежний разбор и lineage сохранены. Внешний provider не вызывался.";
+    generationContextInvalidated = invalidateGenerationStateForResearch(runId);
+    await Promise.all([
+      refreshProductResearchCategoryLearning(runId),
+      loadResearchStageControl({ runId, silent: true }),
+    ]);
+    generationContextInvalidated = invalidateGenerationStateForResearch(runId)
+      || generationContextInvalidated;
+    research.notice = `Исправление добавлено новой версией; прежний разбор и lineage сохранены. Зависимые этапы и спецификации помечены устаревшими${generationContextInvalidated ? ", а открытый handoff и управляемое ТЗ очищены" : ""}. Для продолжения подготовьте новое исследование; внешний provider не вызывался.`;
   } catch (error) {
     if (mutationCompleted) {
-      research.notice = "Исправление сохранено, но свежий ledger временно недоступен. Не отправляйте его повторно.";
+      generationContextInvalidated = invalidateGenerationStateForResearch(runId)
+        || generationContextInvalidated;
+      research.notice = `Исправление сохранено, но свежий ledger временно недоступен. Не отправляйте его повторно.${generationContextInvalidated ? " Связанный handoff и управляемое ТЗ очищены локально." : ""}`;
     } else {
       research.error = actionErrorMessage(error);
       if (String(error?.serverCode || error?.code || "")
@@ -21362,6 +21720,7 @@ function clearAuthenticatedState() {
   state.productResearch.notice = "";
   state.productResearch.restoreAttempted = false;
   state.productResearch.prefill = null;
+  state.productResearch.preservedSnapshot = null;
   resetResearchStageControl();
   state.contentReview.requestId += 1;
   state.contentReview.phase = "idle";

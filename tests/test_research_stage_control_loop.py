@@ -431,7 +431,8 @@ def test_portal_exposes_stage_control_only_through_lazy_corrections_view() -> No
     assert "Завершите сохранённый запрос как superseded" in view
     assert "stageControl" in app
     assert 'researchView === "corrections"' in app
-    assert 'state.route.query.get("view") === "corrections"' in app
+    assert 'research.record?.approved === true' in app
+    assert "generationHandoffAllowed" in app
     assert "researchStageControlStatus" in app
     assert "productResearchStatus" in app
     assert app.count("researchStageControlStatus(") < app.count("productResearchStatus(")

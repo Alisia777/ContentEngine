@@ -396,6 +396,27 @@ insert into content_factory.memberships (
   'c0100000-0000-4000-8000-000000000002',
   'c0100000-0000-4000-8000-000000000001', 'owner', 'active'
 );
+insert into content_factory.training_access_waivers (
+  organization_id, profile_id, previous_role, granted_role,
+  grant_reason, granted_by
+) values (
+  'c0100000-0000-4000-8000-000000000002',
+  'c0100000-0000-4000-8000-000000000001',
+  'owner', 'owner',
+  'TEST-ONLY waiver for correction freshness generation coverage.',
+  'c0100000-0000-4000-8000-000000000001'
+);
+insert into content_factory.generation_spend_policies (
+  organization_id, paid_generation_enabled,
+  daily_limit_minor, monthly_limit_minor, per_request_limit_minor,
+  currency, timezone, version, reason, updated_by
+) values (
+  'c0100000-0000-4000-8000-000000000002',
+  true, 1000, 10000, 100,
+  'USD', 'Europe/Moscow', 1,
+  'Correction freshness generation guard fixture.',
+  'c0100000-0000-4000-8000-000000000001'
+);
 insert into content_factory.products (
   id, organization_id, sku, title, status, metadata, created_by
 ) values (
@@ -404,6 +425,24 @@ insert into content_factory.products (
   'CATEGORY-READINESS-RUNTIME', 'Category Readiness Runtime Product',
   'active', '{}'::jsonb,
   'c0100000-0000-4000-8000-000000000001'
+);
+insert into content_factory.media_objects (
+  id, organization_id, owner_id, product_id, bucket_id, object_name,
+  mime_type, size_bytes, sha256, status, metadata, idempotency_key
+) values (
+  'c0100000-0000-4000-8000-000000000006',
+  'c0100000-0000-4000-8000-000000000002',
+  'c0100000-0000-4000-8000-000000000001',
+  'c0100000-0000-4000-8000-000000000003',
+  'contentengine-private',
+  'c0100000-0000-4000-8000-000000000002/c0100000-0000-4000-8000-000000000001/uploads/correction-source.jpg',
+  'image/jpeg', 2048, repeat('c', 64), 'ready',
+  jsonb_build_object(
+    'kind', 'product_photo',
+    'original_filename', 'correction-source.jpg',
+    'rights_confirmed', true
+  ),
+  'category-readiness-correction-source'
 );
 insert into content_factory.product_research_runs (
   id, organization_id, product_id, created_by, status, input, summary,
@@ -434,6 +473,29 @@ insert into content_factory.product_research_runs (
         'signal_key', 'format.comparison',
         'signal', 'PROVIDER_TREND_PROSE_NEVER_COPY',
         'source_ids', jsonb_build_array('web:s1', 'web:s2')
+      ))
+    ),
+    'scenarios', jsonb_build_array(jsonb_build_object(
+      'hook', 'Почему этот продукт проще показать в одном честном действии?',
+      'shot_list', jsonb_build_array(
+        'Покажите точный продукт крупно и продемонстрируйте одно действие.'
+      )
+    )),
+    'sources', jsonb_build_array(jsonb_build_object(
+      'id', 'web:s1',
+      'type', 'market_data'
+    )),
+    'claims', jsonb_build_object(
+      'safe', jsonb_build_array(jsonb_build_object(
+        'claim', 'Показан точный товар из подтвержденного источника.',
+        'basis', 'Точный SKU и исходное фото подтверждены человеком.',
+        'source_ids', jsonb_build_array('web:s1')
+      )),
+      'forbidden', jsonb_build_array(jsonb_build_object(
+        'claim', 'Гарантированный пользовательский результат.',
+        'reason', 'Источник не подтверждает обещание результата.',
+        'safer_alternative', 'Показывать только наблюдаемое действие с товаром.',
+        'source_ids', jsonb_build_array('web:s1')
       ))
     ),
     'facts', jsonb_build_array(jsonb_build_object(
@@ -501,7 +563,18 @@ select
     'instructions', 'Exercise bounded persisted-result parsing.'
   )),
   content_factory_private.json_hash(jsonb_build_object(
-    'runtime_draft', run.id
+    'title', 'Runtime category evidence draft',
+    'brief', run.summary,
+    'source_ids', (
+      select jsonb_agg(source.id order by source.created_at, source.id)
+      from content_factory.product_research_sources source
+      where source.organization_id = run.organization_id
+        and source.run_id = run.id
+    ),
+    'task_blueprint', jsonb_build_array(jsonb_build_object(
+      'title', 'Verify runtime lifecycle',
+      'instructions', 'Exercise bounded persisted-result parsing.'
+    ))
   ))
 from content_factory.product_research_runs run
 where run.id = 'c0100000-0000-4000-8000-000000000004';
@@ -545,6 +618,353 @@ select is(
    where ledger.run_id = 'c0100000-0000-4000-8000-000000000004'),
   24,
   'fallback parsing is deterministically capped at twenty-four sources'
+);
+select is(
+  (select count(distinct binding.source_id)::integer
+   from content_factory.research_draft_source_analysis_bindings binding
+   where binding.organization_id =
+       'c0100000-0000-4000-8000-000000000002'
+     and binding.run_id = 'c0100000-0000-4000-8000-000000000004'
+     and binding.draft_id = 'c0100000-0000-4000-8000-000000000005'),
+  30,
+  'every draft source is bound to its exact semantic analysis head'
+);
+select is(
+  (select count(*)::integer
+   from content_factory.research_draft_source_analysis_bindings binding
+   where binding.organization_id =
+       'c0100000-0000-4000-8000-000000000002'
+     and binding.run_id = 'c0100000-0000-4000-8000-000000000004'
+     and binding.draft_id = 'c0100000-0000-4000-8000-000000000005'
+     and binding.binding_kind = 'baseline_adoption'),
+  24,
+  'parser baselines extend draft lineage append-only after ledger capture'
+);
+select is(
+  content_factory_private.research_draft_source_analysis_fresh(
+    'c0100000-0000-4000-8000-000000000002',
+    'c0100000-0000-4000-8000-000000000004',
+    'c0100000-0000-4000-8000-000000000005'
+  ),
+  true,
+  'the initial draft is fresh against its immutable source-analysis bindings'
+);
+select is(
+  (select count(*)::integer
+   from content_factory.research_stage_branches branch
+   join content_factory.research_stage_heads head
+     on head.organization_id = branch.organization_id
+    and head.run_id = branch.run_id
+    and head.branch_id = branch.id
+   where branch.organization_id =
+       'c0100000-0000-4000-8000-000000000002'
+     and branch.run_id = 'c0100000-0000-4000-8000-000000000004'
+     and branch.branch_key = 'main'
+     and head.state = 'current'),
+  7,
+  'all seven governed research stages start current'
+);
+
+create temporary table correction_generation_state (
+  draft_approval_result jsonb,
+  prepare_result jsonb,
+  approve_result jsonb,
+  start_result jsonb,
+  stale_start_result jsonb,
+  cross_run_recompute_result jsonb
+) on commit drop;
+insert into correction_generation_state default values;
+
+update correction_generation_state state
+set draft_approval_result = public.creator_approve_creative_brief(
+  jsonb_build_object(
+    'organization_id', 'c0100000-0000-4000-8000-000000000002',
+    'idempotency_key', 'category-readiness-draft-approval',
+    'draft_id', 'c0100000-0000-4000-8000-000000000005'
+  )
+);
+select is(
+  (select draft.status
+   from content_factory.creative_brief_drafts draft
+   where draft.id = 'c0100000-0000-4000-8000-000000000005'),
+  'approved',
+  'the exact fresh research draft can be approved before correction'
+);
+
+update correction_generation_state state
+set prepare_result = public.creator_prepare_generation_spec(
+  jsonb_build_object(
+    'organization_id', 'c0100000-0000-4000-8000-000000000002',
+    'idempotency_key', 'category-readiness-spec-prepare',
+    'exact_scope', jsonb_build_object(
+      'primary_media_id', 'c0100000-0000-4000-8000-000000000006',
+      'media_ids', jsonb_build_array(
+        'c0100000-0000-4000-8000-000000000006'
+      ),
+      'platform', 'wildberries',
+      'model', 'gen4_turbo',
+      'duration_seconds', 5,
+      'product_category', 'other',
+      'format', '9:16',
+      'audio', false
+    ),
+    'editable_intent',
+      'Show the exact approved-research product in one honest interaction.',
+    'proposed_prompt',
+      'Точный товар: Category Readiness Runtime Product, артикул CATEGORY-READINESS-RUNTIME. Создай один непрерывный вертикальный ролик длительностью 5 секунд. Без речи, дикторского текста и сгенерированных надписей. Сохрани форму, цвет, упаковку, этикетку и пропорции без изменений. Не добавляй новые свойства, результаты, медицинские обещания, логотипы, текст на упаковке или другой вариант товара. '
+      || content_factory_private.generation_product_interaction_requirement(
+        'Category Readiness Runtime Product', 'other'
+      ),
+    'learning_context',
+      content_factory_private.generation_spec_research_structure(
+        (select draft.brief
+         from content_factory.creative_brief_drafts draft
+         where draft.id = 'c0100000-0000-4000-8000-000000000005'),
+        1
+      ) || jsonb_build_object(
+        'source', 'approved_research',
+        'creative_brief_draft_id',
+          'c0100000-0000-4000-8000-000000000005',
+        'scenario_position', 1,
+        'product_category', 'other'
+      ),
+    'repair_context', null,
+    'research_provenance', jsonb_build_object(
+      'research_id', 'c0100000-0000-4000-8000-000000000004',
+      'creative_brief_draft_id',
+        'c0100000-0000-4000-8000-000000000005',
+      'scenario_position', 1
+    ),
+    'performance_policy_provenance', null,
+    'repair_provenance', null,
+    'confirmation', true,
+    'reason', 'Prepare an exact approved-research generation specification.'
+  )
+);
+select is(
+  (select prepare_result #>> '{generation_spec,status}'
+   from correction_generation_state),
+  'draft',
+  'fresh source-analysis evidence can prepare a governed generation spec'
+);
+
+update correction_generation_state state
+set approve_result = public.creator_control_generation_spec(
+  jsonb_build_object(
+    'organization_id', 'c0100000-0000-4000-8000-000000000002',
+    'spec_id', state.prepare_result #>> '{generation_spec,spec_id}',
+    'expected_spec_version',
+      (state.prepare_result #>> '{generation_spec,spec_version}')::integer,
+    'expected_spec_hash', state.prepare_result #>> '{generation_spec,spec_hash}',
+    'action', 'approve',
+    'confirmation', true,
+    'reason', 'Approve the exact fresh evidence-bound specification.',
+    'idempotency_key', 'category-readiness-spec-approve'
+  )
+);
+select is(
+  (select approve_result #>> '{generation_spec,status}'
+   from correction_generation_state),
+  'approved',
+  'fresh evidence-bound generation spec can be explicitly approved'
+);
+select is(
+  (select content_factory_private.research_generation_spec_evidence_fresh(
+     'c0100000-0000-4000-8000-000000000002',
+     (state.approve_result #>> '{generation_spec,spec_id}')::uuid,
+     (state.approve_result #>> '{generation_spec,spec_version}')::integer,
+     state.approve_result #>> '{generation_spec,spec_hash}'
+   )
+   from correction_generation_state state),
+  true,
+  'approved generation provenance is fresh before source correction'
+);
+
+update correction_generation_state state
+set start_result = public.creator_start_real_generation(
+  jsonb_build_object(
+    'organization_id', 'c0100000-0000-4000-8000-000000000002',
+    'campaign_id', (
+      select campaign.id
+      from content_factory.generation_campaigns campaign
+      where campaign.organization_id =
+          'c0100000-0000-4000-8000-000000000002'
+        and campaign.kind = 'default'
+    ),
+    'idempotency_key', 'category-readiness-generation-start',
+    'sku', 'CATEGORY-READINESS-RUNTIME',
+    'product_name', 'Category Readiness Runtime Product',
+    'product_category', 'other',
+    'count', 1,
+    'format', '9:16',
+    'brief', state.approve_result #>> '{generation_spec,compiled_prompt}',
+    'media_ids', jsonb_build_array(
+      'c0100000-0000-4000-8000-000000000006'
+    ),
+    'platform', 'wildberries',
+    'destination_ref', 'wb-category-readiness-correction',
+    'mode', 'real',
+    'provider', 'runway',
+    'model', 'gen4_turbo',
+    'duration_seconds', 5,
+    'allow_real_spend', true,
+    'spend_confirmation', 'RUNWAY_GEN4_TURBO_5S_USD_0.25',
+    'learning_context',
+      content_factory_private.generation_spec_research_structure(
+        (select draft.brief
+         from content_factory.creative_brief_drafts draft
+         where draft.id = 'c0100000-0000-4000-8000-000000000005'),
+        1
+      ) || jsonb_build_object(
+        'source', 'approved_research',
+        'creative_brief_draft_id',
+          'c0100000-0000-4000-8000-000000000005',
+        'scenario_position', 1,
+        'product_category', 'other'
+      ),
+    'repair_context', 'null'::jsonb,
+    'review_autostart_confirmed', true,
+    'review_autostart_terms_version', 'generated-video-qa-autostart-v1',
+    'generation_spec_context', jsonb_build_object(
+      'spec_id', state.approve_result #>> '{generation_spec,spec_id}',
+      'spec_version',
+        (state.approve_result #>> '{generation_spec,spec_version}')::integer,
+      'spec_hash', state.approve_result #>> '{generation_spec,spec_hash}'
+    )
+  )
+);
+select is(
+  (select start_result #>> '{job,status}'
+   from correction_generation_state),
+  'queued',
+  'fresh approved research can reserve one paid job without provider start'
+);
+
+-- A second run observes the same category content through new local source
+-- occurrences. It must inherit the canonical analysis heads rather than
+-- silently falling back to legacy freshness.
+insert into content_factory.product_research_runs (
+  id, organization_id, product_id, created_by, status, input, summary,
+  request_hash, completion_hash, idempotency_key, finished_at
+)
+select
+  'c0100000-0000-4000-8000-000000000030', organization_id, product_id,
+  created_by, 'completed', jsonb_build_object(
+    'objective', 'Cross-run canonical source-analysis recovery fixture.',
+    'marketplace_url', null,
+    'source_media_ids', jsonb_build_array(
+      'c0100000-0000-4000-8000-000000000006'
+    ),
+    'platforms', jsonb_build_array('youtube')
+  ), summary, repeat('a', 64), repeat('b', 64),
+  'category-readiness-cross-run-before-correction', now()
+from content_factory.product_research_runs
+where id = 'c0100000-0000-4000-8000-000000000004';
+insert into content_factory.product_research_sources (
+  organization_id, run_id, product_id, created_by, source_type, source_url,
+  media_object_id, title, content_hash, trust_level, extracted_facts,
+  metadata, fetched_at, published_at, created_at
+)
+select source.organization_id,
+  'c0100000-0000-4000-8000-000000000030', source.product_id,
+  source.created_by, source.source_type, source.source_url,
+  source.media_object_id, source.title, source.content_hash,
+  source.trust_level, source.extracted_facts, source.metadata,
+  source.fetched_at, source.published_at, clock_timestamp()
+from content_factory.product_research_sources source
+where source.run_id = 'c0100000-0000-4000-8000-000000000004'
+order by source.created_at, source.id;
+insert into content_factory.creative_brief_drafts (
+  id, organization_id, run_id, product_id, created_by, origin, version,
+  status, title, brief, source_ids, task_blueprint, content_hash
+)
+select
+  'c0100000-0000-4000-8000-000000000032', run.organization_id, run.id,
+  run.product_id, run.created_by, 'ai', 1, 'draft',
+  'Cross-run canonical evidence draft', run.summary,
+  source_set.source_ids,
+  jsonb_build_array(jsonb_build_object(
+    'title', 'Verify canonical cross-run evidence',
+    'instructions', 'Keep the canonical source correction in later runs.'
+  )),
+  content_factory_private.json_hash(jsonb_build_object(
+    'title', 'Cross-run canonical evidence draft',
+    'brief', run.summary,
+    'source_ids', source_set.source_ids,
+    'task_blueprint', jsonb_build_array(jsonb_build_object(
+      'title', 'Verify canonical cross-run evidence',
+      'instructions', 'Keep the canonical source correction in later runs.'
+    ))
+  ))
+from content_factory.product_research_runs run
+cross join lateral (
+  select jsonb_agg(source.id order by source.created_at, source.id)
+    as source_ids
+  from content_factory.product_research_sources source
+  where source.organization_id = run.organization_id
+    and source.run_id = run.id
+) source_set
+where run.id = 'c0100000-0000-4000-8000-000000000030';
+select is(
+  (select count(distinct binding.source_id)::integer
+   from content_factory.research_draft_source_analysis_bindings binding
+   where binding.run_id = 'c0100000-0000-4000-8000-000000000030'
+     and binding.draft_id = 'c0100000-0000-4000-8000-000000000032'),
+  30,
+  'a later run maps all local occurrences onto canonical category ledgers'
+);
+select is(
+  content_factory_private.research_draft_source_analysis_fresh(
+    'c0100000-0000-4000-8000-000000000002',
+    'c0100000-0000-4000-8000-000000000030',
+    'c0100000-0000-4000-8000-000000000032'
+  ),
+  true,
+  'the cross-run draft starts fresh against inherited canonical heads'
+);
+update correction_generation_state state
+set cross_run_recompute_result = control.result
+from (
+  select public.creator_control_research_stage(jsonb_build_object(
+    'organization_id', 'c0100000-0000-4000-8000-000000000002',
+    'run_id', 'c0100000-0000-4000-8000-000000000030',
+    'branch_id', branch.id,
+    'stage', 'category',
+    'action', 'recompute',
+    'expected_head_event_id', head.head_event_id,
+    'expected_artifact_id', head.artifact_id,
+    'expected_content_hash', artifact.content_hash,
+    'expected_branch_revision_hash',
+      content_factory_private.research_stage_branch_revision_hash(
+        branch.organization_id, branch.run_id, branch.id
+      ),
+    'paid_analysis_ack', true,
+    'confirmation', true,
+    'user_input',
+      'Recompute this inherited category only after explicit confirmation.',
+    'reason',
+      'Save one cross-run recompute before the canonical source changes.',
+    'idempotency_key', 'category-readiness-cross-run-recompute'
+  )) as result
+  from content_factory.research_stage_branches branch
+  join content_factory.research_stage_heads head
+    on head.organization_id = branch.organization_id
+   and head.run_id = branch.run_id
+   and head.branch_id = branch.id
+   and head.stage = 'category'
+  join content_factory.research_stage_artifacts artifact
+    on artifact.organization_id = head.organization_id
+   and artifact.run_id = head.run_id
+   and artifact.stage = head.stage
+   and artifact.id = head.artifact_id
+  where branch.run_id = 'c0100000-0000-4000-8000-000000000030'
+    and branch.branch_key = 'main'
+) control;
+select is(
+  (select cross_run_recompute_result #>> '{recompute_request,status}'
+   from correction_generation_state),
+  'queued',
+  'the cross-run paid recompute is saved before provider claim'
 );
 select is(
   (select count(*)::integer
@@ -653,10 +1073,14 @@ select lives_ok(
         'run_id', 'c0100000-0000-4000-8000-000000000004',
         'action', 'create_and_bind',
         'candidate_hash', (
-          content_factory_private.research_market_category_candidate(
-            'c0100000-0000-4000-8000-000000000002',
-            'c0100000-0000-4000-8000-000000000004'
-          ) ->> 'candidate_hash'
+          select binding.candidate_hash
+          from content_factory.research_product_market_category_bindings binding
+          where binding.organization_id =
+              'c0100000-0000-4000-8000-000000000002'
+            and binding.source_run_id =
+              'c0100000-0000-4000-8000-000000000004'
+          order by binding.binding_version desc, binding.id desc
+          limit 1
         ),
         'canonical_name', 'Runtime evidence category',
         'definition', 'A bounded runtime category for evidence lifecycle tests.',
@@ -717,6 +1141,243 @@ select lives_ok(
   'a creator can append an exact-head irrelevant correction'
 );
 select is(
+  content_factory_private.research_draft_source_analysis_fresh(
+    'c0100000-0000-4000-8000-000000000002',
+    'c0100000-0000-4000-8000-000000000004',
+    'c0100000-0000-4000-8000-000000000005'
+  ),
+  false,
+  'a later human correction makes the exact draft evidence binding stale'
+);
+select is(
+  (select count(*)::integer
+   from content_factory.research_stage_branches branch
+   join content_factory.research_stage_heads head
+     on head.organization_id = branch.organization_id
+    and head.run_id = branch.run_id
+    and head.branch_id = branch.id
+   where branch.organization_id =
+       'c0100000-0000-4000-8000-000000000002'
+     and branch.run_id = 'c0100000-0000-4000-8000-000000000004'
+     and branch.branch_key = 'main'
+     and head.state = 'stale_dependency'),
+  7,
+  'one corrected source invalidates all seven dependent main-branch stages'
+);
+select ok(
+  exists (
+    select 1
+    from correction_generation_state state
+    join content_factory.research_stage_recompute_requests request
+      on request.id = (
+        state.cross_run_recompute_result
+          #>> '{recompute_request,request_id}'
+      )::uuid
+    join content_factory.product_research_runs child
+      on child.organization_id = request.organization_id
+     and child.id = request.child_run_id
+    where request.status = 'superseded'
+      and request.error_code =
+        'source_analysis_changed_before_provider_claim'
+      and request.provider_attempt_count = 0
+      and child.status = 'cancelled'
+      and child.error_code =
+        'stage_recompute_source_analysis_superseded'
+  ),
+  'canonical correction terminalizes the saved cross-run recompute before claim'
+);
+select is(
+  (select count(*)::integer
+   from content_factory.research_stage_branches branch
+   join content_factory.research_stage_heads head
+     on head.organization_id = branch.organization_id
+    and head.run_id = branch.run_id
+    and head.branch_id = branch.id
+   where branch.run_id = 'c0100000-0000-4000-8000-000000000030'
+     and branch.branch_key = 'main'
+     and head.state = 'stale_dependency'),
+  7,
+  'one canonical correction invalidates all seven stages in the later run'
+);
+select is(
+  (select count(*)::integer
+   from correction_generation_state state
+   join content_factory.research_run_provider_bindings provider_binding
+     on provider_binding.run_id = (
+       state.cross_run_recompute_result
+         #>> '{recompute_request,child_run_id}'
+     )::uuid),
+  0,
+  'source-analysis supersession creates no cross-run provider binding'
+);
+select is(
+  (select count(*)::integer
+   from content_factory.research_stage_head_events event
+   where event.organization_id =
+       'c0100000-0000-4000-8000-000000000002'
+     and event.run_id = 'c0100000-0000-4000-8000-000000000004'
+     and event.action = 'dependency_refresh'
+     and event.state = 'stale_dependency'
+     and event.correction_source_id = (
+       select source.id
+       from content_factory.product_research_sources source
+       where source.organization_id =
+           'c0100000-0000-4000-8000-000000000002'
+         and source.run_id = 'c0100000-0000-4000-8000-000000000004'
+         and source.metadata ->> 'model_source_id' = 'web:s5'
+       limit 1
+     )),
+  7,
+  'source correction invalidation is append-only and auditable per stage'
+);
+select is(
+  (select head.state
+   from correction_generation_state state
+   join lateral (
+     select event.state
+     from content_factory.generation_spec_head_events event
+     where event.organization_id =
+         'c0100000-0000-4000-8000-000000000002'
+       and event.spec_id =
+         (state.approve_result #>> '{generation_spec,spec_id}')::uuid
+     order by event.event_sequence desc
+     limit 1
+   ) head on true),
+  'draft',
+  'source correction returns the exact dependent generation spec to draft'
+);
+select is(
+  (select head.action
+   from correction_generation_state state
+   join lateral (
+     select event.action
+     from content_factory.generation_spec_head_events event
+     where event.organization_id =
+         'c0100000-0000-4000-8000-000000000002'
+       and event.spec_id =
+         (state.approve_result #>> '{generation_spec,spec_id}')::uuid
+     order by event.event_sequence desc
+     limit 1
+   ) head on true),
+  'recompute',
+  'generation-spec invalidation is an append-only recompute head event'
+);
+select is(
+  (select content_factory_private.generation_spec_envelope(
+     'c0100000-0000-4000-8000-000000000002',
+     (state.approve_result #>> '{generation_spec,spec_id}')::uuid
+   ) #>> '{recommended_next_action,action}'
+   from correction_generation_state state),
+  'start_new_research',
+  'stale generation guidance starts an append-only research recovery run'
+);
+select throws_ok(
+  $$
+    select public.creator_control_generation_spec(jsonb_build_object(
+      'organization_id', 'c0100000-0000-4000-8000-000000000002',
+      'spec_id', state.approve_result #>> '{generation_spec,spec_id}',
+      'expected_spec_version',
+        (state.approve_result #>> '{generation_spec,spec_version}')::integer,
+      'expected_spec_hash', state.approve_result #>> '{generation_spec,spec_hash}',
+      'action', 'approve',
+      'confirmation', true,
+      'reason', 'Attempt to approve stale source-analysis provenance.',
+      'idempotency_key', 'category-readiness-stale-spec-approval'
+    ))
+    from correction_generation_state state
+  $$,
+  '55000',
+  'generation_spec_research_provenance_stale',
+  'stale source-analysis provenance blocks generation-spec reapproval'
+);
+select is(
+  (select content_factory_private.research_generation_spec_evidence_fresh(
+     'c0100000-0000-4000-8000-000000000002',
+     (state.approve_result #>> '{generation_spec,spec_id}')::uuid,
+     (state.approve_result #>> '{generation_spec,spec_version}')::integer,
+     state.approve_result #>> '{generation_spec,spec_hash}'
+   )
+   from correction_generation_state state),
+  false,
+  'the same immutable generation provenance is stale after source correction'
+);
+select is(
+  (select count(*)::integer
+   from correction_generation_state state
+   join content_factory.generation_spec_approval_events event
+     on event.organization_id =
+       'c0100000-0000-4000-8000-000000000002'
+    and event.spec_id =
+      (state.approve_result #>> '{generation_spec,spec_id}')::uuid),
+  1,
+  'failed stale reapproval preserves the single immutable approval event'
+);
+select ok(
+  exists (
+    select 1
+    from content_factory.creator_tasks task
+    where task.creative_brief_draft_id =
+        'c0100000-0000-4000-8000-000000000005'
+      and task.status = 'cancelled'
+      and task.result #>> '{research_evidence_stale,analysis_event_id}' = (
+        select event.id::text
+        from content_factory.research_source_analysis_events event
+        join content_factory.research_category_source_ledger ledger
+          on ledger.id = event.source_ledger_id
+        join content_factory.product_research_sources source
+          on source.id = ledger.source_id
+        where source.metadata ->> 'model_source_id' = 'web:s5'
+        order by event.analysis_version desc
+        limit 1
+      )
+  ),
+  'source correction cancels actionable tasks while preserving stale lineage'
+);
+
+update correction_generation_state state
+set stale_start_result = public.system_update_real_generation(
+  jsonb_build_object(
+    'job_id', state.start_result #>> '{job,id}',
+    'status', 'starting'
+  )
+);
+select ok(
+  (select stale_start_result -> 'ok' = 'false'::jsonb
+     and stale_start_result -> 'terminal' = 'true'::jsonb
+     and stale_start_result -> 'retryable' = 'false'::jsonb
+     and stale_start_result ->> 'code' =
+       'generation_spec_provider_start_stale'
+     and stale_start_result #>> '{job,status}' = 'failed'
+     and stale_start_result #>> '{job,failure_code}' =
+       'generation_spec_provider_start_stale'
+   from correction_generation_state),
+  'queued paid work fails closed before provider start after source correction'
+);
+select ok(
+  (select count(*) = 2
+     and count(*) filter (where ledger.event_type = 'reserved') = 1
+     and count(*) filter (where ledger.event_type = 'released') = 1
+     and sum(ledger.reserved_delta_minor) = 0
+     and sum(ledger.committed_delta_minor) = 0
+   from content_factory.generation_spend_ledger ledger
+   where ledger.generation_job_id = (
+     select (start_result #>> '{job,id}')::uuid
+     from correction_generation_state
+   )),
+  'pre-provider source staleness releases the full reservation with zero spend'
+);
+select is(
+  (select count(*)::integer
+   from content_factory.factory_events event
+   where event.entity_id = (
+     select start_result #>> '{job,id}'
+     from correction_generation_state
+   )
+     and event.event_name = 'real_generation_starting'),
+  0,
+  'source correction emits no provider-start event'
+);
+select is(
   (select (dimension.value ->> 'current')::integer
    from jsonb_array_elements(
      content_factory_private.research_category_evidence_readiness(
@@ -754,6 +1415,317 @@ select is(
    order by event.analysis_version desc limit 1),
   'human_correction:2',
   'fallback replay never overwrites or appends after a human head'
+);
+
+-- Starting a separate research run is the append-only recovery path for an
+-- immutable approved snapshot. It inherits the corrected canonical head and
+-- can be reviewed/approved without mutating the old run.
+insert into content_factory.product_research_runs (
+  id, organization_id, product_id, created_by, status, input, summary,
+  request_hash, completion_hash, idempotency_key, finished_at
+)
+select
+  'c0100000-0000-4000-8000-000000000040', organization_id, product_id,
+  created_by, 'completed', jsonb_build_object(
+    'objective', 'Append-only recovery after source-analysis correction.',
+    'marketplace_url', null,
+    'source_media_ids', jsonb_build_array(
+      'c0100000-0000-4000-8000-000000000006'
+    ),
+    'platforms', jsonb_build_array('youtube')
+  ), summary, repeat('c', 64), repeat('d', 64),
+  'category-readiness-recovery-run', now()
+from content_factory.product_research_runs
+where id = 'c0100000-0000-4000-8000-000000000004';
+insert into content_factory.product_research_sources (
+  organization_id, run_id, product_id, created_by, source_type, source_url,
+  media_object_id, title, content_hash, trust_level, extracted_facts,
+  metadata, fetched_at, published_at, created_at
+)
+select source.organization_id,
+  'c0100000-0000-4000-8000-000000000040', source.product_id,
+  source.created_by, source.source_type, source.source_url,
+  source.media_object_id, source.title, source.content_hash,
+  source.trust_level, source.extracted_facts, source.metadata,
+  source.fetched_at, source.published_at, clock_timestamp()
+from content_factory.product_research_sources source
+where source.run_id = 'c0100000-0000-4000-8000-000000000004'
+  and source.metadata ->> 'model_source_id' ~ '^web:s([1-9]|[12][0-9]|30)$'
+order by source.created_at, source.id;
+insert into content_factory.creative_brief_drafts (
+  id, organization_id, run_id, product_id, created_by, origin, version,
+  status, title, brief, source_ids, task_blueprint, content_hash
+)
+select
+  'c0100000-0000-4000-8000-000000000042', run.organization_id, run.id,
+  run.product_id, run.created_by, 'human', 1, 'draft',
+  'Recovered canonical evidence draft', run.summary,
+  source_set.source_ids,
+  jsonb_build_array(jsonb_build_object(
+    'title', 'Review recovered canonical evidence',
+    'instructions', 'Use the corrected source interpretation in this run.'
+  )),
+  content_factory_private.json_hash(jsonb_build_object(
+    'title', 'Recovered canonical evidence draft',
+    'brief', run.summary,
+    'source_ids', source_set.source_ids,
+    'task_blueprint', jsonb_build_array(jsonb_build_object(
+      'title', 'Review recovered canonical evidence',
+      'instructions', 'Use the corrected source interpretation in this run.'
+    ))
+  ))
+from content_factory.product_research_runs run
+cross join lateral (
+  select jsonb_agg(source.id order by source.created_at, source.id)
+    as source_ids
+  from content_factory.product_research_sources source
+  where source.organization_id = run.organization_id
+    and source.run_id = run.id
+) source_set
+where run.id = 'c0100000-0000-4000-8000-000000000040';
+select is(
+  content_factory_private.research_draft_source_analysis_fresh(
+    'c0100000-0000-4000-8000-000000000002',
+    'c0100000-0000-4000-8000-000000000040',
+    'c0100000-0000-4000-8000-000000000042'
+  ),
+  true,
+  'a new recovery run is fresh against inherited corrected canonical heads'
+);
+select is(
+  (select event.origin
+   from content_factory.product_research_sources source
+   join lateral (
+     select binding.*
+     from content_factory.research_draft_source_analysis_bindings binding
+     where binding.run_id = source.run_id
+       and binding.draft_id = 'c0100000-0000-4000-8000-000000000042'
+       and binding.source_id = source.id
+     order by binding.binding_version desc, binding.id desc
+     limit 1
+   ) exact_binding on true
+   join content_factory.research_source_analysis_events event
+     on event.id = exact_binding.analysis_event_id
+   where source.run_id = 'c0100000-0000-4000-8000-000000000040'
+     and source.metadata ->> 'model_source_id' = 'web:s5'),
+  'human_correction',
+  'the recovery run inherits the exact human-corrected source head'
+);
+select lives_ok(
+  $$
+    select public.creator_approve_creative_brief(jsonb_build_object(
+      'organization_id', 'c0100000-0000-4000-8000-000000000002',
+      'idempotency_key', 'category-readiness-recovery-approval',
+      'draft_id', 'c0100000-0000-4000-8000-000000000042'
+    ))
+  $$,
+  'the new evidence-complete recovery draft can be explicitly approved'
+);
+select is(
+  (select count(*)::integer
+   from content_factory.creator_tasks task
+   where task.creative_brief_draft_id =
+       'c0100000-0000-4000-8000-000000000042'
+     and task.status = 'todo'),
+  1,
+  'recovery approval creates one actionable task only while evidence is fresh'
+);
+
+select lives_ok(
+  $parser_v2$
+    select public.system_record_research_source_analysis(
+      jsonb_build_object(
+        'organization_id', 'c0100000-0000-4000-8000-000000000002',
+        'source_ledger_id', head.source_ledger_id,
+        'expected_head_event_id', head.id,
+        'expected_head_hash', head.event_hash,
+        'parser_key', 'automatic_social_semantic_parser',
+        'parser_version', '2.0.0',
+        'analysis', head.analysis || jsonb_build_object(
+          'summary',
+            'Parser v2 conservatively revalidated the same uncited source.'
+        ),
+        'idempotency_key', 'category-readiness-parser-v2-upgrade'
+      )
+    )
+    from (
+      select event.id, event.event_hash, event.source_ledger_id,
+        event.analysis
+      from content_factory.research_source_analysis_events event
+      join content_factory.research_category_source_ledger ledger
+        on ledger.id = event.source_ledger_id
+      join content_factory.product_research_sources source
+        on source.id = ledger.source_id
+      where source.metadata ->> 'model_source_id' = 'web:s4'
+      order by event.analysis_version desc
+      limit 1
+    ) head
+  $parser_v2$,
+  'a newer automatic parser can append an exact semantic head'
+);
+select is(
+  (select event.origin || ':' || event.parser_version || ':'
+      || event.analysis_version::text
+   from content_factory.research_source_analysis_events event
+   join content_factory.research_category_source_ledger ledger
+     on ledger.id = event.source_ledger_id
+   join content_factory.product_research_sources source
+     on source.id = ledger.source_id
+   where source.metadata ->> 'model_source_id' = 'web:s4'
+   order by event.analysis_version desc limit 1),
+  'system_parser:2.0.0:2',
+  'the parser-v2 event becomes the full semantic source head'
+);
+select is(
+  (select count(*)::integer
+   from content_factory.research_stage_head_events stage_event
+   where stage_event.command_id = (
+     select event.id
+     from content_factory.research_source_analysis_events event
+     join content_factory.research_category_source_ledger ledger
+       on ledger.id = event.source_ledger_id
+     join content_factory.product_research_sources source
+       on source.id = ledger.source_id
+     where source.metadata ->> 'model_source_id' = 'web:s4'
+     order by event.analysis_version desc limit 1
+   )
+     and stage_event.run_id = 'c0100000-0000-4000-8000-000000000040'
+     and stage_event.action = 'dependency_refresh'
+     and stage_event.state = 'stale_dependency'),
+  7,
+  'a parser-v2 semantic change invalidates every dependent governed stage'
+);
+select is(
+  content_factory_private.research_draft_source_analysis_fresh(
+    'c0100000-0000-4000-8000-000000000002',
+    'c0100000-0000-4000-8000-000000000040',
+    'c0100000-0000-4000-8000-000000000042'
+  ),
+  false,
+  'parser v2 makes the previously fresh recovery draft stale'
+);
+select ok(
+  exists (
+    select 1
+    from content_factory.creator_tasks task
+    where task.creative_brief_draft_id =
+        'c0100000-0000-4000-8000-000000000042'
+      and task.status = 'cancelled'
+      and task.result #>> '{research_evidence_stale,analysis_event_id}' = (
+        select event.id::text
+        from content_factory.research_source_analysis_events event
+        join content_factory.research_category_source_ledger ledger
+          on ledger.id = event.source_ledger_id
+        join content_factory.product_research_sources source
+          on source.id = ledger.source_id
+        where source.metadata ->> 'model_source_id' = 'web:s4'
+        order by event.analysis_version desc
+        limit 1
+      )
+  ),
+  'parser-v2 invalidation cancels the recovered draft task before downstream use'
+);
+
+insert into content_factory.product_research_runs (
+  id, organization_id, product_id, created_by, status, input, summary,
+  request_hash, completion_hash, idempotency_key, finished_at
+)
+select
+  'c0100000-0000-4000-8000-000000000050', organization_id, product_id,
+  created_by, 'completed', input, summary, repeat('e', 64), repeat('f', 64),
+  'category-readiness-partial-ledger-run', now()
+from content_factory.product_research_runs
+where id = 'c0100000-0000-4000-8000-000000000004';
+insert into content_factory.product_research_sources (
+  organization_id, run_id, product_id, created_by, source_type, source_url,
+  media_object_id, title, content_hash, trust_level, extracted_facts,
+  metadata, fetched_at, published_at, created_at
+)
+select source.organization_id,
+  'c0100000-0000-4000-8000-000000000050', source.product_id,
+  source.created_by, source.source_type, source.source_url,
+  source.media_object_id, source.title, source.content_hash,
+  source.trust_level, source.extracted_facts, source.metadata,
+  source.fetched_at, source.published_at, clock_timestamp()
+from content_factory.product_research_sources source
+where source.run_id = 'c0100000-0000-4000-8000-000000000004'
+  and source.metadata ->> 'model_source_id' ~ '^web:s([1-9]|[12][0-9]|30)$'
+order by source.created_at, source.id;
+insert into content_factory.product_research_sources (
+  id, organization_id, run_id, product_id, created_by, source_type,
+  source_url, title, content_hash, trust_level, extracted_facts, metadata,
+  fetched_at
+) values (
+  'c0100000-0000-4000-8000-000000000051',
+  'c0100000-0000-4000-8000-000000000002',
+  'c0100000-0000-4000-8000-000000000050',
+  'c0100000-0000-4000-8000-000000000003',
+  'c0100000-0000-4000-8000-000000000001',
+  'market_data', 'https://example.test/unregistered-category-source',
+  'Unregistered category evidence', repeat('9', 64), 'public',
+  '[]'::jsonb, jsonb_build_object('model_source_id', 'web:unregistered'),
+  now()
+);
+insert into content_factory.creative_brief_drafts (
+  id, organization_id, run_id, product_id, created_by, origin, version,
+  status, title, brief, source_ids, task_blueprint, content_hash
+)
+select
+  'c0100000-0000-4000-8000-000000000052', run.organization_id, run.id,
+  run.product_id, run.created_by, 'human', 1, 'draft',
+  'Incomplete ledger evidence draft', run.summary,
+  source_set.source_ids,
+  jsonb_build_array(jsonb_build_object(
+    'title', 'This task must never become actionable',
+    'instructions', 'The exact source is not registered in the category ledger.'
+  )),
+  content_factory_private.json_hash(jsonb_build_object(
+    'title', 'Incomplete ledger evidence draft',
+    'brief', run.summary,
+    'source_ids', source_set.source_ids,
+    'task_blueprint', jsonb_build_array(jsonb_build_object(
+      'title', 'This task must never become actionable',
+      'instructions',
+        'The exact source is not registered in the category ledger.'
+    ))
+  ))
+from content_factory.product_research_runs run
+cross join lateral (
+  select jsonb_agg(source.id order by source.created_at, source.id)
+    as source_ids
+  from content_factory.product_research_sources source
+  where source.organization_id = run.organization_id
+    and source.run_id = run.id
+) source_set
+where run.id = 'c0100000-0000-4000-8000-000000000050';
+select is(
+  content_factory_private.research_draft_source_analysis_fresh(
+    'c0100000-0000-4000-8000-000000000002',
+    'c0100000-0000-4000-8000-000000000050',
+    'c0100000-0000-4000-8000-000000000052'
+  ),
+  false,
+  'a category-bound draft with partial canonical ledger coverage fails closed'
+);
+select throws_ok(
+  $$
+    select public.creator_approve_creative_brief(jsonb_build_object(
+      'organization_id', 'c0100000-0000-4000-8000-000000000002',
+      'idempotency_key', 'category-readiness-partial-ledger-approval',
+      'draft_id', 'c0100000-0000-4000-8000-000000000052'
+    ))
+  $$,
+  '55000',
+  'research_draft_source_analysis_incomplete_or_stale',
+  'incomplete canonical coverage blocks approval and task creation'
+);
+select is(
+  (select count(*)::integer
+   from content_factory.creator_tasks task
+   where task.creative_brief_draft_id =
+       'c0100000-0000-4000-8000-000000000052'),
+  0,
+  'failed incomplete-ledger approval leaves no actionable task'
 );
 
 -- A second content version at the same exact URL is retained for lineage but
@@ -802,10 +1774,25 @@ select is(
   'same-URL content versions do not inflate current source identity volume'
 );
 create temporary table deterministic_source_status on commit drop as
-select public.creator_research_category_learning_status(jsonb_build_object(
-  'organization_id', 'c0100000-0000-4000-8000-000000000002',
-  'run_id', 'c0100000-0000-4000-8000-000000000004'
-)) value;
+select case when exists (
+  select 1
+  from content_factory.research_product_market_category_bindings binding
+  where binding.organization_id =
+      'c0100000-0000-4000-8000-000000000002'
+    and binding.product_id = 'c0100000-0000-4000-8000-000000000003'
+) then public.creator_research_category_learning_status(jsonb_build_object(
+    'organization_id', 'c0100000-0000-4000-8000-000000000002',
+    'run_id', 'c0100000-0000-4000-8000-000000000004'
+  )) else '{}'::jsonb end value;
+select is(
+  (select count(*)::integer
+   from content_factory.research_product_market_category_bindings binding
+   where binding.organization_id =
+       'c0100000-0000-4000-8000-000000000002'
+     and binding.product_id = 'c0100000-0000-4000-8000-000000000003'),
+  1,
+  'canonical product category binding survives cross-run source reuse'
+);
 select is(
   (select item.value ->> 'title'
    from deterministic_source_status status,

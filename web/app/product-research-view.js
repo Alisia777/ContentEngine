@@ -267,6 +267,46 @@ const RESEARCH_CATEGORY_STRUCTURAL_SIGNAL_PATTERN =
 const RESEARCH_CATEGORY_YOUTUBE_TERMS_VERSION =
   "youtube-developer-policies-2026-08-03-v1";
 
+function researchInputContextFromObjective(value) {
+  const objective = String(value || "").trim().slice(0, 2_000);
+  const lines = objective.split(/\r?\n/u);
+  const firstLine = String(lines[0] || "").toLowerCase();
+  const focusPrefix = "Приоритет исследования: ";
+  const competitorHeader =
+    "Ориентиры конкурентов пользователя (проверить публичными источниками, не копировать):";
+  const factsPrefix = "Подтверждённые вводные пользователя: ";
+  const researchFocus = String(
+    lines.find((line) => line.startsWith(focusPrefix)) || "",
+  ).slice(focusPrefix.length).trim().slice(0, 200);
+  const knownFacts = String(
+    lines.find((line) => line.startsWith(factsPrefix)) || "",
+  ).slice(factsPrefix.length).trim().slice(0, 500);
+  const competitorHeaderIndex = lines.findIndex(
+    (line) => line === competitorHeader,
+  );
+  const competitorReferences = competitorHeaderIndex < 0
+    ? ""
+    : lines.slice(competitorHeaderIndex + 1)
+      .filter((line) => !line.startsWith(factsPrefix))
+      .join("\n")
+      .trim()
+      .slice(0, 650);
+  const objectiveKey = firstLine.includes("ugc-обзор")
+    ? "ugc"
+    : firstLine.includes("узнаваемост")
+      ? "awareness"
+      : firstLine.includes("применение товара")
+        ? "education"
+        : "conversion";
+  return {
+    objective,
+    objectiveKey,
+    researchFocus,
+    competitorReferences,
+    knownFacts,
+  };
+}
+
 export function normalizeProductResearch(raw, previous = null) {
   const root = objectValue(raw?.data) || objectValue(raw) || {};
   const run = objectValue(root.run) || objectValue(root.research) || root;
@@ -275,6 +315,43 @@ export function normalizeProductResearch(raw, previous = null) {
   const latestDraft = objectValue(root.latest_draft) || objectValue(root.draft) || objectValue(run.latest_draft) || {};
   const latestBrief = objectValue(latestDraft.brief) || {};
   const summary = objectValue(run.summary) || objectValue(root.summary) || {};
+  const rawResearchInput = {
+    ...(objectValue(previous?.researchInput) || {}),
+    ...(objectValue(run.input) || objectValue(root.input) || {}),
+  };
+  const recoveredResearchInput = researchInputContextFromObjective(
+    rawResearchInput.objective,
+  );
+  const researchInput = {
+    objective: recoveredResearchInput.objective,
+    objectiveKey: String(
+      rawResearchInput.objective_key
+        || rawResearchInput.objectiveKey
+        || recoveredResearchInput.objectiveKey,
+    ).trim().slice(0, 32),
+    marketplaceUrl: String(
+      rawResearchInput.marketplace_url || rawResearchInput.marketplaceUrl || "",
+    ).trim().slice(0, 2_048),
+    sourceMediaIds: stringArray(
+      rawResearchInput.source_media_ids || rawResearchInput.sourceMediaIds,
+    ).slice(0, 5),
+    platforms: stringArray(rawResearchInput.platforms).slice(0, 8),
+    researchFocus: String(
+      rawResearchInput.research_focus
+        || rawResearchInput.researchFocus
+        || recoveredResearchInput.researchFocus,
+    ).trim().slice(0, 200),
+    competitorReferences: String(
+      rawResearchInput.competitor_references
+        || rawResearchInput.competitorReferences
+        || recoveredResearchInput.competitorReferences,
+    ).trim().slice(0, 650),
+    knownFacts: String(
+      rawResearchInput.known_facts
+        || rawResearchInput.knownFacts
+        || recoveredResearchInput.knownFacts,
+    ).trim().slice(0, 500),
+  };
   const forecast = objectValue(arrayValue(root.forecasts)[0]) || objectValue(root.forecast) || {};
   const prediction = objectValue(analysis.prediction)
     || objectValue(analysis.forecast)
@@ -501,6 +578,7 @@ export function normalizeProductResearch(raw, previous = null) {
     outcomeScopeRegistry,
     outcomeLearning,
     youtubeResearch,
+    researchInput,
     humanResearchDecision,
     stageCorrections: normalizeStageCorrections(
       latestBrief.human_stage_corrections
@@ -2434,11 +2512,18 @@ export function productResearchInputMarkup({
   media = [],
   mediaLoading = false,
   error = "",
+  notice = "",
   defaults = {},
 } = {}) {
   const initial = objectValue(defaults) || {};
+  const selectedMediaIds = new Set(stringArray(initial.sourceMediaIds).slice(0, 5));
+  const selectedPlatforms = new Set(stringArray(initial.platforms).slice(0, 8));
+  const objective = ["conversion", "awareness", "ugc", "education"].includes(
+    String(initial.objective || "").trim(),
+  ) ? String(initial.objective).trim() : "conversion";
+  const previousResearchId = String(initial.previousResearchId || "").trim();
   const mediaMarkup = media.length
-    ? `<div class="product-research-media-grid">${media.map((item) => researchMediaMarkup(item)).join("")}</div>`
+    ? `<div class="product-research-media-grid">${media.map((item) => researchMediaMarkup(item, selectedMediaIds)).join("")}</div>`
     : `<div class="product-research-media-empty">
         <span aria-hidden="true">▧</span>
         <div><strong>${mediaLoading ? "Загружаем медиатеку…" : "В медиатеке пока нет фотографий"}</strong><p>${mediaLoading ? "Подождите несколько секунд." : "Сначала добавьте точные фото упаковки и этикетки."}</p></div>
@@ -2446,6 +2531,7 @@ export function productResearchInputMarkup({
       </div>`;
   return `
     ${error ? `<div class="alert alert-danger" role="alert"><strong aria-hidden="true">!</strong><span>${escapeHtml(error)}</span></div>` : ""}
+    ${notice ? `<div class="alert alert-info" role="status"><strong aria-hidden="true">i</strong><span>${escapeHtml(notice)}</span>${previousResearchId ? `<button class="btn btn-ghost btn-small" type="button" data-action="restore-previous-product-research" data-research-id="${escapeHtml(previousResearchId)}">Открыть прежний снимок</button>` : ""}</div>` : ""}
     <section class="product-research-start-grid" aria-labelledby="product-research-form-title">
       <form id="product-research-start-form" class="card card-pad form-stack" novalidate>
         <div class="product-research-card-heading">
@@ -2458,20 +2544,20 @@ export function productResearchInputMarkup({
         </div>
         <div class="form-grid-2">
           <label class="field"><span>Категория товара</span><input name="category_name" value="${escapeHtml(initial.categoryName || "")}" maxlength="160" autocomplete="off" placeholder="Например: несмываемый уход для волос" /><small class="field-hint">Если категория новая или неясная, оставьте поле пустым — ИИ предложит определение и попросит подтвердить его.</small></label>
-          <label class="field"><span>Что особенно важно исследовать</span><input name="research_focus" maxlength="200" autocomplete="off" placeholder="Например: хуки конкурентов, возражения, сезонный спрос" /><small class="field-hint">Необязательно. Система всё равно проверит рынок, конкурентов, тренды и пробелы в данных.</small></label>
+          <label class="field"><span>Что особенно важно исследовать</span><input name="research_focus" value="${escapeHtml(initial.researchFocus || "")}" maxlength="200" autocomplete="off" placeholder="Например: хуки конкурентов, возражения, сезонный спрос" /><small class="field-hint">Необязательно. Система всё равно проверит рынок, конкурентов, тренды и пробелы в данных.</small></label>
         </div>
-        <label class="field"><span>Ссылка на карточку товара</span><input name="marketplace_url" type="url" inputmode="url" placeholder="https://www.wildberries.ru/catalog/…" /><small class="field-hint">Только публичная HTTPS-ссылка. Пароли и ссылки из личного кабинета сюда не вставляйте.</small></label>
-        <label class="field"><span>Известные конкуренты или ориентиры</span><textarea name="competitor_references" maxlength="650" placeholder="По одному названию, публичной ссылке или @аккаунту на строку. Если список пуст, ИИ сам найдёт сопоставимые предложения и честно оценит полноту выборки."></textarea><small class="field-hint">Это ориентиры для поиска, а не разрешение копировать чужие тексты, лица, музыку или последовательность кадров.</small></label>
+        <label class="field"><span>Ссылка на карточку товара</span><input name="marketplace_url" type="url" inputmode="url" value="${escapeHtml(initial.marketplaceUrl || "")}" placeholder="https://www.wildberries.ru/catalog/…" /><small class="field-hint">Только публичная HTTPS-ссылка. Пароли и ссылки из личного кабинета сюда не вставляйте.</small></label>
+        <label class="field"><span>Известные конкуренты или ориентиры</span><textarea name="competitor_references" maxlength="650" placeholder="По одному названию, публичной ссылке или @аккаунту на строку. Если список пуст, ИИ сам найдёт сопоставимые предложения и честно оценит полноту выборки.">${escapeHtml(initial.competitorReferences || "")}</textarea><small class="field-hint">Это ориентиры для поиска, а не разрешение копировать чужие тексты, лица, музыку или последовательность кадров.</small></label>
         <fieldset class="product-research-platforms">
           <legend>Для каких площадок готовим контент *</legend>
-          <label><input type="checkbox" name="platforms" value="instagram" /> <span>Instagram Reels</span></label>
-          <label><input type="checkbox" name="platforms" value="youtube" /> <span>YouTube Shorts</span></label>
-          <label><input type="checkbox" name="platforms" value="vk" /> <span>VK Клипы</span></label>
-          <label><input type="checkbox" name="platforms" value="wildberries" /> <span>Wildberries</span></label>
-          <label><input type="checkbox" name="platforms" value="ozon" /> <span>Ozon</span></label>
+          <label><input type="checkbox" name="platforms" value="instagram" ${selectedPlatforms.has("instagram") ? "checked" : ""} /> <span>Instagram Reels</span></label>
+          <label><input type="checkbox" name="platforms" value="youtube" ${selectedPlatforms.has("youtube") ? "checked" : ""} /> <span>YouTube Shorts</span></label>
+          <label><input type="checkbox" name="platforms" value="vk" ${selectedPlatforms.has("vk") ? "checked" : ""} /> <span>VK Клипы</span></label>
+          <label><input type="checkbox" name="platforms" value="wildberries" ${selectedPlatforms.has("wildberries") ? "checked" : ""} /> <span>Wildberries</span></label>
+          <label><input type="checkbox" name="platforms" value="ozon" ${selectedPlatforms.has("ozon") ? "checked" : ""} /> <span>Ozon</span></label>
         </fieldset>
-        <label class="field"><span>Главная цель</span><select name="objective"><option value="conversion">Заказы и переходы</option><option value="awareness">Узнаваемость товара</option><option value="ugc">Нативный UGC-обзор</option><option value="education">Объяснить применение</option></select></label>
-        <label class="field"><span>Подтверждённые вводные</span><textarea name="known_facts" maxlength="500" placeholder="Состав, объём, комплектация, способ применения — только то, что подтверждено упаковкой или документами."></textarea><small class="field-hint">Каждый факт будет отделён от найденных источников и гипотез ИИ.</small></label>
+        <label class="field"><span>Главная цель</span><select name="objective"><option value="conversion" ${objective === "conversion" ? "selected" : ""}>Заказы и переходы</option><option value="awareness" ${objective === "awareness" ? "selected" : ""}>Узнаваемость товара</option><option value="ugc" ${objective === "ugc" ? "selected" : ""}>Нативный UGC-обзор</option><option value="education" ${objective === "education" ? "selected" : ""}>Объяснить применение</option></select></label>
+        <label class="field"><span>Подтверждённые вводные</span><textarea name="known_facts" maxlength="500" placeholder="Состав, объём, комплектация, способ применения — только то, что подтверждено упаковкой или документами.">${escapeHtml(initial.knownFacts || "")}</textarea><small class="field-hint">Каждый факт будет отделён от найденных источников и гипотез ИИ.</small></label>
         <div class="product-research-media-field">
           <div><strong>Фото из «Материалов»</strong><small>Выберите упаковку, этикетку и товар целиком. Лучше 3–5 точных кадров.</small></div>
           ${mediaMarkup}
@@ -2838,6 +2924,13 @@ export function productResearchResultMarkup(record, {
     : `<div class="product-research-empty-note"><strong>Публичные источники не подтверждены</strong><p>Не переносите найденные ИИ формулировки в ролик как факт, пока не добавите доказательство.</p></div>`;
   const taskIds = stringArray(record?.taskIds);
   const approved = record?.approved === true || taskIds.length > 0;
+  const generationHandoffAllowed = stageControl?.available === true
+    && String(stageControl.runId || "").trim().toLowerCase()
+      === String(record?.id || "").trim().toLowerCase()
+    && String(stageControl.guidance?.currentDraftId || "").trim().toLowerCase()
+      === String(record?.draftId || "").trim().toLowerCase()
+    && stageControl.guidance?.generationHandoffAllowed === true;
+  const generationHandoffBlocked = approved && !generationHandoffAllowed;
   const assignees = normalizeResearchMembers(members, defaultAssigneeId);
   const fallbackAssigneeId = String(defaultAssigneeId || assignees[0]?.profileId || "");
   const recommendedScenarioIndex = Number.isInteger(record?.recommendedScenarioIndex)
@@ -2849,10 +2942,10 @@ export function productResearchResultMarkup(record, {
     record?.recommendedScenarioReason || "",
   ).trim();
   const guidanceNeedsOverride = guidance.status !== "ready_for_brief";
-  const approvedActions = recommendedScenarioIndex >= 0
-    ? `<div class="inline-actions">${recommendedPrepared
-      ? '<a class="btn" href="#/workspace/generation?view=create" data-primary-action="true">Открыть рекомендованный сценарий →</a>'
-      : `<button class="btn" type="button" data-action="generate-research-scenario" data-scenario-index="${recommendedScenarioIndex}" data-primary-action="true">Подготовить рекомендованный сценарий →</button>`}</div>`
+  const approvedActions = generationHandoffBlocked
+    ? '<div class="inline-actions"><button class="btn" type="button" data-action="new-product-research" data-primary-action="true">Начать новое исследование →</button></div>'
+    : recommendedScenarioIndex >= 0
+    ? `<div class="inline-actions"><button class="btn" type="button" data-action="generate-research-scenario" data-scenario-index="${recommendedScenarioIndex}" data-primary-action="true">${recommendedPrepared ? "Перепроверить и открыть" : "Подготовить"} рекомендованный сценарий →</button></div>`
     : `<a class="btn" href="#/workspace/tasks">Открыть задачи →</a>`;
   const categoryResetSnapshotIds = arrayValue(record?.marketRegistry?.trendTimeline)
     .filter((item) => ["canonical_reset", "category_reset"].includes(item?.comparisonMode))
@@ -2877,6 +2970,7 @@ export function productResearchResultMarkup(record, {
       saving: saving || approving,
       savingPhase: youtubeSavingPhase,
     }) : ""}
+    ${generationHandoffBlocked ? '<div class="alert alert-warning" role="alert"><strong>Исследование устарело.</strong><span>Новый разбор источника запрещает передавать этот снимок в генерацию. Прежняя версия сохранена; начните отдельное исследование с предзаполненными исходными данными.</span></div>' : ""}
     ${approved ? `<section class="card card-pad product-research-approved" role="status"><span aria-hidden="true">✓</span><div><p class="eyebrow">ТЗ утверждено</p><h2>${taskIds.length ? `Задачи созданы: ${taskIds.length}` : "Задачи созданы"}</h2><p>${recommendedScenarioIndex >= 0 ? recommendedPrepared ? `Сценарий ${recommendedScenarioIndex + 1} уже подготовлен в генераторе как лучший первый безопасный эксперимент. Оплата и рендер не запускались.` : `Сценарий ${recommendedScenarioIndex + 1} рекомендован первым. Автоподготовка не заменила текущий рабочий контекст; при необходимости подготовьте его отдельной кнопкой.` : "Исполнители уже назначены. Повторное сохранение и утверждение заблокированы, чтобы ТЗ не разошлось с созданными задачами."}</p></div>${approvedActions}</section>` : ""}
     ${approved ? researchWatchlistMarkup(record?.watchlist, {
       saving: watchlistSaving,
@@ -2942,6 +3036,7 @@ export function productResearchResultMarkup(record, {
           defaultAssigneeId: fallbackAssigneeId,
           disabled: approved,
           recommended: index === recommendedScenarioIndex,
+          generationHandoffAllowed: !generationHandoffBlocked,
         })).join("")}</div>
         ${guidanceNeedsOverride ? researchGapOverrideMarkup({ guidance, approved, humanResearchDecision }) : ""}
         <label class="check-row product-research-approval"><input type="checkbox" name="approve_ack" ${approved ? "checked disabled" : ""} /><span><strong>Факты, формулировки и три сценария проверены человеком</strong><br /><small>${approved ? "Проверка завершена: задачи уже созданы и назначены выбранным участникам." : "При утверждении портал создаст задачи и назначит каждую выбранному выше исполнителю."}</small></span></label>
@@ -5968,12 +6063,12 @@ function normalizeFactors(value) {
   });
 }
 
-function researchMediaMarkup(item) {
+function researchMediaMarkup(item, selectedMediaIds = new Set()) {
   const id = String(item.id || item.media_id || "");
   const label = String(item.title || item.filename || item.name || item.sku || "Фото товара");
   const preview = safeHttpsUrl(item.signed_url || item.preview_url || item.url);
   return `<label class="product-research-media-option">
-    <input type="checkbox" name="source_media_ids" value="${escapeHtml(id)}" ${id ? "" : "disabled"} />
+    <input type="checkbox" name="source_media_ids" value="${escapeHtml(id)}" ${id && selectedMediaIds.has(id) ? "checked" : ""} ${id ? "" : "disabled"} />
     <span class="product-research-media-thumb">${preview ? `<img src="${escapeHtml(preview)}" alt="" loading="lazy" />` : `<i aria-hidden="true">▧</i>`}</span>
     <span><strong>${escapeHtml(label)}</strong><small>${escapeHtml(String(item.sku || item.kind || "Материал"))}</small></span>
   </label>`;
@@ -7025,6 +7120,7 @@ function scenarioEditor(item, index, {
   defaultAssigneeId = "",
   disabled = false,
   recommended = false,
+  generationHandoffAllowed = true,
 } = {}) {
   const options = [["instagram", "Instagram Reels"], ["youtube", "YouTube Shorts"], ["vk", "VK Клипы"], ["wildberries", "Wildberries"], ["ozon", "Ozon"]];
   const selectedAssigneeId = String(item.assigneeId || defaultAssigneeId || members[0]?.profileId || "");
@@ -7076,8 +7172,8 @@ function scenarioEditor(item, index, {
     <label class="field"><span>Исполнитель задачи</span><select name="scenario_${index}_assignee_id" required ${disabled ? "disabled" : ""}>${assigneeOptions}</select><small class="field-hint">При утверждении эта задача будет назначена выбранному участнику.</small></label>
     ${disabled ? `
       <div class="product-research-generation-action">
-        <div><strong>Сценарий утверждён</strong><small>${approvedExplanation}</small></div>
-        <button class="btn ${recommended ? "" : "btn-secondary"} btn-small" type="button" data-action="generate-research-scenario" data-scenario-index="${index}">${recommended ? `Начать с рекомендованного ${photo ? "фото" : "ролика"} →` : generationButtonLabel}</button>
+        <div><strong>${generationHandoffAllowed ? "Сценарий утверждён" : "Снимок исследования устарел"}</strong><small>${generationHandoffAllowed ? approvedExplanation : "Прежний сценарий сохранён для истории, но сервер запретил его передачу в генерацию."}</small></div>
+        <button class="btn ${recommended ? "" : "btn-secondary"} btn-small" type="button" data-action="generate-research-scenario" data-scenario-index="${index}" ${generationHandoffAllowed ? "" : "disabled"}>${generationHandoffAllowed ? (recommended ? `Начать с рекомендованного ${photo ? "фото" : "ролика"} →` : generationButtonLabel) : "Нужно новое исследование"}</button>
       </div>
     ` : ""}
   </fieldset>`;

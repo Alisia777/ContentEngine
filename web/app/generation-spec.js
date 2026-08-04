@@ -38,6 +38,7 @@ const CONTROL_ACTION_SET = new Set([
   "reject",
   "revert",
   "recompute",
+  "start_new_research",
   "refresh",
   "review",
   "confirm_spend",
