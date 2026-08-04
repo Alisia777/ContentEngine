@@ -7,6 +7,7 @@ import {
 const MAX_BODY_BYTES = 1_024;
 const MAX_LIMIT_PER_QUEUE = 6;
 const MAX_TOTAL_DISPATCHES = 8;
+const MAX_RESEARCH_POLL_LIMIT = 4;
 const DEFAULT_GENERATION_LIMIT = 4;
 const DEFAULT_RESEARCH_LIMIT = 1;
 const DEFAULT_REVIEW_LIMIT = 1;
@@ -133,9 +134,10 @@ type Database = {
           created_by: string;
           status: string;
           created_at: string;
+          updated_at: string;
         };
         Insert: Record<string, never>;
-        Update: Record<string, never>;
+        Update: { updated_at?: string };
         Relationships: [];
       };
       content_review_runs: {
@@ -1588,9 +1590,23 @@ const creatorBackgroundWorker = withSupabase<Database>({
       .schema("content_factory")
       .from("product_research_runs")
       .select("id, organization_id, project_id, created_by, status, created_at")
+      // Queued rows own the one paid POST.
       .eq("status", "queued")
       .order("created_at", { ascending: true })
       .limit(payload.research_limit);
+    const researchProcessingQuery = supabaseAdmin
+      .schema("content_factory")
+      .from("product_research_runs")
+      .select(
+        "id, organization_id, project_id, created_by, status, created_at, updated_at",
+      )
+      // Poll the least-recently touched active responses first. The worker
+      // advances updated_at below before HTTP, so every tick rotates fairly
+      // even when one OpenAI response remains pending for the full window.
+      .eq("status", "processing")
+      .order("updated_at", { ascending: true })
+      .order("created_at", { ascending: true })
+      .limit(payload.research_limit > 0 ? MAX_RESEARCH_POLL_LIMIT : 0);
     const reviewCandidateLimit = Math.min(
       MAX_LIMIT_PER_QUEUE * 3,
       Math.max(payload.review_limit * 3, MAX_LIMIT_PER_QUEUE),
@@ -1609,15 +1625,23 @@ const creatorBackgroundWorker = withSupabase<Database>({
       .order("created_at", { ascending: true })
       .limit(reviewCandidateLimit);
 
-    const [generationResult, researchResult, reviewResult] = await Promise.all([
+    const [
+      generationResult,
+      researchResult,
+      researchProcessingResult,
+      reviewResult,
+    ] = await Promise.all([
       generationQuery,
       researchQuery,
+      researchProcessingQuery,
       reviewQuery,
     ]);
     if (
-      generationResult.error || researchResult.error || reviewResult.error ||
+      generationResult.error || researchResult.error ||
+      researchProcessingResult.error || reviewResult.error ||
       !Array.isArray(generationResult.data) ||
       !Array.isArray(researchResult.data) ||
+      !Array.isArray(researchProcessingResult.data) ||
       !Array.isArray(reviewResult.data)
     ) {
       await finishBackgroundWorker(
@@ -1650,9 +1674,51 @@ const creatorBackgroundWorker = withSupabase<Database>({
       supabaseAdmin,
       staleStartingRows,
     );
-    const researchRows = researchResult.data.filter((row) =>
+    const researchProcessingCandidates = researchProcessingResult.data.filter((
+      row,
+    ) =>
       isQueueRow(row, true) && isUuid(row.project_id) && isUuid(row.created_by)
-    ).map((row) => ({
+    );
+    let researchProcessingRows = researchProcessingCandidates.slice(0, 0);
+    if (researchProcessingCandidates.length > 0) {
+      const processingIds = researchProcessingCandidates.map((row) => row.id);
+      const pollDispatchedAt = new Date().toISOString();
+      const marked = await supabaseAdmin
+        .schema("content_factory")
+        .from("product_research_runs")
+        .update({ updated_at: pollDispatchedAt })
+        .in("id", processingIds)
+        .eq("status", "processing")
+        .select(
+          "id, organization_id, project_id, created_by, status, created_at, updated_at",
+        );
+      if (marked.error || !Array.isArray(marked.data)) {
+        await finishBackgroundWorker(
+          supabaseAdmin,
+          workerRun,
+          "failed",
+          { stage: "research_poll_rotation" },
+          "queue_read_failed",
+        );
+        return json({ ok: false, code: "queue_read_failed" }, 503);
+      }
+      researchProcessingRows = marked.data.filter((row) =>
+        isQueueRow(row, true) && isUuid(row.project_id) &&
+        isUuid(row.created_by)
+      );
+    }
+    // Existing paid responses own the research capacity. Do not launch new
+    // queued POSTs while the configured polling capacity is already occupied.
+    const queuedResearchCapacity = researchProcessingRows.length === 0
+      ? payload.research_limit
+      : 0;
+    const researchQueuedRows = researchResult.data.filter((row) =>
+      isQueueRow(row, true) && isUuid(row.project_id) && isUuid(row.created_by)
+    ).slice(0, queuedResearchCapacity);
+    const researchRows = [
+      ...researchProcessingRows,
+      ...researchQueuedRows,
+    ].map((row) => ({
       ...row,
       recipient_id: row.created_by,
     }));
@@ -1724,8 +1790,34 @@ const creatorBackgroundWorker = withSupabase<Database>({
       payload.youtube_limit,
     );
 
+    // Preserve the global eight-dispatch ceiling. Trim only unclaimed work,
+    // never a YouTube ingestion already claimed by the database workflow.
+    const dispatchGenerationRows = [...generationRows];
+    const dispatchResearchRows = [...researchRows];
+    const dispatchReviewRows = [...autonomousReviews];
+    const dispatchCount = () =>
+      dispatchGenerationRows.length + dispatchResearchRows.length +
+      dispatchReviewRows.length + youtubeCollection.ingestions.length;
+    while (dispatchCount() > MAX_TOTAL_DISPATCHES) {
+      if (dispatchGenerationRows.length > 1) {
+        dispatchGenerationRows.pop();
+      } else if (dispatchReviewRows.length > 1) {
+        dispatchReviewRows.pop();
+      } else if (dispatchGenerationRows.length > 0) {
+        dispatchGenerationRows.pop();
+      } else if (dispatchReviewRows.length > 0) {
+        dispatchReviewRows.pop();
+      } else {
+        const queuedIndex = dispatchResearchRows.findLastIndex((row) =>
+          row.status === "queued"
+        );
+        if (queuedIndex < 0) break;
+        dispatchResearchRows.splice(queuedIndex, 1);
+      }
+    }
+
     const targets: DispatchTarget[] = [
-      ...generationRows.map((row): DispatchTarget => ({
+      ...dispatchGenerationRows.map((row): DispatchTarget => ({
         kind: "generation",
         functionName: "creator-generate",
         body: {
@@ -1738,11 +1830,11 @@ const creatorBackgroundWorker = withSupabase<Database>({
         recipientId: row.recipient_id as string,
         entityId: row.id,
       })),
-      ...researchRows.map((row): DispatchTarget => ({
+      ...dispatchResearchRows.map((row): DispatchTarget => ({
         kind: "research",
         functionName: "creator-product-research",
         body: {
-          action: "analyze",
+          action: row.status === "processing" ? "status" : "analyze",
           research_id: row.id,
           project_id: row.project_id as string,
         },
@@ -1750,7 +1842,7 @@ const creatorBackgroundWorker = withSupabase<Database>({
         recipientId: row.recipient_id as string,
         entityId: row.id,
       })),
-      ...autonomousReviews.map((row): DispatchTarget => ({
+      ...dispatchReviewRows.map((row): DispatchTarget => ({
         kind: "review",
         functionName: "creator-content-review",
         body: {
@@ -1851,7 +1943,7 @@ const creatorBackgroundWorker = withSupabase<Database>({
       review_queue_health: {
         due_candidates: reviewRows.length,
         eligible: eligibleReviews.length,
-        selected: autonomousReviews.length,
+        selected: dispatchReviewRows.length,
         legacy_missing_evidence: legacyMissingEvidence,
         unready_or_unsupported: unsupportedOrUnready,
       },
