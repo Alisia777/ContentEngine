@@ -318,7 +318,7 @@ def test_home_cards_and_focus_queue_use_server_next_actions() -> None:
 
     # A project card must carry its own route/action; a single global action
     # below an unrelated collection of projects recreates the old ambiguity.
-    project_loop = home[home.index("projects.map") :]
+    project_loop = home[home.index("visibleProjects.map") :]
     assert re.search(r"project\.(?:nextAction|next_action|nextRoute|next_route)", project_loop)
     assert re.search(r"project[_-]?id", project_loop, flags=re.IGNORECASE)
 
@@ -518,9 +518,25 @@ def test_project_catalog_redirects_only_sections_that_require_a_project() -> Non
 
 def test_project_load_failure_keeps_exactly_one_primary_action() -> None:
     switcher = _function(APP, "function homeProjectSwitcherMarkup(")
+    create = _function(APP, "async function submitHomeProjectCreate(")
 
-    assert 'const createProject = projectListFailed ? "" : canCreateProject' in switcher
-    assert '${projects.length ? "" : \'data-primary-action="true"\'}' in switcher
+    # Losing the catalog must never remove project creation for a role that is
+    # allowed to create one.  Creation remains the primary recovery path;
+    # catalog retry is primary only for read-only users.
+    assert "const createProject = canCreateProject" in switcher
+    assert 'class="home-project-create" ${!loading && !projects.length ? "open" : ""}' in switcher
+    assert "const retryIsPrimary = projectListFailed && !canCreateProject" in switcher
+    assert "retryIsPrimary ? 'data-primary-action=\"true\"' : \"\"" in switcher
+    assert 'class="home-project-switcher__body"' in switcher
+    assert 'value="${escapeHtml(projectDraftName)}"' in switcher
+    assert "state.workspaceBoard.projectDraftName = name" in create
+    assert 'state.workspaceBoard.projectDraftName = ""' in create
+    assert "state.workspaceBoard.projectCreateError = actionErrorMessage(error)" in create
+    assert "const storedProject = projectListFailed ? storedWorkspaceProject() : null" in switcher
+    assert 'next_action: { label: "Проверить доступ и продолжить" }' in switcher
+    recovery_body = _css_rules(CORE_CSS, ".home-project-switcher__body")
+    assert recovery_body
+    assert any("align-content: start" in body and "overflow-y: visible" in body for body in recovery_body)
 
 
 def test_selected_project_home_renders_one_action_instead_of_a_dashboard() -> None:
@@ -624,7 +640,7 @@ def test_archiving_a_project_uses_its_dedicated_path_and_clears_stale_scope() ->
 
 
 def test_v47_assets_share_one_release_key() -> None:
-    build = "20260804.os4.14"
+    build = "20260804.os4.15"
     assert f'const BUILD = "{build}"' in LOADER
     assert f'const BUILD = "{build}"' in CORE
     for asset in (

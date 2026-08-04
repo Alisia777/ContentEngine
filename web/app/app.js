@@ -2,7 +2,7 @@ import {
   CreatorApi,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260804.os4.14";
+} from "./supabase-api.js?v=20260804.os4.15";
 import {
   approvedGenerationSpecContext,
   generationSpecCardMarkup,
@@ -10,8 +10,8 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecScope,
 } from "./generation-spec.js?v=20260803.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.14";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.14";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.15";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.15";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -73,7 +73,7 @@ import {
   productResearchResultMarkup,
   productResearchStatusKind,
   readProductResearchBrief,
-} from "./product-research-view.js?v=20260804.os4.14";
+} from "./product-research-view.js?v=20260804.os4.15";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -82,7 +82,7 @@ import {
   aiLearningView,
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
-} from "./ai-learning-control-room.js?v=20260804.os4.14";
+} from "./ai-learning-control-room.js?v=20260804.os4.15";
 import {
   compileContentGenerationPrompt,
   compileSafeGenerationBrief,
@@ -94,7 +94,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260804.os4.14";
+} from "./content-generation-handoff.js?v=20260804.os4.15";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -108,7 +108,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260804.os4.14";
+} from "./generation-form-draft.js?v=20260804.os4.15";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -141,7 +141,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260804.os4.14";
+} from "./content-review-view.js?v=20260804.os4.15";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -170,7 +170,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260804.os4.14";
+} from "./workspace-board-view.js?v=20260804.os4.15";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -199,7 +199,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260804.os4.14";
+} from "./training-journey.js?v=20260804.os4.15";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -218,7 +218,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260804.os4.14";
+} from "./training-practical-review.js?v=20260804.os4.15";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -237,7 +237,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260804.os4.14";
+} from "./my-work-view.js?v=20260804.os4.15";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -1157,6 +1157,8 @@ const state = {
     busy: false,
     notice: "",
     error: "",
+    projectDraftName: "",
+    projectCreateError: "",
     pendingArchiveFolderId: "",
     dragging: null,
     loadingMore: false,
@@ -9281,8 +9283,9 @@ async function submitHomeProjectCreate(form) {
   const values = new FormData(form);
   const name = String(values.get("folder_name") || "").trim();
   if (!name || state.workspaceBoard.busy) return;
+  state.workspaceBoard.projectDraftName = name;
   state.workspaceBoard.busy = true;
-  state.workspaceBoard.error = "";
+  state.workspaceBoard.projectCreateError = "";
   state.workspaceBoard.notice = "";
   renderWorkspace("home");
   try {
@@ -9293,6 +9296,8 @@ async function submitHomeProjectCreate(form) {
     if (!isWorkspaceProjectId(projectId)) throw new Error("workspace_project_id_missing");
     state.workspaceBoard.selectedFolderId = "all";
     state.workspaceBoard.notice = `Проект «${name}» создан.`;
+    state.workspaceBoard.projectDraftName = "";
+    state.workspaceBoard.projectCreateError = "";
     persistWorkspaceProject(projectId, name);
     state.projectFlow.data = normalizeProjectFlow(source);
     state.projectFlow.projectId = projectId;
@@ -9301,7 +9306,7 @@ async function submitHomeProjectCreate(form) {
     await refreshWorkspaceBoardAfterMutation();
     navigate(`/workspace/board?project_id=${encodeURIComponent(projectId)}`);
   } catch (error) {
-    state.workspaceBoard.error = actionErrorMessage(error);
+    state.workspaceBoard.projectCreateError = actionErrorMessage(error);
   } finally {
     state.workspaceBoard.busy = false;
     if (state.route.path === "/workspace/home") renderWorkspace("home");
@@ -9322,11 +9327,26 @@ function homeProjectSwitcherMarkup(action) {
   const projectListFailed = !loading
     && !projects.length
     && projectFlowFailed;
+  const projectDraftName = String(state.workspaceBoard.projectDraftName || "");
+  const projectCreateError = String(state.workspaceBoard.projectCreateError || "").trim();
+  const storedProject = projectListFailed ? storedWorkspaceProject() : null;
+  const visibleProjects = projects.length
+    ? projects
+    : storedProject
+      ? [{
+        id: storedProject.id,
+        name: storedProject.name,
+        current_stage: "",
+        next_action: { label: "Проверить доступ и продолжить" },
+        recovery: true,
+      }]
+      : [];
   const projectCards = loading
     ? Array.from({ length: 3 }, () => '<div class="home-project-card home-project-card--loading" aria-hidden="true"><span class="skeleton"></span><span class="skeleton"></span></div>').join("")
-    : projects.map((project) => {
+    : visibleProjects.map((project) => {
       const projectId = String(project.id || "");
       const nextAction = project.next_action || project.nextAction || {};
+      const isRecoveryProject = project.recovery === true;
       const stageLabels = {
         files: "Файлы",
         generation: "Создание",
@@ -9334,15 +9354,16 @@ function homeProjectSwitcherMarkup(action) {
         placement: "Публикация",
         stats: "Результаты",
       };
-      const nextRoute = exactProjectNextActionRoute({
-        project_id: projectId,
-        project,
-        next_action: nextAction,
-      }, projectId) || `/workspace/home?project_id=${encodeURIComponent(projectId)}`;
+      const nextRoute = isRecoveryProject
+        ? `/workspace/home?project_id=${encodeURIComponent(projectId)}`
+        : exactProjectNextActionRoute({
+          project_id: projectId,
+          project,
+          next_action: nextAction,
+        }, projectId) || `/workspace/home?project_id=${encodeURIComponent(projectId)}`;
       const rawFileCount = project.counts?.files;
       const fileCount = Number(rawFileCount);
       const hasFileCount = Number.isFinite(fileCount);
-      const stageLabel = stageLabels[project.current_stage] || "уточнится после открытия";
       return `
         <a class="home-project-card"
            href="#${escapeHtml(nextRoute)}"
@@ -9351,15 +9372,19 @@ function homeProjectSwitcherMarkup(action) {
           <span class="home-project-card__folder" aria-hidden="true">◇</span>
           <span class="home-project-card__copy">
             <strong>${escapeHtml(project.name)}</strong>
-            <small>${hasFileCount ? `${fileCount} объектов · ` : ""}этап: ${escapeHtml(stageLabel)}</small>
+            <small>${isRecoveryProject
+              ? "Сохранён в этом браузере · последний открытый проект"
+              : `${hasFileCount ? `${fileCount} объектов · ` : ""}этап: ${escapeHtml(stageLabels[project.current_stage] || "уточнится после открытия")}`}</small>
             <small>Следующее: ${escapeHtml(nextAction.label || "Открыть проект")}</small>
-            <small>Обновлено: ${project.updated_at ? escapeHtml(formatDate(project.updated_at, true)) : "только что"}</small>
+            <small>${isRecoveryProject
+              ? "Доступ и актуальный этап проверятся после открытия"
+              : `Обновлено: ${project.updated_at ? escapeHtml(formatDate(project.updated_at, true)) : "только что"}`}</small>
           </span>
           <span class="home-project-card__open">Продолжить <i aria-hidden="true">→</i></span>
         </a>`;
     }).join("");
-  const createProject = projectListFailed ? "" : canCreateProject ? `
-    <details class="home-project-create" ${!loading && !projects.length && !projectListFailed ? "open" : ""}>
+  const createProject = canCreateProject ? `
+    <details class="home-project-create" ${!loading && !projects.length ? "open" : ""}>
       <summary><span aria-hidden="true">＋</span> Новый проект</summary>
       <form id="home-project-create-form">
         <label for="home-project-name">Название проекта</label>
@@ -9370,16 +9395,23 @@ function homeProjectSwitcherMarkup(action) {
                  minlength="1"
                  maxlength="120"
                  autocomplete="off"
+                 value="${escapeHtml(projectDraftName)}"
                  placeholder="Например: Bombbar · Август"
                  ${state.workspaceBoard.busy ? "disabled" : ""} />
           <button class="btn" type="submit" data-primary-action="true" ${state.workspaceBoard.busy ? "disabled" : ""}>
             ${state.workspaceBoard.busy ? "Создаём…" : "Создать и открыть"}
           </button>
         </div>
-        <small>Внутри проекта можно создавать обычные папки для исходников, роликов и публикаций.</small>
+        ${projectCreateError
+          ? `<p class="home-project-create__error" role="alert">${escapeHtml(projectCreateError)}</p>`
+          : projectListFailed
+            ? '<small>Список временно недоступен, но новый проект можно создать прямо сейчас.</small>'
+            : '<small>Внутри проекта можно создавать обычные папки для исходников, роликов и публикаций.</small>'}
       </form>
     </details>` : `
     <p class="home-project-readonly">Новый проект создаёт руководитель. Выберите доступный проект ниже.</p>`;
+  const retryIsPrimary = projectListFailed && !canCreateProject;
+  const chooserMode = !projectFlow.project_id;
   const actionTitle = readableHomeActionTitle(action);
   const actionControl = action.controlAction
     ? `<button class="btn btn-secondary" type="button" data-action="${escapeHtml(action.controlAction)}" data-review-id="${escapeHtml(action.reviewId || "")}">${escapeHtml(action.cta)} <span aria-hidden="true">→</span></button>`
@@ -9394,35 +9426,41 @@ function homeProjectSwitcherMarkup(action) {
         </div>
         ${createProject}
       </header>
-      ${projectFlowFailed ? `
-        <div class="home-project-message" role="${projects.length ? "status" : "alert"}">
-          ${projects.length
-            ? "Точный этап проекта пока не обновился. Проект можно открыть — портал уточнит следующий шаг внутри."
-            : "Не удалось загрузить список проектов. Проверьте соединение и повторите загрузку."}
-        </div>` : ""}
-      ${projectFlowFailed ? `
-        <button class="btn ${projects.length ? "btn-secondary" : ""} home-project-board-retry"
-                type="button"
-                ${projects.length ? "" : 'data-primary-action="true"'}
-                data-action="retry-project-flow">Повторить загрузку проектов</button>` : ""}
-      <div class="home-project-grid">
-        ${projectCards || (projectListFailed ? `
-          <div class="home-project-empty home-project-empty--error" role="alert">
-            <span aria-hidden="true">!</span>
-            <strong>Проекты временно не загрузились</strong>
-            <p>Ничего не потеряно. Нажмите «Повторить загрузку проектов» — портал заново запросит список и папки.</p>
-          </div>` : `
-          <div class="home-project-empty">
-            <span aria-hidden="true">◇</span>
-            <strong>Проектов пока нет</strong>
-            <p>${canCreateProject ? "Введите название выше — портал сразу откроет первый рабочий стол." : "Попросите руководителя создать первый проект."}</p>
-          </div>`)}
+      <div class="home-project-switcher__body">
+        ${projectFlowFailed ? `
+          <div class="home-project-recovery">
+            <div class="home-project-message" role="${projects.length ? "status" : "alert"}">
+              ${projects.length
+                ? "Точный этап проекта пока не обновился. Проект можно открыть — портал уточнит следующий шаг внутри."
+                : "Не удалось загрузить список проектов. Проверьте соединение и повторите загрузку."}
+            </div>
+            <button class="btn ${retryIsPrimary ? "" : "btn-secondary"} home-project-board-retry"
+                    type="button"
+                    ${retryIsPrimary ? 'data-primary-action="true"' : ""}
+                    data-action="retry-project-flow">Повторить загрузку проектов</button>
+          </div>` : ""}
+        <div class="home-project-grid">
+          ${projectCards || (projectListFailed ? `
+            <div class="home-project-empty home-project-empty--error" role="alert">
+              <span aria-hidden="true">!</span>
+              <strong>Проекты временно не загрузились</strong>
+              <p>${canCreateProject
+                ? "Существующие проекты не потеряны. Создайте новый проект выше или отдельно повторите загрузку списка."
+                : "Ничего не потеряно. Повторите загрузку — портал заново запросит список проектов."}</p>
+            </div>` : `
+            <div class="home-project-empty">
+              <span aria-hidden="true">◇</span>
+              <strong>Проектов пока нет</strong>
+              <p>${canCreateProject ? "Введите название выше — портал сразу откроет первый рабочий стол." : "Попросите руководителя создать первый проект."}</p>
+            </div>`)}
+        </div>
       </div>
-      <aside class="home-next-action-compact" aria-label="Следующее доступное действие">
-        <span><small>${escapeHtml(action.step || "Следующее действие")}</small><strong>${escapeHtml(actionTitle)}</strong></span>
-        <p>${escapeHtml(action.description || "Выберите проект, чтобы продолжить.")}</p>
-        ${actionControl}
-      </aside>
+      ${chooserMode ? "" : `
+        <aside class="home-next-action-compact" aria-label="Следующее доступное действие">
+          <span><small>${escapeHtml(action.step || "Следующее действие")}</small><strong>${escapeHtml(actionTitle)}</strong></span>
+          <p>${escapeHtml(action.description || "Выберите проект, чтобы продолжить.")}</p>
+          ${actionControl}
+        </aside>`}
     </section>`;
 }
 
