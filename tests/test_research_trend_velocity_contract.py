@@ -8,7 +8,7 @@ MIGRATION = (
     ROOT
     / "supabase"
     / "migrations"
-    / "202608030012_research_trend_velocity_and_readiness_truth.sql"
+    / "202608030016_research_trend_velocity_and_readiness_truth.sql"
 )
 PGTAP = ROOT / "supabase" / "tests" / "research_market_intelligence_identity_test.sql"
 VIEW = ROOT / "web" / "app" / "product-research-view.js"

@@ -65,6 +65,35 @@ def _production_migration_sql() -> str:
     return "\n".join(path.read_text(encoding="utf-8") for path in migration_paths)
 
 
+def test_research_chain_appends_after_deployed_training_waiver() -> None:
+    migration_names = sorted(
+        path.name for path in (ROOT / "supabase/migrations").glob("*.sql")
+    )
+    expected_chain = [
+        "202608030005_selected_training_waiver_roles.sql",
+        "202608030006_research_stage_control_ledger.sql",
+        "202608030007_research_watchlist_memory.sql",
+        "202608030008_research_provider_control_plane.sql",
+        "202608030009_research_market_intelligence_identity.sql",
+        "202608030010_research_outcome_learning_control.sql",
+        "202608030011_research_youtube_live_ingestion.sql",
+        "202608030012_research_outcome_scope_registry.sql",
+        "202608030013_research_outcome_generation_consumption.sql",
+        "202608030014_research_stage_control_loop.sql",
+        "202608030015_research_category_learning_readiness.sql",
+        "202608030016_research_trend_velocity_and_readiness_truth.sql",
+        "202608030017_generation_spec_control.sql",
+        "202608040001_research_source_correction_freshness.sql",
+        "202608040002_ai_learning_control_room.sql",
+        "202608040003_research_youtube_observation_analysis.sql",
+    ]
+    deployed_boundary = migration_names.index(expected_chain[0])
+
+    assert migration_names[
+        deployed_boundary : deployed_boundary + len(expected_chain)
+    ] == expected_chain
+
+
 def test_production_path_is_supabase_native_pages_without_render_or_container_publish() -> None:
     assert not (ROOT / "render.yaml").exists()
     assert not (ROOT / ".github/workflows/container.yml").exists()
