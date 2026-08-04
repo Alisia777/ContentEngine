@@ -3027,7 +3027,7 @@ export function productResearchInputMarkup({
         <div class="alert alert-warning" role="note"><strong aria-hidden="true">₽</strong><span><strong>Это платный ИИ-анализ.</strong> Используется поиск в интернете и модель анализа; итоговая стоимость определяется подключённым тарифом сервиса.</span></div>
         <label class="check-row"><input type="checkbox" name="paid_analysis_ack" required /><span><strong>Запускаю платный ИИ-анализ с поиском в интернете</strong><br /><small>Повторный клик с теми же вводными не создаст второй запуск.</small></span></label>
         <label class="check-row"><input type="checkbox" name="human_review_ack" required /><span><strong>Я проверю итог перед созданием задач</strong><br /><small>ИИ готовит черновик, но не принимает за человека факты, обещания и юридические решения.</small></span></label>
-        <button class="btn btn-block" type="submit">Запустить платный анализ и собрать 3 сценария <span aria-hidden="true">→</span></button>
+        <button class="btn btn-block" type="submit" data-primary-action="true">Запустить платный анализ и собрать 3 сценария <span aria-hidden="true">→</span></button>
       </form>
       <aside class="card card-pad product-research-explainer" aria-label="Что получится после анализа">
         <p class="eyebrow">На выходе</p>
@@ -3408,7 +3408,7 @@ export function productResearchResultMarkup(record, {
     ? '<div class="inline-actions"><button class="btn" type="button" data-action="new-product-research" data-primary-action="true">Начать новое исследование →</button></div>'
     : recommendedScenarioIndex >= 0
     ? `<div class="inline-actions"><button class="btn" type="button" data-action="generate-research-scenario" data-scenario-index="${recommendedScenarioIndex}" data-primary-action="true">${recommendedPrepared ? "Перепроверить и открыть" : "Подготовить"} рекомендованный сценарий →</button></div>`
-    : `<a class="btn" href="#/workspace/tasks">Открыть задачи →</a>`;
+    : `<a class="btn" href="#/workspace/tasks" data-primary-action="true">Открыть задачи →</a>`;
   const categoryResetSnapshotIds = arrayValue(record?.marketRegistry?.trendTimeline)
     .filter((item) => ["canonical_reset", "category_reset"].includes(item?.comparisonMode))
     .map((item) => String(item?.snapshotId || ""))
@@ -3505,7 +3505,7 @@ export function productResearchResultMarkup(record, {
       </div>
       <div class="product-research-brief-actions">
         <button class="btn btn-secondary" type="submit" data-research-submit="save" ${saving || approving || approved ? "disabled" : ""}>${approved ? "Сохранение заблокировано" : saving ? "Сохраняем…" : "Сохранить черновик"}</button>
-        <button class="btn" type="submit" data-research-submit="approve" data-primary-action="true" ${saving || approving || approved ? "disabled" : ""}>${approving ? "Создаём задачи…" : approved ? "Задачи уже созданы" : "Утвердить и создать 3 задачи →"}</button>
+        <button class="btn ${approved ? "btn-secondary" : ""}" type="submit" data-research-submit="approve" ${approved ? "" : 'data-primary-action="true"'} ${saving || approving || approved ? "disabled" : ""}>${approving ? "Создаём задачи…" : approved ? "Задачи уже созданы" : "Утвердить и создать 3 задачи →"}</button>
       </div>
     </form>
     </div>`;

@@ -28,6 +28,7 @@ LOADER = _read("web/app/workspace-os-v4-loader.js")
 FINDER = _read("web/app/workspace-os-v4-finder.js")
 BOARD = _read("web/app/workspace-board-view.js")
 CONTEXT_TRASH = _read("web/app/workspace-os-v4-context-trash.js")
+CONTEXT_TRASH_CSS = _read("web/app/workspace-os-v4-context-trash.css")
 TRAINING = _read("web/app/training-journey.js")
 INDEX = _read("web/app/index.html")
 CORE_CSS = _read("web/app/workspace-os-v4.css")
@@ -39,6 +40,10 @@ TRAINING_CSS = _read("web/app/training-journey.css")
 ALL_CSS = "\n".join(
     (CORE_CSS, FINDER_CSS, FLOW_CSS, GENERATION_CSS, REVIEW_CSS, TRAINING_CSS)
 )
+V4_CSS = {
+    path.name: path.read_text(encoding="utf-8")
+    for path in sorted(APP_DIR.glob("workspace-os-v4*.css"))
+}
 MIGRATIONS = "\n".join(
     path.read_text(encoding="utf-8")
     for path in sorted((ROOT / "supabase" / "migrations").glob("*.sql"))
@@ -414,7 +419,7 @@ def test_archiving_a_project_uses_its_dedicated_path_and_clears_stale_scope() ->
 
 
 def test_v47_assets_share_one_release_key() -> None:
-    build = "20260804.os4.10"
+    build = "20260804.os4.11"
     assert f'const BUILD = "{build}"' in LOADER
     assert f'const BUILD = "{build}"' in CORE
     for asset in (
@@ -550,17 +555,59 @@ def test_readable_typography_has_shared_ui_and_meta_scales() -> None:
     )
     assert re.search(r"font-size\s*:\s*var\(--ce-v4-[^)]+(?:text|font)[^)]+size\)", ALL_CSS)
 
+    for filename, source in V4_CSS.items():
+        for match in re.finditer(
+            r"font-size\s*:\s*(?P<value>\d+(?:\.\d+)?)(?P<unit>px|rem)",
+            source,
+            flags=re.IGNORECASE,
+        ):
+            value = float(match.group("value"))
+            size_px = value if match.group("unit").lower() == "px" else value * 16
+            assert size_px >= 12, (
+                f"{filename} exposes {match.group(0)!r}; helper text must stay at least 12px"
+            )
+        for match in re.finditer(
+            r"\bfont\s*:[^;{}]*?(?P<value>\d+(?:\.\d+)?)(?P<unit>px|rem)\s*/",
+            source,
+            flags=re.IGNORECASE,
+        ):
+            value = float(match.group("value"))
+            size_px = value if match.group("unit").lower() == "px" else value * 16
+            assert size_px >= 12, (
+                f"{filename} exposes {match.group(0)!r}; helper text must stay at least 12px"
+            )
+
+    assert re.search(
+        r"body\.contentengine-desktop-v4\s+:is\([^{}]*(?:button|input)[^{}]*\)\s*"
+        r"\{[^{}]*font-size\s*:\s*var\(--ce-v4-font-control\)\s*!important",
+        CORE_CSS,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    for selector in (
+        ".ce-v4-dock__label",
+        ".ce-v4-flowbar__label",
+        ".ce-v4-stage strong",
+        ".home-project-create summary",
+        ".ce-v4-spotlight-result strong",
+    ):
+        rules = _css_rules(CORE_CSS, selector)
+        assert rules and any("var(--ce-v4-font-control)" in body for body in rules), selector
+
 
 def test_main_content_is_the_only_vertical_scroll_owner() -> None:
     main_rules = _css_rules(CORE_CSS, "#main-content")
     assert main_rules and any(re.search(r"overflow-y\s*:\s*auto", body) for body in main_rules)
 
     nested_scrollers = (
+        (CORE_CSS, ".home-project-grid"),
         (FINDER_CSS, ".workspace-board__folders"),
         (FINDER_CSS, ".workspace-board__grid"),
         (FINDER_CSS, ".workspace-board__drawer"),
         (GENERATION_CSS, ".ce-v4-generation-guided__panel-content"),
         (REVIEW_CSS, ".ce-v4-review-guided__panel-content"),
+        (CONTEXT_TRASH_CSS, ".ce-v4-trash-surface__body"),
+        (CONTEXT_TRASH_CSS, ".ce-v4-trash-preview__body > aside"),
+        (CONTEXT_TRASH_CSS, ".ce-v4-trash-preview__body"),
     )
     for source, selector in nested_scrollers:
         for body in _css_rules(source, selector):

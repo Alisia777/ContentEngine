@@ -2,7 +2,7 @@ import {
   CreatorApi,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260804.os4.10";
+} from "./supabase-api.js?v=20260804.os4.11";
 import {
   approvedGenerationSpecContext,
   generationSpecCardMarkup,
@@ -10,8 +10,8 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecScope,
 } from "./generation-spec.js?v=20260803.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.10";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.10";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.11";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.11";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -73,7 +73,7 @@ import {
   productResearchResultMarkup,
   productResearchStatusKind,
   readProductResearchBrief,
-} from "./product-research-view.js?v=20260804.os4.10";
+} from "./product-research-view.js?v=20260804.os4.11";
 import {
   AI_PRODUCT_CATEGORIES,
   aiLearningCategory,
@@ -93,7 +93,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260804.os4.10";
+} from "./content-generation-handoff.js?v=20260804.os4.11";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -107,7 +107,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260804.os4.10";
+} from "./generation-form-draft.js?v=20260804.os4.11";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -140,7 +140,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260804.os4.10";
+} from "./content-review-view.js?v=20260804.os4.11";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -169,7 +169,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260804.os4.10";
+} from "./workspace-board-view.js?v=20260804.os4.11";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -198,7 +198,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260804.os4.10";
+} from "./training-journey.js?v=20260804.os4.11";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -217,7 +217,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260804.os4.10";
+} from "./training-practical-review.js?v=20260804.os4.11";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -236,7 +236,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260804.os4.10";
+} from "./my-work-view.js?v=20260804.os4.11";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -265,6 +265,7 @@ const WORKSPACE_BOARD_VISIBLE_STEP = 80;
 const WORKSPACE_BOARD_MEMORY_CAP = 300;
 const WORKSPACE_BOARD_FALLBACK_NOTICE = "Не удалось обновить проекты и папки. Показаны последние доступные данные; повторите загрузку.";
 const WORKSPACE_PROJECT_STORAGE_KEY = "contentengine.desktop-v4.project";
+const WORKSPACE_ACCESS_REQUEST_STORAGE_PREFIX = "contentengine.workspace-access-request.v1";
 const WORKSPACE_PROJECT_FLOW_TIMEOUT_MS = 10_000;
 const WORKSPACE_FLOW_CONFIRMATION_MS = 700;
 const INVITE_REQUEST_TIMEOUT_MS = 25_000;
@@ -1308,6 +1309,98 @@ function safeStorageRemove(storage, key) {
   } catch {
     // Cleanup is best effort and never broadens session persistence.
   }
+}
+
+function normalizeWorkspaceAccessRequestResult(raw) {
+  const source = raw?.data && typeof raw.data === "object" ? raw.data : raw;
+  if (!source || typeof source !== "object") return null;
+  const nested = source.request
+    ?? source.workspace_access_request
+    ?? source.workspaceAccessRequest
+    ?? source;
+  const request = nested?.request && typeof nested.request === "object"
+    ? nested.request
+    : nested;
+  if (!request || typeof request !== "object" || !String(request.status || "").trim()) return null;
+  const responsible = source.responsible_manager
+    ?? source.responsibleManager
+    ?? nested?.responsible_manager
+    ?? nested?.responsibleManager
+    ?? {};
+  return {
+    request: {
+      ...request,
+      status: String(request.status || "").trim().toLowerCase(),
+    },
+    responsible_manager: responsible && typeof responsible === "object" ? { ...responsible } : {},
+  };
+}
+
+function workspaceAccessRequestStorageKey(userId = state.user?.id) {
+  const normalized = String(userId || "").trim().toLowerCase();
+  return normalized ? `${WORKSPACE_ACCESS_REQUEST_STORAGE_PREFIX}:${normalized}` : "";
+}
+
+function readStoredWorkspaceAccessRequest() {
+  const key = workspaceAccessRequestStorageKey();
+  if (!key || typeof window === "undefined") return null;
+  try {
+    return normalizeWorkspaceAccessRequestResult(
+      JSON.parse(safeStorageGet(window.sessionStorage, key) || "null"),
+    );
+  } catch {
+    safeStorageRemove(window.sessionStorage, key);
+    return null;
+  }
+}
+
+function persistWorkspaceAccessRequest(result) {
+  const key = workspaceAccessRequestStorageKey();
+  if (!key || typeof window === "undefined") return;
+  const normalized = normalizeWorkspaceAccessRequestResult(result);
+  if (normalized?.request?.status === "pending") {
+    safeStorageSet(window.sessionStorage, key, JSON.stringify(normalized));
+  } else {
+    safeStorageRemove(window.sessionStorage, key);
+  }
+}
+
+function hydrateWorkspaceAccessRequest(
+  bootstrapRequest = state.bootstrap?.workspaceAccessRequest,
+) {
+  if (state.bootstrap?.workspaceAccess === true) {
+    persistWorkspaceAccessRequest(null);
+    state.workspaceAccessRequest.status = "idle";
+    state.workspaceAccessRequest.result = null;
+    state.workspaceAccessRequest.error = "";
+    return null;
+  }
+  const fromBootstrap = normalizeWorkspaceAccessRequestResult(
+    bootstrapRequest,
+  );
+  if (bootstrapRequest !== null && bootstrapRequest !== undefined) {
+    if (fromBootstrap?.request?.status !== "pending") {
+      persistWorkspaceAccessRequest(null);
+      state.workspaceAccessRequest.status = fromBootstrap ? "ready" : "idle";
+      state.workspaceAccessRequest.result = fromBootstrap;
+      state.workspaceAccessRequest.error = "";
+      return fromBootstrap;
+    }
+    state.workspaceAccessRequest.status = "ready";
+    state.workspaceAccessRequest.result = fromBootstrap;
+    state.workspaceAccessRequest.error = "";
+    persistWorkspaceAccessRequest(fromBootstrap);
+    return fromBootstrap;
+  }
+  const current = normalizeWorkspaceAccessRequestResult(state.workspaceAccessRequest.result);
+  const restored = readStoredWorkspaceAccessRequest();
+  const next = current || restored;
+  if (next?.request?.status !== "pending") return null;
+  state.workspaceAccessRequest.status = "ready";
+  state.workspaceAccessRequest.result = next;
+  state.workspaceAccessRequest.error = "";
+  persistWorkspaceAccessRequest(next);
+  return next;
 }
 
 function readStoredContentGenerationHandoff() {
@@ -2384,6 +2477,7 @@ async function loadBootstrap({ silent = false } = {}) {
     const bootstrap = normalizeBootstrap(raw);
     requestApi.commitBootstrapContext(raw);
     state.bootstrap = bootstrap;
+    hydrateWorkspaceAccessRequest(state.bootstrap.workspaceAccessRequest);
     state.courseCheckResults = Object.fromEntries(
       state.bootstrap.training.courseChecks.map((item) => [
         item.moduleCode,
@@ -2499,9 +2593,17 @@ async function refreshBootstrapAccessState({ force = false } = {}) {
   if (state.bootstrapRefreshPromise) return state.bootstrapRefreshPromise;
 
   const refreshPromise = (async () => {
+    const hadWorkspaceAccess = hasWorkspaceAccess();
     const bootstrap = await loadBootstrap({ silent: true });
     if (!bootstrap) return null;
     const startPath = authenticatedStartPath();
+    if (!hadWorkspaceAccess && hasWorkspaceAccess() && startPath === WORKSPACE_START_PATH) {
+      try {
+        if (await openFirstAvailableWorkspaceProject()) return bootstrap;
+      } catch (error) {
+        state.workspaceAccessRequest.error = actionErrorMessage(error);
+      }
+    }
     if (!authenticatedRouteCompatible(state.route.path, startPath)) {
       navigate(startPath, true);
     }
@@ -2594,6 +2696,27 @@ function normalizeBootstrap(raw) {
     reason: String(accessWaiverSource.reason || ""),
     grantedAt: accessWaiverSource.granted_at ?? accessWaiverSource.grantedAt ?? null,
   };
+  const workspaceAccessRequestSource = source.workspace_access_request
+    ?? source.workspaceAccessRequest
+    ?? source.access?.workspace_access_request
+    ?? source.access?.workspaceAccessRequest
+    ?? null;
+  const workspaceAccessRequest = normalizeWorkspaceAccessRequestResult(
+    workspaceAccessRequestSource?.request
+      ? workspaceAccessRequestSource
+      : workspaceAccessRequestSource
+        ? {
+            request: workspaceAccessRequestSource,
+            responsible_manager: source.responsible_manager
+              ?? source.responsibleManager
+              ?? source.access?.responsible_manager
+              ?? source.access?.responsibleManager
+              ?? workspaceAccessRequestSource.responsible_manager
+              ?? workspaceAccessRequestSource.responsibleManager
+              ?? {},
+          }
+        : null,
+  );
 
   return {
     accessState: String(source.state || ""),
@@ -2627,6 +2750,7 @@ function normalizeBootstrap(raw) {
       },
     },
     workspaceAccess,
+    workspaceAccessRequest,
     storage: {
       bucket: source.storage?.bucket || CONFIG.STORAGE_BUCKET,
       pathPrefix: source.storage?.path_prefix || "",
@@ -3688,6 +3812,7 @@ function clearAcademyBootstrapLoading(shell) {
 }
 
 function renderWorkspaceAccessRequired() {
+  hydrateWorkspaceAccessRequest();
   const profile = displayProfile();
   const role = String(state.bootstrap?.membership?.role || "").trim();
   const academyComplete = trainingAccessWaiverActive() || (
@@ -3721,7 +3846,7 @@ function renderWorkspaceAccessRequired() {
         </div>
       ` : ""}
       <div class="inline-actions" style="justify-content:center; margin-top:20px">
-        ${academyComplete ? `<button class="btn" type="button" data-action="request-workspace-access" data-primary-action="true" ${requestState.status === "loading" || requestPending ? "disabled" : ""}>${requestState.status === "loading" ? "Отправляем…" : requestPending ? "Запрос уже отправлен" : "Запросить доступ"}</button>` : ""}
+        ${academyComplete ? `<button class="btn" type="button" data-action="request-workspace-access" data-primary-action="true" ${requestState.status === "loading" || requestPending ? "disabled" : ""}>${requestState.status === "loading" ? "Отправляем…" : requestPending ? "Запрос уже отправлен" : "Запросить рабочий допуск"}</button>` : ""}
         <button class="btn btn-secondary" type="button" data-action="retry-bootstrap">Проверить доступ</button>
         <button class="btn btn-secondary" type="button" data-action="logout">Выйти</button>
       </div>
@@ -12912,7 +13037,7 @@ function payoutDecisionMarkup(item) {
     return `
       <form class="payout-paid-form form-stack" data-payout-id="${payoutId}" novalidate>
         <label class="field"><span>Номер внешней оплаты *</span><input name="external_payment_reference" required minlength="3" maxlength="180" placeholder="PAY-2026-000123" /></label>
-        <button class="btn btn-small" type="submit">Отметить выплаченной</button>
+        <button class="btn btn-small" type="submit" data-primary-action="true">Отметить выплаченной</button>
       </form>
     `;
   }
@@ -15730,6 +15855,7 @@ async function handleClick(event) {
       const response = await state.api.requestWorkspaceAccess();
       state.workspaceAccessRequest.result = response;
       state.workspaceAccessRequest.status = "ready";
+      persistWorkspaceAccessRequest(response);
       await track("workspace_access_requested", {
         request_id: String((response?.data ?? response)?.request?.id || ""),
       });

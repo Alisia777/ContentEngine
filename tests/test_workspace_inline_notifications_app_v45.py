@@ -231,13 +231,18 @@ def test_payout_reject_is_the_only_marker_and_only_visual_primary() -> None:
         const escapeHtml = (value) => String(value);
         {payout}
         const html = payoutDecisionMarkup({{ id: "payout-1", profile_id: "creator", status: "pending" }});
+        const approved = payoutDecisionMarkup({{ id: "payout-2", profile_id: "creator", status: "approved" }});
         const classes = [...html.matchAll(/<button class="([^"]+)"/g)].map((match) => match[1]);
+        const approvedClasses = [...approved.matchAll(/<button class="([^"]+)"/g)].map((match) => match[1]);
         const visualPrimaries = classes.filter((value) => value.includes("btn-danger") || !value.includes("btn-secondary"));
         process.stdout.write(JSON.stringify({{
           markerCount: (html.match(/data-primary-action="true"/g) || []).length,
           visualPrimaryCount: visualPrimaries.length,
           rejectDangerPrimary: html.includes('class="btn btn-danger btn-small" type="submit" data-primary-action="true"'),
           approveSecondary: html.includes('class="btn btn-secondary btn-small" type="button"') && html.includes('data-decision="approve"'),
+          paidMarkerCount: (approved.match(/data-primary-action="true"/g) || []).length,
+          paidVisualPrimaryCount: approvedClasses.filter((value) => value.includes("btn-danger") || !value.includes("btn-secondary")).length,
+          paidPrimary: approved.includes('class="btn btn-small" type="submit" data-primary-action="true"'),
         }}));
         """
     )
@@ -246,4 +251,7 @@ def test_payout_reject_is_the_only_marker_and_only_visual_primary() -> None:
         "visualPrimaryCount": 1,
         "rejectDangerPrimary": True,
         "approveSecondary": True,
+        "paidMarkerCount": 1,
+        "paidVisualPrimaryCount": 1,
+        "paidPrimary": True,
     }

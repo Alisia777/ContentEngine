@@ -142,7 +142,9 @@ def test_research_views_hide_every_competing_primary_action() -> None:
     assert "view: researchView" in route
     assert render.count('data-research-submit="save" data-primary-action="true"') == 0
     assert render.count('class="btn btn-secondary" type="submit" data-research-submit="save"') == 1
-    assert render.count('data-research-submit="approve" data-primary-action="true"') == 1
+    assert render.count('data-research-submit="approve"') == 1
+    assert 'approved ? "" : \'data-primary-action="true"\'' in render
+    assert 'class="btn ${approved ? "btn-secondary" : ""}"' in render
 
     for marker in (
         '[data-research-view="evidence"] :is(',
