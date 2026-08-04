@@ -6,9 +6,9 @@
  * reads secrets or clones file inputs.
  */
 
-import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.15";
+import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.16";
 
-const BUILD = "20260804.os4.15";
+const BUILD = "20260804.os4.16";
 const STORAGE_KEY = "contentengine.desktop-v4.v1";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
 const PROJECT_CONTEXT_KEY = "contentengine.desktop-v4.project";
@@ -1080,8 +1080,9 @@ function mountHome() {
   const page = currentPage();
   if (!page) return;
   q(":scope > .ce-v4-home", page)?.remove();
-  page.classList.add("ce-v4-home-page", "ce-v4-project-home");
   const projects = q("[data-ce-v4-project-home]", page);
+  page.classList.add("ce-v4-home-page");
+  page.classList.toggle("ce-v4-project-home", Boolean(projects));
   if (projects) projects.dataset.ceV4Surface = "true";
 }
 
