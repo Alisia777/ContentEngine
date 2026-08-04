@@ -947,6 +947,9 @@ select matches(
 select ok(
   strpos(lower(pg_get_functiondef(
     'public.system_claim_product_research(jsonb)'::regprocedure
+  )), 'system_claim_product_research_pre_background_v417') > 0
+  and strpos(lower(pg_get_functiondef(
+    'content_factory_private.system_claim_product_research_pre_background_v417(jsonb)'::regprocedure
   )), 'system_claim_product_research_pre_stage_recompute_v3') > 0
   and strpos(lower(pg_get_functiondef(
     'content_factory_private.system_claim_product_research_pre_stage_recompute_v3(jsonb)'::regprocedure
