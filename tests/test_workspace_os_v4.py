@@ -26,8 +26,8 @@ BUG_CHECKIN_CSS = (APP / "workspace-ui-bug-checkin.css").read_text(encoding="utf
 
 
 def test_desktop_v4_6_is_the_only_eager_workspace_shell() -> None:
-    assert '<link rel="stylesheet" href="./workspace-os-v4.css?v=20260804.os4.12" />' in INDEX
-    assert '<script type="module" src="./workspace-os-v4-loader.js?v=20260804.os4.12"></script>' in INDEX
+    assert '<link rel="stylesheet" href="./workspace-os-v4.css?v=20260804.os4.13" />' in INDEX
+    assert '<script type="module" src="./workspace-os-v4-loader.js?v=20260804.os4.13"></script>' in INDEX
     assert INDEX.index('./workspace-os-v4-loader.js') < INDEX.index('./app.js')
     assert INDEX.index('./app.js') < INDEX.index('./workspace-build-guard.js')
 
@@ -37,15 +37,15 @@ def test_desktop_v4_6_is_the_only_eager_workspace_shell() -> None:
         flags=re.MULTILINE,
     )
     assert active_modules == [
-        './workspace-os-v4-loader.js?v=20260804.os4.12',
-        './app.js?v=20260804.os4.12',
-        './workspace-build-guard.js?v=20260804.os4.12',
+        './workspace-os-v4-loader.js?v=20260804.os4.13',
+        './app.js?v=20260804.os4.13',
+        './workspace-build-guard.js?v=20260804.os4.13',
     ]
 
 
 def test_route_loader_uses_current_v4_6_guided_assets_and_the_dom_patch() -> None:
     for marker in (
-        'const BUILD = "20260804.os4.12"',
+        'const BUILD = "20260804.os4.13"',
         'new URL(relative, import.meta.url).href',
         'import(href)',
         'return route.startsWith("/workspace/");',
@@ -88,7 +88,7 @@ def test_route_loader_uses_current_v4_6_guided_assets_and_the_dom_patch() -> Non
     assert 'fetch(' not in LOADER
     assert 'XMLHttpRequest' not in LOADER
 
-    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.12";' in APP_SCRIPT
+    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.13";' in APP_SCRIPT
     assert 'patchWorkspaceContent(existingContent, content);' in APP_SCRIPT
     for marker in (
         'export function patchWorkspaceContent(container, markup)',
@@ -168,6 +168,51 @@ def test_system_shell_has_one_dock_one_menubar_and_stable_context_chrome() -> No
     assert 'input.form?.requestSubmit?.()' in finder_search
     assert '#workspace-board-filter-form input[name="query"]' in finder_search
     assert "requestSubmit" not in STABILITY
+
+
+def test_dock_explains_that_a_project_is_required_instead_of_silently_bouncing_home() -> None:
+    dock = CORE[
+        CORE.index("function ensureDock()") : CORE.index("\nfunction updateDock()")
+    ]
+
+    assert 'workspaceRouteRequiresProject(destination)' in dock
+    assert '!snapshot.id' in dock
+    assert "event.preventDefault()" in dock
+    assert "explainProjectRequired()" in dock
+
+    policy = CORE[
+        CORE.index("function workspaceRouteRequiresProject(") :
+        CORE.index("\nfunction explainProjectRequired()")
+    ]
+    explanation = CORE[
+        CORE.index("function explainProjectRequired()") :
+        CORE.index("\nfunction routeMatches(")
+    ]
+    assert 'path === "/workspace/work"' in policy
+    assert '=== "notifications"' in policy
+    assert "PROJECT_REQUIRED_ROUTES.has(path)" in policy
+    assert "Сначала выберите проект" in explanation
+    assert 'window.location.hash = "#/workspace/home"' in explanation
+
+    update = CORE[CORE.index("function updateDock()") : CORE.index("\nfunction projectFlowRoot(")]
+    assert 'item.classList.toggle("is-project-required", projectRequired)' in update
+    assert 'locked || projectRequired' in update
+    assert "Сначала выберите проект" in update
+    assert ".ce-v4-dock__item.is-project-required" in CORE_CSS
+
+
+def test_loader_reconciles_stale_routes_and_replace_state_reloads_the_current_action() -> None:
+    loader = LOADER
+    load_route = loader[loader.index("async function loadRoute(") : loader.index("\nfunction ensureCore()")]
+    schedule = loader[loader.index("function schedule()") : loader.index("\nwindow.addEventListener")]
+
+    assert "function reconcileStaleLoad(epoch)" in loader
+    assert load_route.count("return reconcileStaleLoad(epoch)") == 3
+    assert 'document.documentElement.dataset.ceV4Loading !== "true"' in schedule
+    assert "function loadCurrentRoute()" in loader
+    assert "setFailed(route, error)" in loader
+    assert "load: () => loadCurrentRoute()" in loader
+    assert "ContentEngineDesktopV4Loader?.load?.()" in APP_SCRIPT
 
 
 def test_finder_uses_the_real_workspace_board_and_existing_server_filter_form() -> None:

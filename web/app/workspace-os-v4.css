@@ -988,6 +988,11 @@ body.contentengine-desktop-v4 .learning-page > .page-header {
 .ce-v4-dock__item.is-stage-blocked .ce-v4-dock__tile { border-color: rgba(239, 129, 121, .42); color: var(--ce-v4-danger); }
 .ce-v4-dock__item.is-stage-future { color: #82766f; }
 .ce-v4-dock__item[aria-disabled="true"] { cursor: not-allowed; }
+.ce-v4-dock__item.is-project-required:not(.is-active) { color: #8e8179; }
+.ce-v4-dock__item.is-project-required:not(.is-active) .ce-v4-dock__tile {
+  border-style: dashed;
+  opacity: .72;
+}
 
 .ce-v4-dock__label {
   display: block;

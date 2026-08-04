@@ -260,7 +260,8 @@ def test_home_is_project_first_and_keeps_valid_server_driven_review_links() -> N
     assert "project.next_action" in project_home
     assert "exactProjectNextActionRoute" in project_home
     assert 'href="#${escapeHtml(nextRoute)}"' in project_home
-    assert "!folder.parentId" in project_home
+    assert "const projects = projectFlow.projects" in project_home
+    assert "board.folders" not in project_home
     assert 'q("[data-ce-v4-project-home]", page)' in compositor
     assert "dataset.ceV4Surface" in compositor
     assert "home-project-create-form" not in compositor

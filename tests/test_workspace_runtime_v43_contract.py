@@ -39,7 +39,7 @@ def _between(source: str, start: str, end: str) -> str:
 
 
 def test_v49_loader_has_three_script_adapters_and_one_shared_operations_style() -> None:
-    assert 'const BUILD = "20260804.os4.12"' in LOADER
+    assert 'const BUILD = "20260804.os4.13"' in LOADER
     route_assets = _between(
         LOADER,
         "const ROUTE_ASSETS = Object.freeze({",
@@ -167,7 +167,8 @@ def test_dock_geometry_is_stable_and_home_uses_the_native_project_chooser() -> N
     assert "project.next_action" in project_markup
     assert "exactProjectNextActionRoute" in project_markup
     assert 'href="#${escapeHtml(nextRoute)}"' in project_markup
-    assert "!folder.parentId" in project_markup
+    assert "const projects = projectFlow.projects" in project_markup
+    assert "board.folders" not in project_markup
     for retired_home_control in (
         "ce-v4-home__secondary",
         "ce-v4-home__rail",
@@ -199,7 +200,7 @@ def test_route_scroll_is_restored_once_before_the_mount_frame_paints() -> None:
 
 
 def test_same_route_dom_patch_preserves_live_surfaces_and_stable_records() -> None:
-    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.12"' in APP_JS
+    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.13"' in APP_JS
     for marker in (
         "const WORKSPACE_PATCH_KEY_ATTRIBUTES",
         '"data-workspace-item-key"',

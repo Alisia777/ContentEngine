@@ -48,6 +48,9 @@ MIGRATIONS = "\n".join(
     path.read_text(encoding="utf-8")
     for path in sorted((ROOT / "supabase" / "migrations").glob("*.sql"))
 )
+PROJECT_CATALOG_HOTFIX = _read(
+    "supabase/migrations/202608040007_project_flow_catalog_hotfix.sql"
+)
 
 
 def _function(source: str, declaration: str) -> str:
@@ -318,6 +321,86 @@ def test_home_cards_and_focus_queue_use_server_next_actions() -> None:
     assert re.search(r"project[_-]?id", project_loop, flags=re.IGNORECASE)
 
 
+def test_project_choice_never_leaves_permanent_skeletons_when_flow_fails() -> None:
+    switcher = _function(APP, "function homeProjectSwitcherMarkup(")
+    loader = _function(APP, "async function loadProjectFlow(")
+
+    # An unrelated idle Finder section cannot keep the project chooser loading.
+    assert "const loading = !projects.length && projectFlowLoading" in switcher
+    assert "boardLoading" not in switcher
+    assert 'state.projectFlow.status === "error"' in switcher
+    assert 'data-action="retry-project-flow"' in switcher
+
+    # A missing API adapter is a visible recoverable error, not an eternal
+    # `idle` state that continuously renders loading cards.
+    missing_api = loader[: loader.index("const projectId")]
+    assert 'state.projectFlow.status = "error"' in missing_api
+    assert 'state.projectFlow.error' in missing_api
+
+
+def test_project_list_retry_is_one_bounded_precise_request() -> None:
+    click = _function(APP, "async function handleClick(")
+    retry_start = click.index('if (action === "retry-project-flow")')
+    retry_end = click.index('if (action === "select-ai-learning-category")', retry_start)
+    retry = click[retry_start:retry_end]
+
+    assert "await loadProjectFlow({ silent: true, force: true })" in retry
+    assert "state.sections.board.requestId" not in retry
+
+
+def test_project_catalog_is_lightweight_until_one_project_is_selected() -> None:
+    catalog = PROJECT_CATALOG_HOTFIX
+
+    assert "create or replace function public.creator_project_flow" in catalog
+    assert catalog.count("content_factory_private.project_flow_snapshot(") == 1
+    assert "cross join lateral" not in catalog
+    assert "from content_factory.workspace_folders project" in catalog
+    assert "'catalog_state', 'summary'" in catalog
+    assert "'/workspace/home?project_id=' || project.id::text" in catalog
+    assert "grant execute on function public.creator_project_flow(jsonb)" in catalog
+
+
+def test_global_workspace_routes_work_without_a_project_but_production_routes_do_not() -> None:
+    policy = _function(APP, "function workspaceSectionRequiresProject(")
+    workspace = _function(APP, "function renderWorkspace(")
+
+    assert 'new Set(["home", "team", "feedback", "ai"])' in APP
+    assert 'normalizedSection === "work"' in policy
+    assert '=== "notifications"' in policy
+    assert "workspaceSectionRequiresProject(section)" in workspace
+    assert 'if (section !== "home" && !currentWorkspaceProjectId())' not in workspace
+    assert 'const notificationOnlyWork = section === "work"' in workspace
+    assert 'sectionState.status = "ready"' in workspace
+
+
+def test_stale_or_archived_project_selection_recovers_to_the_catalog() -> None:
+    loader = _function(APP, "async function loadProjectFlow(")
+
+    assert "workspace_project_not_found" in loader
+    assert "workspace_project_archived" in loader
+    assert "clearWorkspaceProjectSelection(projectId)" in loader
+    assert "workspaceSectionRequiresProject(activeSection, state.route.query)" in loader
+    assert "if (mustLeaveRoute)" in loader
+    assert 'navigate("/workspace/home", true, { scopeProject: false })' in loader
+    assert 'query.delete("project_id")' in loader
+    assert 'navigate(`${state.route.path}${search ? `?${search}` : ""}`, true, { scopeProject: false })' in loader
+
+
+def test_project_catalog_redirects_only_sections_that_require_a_project() -> None:
+    loader = _function(APP, "async function loadProjectFlow(")
+
+    assert "&& workspaceSectionRequiresProject(" in loader
+    assert 'state.route.path.split("/").filter(Boolean).at(-1) || "home"' in loader
+    assert '&& state.route.path !== "/workspace/home"' not in loader
+
+
+def test_project_load_failure_keeps_exactly_one_primary_action() -> None:
+    switcher = _function(APP, "function homeProjectSwitcherMarkup(")
+
+    assert 'const createProject = projectListFailed ? "" : canCreateProject' in switcher
+    assert '${projects.length ? "" : \'data-primary-action="true"\'}' in switcher
+
+
 def test_selected_project_home_renders_one_action_instead_of_a_dashboard() -> None:
     home = _function(APP, "function renderHomeSection(")
     selected = home[home.index("const action = serverProjectNextAction") :]
@@ -419,7 +502,7 @@ def test_archiving_a_project_uses_its_dedicated_path_and_clears_stale_scope() ->
 
 
 def test_v47_assets_share_one_release_key() -> None:
-    build = "20260804.os4.12"
+    build = "20260804.os4.13"
     assert f'const BUILD = "{build}"' in LOADER
     assert f'const BUILD = "{build}"' in CORE
     for asset in (

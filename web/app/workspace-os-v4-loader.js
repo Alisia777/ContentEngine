@@ -1,5 +1,5 @@
 /*
- * ContentEngine Desktop v4.12 route loader.
+ * ContentEngine Desktop v4.13 route loader.
  *
  * Keeps one global desktop controller alive and loads heavy route adapters only
  * when their workspace is opened. Same-origin assets only; no API calls and no
@@ -7,9 +7,9 @@
  * in favour of one deterministic stability coordinator.
  */
 
-import { workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.12";
+import { workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.13";
 
-const BUILD = "20260804.os4.12";
+const BUILD = "20260804.os4.13";
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;
@@ -183,6 +183,11 @@ function ensureModule(relative) {
   return loadedModules.get(href);
 }
 
+function reconcileStaleLoad(epoch) {
+  if (epoch === routeEpoch) schedule();
+  return false;
+}
+
 async function loadRoute(route = routePath(), actionKey = workspaceActionKey()) {
   const epoch = ++routeEpoch;
   setLoading(true, route);
@@ -194,11 +199,15 @@ async function loadRoute(route = routePath(), actionKey = workspaceActionKey()) 
   await Promise.all(styles.map(ensureStyle));
   for (const modulePath of modules) {
     await ensureModule(modulePath);
-    if (epoch !== routeEpoch || actionKey !== workspaceActionKey()) return false;
+    if (epoch !== routeEpoch || actionKey !== workspaceActionKey()) return reconcileStaleLoad(epoch);
   }
-  if (epoch !== routeEpoch || route !== routePath() || actionKey !== workspaceActionKey()) return false;
+  if (epoch !== routeEpoch || route !== routePath() || actionKey !== workspaceActionKey()) {
+    return reconcileStaleLoad(epoch);
+  }
   await window.ContentEngineDesktopV4?.flush?.();
-  if (epoch !== routeEpoch || route !== routePath() || actionKey !== workspaceActionKey()) return false;
+  if (epoch !== routeEpoch || route !== routePath() || actionKey !== workspaceActionKey()) {
+    return reconcileStaleLoad(epoch);
+  }
   armRouteEnterCleanup(route, actionKey, epoch);
   setLoading(false, route);
   window.dispatchEvent(new CustomEvent("contentengine:v4-route-ready", {
@@ -239,13 +248,25 @@ function retry() {
   retryPromise = loadRoute(route, actionKey)
     .catch((error) => {
       setFailed(route, error);
-      console.error("ContentEngine Desktop v4.12 route retry failed", error);
+      console.error("ContentEngine Desktop v4.13 route retry failed", error);
       return false;
     })
     .finally(() => {
       retryPromise = null;
     });
   return retryPromise;
+}
+
+function loadCurrentRoute() {
+  const route = routePath();
+  const actionKey = workspaceActionKey();
+  return loadRoute(route, actionKey).catch((error) => {
+    if (route === routePath() && actionKey === workspaceActionKey()) {
+      setFailed(route, error);
+    }
+    console.error("ContentEngine Desktop v4.13 current route failed to load", error);
+    return false;
+  });
 }
 
 function handleRouteLoaderRetry(event) {
@@ -260,7 +281,11 @@ function schedule() {
   const actionKey = workspaceActionKey();
   const sameAction = actionKey === lastScheduledActionKey;
   lastScheduledActionKey = actionKey;
-  if (sameAction && isManagedRoute(route)) {
+  if (
+    sameAction
+    && isManagedRoute(route)
+    && document.documentElement.dataset.ceV4Loading !== "true"
+  ) {
     window.queueMicrotask(() => {
       void window.ContentEngineDesktopV4?.flush?.();
     });
@@ -277,7 +302,7 @@ function schedule() {
       if (scheduledRoute === routePath() && scheduledActionKey === workspaceActionKey()) {
         setFailed(scheduledRoute, error);
       }
-      console.error("ContentEngine Desktop v4.12 route failed to start", error);
+      console.error("ContentEngine Desktop v4.13 route failed to start", error);
     });
   });
 }
@@ -290,6 +315,6 @@ window.ContentEngineDesktopV4Loader = Object.freeze({
   build: BUILD,
   route: routePath,
   actionKey: workspaceActionKey,
-  load: () => loadRoute(),
+  load: () => loadCurrentRoute(),
   retry: () => retry(),
 });
