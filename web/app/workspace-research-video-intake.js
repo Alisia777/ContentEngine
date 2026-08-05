@@ -12,9 +12,11 @@ const FORM_ID = "product-research-start-form";
 const FIELD_ID = "research-training-video-url";
 const PANEL_ATTRIBUTE = "data-research-training-video-intake";
 const FAILURE_GUARD_ATTRIBUTE = "data-research-youtube-failure-guard";
+const RPC_REGISTER_SOURCE = "contentengine_register_exact_youtube_source";
 const YOUTUBE_VIDEO_ID = /^[A-Za-z0-9_-]{11}$/u;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
 const PENDING_SOURCE_PREFIX = "contentengine.research.youtube.pending.v1";
 
 export function canonicalResearchVideoUrl(value) {
@@ -92,11 +94,11 @@ function projectId() {
   return UUID_PATTERN.test(value) ? value : "";
 }
 
-function filesHash() {
+function filesHash(sourceId = "") {
   const currentProjectId = projectId();
   const query = new URLSearchParams();
   if (currentProjectId) query.set("project_id", currentProjectId);
-  query.set("youtube_source", "pending_media");
+  query.set("youtube_source", sourceId || "pending_media");
   return `#/workspace/board?${query.toString()}`;
 }
 
@@ -104,10 +106,11 @@ function pendingSourceKey() {
   return `${PENDING_SOURCE_PREFIX}:${projectId() || "unscoped"}`;
 }
 
-function rememberPendingSource(canonical) {
+function rememberPendingSource(canonical, sourceId = "") {
   try {
     window.sessionStorage.setItem(pendingSourceKey(), JSON.stringify({
       canonical_url: canonical,
+      source_id: sourceId,
       recorded_at: new Date().toISOString(),
       required_input: "lawful_mp4",
       paid_analysis_allowed: false,
@@ -123,7 +126,10 @@ function readPendingSource() {
     if (!raw) return null;
     const value = JSON.parse(raw);
     const canonical = canonicalResearchVideoUrl(value?.canonical_url);
-    return canonical ? { canonical } : null;
+    const sourceId = String(value?.source_id || "").trim().toLowerCase();
+    return canonical
+      ? { canonical, sourceId: UUID_PATTERN.test(sourceId) ? sourceId : "" }
+      : null;
   } catch {
     return null;
   }
@@ -134,6 +140,98 @@ function el(tag, className = "", text = "") {
   if (className) node.className = className;
   if (text) node.textContent = text;
   return node;
+}
+
+function payloadWithOrganization(api, payload) {
+  if (typeof api?.withOrganization === "function") {
+    return api.withOrganization(payload);
+  }
+  if (api?.organizationId) {
+    return { organization_id: api.organizationId, ...payload };
+  }
+  return payload;
+}
+
+async function getApi() {
+  const factory = window.ContentEngineWorkspaceRuntime?.getApi;
+  if (typeof factory !== "function") {
+    throw new Error("api_runtime_unavailable");
+  }
+  const api = await Promise.resolve(factory());
+  if (!api || typeof api.call !== "function") {
+    throw new Error("api_runtime_unavailable");
+  }
+  return api;
+}
+
+function idempotencyKey(prefix) {
+  const suffix = globalThis.crypto?.randomUUID?.()
+    || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `${prefix}-${suffix}`.slice(0, 178);
+}
+
+function fieldText(form, names, limit) {
+  for (const name of names) {
+    const field = form.elements?.namedItem?.(name)
+      || form.querySelector?.(`[name="${CSS.escape(name)}"]`);
+    const value = String(field?.value || "").replace(/\s+/gu, " ").trim();
+    if (value) return value.slice(0, limit);
+  }
+  return "";
+}
+
+async function registerExactSource(form, canonical) {
+  const currentProjectId = projectId();
+  const videoId = canonical.slice(-11);
+  if (!UUID_PATTERN.test(currentProjectId) || !YOUTUBE_VIDEO_ID.test(videoId)) {
+    throw new Error("exact_source_scope_invalid");
+  }
+  const api = await getApi();
+  const response = await api.call(
+    RPC_REGISTER_SOURCE,
+    payloadWithOrganization(api, {
+      project_id: currentProjectId,
+      canonical_url: canonical,
+      video_id: videoId,
+      product_name: fieldText(
+        form,
+        ["product_name", "title", "name"],
+        300,
+      ),
+      product_sku: fieldText(
+        form,
+        ["sku", "product_sku", "article"],
+        160,
+      ),
+      idempotency_key: idempotencyKey(`exact-youtube-${videoId}`),
+    }),
+  );
+  const root = response?.data && typeof response.data === "object"
+    && !Array.isArray(response.data)
+    ? response.data
+    : response;
+  const source = root?.source;
+  if (
+    root?.ok !== true
+    || root?.version !== "exact-youtube-source-intake-v1"
+    || !source
+    || !UUID_PATTERN.test(String(source.id || "").toLowerCase())
+    || source.project_id !== currentProjectId
+    || source.video_id !== videoId
+    || source.canonical_url !== canonical
+    || source.status !== "awaiting_media"
+    || source.media_required !== true
+    || !SHA256_PATTERN.test(String(source.source_hash || ""))
+    || root?.contract?.registered_in_research !== true
+    || root?.contract?.visible_in_ai_center !== true
+    || root?.contract?.url_is_video_evidence !== false
+    || root?.contract?.paid_analysis_allowed !== false
+    || root?.contract?.external_call_started !== false
+    || root?.contract?.paid_call_started !== false
+  ) {
+    throw new Error("exact_source_response_invalid");
+  }
+  return source;
 }
 
 function createActions(form, panel, input, status) {
@@ -261,7 +359,7 @@ function validateInput(input, status) {
   }
   input.setCustomValidity("");
   status.textContent =
-    `Источник распознан: ${canonical}. Для полного разбора загрузите MP4; платный запуск пока заблокирован.`;
+    `Источник распознан: ${canonical}. Нажатие запуска сохранит его в Исследованиях без оплаты и запросит MP4.`;
   status.dataset.tone = "warning";
   return canonical;
 }
@@ -274,10 +372,27 @@ function blockUrlOnlySubmit(event, form, panel, input, status, canonical) {
   const bypass = panel.querySelector("[data-research-video-bypass]");
   if (bypass instanceof HTMLButtonElement) bypass.hidden = false;
   status.textContent =
-    "Остановлено до списания: ссылка подтверждает ролик, но не содержит кадры и звук. Загрузите MP4 либо явно продолжите исследование рынка без этого ролика.";
-  status.dataset.tone = "danger";
+    "Остановлено до списания. Сохраняем точный источник в Исследованиях; для разбора кадров и звука затем нужен MP4.";
+  status.dataset.tone = "warning";
   input.focus({ preventScroll: true });
   panel.scrollIntoView({ behavior: "smooth", block: "center" });
+
+  void registerExactSource(form, canonical).then((source) => {
+    const sourceId = String(source.id).toLowerCase();
+    panel.dataset.sourceId = sourceId;
+    panel.dataset.sourceMode = "awaiting-media";
+    rememberPendingSource(canonical, sourceId);
+    const upload = panel.querySelector("[data-research-video-upload]");
+    if (upload instanceof HTMLAnchorElement) upload.href = filesHash(sourceId);
+    status.textContent =
+      "Шаг 1 выполнен: ролик сохранён в Исследованиях и уже виден в ИИ-центре как источник, ожидающий MP4. Платного вызова не было.";
+    status.dataset.tone = "ready";
+  }).catch(() => {
+    panel.dataset.sourceMode = "registration-failed";
+    status.textContent =
+      "Платный запуск заблокирован, но сервер не подтвердил сохранение источника. Обновите страницу; повторной оплаты не будет.";
+    status.dataset.tone = "danger";
+  });
 }
 
 function bind(form, panel) {
@@ -356,15 +471,17 @@ function guardRejectedZeroCitationRun() {
   }
   const actions = el("div", "research-video-intake__actions");
   const upload = el("a", "btn btn-primary", "Загрузить MP4 для настоящего разбора");
-  upload.href = filesHash();
-  const status = [...root.querySelectorAll("button, a")].find((node) =>
+  upload.href = filesHash(pending?.sourceId || "");
+  const savedStatus = [...root.querySelectorAll("button, a")].find((node) =>
     /проверить сохранённый статус/iu.test(String(node.textContent || ""))
   );
   actions.append(upload);
-  if (status instanceof HTMLElement) {
+  if (savedStatus instanceof HTMLElement) {
     const focusStatus = el("button", "btn btn-secondary", "Оставить квитанцию и не повторять");
     focusStatus.type = "button";
-    focusStatus.addEventListener("click", () => status.focus({ preventScroll: true }));
+    focusStatus.addEventListener("click", () =>
+      savedStatus.focus({ preventScroll: true })
+    );
     actions.append(focusStatus);
   }
   guard.append(actions);
