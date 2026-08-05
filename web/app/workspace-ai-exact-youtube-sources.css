@@ -1,0 +1,138 @@
+.ai-exact-youtube-sources {
+  display: grid;
+  gap: 16px;
+  margin: 0 8px 18px;
+  border: 1px solid color-mix(in srgb, var(--accent, #f0a35b) 30%, var(--line, #32281f));
+  background:
+    radial-gradient(circle at 0 0, color-mix(in srgb, var(--accent, #f0a35b) 10%, transparent), transparent 42%),
+    color-mix(in srgb, var(--surface, #15110e) 95%, black);
+}
+
+.ai-exact-youtube-sources__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.ai-exact-youtube-sources__head h2,
+.ai-exact-youtube-sources__head p {
+  margin: 0;
+}
+
+.ai-exact-youtube-sources__head .muted {
+  max-width: 86ch;
+  margin-top: 6px;
+}
+
+.ai-exact-youtube-sources__count {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, #f5bf79 34%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, #f5bf79 9%, transparent);
+  color: #f5bf79;
+  font-size: .82rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.ai-exact-youtube-sources__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr));
+  gap: 12px;
+}
+
+.ai-exact-youtube-source {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--line, #33291f) 82%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-2, #1b1612) 88%, transparent);
+}
+
+.ai-exact-youtube-source__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ai-exact-youtube-source__head strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ai-exact-youtube-source__status {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #f5bf79 12%, transparent);
+  color: #f5bf79;
+  font-size: .74rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.ai-exact-youtube-source__url {
+  overflow: hidden;
+  color: color-mix(in srgb, var(--accent, #f0a35b) 88%, white);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .86rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-exact-youtube-source p,
+.ai-exact-youtube-source__meta {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.ai-exact-youtube-source__meta {
+  color: var(--muted, #a89b8d);
+}
+
+.ai-exact-youtube-source__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.ai-exact-youtube-sources__empty {
+  display: grid;
+  gap: 6px;
+  padding: 16px;
+  border: 1px dashed color-mix(in srgb, var(--line, #33291f) 82%, transparent);
+  border-radius: 12px;
+  color: var(--muted, #a89b8d);
+}
+
+.ai-exact-youtube-sources__empty p {
+  margin: 0;
+}
+
+.ai-exact-youtube-sources__empty.is-error {
+  border-color: color-mix(in srgb, #ff8f73 40%, transparent);
+  color: #ffb1a4;
+}
+
+@media (max-width: 700px) {
+  .ai-exact-youtube-sources__head {
+    display: grid;
+  }
+
+  .ai-exact-youtube-sources__count {
+    justify-self: start;
+  }
+
+  .ai-exact-youtube-source__actions > * {
+    width: 100%;
+    justify-content: center;
+  }
+}
