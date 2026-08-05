@@ -1049,7 +1049,11 @@ export class CreatorApi {
     return this.call(
       RPC.generationSpecStatus,
       this.withOrganization({
-        ...normalizeGenerationSpecReference(context),
+        ...normalizeGenerationSpecReference({
+          spec_id: context.spec_id,
+          spec_version: context.spec_version,
+          spec_hash: context.spec_hash,
+        }),
         project_id: requiredProjectId(context.project_id || context.projectId),
       }),
     );
@@ -1151,7 +1155,11 @@ export class CreatorApi {
     return this.call(
       RPC.generationSpecEffectivePolicy,
       this.withOrganization({
-        ...normalizeGenerationSpecReference(context),
+        ...normalizeGenerationSpecReference({
+          spec_id: context.spec_id,
+          spec_version: context.spec_version,
+          spec_hash: context.spec_hash,
+        }),
         project_id: requiredProjectId(context.project_id || context.projectId),
       }),
     );
