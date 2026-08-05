@@ -3848,7 +3848,10 @@ async function handleCreatorGenerate(
       409,
     );
   }
-  if (learningPolicy?.applied === false && learningSource === "performance_learning") {
+  if (
+    learningPolicy?.applied === false &&
+    learningSource === "performance_learning"
+  ) {
     return json(
       request,
       { ok: false, code: "generation_learning_policy_stale" },
