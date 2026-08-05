@@ -9,13 +9,20 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "web" / "app"
-MIGRATION = (
-    ROOT
-    / "supabase"
-    / "migrations"
-    / "202608050004_research_trained_recommendations.sql"
-).read_text(encoding="utf-8")
+MIGRATION = "\n".join(
+    (
+        ROOT / "supabase" / "migrations" / migration_name
+    ).read_text(encoding="utf-8")
+    for migration_name in (
+        "202608050004_research_trained_recommendations.sql",
+        "202608050005_research_trained_recommendation_rpc_names.sql",
+    )
+)
 LOADER = (APP / "workspace-os-v4-loader.js").read_text(encoding="utf-8")
+BOOTSTRAP = (
+    APP / "workspace-research-training-bootstrap.js"
+).read_text(encoding="utf-8")
+INDEX = (APP / "index.html").read_text(encoding="utf-8")
 RESEARCH = (APP / "workspace-research-video-intake.js").read_text(encoding="utf-8")
 AI_CENTER = (APP / "workspace-ai-research-training.js").read_text(encoding="utf-8")
 GENERATION = (
@@ -29,6 +36,9 @@ def test_governed_research_selection_creates_editable_recommendations() -> None:
         "creator_ai_research_training_queue",
         "creator_decide_ai_research_training",
         "creator_generation_research_recommendations",
+        "contentengine_ai_research_training_queue",
+        "contentengine_decide_ai_research_training",
+        "contentengine_generation_research_recommendations",
         "selected_insight_keys",
         "selected_scenario_positions",
         "recommendations_are_editable",
@@ -44,6 +54,17 @@ def test_governed_research_selection_creates_editable_recommendations() -> None:
     assert "raw_research_enters_prompt_automatically', false" in MIGRATION
     assert "external_call_started', false" in MIGRATION
     assert "paid_call_started', false" in MIGRATION
+    assert (
+        "revoke all on function public.creator_ai_research_training_queue(jsonb)"
+        in MIGRATION
+    )
+    assert (
+        "rename to contentengine_decide_ai_research_training" in MIGRATION
+    )
+    assert (
+        "rename to contentengine_generation_research_recommendations"
+        in MIGRATION
+    )
     for forbidden in (
         "net.http_post",
         "http_post(",
@@ -162,25 +183,33 @@ def test_generation_is_ai_first_but_never_overwrites_human_edits() -> None:
         "markHumanEdit",
         "lastAppliedText",
         "ИИ больше не перезапишет",
-        "Изменить можно любую строку" if False else "изменить любую строку",
+        "изменить любую строку",
     ):
         assert marker in GENERATION
 
 
-def test_route_loader_wires_the_complete_learning_flow() -> None:
+def test_lazy_bootstrap_wires_flow_without_expanding_audited_loader() -> None:
     for marker in (
-        'match: (route) => route === "/workspace/research"',
-        "workspace-research-video-intake.css?v=${BUILD}",
-        "workspace-research-video-intake.js?v=${BUILD}",
-        "workspace-ai-research-training.css?v=${BUILD}",
-        "workspace-ai-research-training.js?v=${BUILD}",
-        "workspace-generation-research-recommendations.css?v=${BUILD}",
-        "workspace-generation-research-recommendations.js?v=${BUILD}",
+        'route === "/workspace/research"',
+        'route === "/workspace/ai"',
+        'route === "/workspace/generation"',
+        "workspace-research-video-intake.css",
+        "workspace-research-video-intake.js",
+        "workspace-ai-research-training.css",
+        "workspace-ai-research-training.js",
+        "workspace-generation-research-recommendations.css",
+        "workspace-generation-research-recommendations.js",
+        "contentengine:v4-route-ready",
+        "RPC_ALIASES",
+        "contentengine_ai_research_training_queue",
+        "contentengine_decide_ai_research_training",
+        "contentengine_generation_research_recommendations",
+        "No provider request",
     ):
-        assert marker in LOADER
-    assert LOADER.index("workspace-os-v4-generation-guided.js") < LOADER.index(
-        "workspace-generation-research-recommendations.js"
-    )
+        assert marker in BOOTSTRAP
+    assert "workspace-os-v4-generation-guided.js" in LOADER
+    assert "workspace-generation-research-recommendations.js" not in LOADER
+    assert "workspace-research-training-bootstrap.js" in INDEX
 
 
 def test_new_route_modules_are_valid_javascript() -> None:
@@ -188,6 +217,7 @@ def test_new_route_modules_are_valid_javascript() -> None:
     if not node:
         pytest.skip("node is unavailable")
     for path in (
+        APP / "workspace-research-training-bootstrap.js",
         APP / "workspace-research-video-intake.js",
         APP / "workspace-ai-research-training.js",
         APP / "workspace-generation-research-recommendations.js",
