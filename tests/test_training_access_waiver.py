@@ -165,5 +165,5 @@ def test_browser_trusts_explicit_waiver_instead_of_fake_completion() -> None:
         "trainingCatalogReady()"
     )
     assert "exam.passed = true" not in APP
-    assert BUILD == "20260805.os4.21"
+    assert BUILD == "20260805.os4.22"
     assert f"app.js?v={BUILD}" in INDEX

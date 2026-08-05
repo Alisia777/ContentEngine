@@ -29,7 +29,7 @@ def _function_source(source: str, name: str, next_name: str) -> str:
 
 
 def test_v44_preserves_mandatory_learning_and_normalizes_only_the_obsolete_alias() -> None:
-    assert 'content="20260805.os4.21"' in INDEX
+    assert 'content="20260805.os4.22"' in INDEX
     assert './startup-route.js?v=20260803.entry1' in INDEX
     assert INDEX.index("./startup-route.js") < INDEX.index("./app.js")
     assert '/^#\\/academy' in STARTUP

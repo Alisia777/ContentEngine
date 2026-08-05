@@ -3,7 +3,7 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260805.os4.21";
+} from "./supabase-api.js?v=20260805.os4.22";
 import {
   generationSpecCardMarkup,
   generationSpecScopesMatch,
@@ -11,8 +11,8 @@ import {
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
 } from "./generation-spec.js?v=20260803.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260805.os4.21";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260805.os4.21";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260805.os4.22";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260805.os4.22";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -75,7 +75,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260805.os4.21";
+} from "./product-research-view.js?v=20260805.os4.22";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -86,7 +86,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260805.os4.21";
+} from "./ai-learning-control-room.js?v=20260805.os4.22";
 import {
   compileContentGenerationPrompt,
   compileSafeGenerationBrief,
@@ -99,7 +99,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260805.os4.21";
+} from "./content-generation-handoff.js?v=20260805.os4.22";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -113,7 +113,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260805.os4.21";
+} from "./generation-form-draft.js?v=20260805.os4.22";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -146,7 +146,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260805.os4.21";
+} from "./content-review-view.js?v=20260805.os4.22";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -175,7 +175,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260805.os4.21";
+} from "./workspace-board-view.js?v=20260805.os4.22";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -204,7 +204,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260805.os4.21";
+} from "./training-journey.js?v=20260805.os4.22";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -223,7 +223,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260805.os4.21";
+} from "./training-practical-review.js?v=20260805.os4.22";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -242,7 +242,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260805.os4.21";
+} from "./my-work-view.js?v=20260805.os4.22";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -19507,11 +19507,14 @@ function applyGenerationSpecEnvelope(raw, form, {
 async function refreshGenerationSpec(form, { force = false } = {}) {
   const current = state.generationSpec.data?.generationSpec;
   if (!form || !current) return null;
-  const context = {
-    project_id: requireWorkspaceProjectId(),
+  const expectedContext = {
     spec_id: current.spec_id,
     spec_version: current.spec_version,
     spec_hash: current.spec_hash,
+  };
+  const context = {
+    project_id: requireWorkspaceProjectId(),
+    ...expectedContext,
   };
   if (state.generationSpec.status === "loading" && !force) return null;
   const requestId = ++state.generationSpec.requestId;
@@ -19524,7 +19527,7 @@ async function refreshGenerationSpec(form, { force = false } = {}) {
       return null;
     }
     return applyGenerationSpecEnvelope(raw, form, {
-      expectedContext: context,
+      expectedContext,
     });
   } catch (error) {
     if (requestId === state.generationSpec.requestId) {
