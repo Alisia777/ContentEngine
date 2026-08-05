@@ -4,6 +4,7 @@ begin;
 -- revisions. The browser RPC remains owner/admin/producer-only. The protected
 -- production repair may additionally attribute the operation to an active
 -- operator when historical organization data has no active owner row.
+-- Actor priority remains deterministic: owner, admin, producer, then operator.
 
 create or replace function public.system_register_research_training_example(
   p_payload jsonb default '{}'::jsonb
