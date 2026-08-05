@@ -90,12 +90,12 @@ def test_quality_learning_never_reuses_review_copy_or_claims() -> None:
 def test_portal_explains_quality_before_business_performance() -> None:
     for token in (
         '"quality"',
-        "Контур качества применён",
+        "Совет ИИ применён по вашему выбору",
         "независимо проверенных вариантов",
         "реальные метрики публикаций получат приоритет",
     ):
         assert token in APP or token in HANDOFF
     assert 'source: "performance_learning"' in APP
     assert '"creator_generation_learning_policy"' in EDGE
-    assert "./content-generation-handoff.js?v=20260805.os4.18" in APP
-    assert "./app.js?v=20260805.os4.18" in INDEX
+    assert "./content-generation-handoff.js?v=20260805.os4.19" in APP
+    assert "./app.js?v=20260805.os4.19" in INDEX

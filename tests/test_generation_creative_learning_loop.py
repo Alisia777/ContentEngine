@@ -215,11 +215,11 @@ def test_edge_and_browser_validate_the_same_bounded_learning_contract() -> None:
         assert token in APP
     assert ".generation-learning-status" in STYLES
     assert "./styles.css?v=20260730.4" in INDEX
-    assert "./app.js?v=20260805.os4.18" in INDEX
-    assert "./supabase-api.js?v=20260805.os4.18" in APP
+    assert "./app.js?v=20260805.os4.19" in INDEX
+    assert "./supabase-api.js?v=20260805.os4.19" in APP
 
 
-def test_paid_start_waits_for_the_exact_learning_lookup_before_any_provider_call() -> None:
+def test_paid_start_uses_learning_only_when_the_user_explicitly_applies_advice() -> None:
     loader = APP[
         APP.index("async function loadGenerationLearningPolicy("):
         APP.index("function automaticGenerationBriefCandidate(")
@@ -231,21 +231,21 @@ def test_paid_start_waits_for_the_exact_learning_lookup_before_any_provider_call
     assert "learning.promise = pending" in loader
     assert "return await learning.promise" in loader
     assert "async function ensureGenerationLearningPolicy(" in loader
-    ensure = submit.index("await ensureGenerationLearningPolicy(form, identity)")
-    refresh = submit.index("values = new FormData(form)", ensure)
+    assert "await ensureGenerationLearningPolicy(form, identity)" not in submit
+    refresh = submit.index("values = new FormData(form)")
     preflight = submit.index(
         "await runGenerationPreflightForPaidStart(",
         refresh,
     )
     paid_start = submit.index("state.api.startRealGeneration(payload)", preflight)
-    assert ensure < refresh < preflight < paid_start
+    assert refresh < preflight < paid_start
     assert "learning_context: learningContext" in submit
     assert "syncAutomaticGenerationBrief(form" in submit
-    assert "await ensureApprovedGenerationSpecForPaidStart(form)" in submit
-    assert "Проверка товара ещё не закончилась" in submit
+    assert "await ensurePreparedGenerationSpecForPaidStart(form)" in submit
+    assert "Learning is advisory" in submit
 
 
-def test_edge_fails_closed_when_learning_cannot_be_verified_before_paid_state() -> None:
+def test_edge_only_fetches_learning_for_explicit_performance_advice() -> None:
     start = EDGE[
         EDGE.index("const startPayload = readStartPayload(body)"):
         EDGE.index("const { data: startData, error: startError }")
@@ -254,14 +254,16 @@ def test_edge_fails_closed_when_learning_cannot_be_verified_before_paid_state() 
         EDGE.index("function readStartPayload"):
         EDGE.index("function readPreflightPayload")
     ]
-    policy_rpc = start.index('"creator_generation_learning_policy"')
+    opt_in = start.index('if (learningSource === "performance_learning")')
+    policy_rpc = start.index('"creator_generation_learning_policy"', opt_in)
     paid_state_rpc = EDGE.index(
         '"creator_start_real_generation"',
         EDGE.index("const startPayload = readStartPayload(body)"),
     )
     policy_required = start.index('"generation_learning_policy_required"')
     unavailable = start.index('"generation_learning_unavailable"')
-    assert policy_rpc < unavailable < policy_required
+    assert opt_in < policy_rpc < unavailable < policy_required
+    assert "Learning is advisory by default" in start
     assert EDGE.index('"creator_generation_learning_policy"') < paid_state_rpc
     assert "startPayload.learning_opt_out !== true" in start
     assert 'delete (rest as Partial<StartPayload>).learning_opt_out' in EDGE

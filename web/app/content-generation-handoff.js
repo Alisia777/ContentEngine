@@ -778,11 +778,14 @@ export function normalizeGenerationLearningPolicy(value) {
     "policy_hash",
     "policyHash",
   ));
-  const generationAllowed = policyField(
+  const advisoryGenerationAllowed = policyField(
     value,
-    "generation_allowed",
-    "generationAllowed",
-  ) !== false;
+    "advisory_generation_allowed",
+    "advisoryGenerationAllowed",
+  );
+  const generationAllowed = advisoryGenerationAllowed === undefined
+    ? policyField(value, "generation_allowed", "generationAllowed") !== false
+    : advisoryGenerationAllowed !== false;
   const productCategory = cleanText(policyField(
     value,
     "product_category",

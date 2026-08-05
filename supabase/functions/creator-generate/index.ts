@@ -3763,48 +3763,52 @@ async function handleCreatorGenerate(
       409,
     );
   }
+  const learningSource = startPayload.learning_context.source;
   let learningPolicy: Record<string, unknown> | null = null;
-  try {
-    const { data, error } = await context.supabase.rpc(
-      "creator_generation_learning_policy",
-      {
-        p_payload: {
-          organization_id: startPayload.organization_id,
-          project_id: startPayload.project_id,
-          media_id: startPayload.media_ids[0],
-          platform: startPayload.platform,
-          model: startPayload.model,
-          product_category: startPayload.product_category,
+  // Learning is advisory by default. Only an explicit "Применить совет"
+  // selection binds performance learning to a paid request. Baseline and
+  // research prompts do not wait for, or get vetoed by, the advice service.
+  if (learningSource === "performance_learning") {
+    try {
+      const { data, error } = await context.supabase.rpc(
+        "creator_generation_learning_policy",
+        {
+          p_payload: {
+            organization_id: startPayload.organization_id,
+            project_id: startPayload.project_id,
+            media_id: startPayload.media_ids[0],
+            platform: startPayload.platform,
+            model: startPayload.model,
+            product_category: startPayload.product_category,
+          },
         },
-      },
-    );
-    if (error !== null || !isRecord(data)) {
+      );
+      if (error !== null || !isRecord(data)) {
+        return json(
+          request,
+          { ok: false, code: "generation_learning_unavailable" },
+          503,
+        );
+      }
+      learningPolicy = data;
+    } catch {
       return json(
         request,
         { ok: false, code: "generation_learning_unavailable" },
         503,
       );
     }
-    learningPolicy = data;
-  } catch {
-    return json(
-      request,
-      { ok: false, code: "generation_learning_unavailable" },
-      503,
-    );
+    if (typeof learningPolicy.applied !== "boolean") {
+      return json(
+        request,
+        { ok: false, code: "generation_learning_unavailable" },
+        503,
+      );
+    }
   }
   if (
-    learningPolicy === null ||
-    typeof learningPolicy.applied !== "boolean"
-  ) {
-    return json(
-      request,
-      { ok: false, code: "generation_learning_unavailable" },
-      503,
-    );
-  }
-  if (
-    learningPolicy.product_category !== startPayload.product_category ||
+    (learningPolicy !== null &&
+      learningPolicy.product_category !== startPayload.product_category) ||
     startPayload.learning_context.product_category !==
       startPayload.product_category
   ) {
@@ -3814,7 +3818,7 @@ async function handleCreatorGenerate(
       409,
     );
   }
-  if (learningPolicy.generation_allowed === false) {
+  if (learningPolicy?.generation_allowed === false) {
     const effectivenessStatus =
       typeof learningPolicy.quality_guard_effectiveness_status === "string"
         ? learningPolicy.quality_guard_effectiveness_status
@@ -3830,11 +3834,10 @@ async function handleCreatorGenerate(
       409,
     );
   }
-  const learningSource = startPayload.learning_context.source;
   const approvedResearchCategoryPrecedence =
     generationApprovedResearchCategoryRuleIsBound(effectiveGenerationPolicy);
   if (
-    learningPolicy.applied &&
+    learningPolicy?.applied &&
     learningSource !== "performance_learning" &&
     startPayload.learning_opt_out !== true &&
     !approvedResearchCategoryPrecedence
@@ -3845,7 +3848,7 @@ async function handleCreatorGenerate(
       409,
     );
   }
-  if (!learningPolicy.applied && learningSource === "performance_learning") {
+  if (learningPolicy?.applied === false && learningSource === "performance_learning") {
     return json(
       request,
       { ok: false, code: "generation_learning_policy_stale" },
@@ -3854,7 +3857,8 @@ async function handleCreatorGenerate(
   }
   if (
     learningSource === "performance_learning" &&
-    !generationLearningPromptIsBound(learningPolicy, startPayload)
+    (learningPolicy === null ||
+      !generationLearningPromptIsBound(learningPolicy, startPayload))
   ) {
     return json(
       request,

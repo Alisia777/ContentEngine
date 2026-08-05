@@ -280,8 +280,8 @@ def test_edge_and_browser_fail_closed_on_cooldown_and_pending_control() -> None:
         'qualityGuardEffectivenessStatus\n'
         '        !== "control_pending_review"'
     ) in APP
-    assert "Контрольный результат ждёт QA" in APP
-    assert "Два безопасных варианта QA-усиления" in APP
+    assert "ИИ советует дождаться QA" in APP
+    assert "Это рекомендация" in APP
     assert "generation_quality_guard_control_review_pending" in API
 
 
@@ -289,8 +289,8 @@ def test_release_binds_new_compiler_gate_and_cache_versions() -> None:
     assert 'GENERATION_LEARNING_COMPILER_VERSION = "safe-brief-v7"' in HANDOFF
     assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-29.v8"' in EDGE
     assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-29.v8"' in APP
-    assert "./content-generation-handoff.js?v=20260805.os4.18" in APP
-    assert "./supabase-api.js?v=20260805.os4.18" in APP
+    assert "./content-generation-handoff.js?v=20260805.os4.19" in APP
+    assert "./supabase-api.js?v=20260805.os4.19" in APP
     assert f"./app.js?v={BUILD_ID}" in INDEX
     assert "select plan(19);" in PGTAP
     assert PGTAP.rstrip().endswith("rollback;")
