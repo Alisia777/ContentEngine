@@ -19979,7 +19979,7 @@ function syncGenerationModeForm(form) {
   }
   if (brief) {
     brief.required = real;
-    brief.maxLength = 1_200;
+    brief.maxLength = sku?.promptMaxLength || 1200;
   }
   const instagramOption = platform?.querySelector('option[value="instagram"]');
   if (instagramOption) instagramOption.disabled = real;
@@ -20063,7 +20063,7 @@ function syncGenerationModeForm(form) {
   }
   if (briefHint) {
     briefHint.textContent = seedance
-      ? "Опишите цельный сюжет обычным языком. Портал сохранит ваш замысел, а перед оплатой добавит только ограничения товара, камеры и безопасности."
+      ? "Опишите цельный сюжет обычным языком. Для ролика с голосом нужна короткая дословная реплика без пересказа. Портал сохранит ваш замысел, а перед оплатой добавит только ограничения товара, камеры и безопасности."
       : photo
         ? "Опишите желаемый кадр обычным языком. Портал сохранит композицию и добавит ограничения этикетки, геометрии и точного товара."
         : real
@@ -21125,6 +21125,15 @@ async function submitRealGeneration(form, values, mode) {
     return;
   }
   const brief = String(approvedSpec.compiled_prompt || "").trim();
+  if (brief.length > generationSku.promptMaxLength) {
+    setFormBusy(form, false);
+    toast(
+      `Техническая версия длиннее лимита выбранной модели (${generationSku.promptMaxLength} символов). Сократите замысел и запустите ещё раз; платный запрос не отправлен.`,
+      "error",
+    );
+    form.elements.brief?.focus({ preventScroll: true });
+    return;
+  }
   const repairContext = generationRepairContext(form);
 
   const payload = {
