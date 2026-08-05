@@ -67,3 +67,14 @@ def test_generation_spec_reads_validate_only_the_exact_reference_object() -> Non
         assert "spec_version: context.spec_version" in block
         assert "spec_hash: context.spec_hash" in block
         assert "normalizeGenerationSpecReference(context)" not in block
+
+
+def test_generation_spec_response_uses_an_exact_expected_reference() -> None:
+    refresh = APP[
+        APP.index("async function refreshGenerationSpec") :
+        APP.index("function generationSpecResearchId")
+    ]
+    assert "const expectedContext = {" in refresh
+    assert "project_id: requireWorkspaceProjectId(),\n    ...expectedContext," in refresh
+    assert "expectedContext,\n    });" in refresh
+    assert "expectedContext: context" not in refresh
