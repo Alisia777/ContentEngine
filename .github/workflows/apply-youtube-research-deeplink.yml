@@ -36,7 +36,8 @@ jobs:
                   raise SystemExit(f"{label}: expected exactly one match, found {count}")
               return text.replace(old, new, 1)
 
-          helper = r'''const PRODUCT_RESEARCH_URL_PREFILL_FIELDS = Object.freeze({
+          if "export function productResearchUrlPrefill" not in source:
+              helper = r'''const PRODUCT_RESEARCH_URL_PREFILL_FIELDS = Object.freeze({
             product_name: Object.freeze({ key: "productName", maxLength: 180 }),
             sku: Object.freeze({ key: "sku", maxLength: 120 }),
             category_name: Object.freeze({ key: "categoryName", maxLength: 160 }),
@@ -77,7 +78,7 @@ jobs:
             });
             if (
               prefill.marketplaceUrl
-              && !/^https:\/\//iu.test(prefill.marketplaceUrl)
+              && !prefill.marketplaceUrl.toLowerCase().startsWith("https://")
             ) delete prefill.marketplaceUrl;
             const productCategory = normalizeProductResearchAiCategory(
               params.get("product_category"),
@@ -101,48 +102,54 @@ jobs:
 
           '''
 
-          source = replace_once(
-              source,
-              "export function productResearchInputMarkup({\n",
-              helper + "export function productResearchInputMarkup({\n",
-              "insert deep-link helper",
-          )
-          source = replace_once(
-              source,
-              "  const initial = objectValue(defaults) || {};\n",
-              "  const storedDefaults = objectValue(defaults) || {};\n"
-              "  const initial = {\n"
-              "    ...storedDefaults,\n"
-              "    ...productResearchUrlPrefill(),\n"
-              "  };\n",
-              "merge deep-link defaults",
-          )
-          source = replace_once(
-              source,
-              '  const previousResearchId = String(initial.previousResearchId || "").trim();\n',
-              '  const previousResearchId = String(initial.previousResearchId || "").trim();\n'
-              '  const youtubeReference = /^https:\\/\\/(?:www\\.|m\\.)?(?:youtube\\.com\\/(?:shorts\\/|watch\\?|embed\\/|live\\/)|youtu\\.be\\/)/iu.test(\n'
-              '    String(initial.marketplaceUrl || "").trim(),\n'
-              '  );\n',
-              "detect YouTube reference",
-          )
-          source = replace_once(
-              source,
-              '        </div>\n        <div class="form-grid-2">\n          <label class="field"><span>Название товара *',
-              '        </div>\n'
-              '        ${youtubeReference ? `<div class="alert alert-info product-research-reference-notice" role="status"><strong aria-hidden="true">▶</strong><span><strong>YouTube Shorts распознан как публичный референс.</strong> Анализ разберёт структуру, хук, демонстрацию и доказательства; после завершения выводы попадут во входящие выбранной категории ИИ-центра.</span></div>` : ""}\n'
-              '        <div class="form-grid-2">\n'
-              '          <label class="field"><span>Название товара *',
-              "insert YouTube reference notice",
-          )
-          source = replace_once(
-              source,
-              '        <label class="field"><span>Ссылка на карточку товара</span><input name="marketplace_url" type="url" inputmode="url" value="${escapeHtml(initial.marketplaceUrl || "")}" placeholder="https://www.wildberries.ru/catalog/…" /><small class="field-hint">Только публичная HTTPS-ссылка. Пароли и ссылки из личного кабинета сюда не вставляйте.</small></label>\n',
-              '        <label class="field"><span>Публичная ссылка на товар или референс</span><input name="marketplace_url" type="url" inputmode="url" value="${escapeHtml(initial.marketplaceUrl || "")}" placeholder="https://www.youtube.com/shorts/…" /><small class="field-hint">Можно вставить YouTube Shorts/watch/youtu.be, публичную карточку товара или страницу конкурента. Только HTTPS; ссылки из личных кабинетов и пароли не используйте.</small></label>\n',
-              "relabel public source URL",
-          )
+              source = replace_once(
+                  source,
+                  "export function productResearchInputMarkup({\n",
+                  helper + "export function productResearchInputMarkup({\n",
+                  "insert deep-link helper",
+              )
+              source = replace_once(
+                  source,
+                  "  const initial = objectValue(defaults) || {};\n",
+                  "  const storedDefaults = objectValue(defaults) || {};\n"
+                  "  const initial = {\n"
+                  "    ...storedDefaults,\n"
+                  "    ...productResearchUrlPrefill(),\n"
+                  "  };\n",
+                  "merge deep-link defaults",
+              )
+              source = replace_once(
+                  source,
+                  '  const previousResearchId = String(initial.previousResearchId || "").trim();\n',
+                  '  const previousResearchId = String(initial.previousResearchId || "").trim();\n'
+                  '  const normalizedReferenceUrl = String(\n'
+                  '    initial.marketplaceUrl || "",\n'
+                  '  ).trim().toLowerCase();\n'
+                  '  const youtubeReference = [\n'
+                  '    "https://youtube.com/",\n'
+                  '    "https://www.youtube.com/",\n'
+                  '    "https://m.youtube.com/",\n'
+                  '    "https://youtu.be/",\n'
+                  '  ].some((prefix) => normalizedReferenceUrl.startsWith(prefix));\n',
+                  "detect YouTube reference",
+              )
+              source = replace_once(
+                  source,
+                  '        </div>\n        <div class="form-grid-2">\n          <label class="field"><span>Название товара *',
+                  '        </div>\n'
+                  '        ${youtubeReference ? `<div class="alert alert-info product-research-reference-notice" role="status"><strong aria-hidden="true">▶</strong><span><strong>YouTube Shorts распознан как публичный референс.</strong> Анализ разберёт структуру, хук, демонстрацию и доказательства; после завершения выводы попадут во входящие выбранной категории ИИ-центра.</span></div>` : ""}\n'
+                  '        <div class="form-grid-2">\n'
+                  '          <label class="field"><span>Название товара *',
+                  "insert YouTube reference notice",
+              )
+              source = replace_once(
+                  source,
+                  '        <label class="field"><span>Ссылка на карточку товара</span><input name="marketplace_url" type="url" inputmode="url" value="${escapeHtml(initial.marketplaceUrl || "")}" placeholder="https://www.wildberries.ru/catalog/…" /><small class="field-hint">Только публичная HTTPS-ссылка. Пароли и ссылки из личного кабинета сюда не вставляйте.</small></label>\n',
+                  '        <label class="field"><span>Публичная ссылка на товар или референс</span><input name="marketplace_url" type="url" inputmode="url" value="${escapeHtml(initial.marketplaceUrl || "")}" placeholder="https://www.youtube.com/shorts/…" /><small class="field-hint">Можно вставить YouTube Shorts/watch/youtu.be, публичную карточку товара или страницу конкурента. Только HTTPS; ссылки из личных кабинетов и пароли не используйте.</small></label>\n',
+                  "relabel public source URL",
+              )
 
-          path.write_text(source, encoding="utf-8")
+              path.write_text(source, encoding="utf-8")
           PY
 
       - name: Run research portal contracts
