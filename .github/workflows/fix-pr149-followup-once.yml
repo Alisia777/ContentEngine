@@ -1,0 +1,58 @@
+name: Fix PR149 follow-up contracts once
+
+on:
+  push:
+    branches:
+      - agent/youtube-short-training-example-v1
+    paths:
+      - .github/workflows/fix-pr149-followup-once.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fix-pr149-followup-contracts-once
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Check out pull request branch
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: agent/youtube-short-training-example-v1
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Repair exact stale assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "ContentEngine CI"
+          git config user.email "actions@users.noreply.github.com"
+          python - <<'PY'
+          from pathlib import Path
+
+          gate = Path("tests/test_server_course_knowledge_gate.py")
+          text = gate.read_text(encoding="utf-8")
+          old = "assert \"87,\\n  'all browser rpcs expose exactly p_payload jsonb'\" in creator"
+          new = "assert \"88,\\n  'all browser rpcs expose exactly p_payload jsonb'\" in creator"
+          if old not in text:
+              raise SystemExit("course gate RPC count assertion not found")
+          gate.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          manual = Path("tests/test_research_manual_training_example_v419.py")
+          text = manual.read_text(encoding="utf-8")
+          old = "assert 'parts[0] === \\\"shorts\\\"' in MODULE"
+          new = "assert '[\\\"shorts\\\", \\\"embed\\\", \\\"live\\\"].includes(parts[0])' in MODULE"
+          if old not in text:
+              raise SystemExit("YouTube Shorts browser assertion not found")
+          manual.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+          git add \
+            tests/test_server_course_knowledge_gate.py \
+            tests/test_research_manual_training_example_v419.py
+          git commit -m "Align final Shorts intake assertions"
+          git push origin HEAD:agent/youtube-short-training-example-v1
