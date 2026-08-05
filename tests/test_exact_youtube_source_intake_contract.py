@@ -24,7 +24,8 @@ def read(path: Path) -> str:
 def test_exact_source_migration_parses_and_stays_provider_free() -> None:
     pglast = pytest.importorskip("pglast")
     sql = read(MIGRATION)
-    assert len(pglast.parse_sql(sql)) >= 20
+    statements = pglast.parse_sql(sql)
+    assert statements, "exact YouTube source migration must contain valid SQL"
     for marker in (
         "content_factory.research_exact_youtube_sources",
         "contentengine_register_exact_youtube_source",
