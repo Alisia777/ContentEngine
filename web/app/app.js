@@ -3,7 +3,7 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260805.os4.19";
+} from "./supabase-api.js?v=20260805.os4.20";
 import {
   generationSpecCardMarkup,
   generationSpecScopesMatch,
@@ -11,8 +11,8 @@ import {
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
 } from "./generation-spec.js?v=20260803.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260805.os4.19";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260805.os4.19";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260805.os4.20";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260805.os4.20";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -75,7 +75,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260805.os4.19";
+} from "./product-research-view.js?v=20260805.os4.20";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -86,7 +86,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260805.os4.19";
+} from "./ai-learning-control-room.js?v=20260805.os4.20";
 import {
   compileContentGenerationPrompt,
   compileSafeGenerationBrief,
@@ -99,7 +99,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260805.os4.19";
+} from "./content-generation-handoff.js?v=20260805.os4.20";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -113,7 +113,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260805.os4.19";
+} from "./generation-form-draft.js?v=20260805.os4.20";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -146,7 +146,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260805.os4.19";
+} from "./content-review-view.js?v=20260805.os4.20";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -175,7 +175,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260805.os4.19";
+} from "./workspace-board-view.js?v=20260805.os4.20";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -204,7 +204,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260805.os4.19";
+} from "./training-journey.js?v=20260805.os4.20";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -223,7 +223,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260805.os4.19";
+} from "./training-practical-review.js?v=20260805.os4.20";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -242,7 +242,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260805.os4.19";
+} from "./my-work-view.js?v=20260805.os4.20";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -19705,13 +19705,15 @@ function restorePreservedProductResearchSnapshot(researchId) {
 
 async function runGenerationSpecControl(form, action, {
   targetSpecVersion = null,
+  preparedPayload: preparedPayloadOverride = null,
 } = {}) {
   if (!form || state.generationSpec.saving) return null;
   const supported = new Set([
     "prepare", "patch", "approve", "reject", "revert", "recompute",
   ]);
   if (!supported.has(action)) return null;
-  const preparedPayload = generationSpecPreparePayload(form);
+  const preparedPayload = preparedPayloadOverride
+    || generationSpecPreparePayload(form);
   const current = state.generationSpec.data?.generationSpec || null;
   if (!preparedPayload || (action !== "prepare" && !current)) {
     throw new CreatorApiError(
@@ -19789,10 +19791,14 @@ async function ensurePreparedGenerationSpecForPaidStart(form) {
     || generationSpecPayloadKey(preparedPayload) !== state.generationSpec.key;
   if (!current) {
     setFormBusy(form, true, "Готовим техническое ТЗ без списания…");
-    await runGenerationSpecControl(form, "prepare");
+    await runGenerationSpecControl(form, "prepare", {
+      preparedPayload,
+    });
   } else if (currentChanged || current.status === "rejected") {
     setFormBusy(form, true, "Сохраняем ваш замысел в новой технической версии…");
-    await runGenerationSpecControl(form, "patch");
+    await runGenerationSpecControl(form, "patch", {
+      preparedPayload,
+    });
   }
 
   current = state.generationSpec.data?.generationSpec || null;
@@ -21179,13 +21185,19 @@ async function submitRealGeneration(form, values, mode) {
 
   let generationSpecContext;
   let preparedSpec;
-  setFormBusy(form, true, "Готовим техническое ТЗ без списания…");
   try {
     const prepared = await ensurePreparedGenerationSpecForPaidStart(form);
     generationSpecContext = prepared.context;
     preparedSpec = prepared.spec;
   } catch (error) {
-    if (form.isConnected) setFormBusy(form, false);
+    if (form.isConnected) {
+      setFormBusy(form, false);
+      restoreGenerationLaunchSnapshot(form, launchSnapshot);
+      if (form.elements.real_spend_confirmation) {
+        form.elements.real_spend_confirmation.checked = false;
+      }
+      syncGenerationFormReadiness(form);
+    }
     toast(`Платный запуск не создан: ${actionErrorMessage(error)}`, "error");
     return;
   }
@@ -25742,12 +25754,15 @@ function alertMarkup(message, type = "info") {
 }
 
 function setFormBusy(form, busy, label = "Подождите…") {
+  const wasBusy = form.dataset.busy === "true";
   if (busy) form.dataset.busy = "true";
   else delete form.dataset.busy;
   const controls = form.querySelectorAll("button, input, select, textarea");
   controls.forEach((control) => {
     if (busy) {
-      control.dataset.wasDisabled = String(control.disabled);
+      if (!wasBusy) {
+        control.dataset.wasDisabled = String(control.disabled);
+      }
       control.disabled = true;
     } else {
       control.disabled = control.dataset.wasDisabled === "true";
@@ -25757,7 +25772,9 @@ function setFormBusy(form, busy, label = "Подождите…") {
   const submit = form.querySelector('button[type="submit"]');
   if (submit) {
     if (busy) {
-      submit.dataset.originalLabel = submit.innerHTML;
+      if (!submit.dataset.originalLabel) {
+        submit.dataset.originalLabel = submit.innerHTML;
+      }
       submit.textContent = label;
     } else if (submit.dataset.originalLabel) {
       submit.innerHTML = submit.dataset.originalLabel;
