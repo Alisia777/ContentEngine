@@ -13,7 +13,7 @@ MIGRATION = (
     ROOT
     / "supabase"
     / "migrations"
-    / "202608050001_research_trained_recommendations.sql"
+    / "202608050004_research_trained_recommendations.sql"
 ).read_text(encoding="utf-8")
 LOADER = (APP / "workspace-os-v4-loader.js").read_text(encoding="utf-8")
 RESEARCH = (APP / "workspace-research-video-intake.js").read_text(encoding="utf-8")

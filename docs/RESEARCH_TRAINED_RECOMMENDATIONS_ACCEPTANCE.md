@@ -45,7 +45,7 @@ The canonical form is an identity key only. The UI still shows the original sour
 
 ## Deployment order
 
-1. Apply `202608050001_research_trained_recommendations.sql`.
+1. Apply `202608050004_research_trained_recommendations.sql`.
 2. Deploy the SPA assets from the same commit.
 3. Hard-refresh the GitHub Pages build.
 4. Run the exact acceptance source above.
