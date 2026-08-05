@@ -83,6 +83,12 @@ select ok(
 select ok(
   strpos(lower(pg_get_functiondef(
     'public.creator_generation_learning_policy(jsonb)'::regprocedure
+  )), 'creator_generation_learning_policy_pre_advisory_v9') > 0
+  and strpos(lower(pg_get_functiondef(
+    'public.creator_generation_learning_policy(jsonb)'::regprocedure
+  )), 'advisory_generation_allowed') > 0
+  and strpos(lower(pg_get_functiondef(
+    'content_factory_private.creator_generation_learning_policy_pre_advisory_v9(jsonb)'::regprocedure
   )), 'creator_generation_learning_policy_pre_historical_case_v1') > 0
   and strpos(lower(pg_get_functiondef(
     'public.creator_generation_learning_policy(jsonb)'::regprocedure
@@ -99,7 +105,7 @@ select ok(
   and strpos(regexp_replace(lower(pg_get_functiondef(
     'content_factory_private.creator_generation_learning_policy_pre_historical_case_v1(jsonb)'::regprocedure
   )), '[[:space:]]+', ' ', 'g'), '''media'', ''media_id'', false') > 0,
-  'the public learning policy preserves exact project-scoped dispatch through the historical wrapper'
+  'the advisory learning policy preserves exact project-scoped dispatch through the historical wrapper'
 );
 
 select ok(

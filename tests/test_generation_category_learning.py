@@ -72,7 +72,7 @@ def test_unknown_historical_category_is_not_inferred_from_current_product():
 def test_normalized_policy_exposes_category_cold_start_to_ux():
     assert '"category_evidence_count"' in HANDOFF
     assert '"category_cold_start"' in HANDOFF
-    assert 'title = "Cold start категории"' in APP
+    assert '"Cold start категории"' in APP
     assert "результаты других категорий исключены" in APP
 
 

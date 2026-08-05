@@ -1960,15 +1960,22 @@ select ok(
   ) = 0
   and position(
     'generation_allowed_value :=' in lower(pg_get_functiondef(
-      'public.creator_generation_learning_policy(jsonb)'::regprocedure
+      'content_factory_private.creator_generation_learning_policy_pre_advisory_v9(jsonb)'
+        ::regprocedure
     ))
   ) > 0
   and position(
     'historical_fallback_allowed' in lower(pg_get_functiondef(
+      'content_factory_private.creator_generation_learning_policy_pre_advisory_v9(jsonb)'
+        ::regprocedure
+    ))
+  ) > 0
+  and position(
+    'advisory_generation_allowed' in lower(pg_get_functiondef(
       'public.creator_generation_learning_policy(jsonb)'::regprocedure
     ))
   ) > 0,
-  'the wrapper isolates historical evidence and preserves the base generation gate'
+  'the wrapper isolates historical evidence and exposes its generation gate as advice'
 );
 
 select ok(

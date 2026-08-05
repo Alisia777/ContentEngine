@@ -1698,7 +1698,7 @@ def test_portal_connects_approved_scenario_to_paid_generation_readiness() -> Non
     assert "scenarioIntent: form.dataset.generationScenarioIntent" in APP
     assert 'data-action="restore-auto-generation-brief"' not in APP
     assert "Портал сам подготовит техническое ТЗ при запуске" in APP
-    assert "await ensureApprovedGenerationSpecForPaidStart(form)" in APP
+    assert "await ensurePreparedGenerationSpecForPaidStart(form)" in APP
     assert "generationPromptInspection(form)" in APP
     sync_inspection = APP[
         APP.index("function syncContentGenerationHandoff") :
@@ -1715,7 +1715,7 @@ def test_portal_connects_approved_scenario_to_paid_generation_readiness() -> Non
     )
     assert "generation_job_id: jobId" in APP
     assert "creative_brief_draft_id: generationHandoff?.draftId" in APP
-    assert "./content-generation-handoff.js?v=20260805.os4.18" in APP
-    assert "./app.js?v=20260805.os4.18" in INDEX
+    assert "./content-generation-handoff.js?v=20260805.os4.19" in APP
+    assert "./app.js?v=20260805.os4.19" in INDEX
     handoff_header = STYLES.split(".generation-handoff__header {", 1)[1].split("}", 1)[0]
     assert "flex-direction: column;" in handoff_header

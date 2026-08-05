@@ -159,8 +159,9 @@ def test_live_generation_form_is_fail_closed_but_keeps_mock_available() -> None:
     assert "async function loadGenerationSpendOverview" in APP
     assert "state.api.generationSpendOverview()" in APP
     assert "if (!state.generationSpend.data || state.generationSpend.status !== \"ready\") return false" in APP
-    assert "seedanceSpendAllowed ? \"\" : \"disabled\"" in APP
-    assert "gen4SpendAllowed ? \"\" : \"disabled\"" in APP
+    assert "seedanceSpendAllowed ? \"\" : \"disabled\"" not in APP
+    assert "gen4SpendAllowed ? \"\" : \"disabled\"" not in APP
+    assert "Выбор за вами. ИИ может подсказать вариант" in APP
     assert "Dry-run задач · без файлов и списаний" in APP
     assert "Платный запуск остановлен лимитом" in APP
     assert "async function submitGenerationSpendPolicy" in APP
@@ -192,5 +193,5 @@ def test_cost_copy_is_provisional_and_budget_ui_is_theme_responsive_and_cache_bu
     ):
         assert marker in CSS
     assert './manager-dashboard.css?v=20260717.5' in INDEX
-    assert './app.js?v=20260805.os4.18' in INDEX
-    assert './supabase-api.js?v=20260805.os4.18' in APP
+    assert './app.js?v=20260805.os4.19' in INDEX
+    assert './supabase-api.js?v=20260805.os4.19' in APP

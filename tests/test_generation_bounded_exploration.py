@@ -77,10 +77,10 @@ def test_existing_paid_start_rebinds_the_exploration_assignment_before_spend() -
 
 def test_portal_explains_the_autonomous_experiment_and_busts_caches() -> None:
     for token in (
-        "Автотест ракурса назначен",
+        "Совет ИИ применён по вашему выбору",
         "система сама чередует два безопасных ракурса",
         "Товар, права, обещания и бюджет не меняются",
     ):
         assert token in APP
-    assert "./content-generation-handoff.js?v=20260805.os4.18" in APP
-    assert "./app.js?v=20260805.os4.18" in INDEX
+    assert "./content-generation-handoff.js?v=20260805.os4.19" in APP
+    assert "./app.js?v=20260805.os4.19" in INDEX
