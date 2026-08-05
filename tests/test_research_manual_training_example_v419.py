@@ -8,11 +8,15 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = (
     ROOT
-    / "supabase/migrations/202608050001_research_manual_training_example.sql"
+    / "supabase/migrations/202608050101_research_manual_training_example.sql"
 ).read_text(encoding="utf-8")
 RUNTIME_FIX = (
     ROOT
-    / "supabase/migrations/202608050002_research_manual_training_example_runtime_fix.sql"
+    / "supabase/migrations/202608050102_research_manual_training_example_runtime_fix.sql"
+).read_text(encoding="utf-8")
+SERVICE_ACTOR_FIX = (
+    ROOT
+    / "supabase/migrations/202608050103_research_manual_training_example_service_actor_final.sql"
 ).read_text(encoding="utf-8")
 MODULE = (ROOT / "web/app/research-training-example.js").read_text(
     encoding="utf-8"
@@ -38,7 +42,7 @@ def test_exact_air_fryer_short_is_a_supported_youtube_identity() -> None:
 
 
 def test_manual_example_is_evidence_not_a_paid_provider_run() -> None:
-    combined = MIGRATION + RUNTIME_FIX
+    combined = MIGRATION + RUNTIME_FIX + SERVICE_ACTOR_FIX
     for marker in (
         "creator_register_research_training_example",
         "system_register_research_training_example",
@@ -70,8 +74,14 @@ def test_runtime_fix_reads_binding_fields_into_scalar_targets() -> None:
     assert "category_binding_matches', binding_matches" in RUNTIME_FIX
 
 
+def test_service_repair_can_use_active_operator_after_runtime_install() -> None:
+    assert "membership.role in ('owner', 'admin', 'producer', 'operator')" in SERVICE_ACTOR_FIX
+    assert "to service_role" in SERVICE_ACTOR_FIX
+    assert "from public, anon, authenticated" in SERVICE_ACTOR_FIX
+
+
 def test_manual_example_requires_exact_scope_and_human_acknowledgements() -> None:
-    combined = MIGRATION + RUNTIME_FIX
+    combined = MIGRATION + RUNTIME_FIX + SERVICE_ACTOR_FIX
     for marker in (
         "project_id",
         "run_id",
