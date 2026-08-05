@@ -3,31 +3,44 @@
  *
  * Desktop v4 keeps its small, audited route-loader contract. This extension
  * waits until that loader declares the current route ready, then adds only the
- * research/AI/recommendation assets needed by that route. No API or paid call
- * is started here.
+ * research/AI/recommendation assets needed by that route. No provider request,
+ * research run or paid call is started here.
  */
 
 const BUILD = "20260805.os4.22";
 const loadedStyles = new Map();
 const loadedModules = new Map();
+const decoratedApis = new WeakSet();
 let epoch = 0;
 let queued = false;
+
+const RPC_ALIASES = Object.freeze({
+  creator_ai_research_training_queue:
+    "contentengine_ai_research_training_queue",
+  creator_decide_ai_research_training:
+    "contentengine_decide_ai_research_training",
+  creator_generation_research_recommendations:
+    "contentengine_generation_research_recommendations",
+});
 
 const ROUTES = Object.freeze([
   Object.freeze({
     match: (route) => route === "/workspace/research",
     styles: ["workspace-research-video-intake.css"],
     modules: ["workspace-research-video-intake.js"],
+    requiresRpcAliases: false,
   }),
   Object.freeze({
     match: (route) => route === "/workspace/ai",
     styles: ["workspace-ai-research-training.css"],
     modules: ["workspace-ai-research-training.js"],
+    requiresRpcAliases: true,
   }),
   Object.freeze({
     match: (route) => route === "/workspace/generation",
     styles: ["workspace-generation-research-recommendations.css"],
     modules: ["workspace-generation-research-recommendations.js"],
+    requiresRpcAliases: true,
   }),
 ]);
 
@@ -80,6 +93,39 @@ function ensureModule(file) {
   return loadedModules.get(href);
 }
 
+async function installRpcAliases() {
+  let api = window.ContentEngineWorkspaceRuntime?.getApi?.();
+  if (api && typeof api.then === "function") api = await api;
+  if (!api || typeof api.call !== "function") return false;
+  if (decoratedApis.has(api)) return true;
+
+  const originalCall = api.call.bind(api);
+  const bridgedCall = function bridgedResearchLearningCall(
+    functionName,
+    payload = {},
+  ) {
+    const exactName = RPC_ALIASES[functionName] || functionName;
+    return originalCall(exactName, payload);
+  };
+
+  try {
+    Object.defineProperty(api, "call", {
+      configurable: true,
+      enumerable: false,
+      writable: true,
+      value: bridgedCall,
+    });
+  } catch {
+    try {
+      api.call = bridgedCall;
+    } catch {
+      return false;
+    }
+  }
+  decoratedApis.add(api);
+  return true;
+}
+
 async function loadCurrentRoute() {
   const route = routePath();
   const currentEpoch = ++epoch;
@@ -87,7 +133,13 @@ async function loadCurrentRoute() {
   if (!matches.length) return;
   const styles = [...new Set(matches.flatMap((entry) => entry.styles))];
   const modules = [...new Set(matches.flatMap((entry) => entry.modules))];
+  const requiresRpcAliases = matches.some(
+    (entry) => entry.requiresRpcAliases === true,
+  );
   try {
+    if (requiresRpcAliases && !await installRpcAliases()) {
+      throw new Error("Research learning API bridge is unavailable");
+    }
     await Promise.all(styles.map(ensureStyle));
     for (const moduleName of modules) {
       await ensureModule(moduleName);
@@ -120,4 +172,5 @@ window.ContentEngineResearchLearningBootstrap = Object.freeze({
   build: BUILD,
   route: routePath,
   load: loadCurrentRoute,
+  rpcAliases: RPC_ALIASES,
 });
