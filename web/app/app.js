@@ -3,16 +3,16 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260805.os4.18";
+} from "./supabase-api.js?v=20260805.os4.19";
 import {
-  approvedGenerationSpecContext,
   generationSpecCardMarkup,
   generationSpecScopesMatch,
   normalizeGenerationSpecEnvelope,
+  normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
 } from "./generation-spec.js?v=20260803.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260805.os4.18";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260805.os4.18";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260805.os4.19";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260805.os4.19";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -75,7 +75,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260805.os4.18";
+} from "./product-research-view.js?v=20260805.os4.19";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -86,7 +86,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260805.os4.18";
+} from "./ai-learning-control-room.js?v=20260805.os4.19";
 import {
   compileContentGenerationPrompt,
   compileSafeGenerationBrief,
@@ -99,7 +99,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260805.os4.18";
+} from "./content-generation-handoff.js?v=20260805.os4.19";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -113,7 +113,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260805.os4.18";
+} from "./generation-form-draft.js?v=20260805.os4.19";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -146,7 +146,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260805.os4.18";
+} from "./content-review-view.js?v=20260805.os4.19";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -175,7 +175,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260805.os4.18";
+} from "./workspace-board-view.js?v=20260805.os4.19";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -204,7 +204,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260805.os4.18";
+} from "./training-journey.js?v=20260805.os4.19";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -223,7 +223,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260805.os4.18";
+} from "./training-practical-review.js?v=20260805.os4.19";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -242,7 +242,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260805.os4.18";
+} from "./my-work-view.js?v=20260805.os4.19";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -1085,7 +1085,7 @@ const state = {
     error: null,
     requestId: 0,
     key: "",
-    disabledKey: "",
+    enabledKey: "",
     promise: null,
     recovery: null,
     retryTimer: null,
@@ -1737,6 +1737,99 @@ function generationFormDraftValues(form) {
       form.querySelector('input[name="primary_media_id"]:checked')?.value || "",
     ),
   };
+}
+
+function captureGenerationLaunchSnapshot(form, values = new FormData(form)) {
+  const draftValues = generationFormDraftValues(form);
+  if (!draftValues) return null;
+  return Object.freeze({
+    values: Object.freeze({
+      ...draftValues,
+      media_ids: Object.freeze([...draftValues.media_ids]),
+    }),
+    spend_confirmation: String(
+      values.get("real_spend_confirmation") || "",
+    ),
+    spend_confirmed: values.has("real_spend_confirmation"),
+    auto_platform: String(form.dataset.autoGenerationPlatform || ""),
+    auto_destination: String(form.dataset.autoGenerationDestination || ""),
+  });
+}
+
+function restoreGenerationLaunchSnapshot(form, snapshot) {
+  const values = snapshot?.values;
+  if (!form || !values) return false;
+  const setValue = (name, value) => {
+    const field = form.elements[name];
+    if (!field || value === null || value === undefined) return false;
+    if (field instanceof HTMLSelectElement) {
+      const option = Array.from(field.options).find((candidate) => (
+        candidate.value === String(value)
+      ));
+      if (!option) return false;
+    }
+    field.value = String(value);
+    return true;
+  };
+
+  setValue("generation_mode", values.generation_mode);
+  setValue("campaign_id", values.campaign_id);
+  form.dataset.generationMediaSelectionTouched = "true";
+  form.dataset.generationScenarioIntent = String(
+    values.scenario_intent || values.brief || "",
+  ).trim().slice(0, 1_200);
+  if (snapshot.auto_platform) {
+    form.dataset.autoGenerationPlatform = snapshot.auto_platform;
+  } else {
+    delete form.dataset.autoGenerationPlatform;
+  }
+  if (snapshot.auto_destination) {
+    form.dataset.autoGenerationDestination = snapshot.auto_destination;
+  } else {
+    delete form.dataset.autoGenerationDestination;
+  }
+
+  syncGenerationModeForm(form);
+  for (const name of [
+    "duration_seconds",
+    "product_category",
+    "platform",
+    "destination_ref",
+    "assignee_id",
+    "payout_rub",
+    "count",
+    "format",
+    "brief",
+  ]) {
+    setValue(name, values[name]);
+  }
+  syncGenerationModeForm(form);
+
+  const selectedMedia = new Set(values.media_ids || []);
+  form.querySelectorAll('input[name="media_id"]').forEach((input) => {
+    input.checked = selectedMedia.has(input.value) && !input.disabled;
+  });
+  form.querySelectorAll('input[name="primary_media_id"]').forEach((input) => {
+    input.checked = input.value === values.primary_media_id
+      && selectedMedia.has(input.value)
+      && !input.disabled;
+  });
+  const selection = syncGenerationMediaSelection(form, { notify: false });
+  const identity = syncGenerationProductIdentity(form);
+  if (!identity || !selection?.valid) return false;
+
+  const confirmation = form.elements.real_spend_confirmation;
+  if (confirmation) {
+    confirmation.checked = Boolean(
+      snapshot.spend_confirmed
+      && snapshot.spend_confirmation
+      && confirmation.value === snapshot.spend_confirmation
+    );
+  }
+  form.dataset.dirty = "true";
+  syncAutomaticGenerationBrief(form, { force: true, identity });
+  syncGenerationFormReadiness(form);
+  return true;
 }
 
 function persistGenerationFormDraft(form, { manual = false } = {}) {
@@ -2576,7 +2669,7 @@ async function loadBootstrap({ silent = false } = {}) {
       state.generationLearning.data = null;
       state.generationLearning.error = null;
       state.generationLearning.key = "";
-      state.generationLearning.disabledKey = "";
+      state.generationLearning.enabledKey = "";
       state.generationLearning.promise = null;
       state.generationLearning.recovery = null;
       resetGenerationSpecState();
@@ -10090,8 +10183,8 @@ function generationPaidSafetyState(form) {
     stateName = "pending";
     hint = "Технические ограничения будут проверены автоматически при запуске.";
   } else if (!learningGenerationAllowed) {
-    stateName = "blocked";
-    hint = "Независимый QA остановил этот вариант; выберите подготовленную альтернативу.";
+    stateName = "advice";
+    hint = "ИИ советует другой вариант, но выбранный вами запуск остаётся доступен.";
   } else if (!promptReady) {
     stateName = "prompt";
     hint = promptInspection?.blockers?.[0]?.message
@@ -10100,20 +10193,17 @@ function generationPaidSafetyState(form) {
     stateName = "context";
     hint = "Ваш замысел сохранён. Портал сам добавит ограничения товара и модели при запуске, не меняя сюжет.";
   } else if (!generationSpecApproved) {
-    stateName = state.generationSpec.dirty ? "spec_changed" : "spec_approval";
+    stateName = state.generationSpec.dirty ? "spec_changed" : "spec_prepare";
     hint = state.generationSpec.dirty
       ? "Замысел изменился. Портал сохранит новую техническую версию автоматически при запуске."
-      : "Техническая версия будет подтверждена одним явным нажатием «Создать».";
+      : "Портал технически подготовит эту версию при запуске; отдельное одобрение не требуется.";
   } else {
     stateName = "ready";
   }
   return {
     ready: Boolean(
-      learningReady
-      && learningGenerationAllowed
-      && learningContextBound
+      learningContextBound
       && promptReady
-      && generationSpecApproved
     ),
     state: stateName,
     hint,
@@ -10158,9 +10248,7 @@ function syncGenerationFormReadiness(form) {
       ? safety.promptInspection?.blockers?.[0]?.message
         || "Технические ограничения не помещаются в лимит выбранной модели."
       : "";
-    const blocker = !learningGenerationAllowed
-      ? safety.hint
-      : !readiness.ready
+    const blocker = !readiness.ready
         ? readiness.next?.hint || "Заполните обязательные поля."
         : promptBlocker;
     submit.disabled = busy || Boolean(blocker);
@@ -10169,8 +10257,6 @@ function syncGenerationFormReadiness(form) {
       ? sku
         ? "Готовим ТЗ и проверяем запуск — не повторяйте"
         : "Создаём dry-run задачи…"
-      : sku && !learningGenerationAllowed
-        ? "Этот вариант остановлен проверкой качества"
       : sku && !spendAllowed
         ? "Платный запуск остановлен лимитом"
         : !readiness.ready
@@ -10574,11 +10660,12 @@ function renderGenerationSection(sectionState) {
               <select id="generation-mode" name="generation_mode" required>
                 ${MOCK_GENERATION_ENABLED ? `<option value="mock" ${defaultMode === "mock" ? "selected" : ""}>Dry-run задач · без файлов и списаний</option>` : ""}
                 ${REAL_GENERATION_ENABLED ? `
-                  <option value="${REAL_PHOTO_MODE}" ${defaultMode === REAL_PHOTO_MODE ? "selected" : ""} ${photoSpendAllowed ? "" : "disabled"}>${generationModeChoiceLabel(REAL_PHOTO_MODE)}${photoSpendAllowed ? "" : " · лимит"}</option>
-                  <option value="${REAL_SEEDANCE_MODE}" ${defaultMode === REAL_SEEDANCE_MODE ? "selected" : ""} ${seedanceSpendAllowed ? "" : "disabled"}>${generationModeChoiceLabel(REAL_SEEDANCE_MODE)}${seedanceSpendAllowed ? "" : " · лимит"}</option>
-                  <option value="${REAL_GEN4_MODE}" ${defaultMode === REAL_GEN4_MODE ? "selected" : ""} ${gen4SpendAllowed ? "" : "disabled"}>${generationModeChoiceLabel(REAL_GEN4_MODE)}${gen4SpendAllowed ? "" : " · лимит"}</option>
+                  <option value="${REAL_PHOTO_MODE}" ${defaultMode === REAL_PHOTO_MODE ? "selected" : ""}>${generationModeChoiceLabel(REAL_PHOTO_MODE)}</option>
+                  <option value="${REAL_SEEDANCE_MODE}" ${defaultMode === REAL_SEEDANCE_MODE ? "selected" : ""}>${generationModeChoiceLabel(REAL_SEEDANCE_MODE)}</option>
+                  <option value="${REAL_GEN4_MODE}" ${defaultMode === REAL_GEN4_MODE ? "selected" : ""}>${generationModeChoiceLabel(REAL_GEN4_MODE)}</option>
                 ` : ""}
               </select>
+              <small class="field-hint">Выбор за вами. ИИ может подсказать вариант, но не переключит режим, тему или длительность без вашего действия. Если бюджета не хватает, портал покажет это после выбора.</small>
             </label>
             <label class="field" id="generation-duration-field" ${defaultIsReal && defaultRealSku.contentKind !== "photo" ? "" : "hidden"}>
               <span>Сколько секунд должен длиться ролик? *</span>
@@ -10958,10 +11045,14 @@ function generationTable(items, interactive = false) {
           ? `<tr class="generation-week-heading"><th colspan="5" scope="rowgroup">Неделя ${escapeHtml(weekLabel)}</th></tr>`
           : "";
         const details = generationBatchDetails(item);
+        const archiveAction = ["queued", "starting", "submitted", "processing"]
+          .includes(details.status)
+          ? ""
+          : `<button class="btn btn-ghost btn-small generation-archive-remove" type="button" data-action="archive-generation-batch" data-batch-id="${escapeHtml(item.id)}" data-confirm-label="${escapeHtml(details.real ? "Подтвердить удаление" : "Подтвердить удаление dry-run")}">${escapeHtml(details.real ? "Убрать запуск из истории" : "Удалить dry-run")}</button>`;
         if (!details.real) {
           return `${weekHeading}
             <tr>
-              <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">Dry-run задач · медиафайлы не создавались</small></td>
+              <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">Dry-run задач · медиафайлы не создавались</small><br />${archiveAction}</td>
               <td>${escapeHtml(item.sku || details.parameters.sku || "—")}</td>
               <td>${statusBadge(details.status)}<br /><small class="muted">Готово ${formatNumber(item.total_accepted ?? item.completed ?? 0)} из ${formatNumber(item.total_requested ?? item.count ?? 0)}</small></td>
               <td>0 ₽</td>
@@ -10994,7 +11085,7 @@ function generationTable(items, interactive = false) {
           : "";
         return `${weekHeading}
           <tr data-generation-job-id="${escapeHtml(details.jobId)}" tabindex="-1">
-            <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">${details.photo ? "Платное фото · квадрат 2K" : `Платный ролик · ${details.duration} секунд${details.audio ? " · с озвучкой" : " · без голоса"}`}</small></td>
+            <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">${details.photo ? "Платное фото · квадрат 2K" : `Платный ролик · ${details.duration} секунд${details.audio ? " · с озвучкой" : " · без голоса"}`}</small>${archiveAction ? `<br />${archiveAction}` : ""}</td>
             <td>${escapeHtml(item.sku || details.parameters.sku || "—")}</td>
             <td>
               ${generationStageMarkup(details.status)}
@@ -16671,8 +16762,8 @@ async function handleClick(event) {
       toast("Сначала выберите проверенный исходник товара.", "error");
       return;
     }
-    state.generationLearning.disabledKey =
-      action === "disable-generation-learning" ? key : "";
+    state.generationLearning.enabledKey =
+      action === "enable-generation-learning" ? key : "";
     invalidateGenerationSpec(form);
     const compiled = syncAutomaticGenerationBrief(form, {
       force: true,
@@ -16689,8 +16780,8 @@ async function handleClick(event) {
     persistGenerationFormDraft(form);
     toast(
       action === "disable-generation-learning"
-        ? "Обученный ракурс отключён. Восстановлено базовое безопасное ТЗ."
-        : "Обученный ракурс снова применён к безопасному ТЗ.",
+        ? "Совет ИИ отключён. Ваш замысел и выбранные параметры сохранены."
+        : "Совет ИИ применён по вашему выбору. Тема, способ съёмки и длительность не изменены.",
       "success",
     );
     return;
@@ -16885,6 +16976,55 @@ async function handleClick(event) {
     });
     navigate("/workspace/research", true);
     window.queueMicrotask(() => document.querySelector('#product-research-start-form input[name="product_name"]')?.focus());
+    return;
+  }
+
+  if (action === "archive-generation-batch") {
+    const batchId = String(control.dataset.batchId || "").trim().toLowerCase();
+    const projectId = requireWorkspaceProjectId();
+    if (!projectId || !contentReviewUuid(batchId)) {
+      toast("Не удалось определить запуск и проект.", "error");
+      return;
+    }
+    if (control.dataset.confirmed !== "true") {
+      control.dataset.confirmed = "true";
+      control.dataset.originalLabel = control.textContent || "Убрать из истории";
+      control.textContent = control.dataset.confirmLabel || "Подтвердить удаление";
+      control.classList.add("btn-danger");
+      window.setTimeout(() => {
+        if (!control.isConnected || control.dataset.confirmed !== "true") return;
+        control.dataset.confirmed = "false";
+        control.textContent = control.dataset.originalLabel || "Убрать из истории";
+        control.classList.remove("btn-danger");
+      }, 6_000);
+      return;
+    }
+    control.disabled = true;
+    try {
+      await state.api.archiveGenerationBatch(batchId, {
+        project_id: projectId,
+        confirmation: true,
+      });
+      const generation = state.sections.generation;
+      if (Array.isArray(generation.data?.batches)) {
+        generation.data = {
+          ...generation.data,
+          batches: generation.data.batches.filter(
+            (item) => String(item?.id || "").toLowerCase() !== batchId,
+          ),
+        };
+      }
+      toast("Запуск убран из истории. Исходники и готовые файлы сохранены.", "success");
+      renderWorkspace("generation");
+    } catch (error) {
+      toast(actionErrorMessage(error), "error");
+      if (control.isConnected) {
+        control.disabled = false;
+        control.dataset.confirmed = "false";
+        control.textContent = control.dataset.originalLabel || "Убрать из истории";
+        control.classList.remove("btn-danger");
+      }
+    }
     return;
   }
 
@@ -18360,7 +18500,7 @@ function activeGenerationLearningPolicy(
     !key
     || state.generationLearning.key !== key
     || state.generationLearning.status !== "ready"
-    || state.generationLearning.disabledKey === key
+    || state.generationLearning.enabledKey !== key
   ) return null;
   const policy = normalizeGenerationLearningPolicy(
     state.generationLearning.data,
@@ -18435,7 +18575,7 @@ function generationLearningMarkup(form = null) {
     ? state.generationLearning
     : { status: "idle", data: null, error: null };
   const policy = normalizeGenerationLearningPolicy(current.data);
-  const disabled = Boolean(key && state.generationLearning.disabledKey === key);
+  const enabled = Boolean(key && state.generationLearning.enabledKey === key);
   const categoryLabel = generationProductCategoryLabel(
     form?.elements?.product_category?.value,
   );
@@ -18470,13 +18610,12 @@ function generationLearningMarkup(form = null) {
   if (
     current.status === "ready"
     && recovery
-    && policy?.generationAllowed !== false
   ) {
-    title = "Модель заменена автоматически";
-    copy = `${recovery.fromLabel} исчерпал безопасные структуры. Портал бесплатно проверил learning-policy и бюджет, подготовил ${recovery.toLabel} и заново собрал ТЗ. Runway не вызывался, списания не было; цену всё равно нужно подтвердить отдельно.`;
-    stateName = "applied";
+    title = "ИИ рекомендует другой режим";
+    copy = `${recovery.fromLabel} показал слабые результаты. Можно выбрать ${recovery.toLabel}, но портал ничего не переключил: тема, способ съёмки и длительность остаются вашим выбором. Runway не вызывался, списания не было.`;
+    stateName = "recommendation";
   } else if (current.status === "loading") {
-    copy = "Сверяем одобренные публикации и метрики. Платный запуск дождётся этой бесплатной проверки.";
+    copy = "Сверяем публикации и метрики. Совет появится отдельно и не задержит выбранный вами запуск.";
     stateName = "loading";
   } else if (current.status === "error") {
     const diagnosticCode = String(
@@ -18488,65 +18627,62 @@ function generationLearningMarkup(form = null) {
       ? diagnosticCode
       : "generation_learning_unavailable";
     copy = current.retryAt > Date.now()
-      ? `Обученный сигнал временно недоступен. Портал сам повторит бесплатную проверку; платный запуск остаётся приостановлен. Код: ${safeDiagnosticCode}.`
-      : `Обученный сигнал временно недоступен после трёх безопасных попыток. Платный запуск приостановлен; повторите бесплатную проверку вручную. Код: ${safeDiagnosticCode}.`;
+      ? `Совет ИИ временно недоступен. Портал сам повторит бесплатную проверку; выбранный запуск остаётся доступен. Код: ${safeDiagnosticCode}.`
+      : `Совет ИИ временно недоступен после трёх попыток. Можно повторить проверку вручную или продолжить со своими параметрами. Код: ${safeDiagnosticCode}.`;
     stateName = "warning";
     action = `<button class="btn btn-ghost btn-small" type="button" data-action="retry-generation-learning">Повторить проверку</button>`;
   } else if (current.status === "ready" && policy?.generationAllowed === false) {
     if (
       policy.qualityGuardEffectivenessStatus === "control_pending_review"
     ) {
-      title = "Контрольный результат ждёт QA";
-      copy = "Портал не создаст второй платный контроль, пока независимый участник не проверит уже готовый результат этой модели.";
+      title = "ИИ советует дождаться QA";
+      copy = "Есть непроверенный контрольный результат. Это рекомендация: выбранный вами запуск не заблокирован.";
     } else if (
       policy.qualityGuardEffectivenessStatus === "cooldown"
     ) {
-      title = "Модель временно остановлена";
-      copy = "Два безопасных варианта QA-усиления не довели точное измерение до 78/100. Портал не повторит неэффективный запуск; через 30 дней разрешит один контроль для проверки drift.";
+      title = "ИИ советует другой вариант";
+      copy = "Предыдущие варианты не достигли целевого качества. Можно сменить режим, но портал не меняет ваш выбор и не блокирует запуск.";
     } else {
-      title = "Автогенерация остановлена";
-      copy = "Все безопасные структуры для этого товара, площадки и модели уже были независимо отклонены, а доступной серверно-проверенной альтернативы сейчас нет. Портал не повторит их и не перейдёт к оплате.";
+      title = "ИИ не рекомендует этот вариант";
+      copy = "Предыдущие структуры получили слабую оценку. Это только совет: тема, способ съёмки, длительность и решение о запуске остаются за вами.";
     }
     stateName = "warning";
-  } else if (disabled && policy?.applied) {
-    copy = policy.selectionMode === "bounded_exploration"
-      ? `Автотест ракурса «${generationCreativeAngleLabel(policy.preferredAngle)}» отключён для этого запуска. Используется базовое ТЗ.`
-      : policy.selectionMode === "quality"
-        ? `Ракурс из контура качества «${generationCreativeAngleLabel(policy.preferredAngle)}» отключён для этого запуска. Используется базовое ТЗ.`
-        : `Обученный ракурс «${generationCreativeAngleLabel(policy.preferredAngle)}» отключён для этого запуска. Используется базовое ТЗ.`;
-    stateName = "baseline";
-    action = `<button class="btn btn-ghost btn-small" type="button" data-action="enable-generation-learning">Вернуть обучение</button>`;
+  } else if (!enabled && policy?.applied) {
+    title = "Совет ИИ готов";
+    copy = `Рекомендуемый ракурс: «${generationCreativeAngleLabel(policy.preferredAngle)}». Сейчас используется ваш замысел без автоматических изменений.`;
+    stateName = "recommendation";
+    action = `<button class="btn btn-ghost btn-small" type="button" data-action="enable-generation-learning">Применить совет</button>`;
   } else if (
     policy?.applied
     && policy.selectionMode === "bounded_exploration"
     && policy.categoryColdStart
   ) {
-    title = "Cold start категории";
+    title = "Совет ИИ применён по вашему выбору";
     copy = `Для категории «${categoryLabel}» ещё нет собственных наблюдений. Назначен первый безопасный структурный тест «${generationCreativeAngleLabel(policy.preferredAngle)}»; результаты других категорий исключены.`;
     stateName = "applied";
-    action = `<button class="btn btn-ghost btn-small" type="button" data-action="disable-generation-learning">Вернуть базовое ТЗ</button>`;
+    action = `<button class="btn btn-ghost btn-small" type="button" data-action="disable-generation-learning">Не использовать совет</button>`;
   } else if (policy?.applied && policy.selectionMode === "bounded_exploration") {
     const replacedRejectedStructure = policy.reasonCodes.includes(
       "hard_rejected_structure_replaced",
     );
     title = replacedRejectedStructure
       ? "Отклонённая структура заменена"
-      : "Автотест ракурса назначен";
+      : "Совет ИИ применён по вашему выбору";
     copy = replacedRejectedStructure
       ? `${generationCreativeAngleLabel(policy.preferredAngle)} · независимый QA окончательно отклонил прежнюю структуру, поэтому система выбрала следующий безопасный вариант и не копировала текст замечаний.${learnedInstructionCopy}`
       : `${generationCreativeAngleLabel(policy.preferredAngle)} · ${policy.categoryEvidenceCount} наблюдений именно в категории «${categoryLabel}». Товар, права, обещания и бюджет не меняются; система сама чередует два безопасных ракурса до устойчивого победителя. Результаты других категорий не используются.${learnedInstructionCopy}`;
     stateName = "applied";
-    action = `<button class="btn btn-ghost btn-small" type="button" data-action="disable-generation-learning">Вернуть базовое ТЗ</button>`;
+    action = `<button class="btn btn-ghost btn-small" type="button" data-action="disable-generation-learning">Не использовать совет</button>`;
   } else if (policy?.applied && policy.selectionMode === "quality") {
-    title = "Контур качества применён";
+    title = "Совет ИИ применён по вашему выбору";
     copy = `${generationCreativeAngleLabel(policy.preferredAngle)} · ${policy.evidenceCount} независимо проверенных вариантов. Система выбрала структуру с устойчиво лучшим прохождением QA; реальные метрики публикаций получат приоритет, когда накопятся.${learnedInstructionCopy}`;
     stateName = "applied";
-    action = `<button class="btn btn-ghost btn-small" type="button" data-action="disable-generation-learning">Вернуть базовое ТЗ</button>`;
+    action = `<button class="btn btn-ghost btn-small" type="button" data-action="disable-generation-learning">Не использовать совет</button>`;
   } else if (policy?.applied) {
-    title = "Самообучение применено";
+    title = "Совет ИИ применён по вашему выбору";
     copy = `${generationCreativeAngleLabel(policy.preferredAngle)} · ${policy.evidenceCount} одобренных публикаций · уверенность ${policy.confidence === "high" ? "высокая" : "средняя"}. Тексты обещаний, права и параметры запуска не обучаются.${learnedInstructionCopy}`;
     stateName = "applied";
-    action = `<button class="btn btn-ghost btn-small" type="button" data-action="disable-generation-learning">Вернуть базовое ТЗ</button>`;
+    action = `<button class="btn btn-ghost btn-small" type="button" data-action="disable-generation-learning">Не использовать совет</button>`;
   } else if (current.status === "ready") {
     const evidence = policy?.evidenceCount || 0;
     title = evidence ? "Категория ещё обучается" : "Cold start категории";
@@ -18696,7 +18832,7 @@ async function prepareGenerationLearningFallback(
           && !option.disabled
           && campaign
           && platformResolution.value
-          && learning.disabledKey !== candidateKey
+          && learning.enabledKey !== candidateKey
         ),
         accepted: Boolean(sku && acceptedModels.has(sku.model)),
       };
@@ -18769,31 +18905,12 @@ async function prepareGenerationLearningFallback(
   );
   if (!fallback || !candidate?.rawPolicy) return null;
 
-  modeSelect.value = candidate.mode;
-  platformInput.value = candidate.platform;
-  if (candidate.automaticPlatform) {
-    form.dataset.autoGenerationPlatform = candidate.platform;
-  } else {
-    delete form.dataset.autoGenerationPlatform;
-  }
-  if (form.elements.campaign_id) {
-    form.elements.campaign_id.value = candidate.campaign.id;
-  }
-  if (form.elements.real_spend_confirmation) {
-    form.elements.real_spend_confirmation.checked = false;
-  }
-  // Fallback only prepares another server-checked policy. It must never
-  // contact the paid provider or carry price confirmation across models.
-  form.dataset.autoGenerationPreflightKey = generationPreflightKey(candidate.sku);
-  form.dataset.dirty = "true";
-  const candidateKey = generationLearningKey(form, identity);
-  if (!candidateKey || candidateKey !== candidate.key) return null;
-  learning.key = candidateKey;
-  learning.data = candidate.rawPolicy;
-  learning.status = "ready";
-  learning.error = null;
+  // Quality learning may recommend an alternative, but it must not change a
+  // person's chosen mode, duration, campaign, platform or payment consent.
+  // The original blocked policy remains authoritative for this selection;
+  // the user can explicitly choose the recommendation in the normal fields.
   learning.recovery = {
-    key: candidateKey,
+    key: blockedKey,
     fromMode: currentMode,
     fromModel: currentSku.model,
     fromLabel: currentSku.label,
@@ -18803,20 +18920,13 @@ async function prepareGenerationLearningFallback(
     reasonCode: fallback.reasonCode,
     accepted: fallback.accepted,
   };
-  syncGenerationModeForm(form);
-  syncAutomaticGenerationBrief(form, { force: true, identity });
-  syncContentGenerationHandoff(form, { rebuildPrompt: true });
-  if (form.elements.real_spend_confirmation) {
-    form.elements.real_spend_confirmation.checked = false;
-  }
   syncGenerationLearningStatus(form);
   syncGenerationFormReadiness(form);
-  persistGenerationFormDraft(form);
   toast(
-    `${candidate.sku.label} подготовлен автоматически. Проверки Runway и списания не было.`,
+    `ИИ рекомендует ${candidate.sku.label}. Ваш выбор не изменён; Runway и списания не было.`,
     "info",
   );
-  return learning.data;
+  return null;
 }
 
 async function loadGenerationLearningPolicy(
@@ -19239,10 +19349,6 @@ function generationSpecPreparePayload(form) {
     || "",
   ).trim().slice(0, 1_200);
   const learningContext = generationLearningContext(form);
-  const learningKey = generationLearningKey(form, identity);
-  const checkedLearningPolicy = normalizeGenerationLearningPolicy(
-    state.generationLearning.data,
-  );
   if (
     !identity
     || !isWorkspaceProjectId(projectId)
@@ -19250,10 +19356,6 @@ function generationSpecPreparePayload(form) {
     || compiled?.ready !== true
     || !editableIntent
     || !learningContext
-    || !learningKey
-    || state.generationLearning.key !== learningKey
-    || state.generationLearning.status !== "ready"
-    || checkedLearningPolicy?.generationAllowed === false
   ) return null;
   const repairContext = generationRepairContext(form);
   return {
@@ -19300,9 +19402,20 @@ function currentGenerationSpecContext(form) {
   const payload = generationSpecPreparePayload(form);
   const dirty = state.generationSpec.dirty === true
     || generationSpecPayloadKey(payload) !== state.generationSpec.key;
-  return approvedGenerationSpecContext(state.generationSpec.data, {
-    expectedScope: payload?.exact_scope || null,
-    dirty,
+  const spec = state.generationSpec.data?.generationSpec;
+  if (
+    dirty
+    || !spec
+    || spec.status === "rejected"
+    || (
+      payload?.exact_scope
+      && !generationSpecScopesMatch(spec.exact_scope, payload.exact_scope)
+    )
+  ) return null;
+  return normalizeGenerationSpecContext({
+    spec_id: spec.spec_id,
+    spec_version: spec.spec_version,
+    spec_hash: spec.spec_hash,
   });
 }
 
@@ -19662,7 +19775,7 @@ async function runGenerationSpecControl(form, action, {
   }
 }
 
-async function ensureApprovedGenerationSpecForPaidStart(form) {
+async function ensurePreparedGenerationSpecForPaidStart(form) {
   const preparedPayload = generationSpecPreparePayload(form);
   if (!preparedPayload) {
     throw new CreatorApiError(
@@ -19683,31 +19796,26 @@ async function ensureApprovedGenerationSpecForPaidStart(form) {
   }
 
   current = state.generationSpec.data?.generationSpec || null;
-  if (current?.status !== "approved") {
-    setFormBusy(form, true, "Подтверждаем техническую версию этим запуском…");
-    await runGenerationSpecControl(form, "approve");
-  }
-
   setFormBusy(form, true, "Сверяем техническую версию без списания…");
   await refreshGenerationSpec(form, { force: true });
   const context = currentGenerationSpecContext(form);
-  const approvedSpec = state.generationSpec.data?.generationSpec || null;
+  const preparedSpec = state.generationSpec.data?.generationSpec || null;
   if (
     !context
-    || approvedSpec?.status !== "approved"
-    || approvedSpec.compiled_prompt !== form.dataset.autoGenerationBrief
+    || preparedSpec?.status === "rejected"
+    || preparedSpec.compiled_prompt !== form.dataset.autoGenerationBrief
   ) {
     throw new CreatorApiError(
       "Техническая версия изменилась во время проверки. Платный запуск не выполнен — нажмите «Запустить» ещё раз.",
       { code: "generation_spec_launch_confirmation_stale" },
     );
   }
-  return { context, spec: approvedSpec };
+  return { context, spec: preparedSpec };
 }
 
 function generationLearningOptOut(form) {
   const key = generationLearningKey(form);
-  return Boolean(key && state.generationLearning.disabledKey === key);
+  return Boolean(key && state.generationLearning.enabledKey !== key);
 }
 
 function syncAutomaticGenerationBrief(form, { force = false, identity = null } = {}) {
@@ -20956,6 +21064,11 @@ async function submitRealGeneration(form, values, mode) {
     toast("Платная генерация выключена в конфигурации портала.", "error");
     return;
   }
+  const launchSnapshot = captureGenerationLaunchSnapshot(form, values);
+  if (!launchSnapshot) {
+    toast("Не удалось зафиксировать заполненный запуск. Данные не отправлены — повторите проверку формы.", "error");
+    return;
+  }
   const generationSku = realGenerationSku(
     mode,
     values.get("duration_seconds"),
@@ -20985,61 +21098,13 @@ async function submitRealGeneration(form, values, mode) {
     toast("Для платного запуска выберите проверенное фото товара с подтверждёнными правами.", "error");
     return;
   }
-  const learningKeyAtSubmit = generationLearningKey(form, identity);
-  setFormBusy(form, true, "Проверяем обученное ТЗ без списания…");
-  try {
-    await ensureGenerationLearningPolicy(form, identity);
-    const activeForm = generationFormForLearningKey(
-      learningKeyAtSubmit,
-      form,
-    );
-    if (!activeForm) throw new Error("generation_learning_form_changed");
-    form = activeForm;
-  } catch (error) {
-    const learningBlocked = Boolean(
-      state.generationLearning.key === learningKeyAtSubmit
-      && normalizeGenerationLearningPolicy(
-        state.generationLearning.data,
-      )?.generationAllowed === false
-    );
-    const fallbackPrepared = Boolean(
-      state.generationLearning.recovery?.key
-      && state.generationLearning.recovery.key
-        === generationLearningKey(form, identity)
-    );
-    const learningError = state.generationLearning.error || error;
-    const diagnosticCode = String(
-      learningError?.serverCode
-      || learningError?.code
-      || learningError?.message
-      || "generation_learning_unavailable",
-    ).trim();
-    const safeDiagnosticCode = /^[a-z0-9_]{3,96}$/iu.test(diagnosticCode)
-      ? diagnosticCode
-      : "generation_learning_unavailable";
-    const automaticRetryScheduled =
-      state.generationLearning.retryAt > Date.now();
-    if (form.isConnected) {
-      setFormBusy(form, false);
-      syncGenerationFormReadiness(form);
-    }
-    toast(
-      fallbackPrepared
-        ? "Исходный режим исчерпал безопасные структуры. Портал уже подготовил серверно-проверенную альтернативу без Runway и списания; проверьте новую цену и подтвердите её отдельно."
-        : learningBlocked
-        ? "Платный запуск не создан: независимый QA уже отклонил все безопасные структуры для этого товара и режима. Выберите другой режим, площадку или товар."
-        : safeDiagnosticCode === "generation_learning_category_mismatch"
-          ? "Платный запуск не создан: категория изменилась. Для новой категории портал начинает обучение с нуля и не использует старые сигналы; дождитесь автоматической бесплатной проверки."
-          : automaticRetryScheduled
-            ? `Платный запуск и списание не выполнены: сервер проверки ТЗ временно не ответил. Портал повторит бесплатную проверку автоматически. Код: ${safeDiagnosticCode}.`
-            : `Платный запуск и списание не выполнены: авто-ТЗ пока не подтверждено сервером. Код: ${safeDiagnosticCode}.`,
-      fallbackPrepared ? "info" : "error",
-    );
+  // Learning is advisory. A slow, missing or negative AI recommendation must
+  // never delay or replace the person's chosen mode, topic or duration.
+  // The already visible recommendation is applied only after the explicit
+  // "Применить совет" action; otherwise the launch uses the baseline prompt.
+  if (!restoreGenerationLaunchSnapshot(form, launchSnapshot)) {
+    toast("Не удалось восстановить заполненный запуск. Данные не отправлены — проверьте форму.", "error");
     return;
-  }
-  if (form.isConnected) {
-    setFormBusy(form, false);
-    syncGenerationFormReadiness(form);
   }
   const compiled = syncAutomaticGenerationBrief(form, {
     force: true,
@@ -21113,18 +21178,18 @@ async function submitRealGeneration(form, values, mode) {
   }
 
   let generationSpecContext;
-  let approvedSpec;
+  let preparedSpec;
   setFormBusy(form, true, "Готовим техническое ТЗ без списания…");
   try {
-    const approval = await ensureApprovedGenerationSpecForPaidStart(form);
-    generationSpecContext = approval.context;
-    approvedSpec = approval.spec;
+    const prepared = await ensurePreparedGenerationSpecForPaidStart(form);
+    generationSpecContext = prepared.context;
+    preparedSpec = prepared.spec;
   } catch (error) {
     if (form.isConnected) setFormBusy(form, false);
     toast(`Платный запуск не создан: ${actionErrorMessage(error)}`, "error");
     return;
   }
-  const brief = String(approvedSpec.compiled_prompt || "").trim();
+  const brief = String(preparedSpec.compiled_prompt || "").trim();
   if (brief.length > generationSku.promptMaxLength) {
     setFormBusy(form, false);
     toast(
@@ -25229,7 +25294,7 @@ function clearAuthenticatedState() {
   state.generationLearning.data = null;
   state.generationLearning.error = null;
   state.generationLearning.key = "";
-  state.generationLearning.disabledKey = "";
+  state.generationLearning.enabledKey = "";
   state.generationLearning.promise = null;
   state.generationLearning.recovery = null;
   clearGenerationRepair();

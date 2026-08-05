@@ -556,10 +556,10 @@ def test_generation_form_wires_autopilot_with_visible_override_and_cache_busting
     assert "if (!repairReady) applyContentGenerationHandoffToForm();" in APP
     assert "syncGenerationModeForm(generationForm);" in APP
     assert "syncGenerationFormReadiness(generationForm);" in APP
-    assert './app.js?v=20260805.os4.18' in INDEX
+    assert './app.js?v=20260805.os4.19' in INDEX
 
 
-def test_rejected_learning_policy_prepares_fallback_without_provider_contact() -> None:
+def test_rejected_learning_policy_only_recommends_fallback_without_mutating_choice() -> None:
     fallback = APP[
         APP.index("async function prepareGenerationLearningFallback("):
         APP.index("async function loadGenerationLearningPolicy(")
@@ -577,27 +577,26 @@ def test_rejected_learning_policy_prepares_fallback_without_provider_contact() -
         "state.api.generationLearningPolicy({",
         "normalizeGenerationLearningPolicy(rawPolicy)",
         "resolveGenerationLearningFallback({",
-        "form.dataset.autoGenerationPreflightKey = generationPreflightKey(candidate.sku)",
-        "syncAutomaticGenerationBrief(form, { force: true, identity })",
         "state.generationLearning",
         "learning.recovery = {",
-        "persistGenerationFormDraft(form)",
-        "Проверки Runway и списания не было",
+        "Ваш выбор не изменён; Runway и списания не было",
     ):
         assert token in fallback
-    assert fallback.count(
-        "form.elements.real_spend_confirmation.checked = false"
-    ) >= 2
     for forbidden in (
         "realGenerationPreflight",
         "runGenerationPreflight",
         "startRealGeneration",
         "submitRealGeneration",
+        "modeSelect.value = candidate.mode",
+        "platformInput.value = candidate.platform",
+        "form.elements.campaign_id.value = candidate.campaign.id",
+        "form.elements.real_spend_confirmation.checked = false",
+        "persistGenerationFormDraft(form)",
     ):
         assert forbidden not in fallback
     assert "?.generationAllowed === false" in loader
     assert "await prepareGenerationLearningFallback(" in loader
-    assert "Модель заменена автоматически" in APP
+    assert "ИИ рекомендует другой режим" in APP
     assert "Runway не вызывался, списания не было" in APP
 
 
@@ -638,7 +637,7 @@ def test_learning_lookup_times_out_and_recovers_without_provider_contact() -> No
         "submitRealGeneration",
     ):
         assert forbidden not in retry
-    assert "после трёх безопасных попыток" in APP
+    assert "после трёх попыток" in APP
     assert "сам повторит бесплатную проверку" in APP
 
 
@@ -653,10 +652,10 @@ def test_paid_submit_recovers_same_generation_form_after_safe_rerender() -> None
         APP.index("async function submitMockBatch(")
     ]
     assert "const activeForm = generationFormForLearningKey(key, form)" in ensure
-    assert "const learningKeyAtSubmit = generationLearningKey(form, identity)" in submit
-    assert "form = activeForm" in submit
-    assert "сервер проверки ТЗ временно не ответил" in submit
-    assert "Портал повторит бесплатную проверку автоматически" in submit
+    assert "captureGenerationLaunchSnapshot(form, values)" in submit
+    assert "restoreGenerationLaunchSnapshot(form, launchSnapshot)" in submit
+    assert "await ensureGenerationLearningPolicy(" not in submit
+    assert "Learning is advisory" in submit
 
 
 def test_paid_learning_keeps_selected_identity_while_form_is_busy() -> None:
@@ -667,7 +666,32 @@ def test_paid_learning_keeps_selected_identity_while_form_is_busy() -> None:
     assert 'form.dataset.busy === "true"' in selection
     assert 'input.dataset.wasDisabled === "false"' in selection
     assert "disabled: Boolean(" in selection
-    assert (
-        'setFormBusy(form, true, "Проверяем обученное ТЗ без списания…")'
-        in APP
-    )
+    submit = APP[
+        APP.index("async function submitRealGeneration(form, values, mode)"):
+        APP.index("async function submitMockBatch(")
+    ]
+    assert "captureGenerationLaunchSnapshot(form, values)" in submit
+    assert "restoreGenerationLaunchSnapshot(form, launchSnapshot)" in submit
+    assert "await ensureGenerationLearningPolicy(" not in submit
+
+
+def test_generation_advice_is_opt_in_and_never_blocks_submit() -> None:
+    safety = APP[
+        APP.index("function generationPaidSafetyState(form)"):
+        APP.index("function syncGenerationFormReadiness(form)")
+    ]
+    readiness = APP[
+        APP.index("function syncGenerationFormReadiness(form)"):
+        APP.index("function applyContentGenerationHandoffToForm(")
+    ]
+    active_policy = APP[
+        APP.index("function activeGenerationLearningPolicy("):
+        APP.index("function generationCreativeAngleLabel(")
+    ]
+    assert 'state.generationLearning.enabledKey !== key' in active_policy
+    assert 'stateName = "advice"' in safety
+    assert "learningGenerationAllowed\n      &&" not in safety
+    assert "const blocker = !readiness.ready" in readiness
+    assert "Этот вариант остановлен проверкой качества" not in readiness
+    assert "Применить совет" in APP
+    assert "Не использовать совет" in APP

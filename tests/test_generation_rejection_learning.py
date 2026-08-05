@@ -15,6 +15,10 @@ MIGRATION = (
     ROOT
     / "supabase/migrations/202607270009_generation_rejection_learning.sql"
 ).read_text(encoding="utf-8")
+ADVISORY_MIGRATION = (
+    ROOT
+    / "supabase/migrations/202608050002_generation_advisory_launch_and_archive.sql"
+).read_text(encoding="utf-8")
 HANDOFF = (
     ROOT / "web/app/content-generation-handoff.js"
 ).read_text(encoding="utf-8")
@@ -147,13 +151,10 @@ def test_quality_hooks_are_rebuilt_from_approved_outcomes_only() -> None:
         assert decision not in quality_filter
 
 
-def test_exhaustion_is_blocked_in_browser_edge_and_database_before_spend() -> None:
-    assert (
-        "learningPolicy.generation_allowed === false"
-        in EDGE
-    )
+def test_exhaustion_is_advice_while_hard_provider_and_budget_guards_remain() -> None:
+    assert "learningPolicy?.generation_allowed === false" in EDGE
     assert "generation_learning_rejection_guard_blocked" in EDGE
-    edge_guard = EDGE.index("learningPolicy.generation_allowed === false")
+    edge_guard = EDGE.index("learningPolicy?.generation_allowed === false")
     edge_provider_state = EDGE.index(
         "const { data: startData, error: startError }"
     )
@@ -173,12 +174,19 @@ def test_exhaustion_is_blocked_in_browser_edge_and_database_before_spend() -> No
         assert token in MIGRATION
 
     for token in (
-        "Автогенерация остановлена",
-        "Все безопасные структуры",
-        "Этот вариант остановлен проверкой качества",
-        "generation_learning_rejection_guard_blocked",
+        "ИИ не рекомендует этот вариант",
+        "Это только совет",
+        "выбранный вами запуск остаётся доступен",
     ):
         assert token in APP
+    for token in (
+        "creator_generation_learning_policy_pre_advisory_v9",
+        "'advisory_generation_allowed'",
+        "'generation_allowed', true",
+        "guard_generation_rejection_before_paid_job",
+        "return new;",
+    ):
+        assert token in ADVISORY_MIGRATION
 
 
 def test_browser_normalizer_fails_closed_on_exhausted_policy() -> None:

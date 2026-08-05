@@ -34,6 +34,7 @@ export const RPC = Object.freeze({
   controlGenerationSpec: "creator_control_generation_spec",
   generationSpecEffectivePolicy: "creator_generation_spec_effective_policy",
   generationArchive: "creator_generation_archive",
+  archiveGenerationBatch: "creator_archive_generation_batch",
   workspaceBrowser: "creator_workspace_browser",
   createWorkspaceFolder: "creator_create_workspace_folder",
   updateWorkspaceFolder: "creator_update_workspace_folder",
@@ -1219,6 +1220,25 @@ export class CreatorApi {
       };
     }
     return this.call(RPC.generationArchive, this.withOrganization(payload));
+  }
+
+  archiveGenerationBatch(batchId, options = {}) {
+    const normalizedBatchId = String(batchId || "").trim().toLowerCase();
+    if (!isUuid(normalizedBatchId)) {
+      throw new CreatorApiError("Не удалось определить запуск.", {
+        code: "generation_batch_id_invalid",
+      });
+    }
+    return this.mutate(
+      RPC.archiveGenerationBatch,
+      this.withOrganization({
+        project_id: requiredProjectId(
+          options.project_id ?? options.projectId,
+        ),
+        batch_id: normalizedBatchId,
+        confirmation: options.confirmation === true,
+      }),
+    );
   }
 
   workspaceBrowser(options = {}) {
@@ -6086,7 +6106,12 @@ function toFriendlyMessage(error) {
     generation_spec_effective_policy_invalid: "Сервер вернул неполную проверку ТЗ. Платный запуск остановлен.",
     generation_spec_effective_policy_unavailable: "Проверка актуальности ТЗ временно недоступна. Runway и списание не запускались.",
     generation_spec_exact_scope_invalid: "Товар, ракурсы, модель, длительность, формат или аудио не совпадают с версией ТЗ.",
-    generation_spec_approval_required: "Техническая версия не подтвердилась во время запуска. Деньги не списаны — повторите запуск.",
+    generation_spec_approval_required: "Техническая версия устарела во время запуска. Деньги не списаны — повторите запуск.",
+    generation_batch_id_invalid: "Не удалось определить запуск в истории.",
+    generation_batch_archive_payload_invalid: "Не удалось подтвердить удаление запуска из истории.",
+    generation_batch_not_found: "Этот запуск уже удалён из истории или относится к другому проекту.",
+    generation_batch_archive_forbidden: "Удалить этот запуск из истории может его автор или руководитель.",
+    generation_batch_archive_active: "Активный запуск нельзя удалить: дождитесь результата или ошибки.",
     generation_spec_approval_state_invalid: "Статус технической версии изменился. Деньги не списаны — повторите запуск.",
     generation_spec_stale: "Исходники или правила качества изменились. Портал пересчитает ТЗ при следующем запуске.",
     generation_spec_head_invalid: "Появилась более новая версия ТЗ. Обновите историю перед решением.",
