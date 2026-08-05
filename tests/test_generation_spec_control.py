@@ -162,6 +162,9 @@ def test_ui_requires_explicit_current_server_approval_before_paid_preflight() ->
         "research_provenance: generationSpecResearchProvenance(identity)",
         "performance_policy_provenance:",
         "generation_spec_context: generationSpecContext",
+        "project_id: projectId",
+        "project_id: requireWorkspaceProjectId()",
+        "project_id: preparedPayload.project_id",
         "resetGenerationSpecState();",
     ):
         assert token in APP
@@ -194,8 +197,16 @@ def test_api_exposes_free_generation_spec_control_and_strict_paid_context() -> N
         "normalizeGenerationSpecRepairContext",
         '"spec_id", "spec_version", "spec_hash"',
         "generation_spec_context: generationSpecContext",
+        "project_id: requiredProjectId(context.project_id || context.projectId)",
+        "project_id: requiredProjectId(input.project_id || input.projectId)",
     ):
         assert token in API
+    assert API.count(
+        "project_id: requiredProjectId(context.project_id || context.projectId)"
+    ) >= 2
+    assert API.count(
+        "project_id: requiredProjectId(input.project_id || input.projectId)"
+    ) >= 2
 
 
 def test_edge_revalidates_exact_effective_policy_before_paid_start() -> None:
@@ -210,9 +221,14 @@ def test_edge_revalidates_exact_effective_policy_before_paid_start() -> None:
     assert '"automatic_approval"' in EDGE
     assert '"automatic_spend"' in EDGE
     assert '"automatic_generation"' in EDGE
+    assert '"project_id"' in EDGE
+    assert "!isUuid(value.project_id)" in EDGE
     policy_call = EDGE.index('"creator_generation_spec_effective_policy"')
     paid_rpc = EDGE.index('"creator_start_real_generation"', policy_call)
     assert policy_call < paid_rpc
+    policy_boundary = EDGE[policy_call:paid_rpc]
+    assert "project_id: startPayload.project_id" in policy_boundary
+    assert "effectiveGenerationPolicy.projectId !== startPayload.project_id" in policy_boundary
     for token in (
         "generation_spec_scope_binding_invalid",
         "generation_spec_prompt_binding_invalid",
@@ -220,11 +236,44 @@ def test_edge_revalidates_exact_effective_policy_before_paid_start() -> None:
         "await sha256Hex(new TextEncoder().encode(startPayload.brief))",
     ):
         assert token in EDGE
+
+
+def test_edge_allows_only_receipted_category_research_to_precede_live_learning() -> None:
+    helper_start = EDGE.index(
+        "function generationApprovedResearchCategoryRuleIsBound"
+    )
+    helper_end = EDGE.index(
+        "function generationRepairPromptRequirements", helper_start
+    )
+    helper = EDGE[helper_start:helper_end]
+    assert 'context.source !== "approved_research"' in helper
+    assert "/researchcategoryrule\\//giu" in helper
+    assert "reservedTokens.length !== 1" in helper
+    assert "ResearchCategoryRule\\/v2 category_maturity=" in helper
+    assert "categoryMaturities.has(match[1])" in helper
+    assert "structuralSignals.has(match[3])" in helper
+    assert "match[4] === context.creative_angle" in helper
+    assert 'context.hook_patterns[0] || "none"' in helper
+
+    policy_call = EDGE.index('"creator_generation_spec_effective_policy"')
+    live_learning_call = EDGE.index(
+        '"creator_generation_learning_policy"', policy_call
+    )
+    precedence = EDGE.index(
+        "const approvedResearchCategoryPrecedence", live_learning_call
+    )
+    rejection = EDGE.index(
+        'code: "generation_learning_policy_required"', precedence
+    )
+    assert policy_call < live_learning_call < precedence < rejection
+    assert "!approvedResearchCategoryPrecedence" in EDGE[precedence:rejection]
     assert "head_event_hash" not in EDGE
 
 
 def test_edge_maps_generation_spec_sql_errors_explicitly() -> None:
     validation_422 = {
+        "project_id_required",
+        "workspace_project_not_found",
         "generation_spec_context_invalid",
         "generation_spec_effective_payload_invalid",
         "generation_spec_prepare_payload_invalid",
@@ -246,6 +295,8 @@ def test_edge_maps_generation_spec_sql_errors_explicitly() -> None:
         "generation_spec_reference_bundle_invalid",
     }
     conflicts_409 = {
+        "generation_spec_project_scope_mismatch",
+        "generation_spec_research_category_rule_stale",
         "generation_spec_approval_required",
         "generation_spec_approval_state_invalid",
         "generation_spec_stale",
@@ -274,6 +325,7 @@ def test_edge_maps_generation_spec_sql_errors_explicitly() -> None:
     for code in validation_422 | conflicts_409:
         assert f'"{code}"' in EDGE
     for code in (
+        "project_context_invalid",
         "generation_spec_ledger_append_only",
         "research_outcome_generation_assignment_binding_invalid",
         "research_outcome_generation_assignment_invalid",

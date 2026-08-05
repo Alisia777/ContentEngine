@@ -73,15 +73,18 @@ import {
   productResearchResultMarkup,
   productResearchStatusKind,
   readProductResearchBrief,
+  researchCategoryLearningMarkup,
 } from "./product-research-view.js?v=20260804.os4.17";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
   aiLearningCategory,
   aiLearningControlRoomMarkup,
+  aiLearningMarketScopeIndexMarkup,
   aiLearningView,
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
+  normalizeAiLearningMarketScopeIndex,
 } from "./ai-learning-control-room.js?v=20260804.os4.17";
 import {
   compileContentGenerationPrompt,
@@ -89,6 +92,7 @@ import {
   createContentGenerationHandoff,
   GENERATION_LEARNING_COMPILER_VERSION,
   GENERATION_REPAIR_COMPILER_VERSION,
+  generationResearchCategorySignal,
   inferGenerationCreativeSignals,
   inspectContentGenerationPrompt,
   normalizeGenerationLearningPolicy,
@@ -1212,6 +1216,13 @@ const state = {
   aiLearning: {
     pollTimer: null,
     requestId: 0,
+    categoryLearningMutationId: 0,
+    marketIndex: null,
+    marketDetail: null,
+    marketScopeId: "",
+    marketError: "",
+    marketMutationKind: "",
+    marketMutationId: 0,
     busyCardId: "",
     busyHistoricalCaseId: "",
     busyResearchReceiptId: "",
@@ -1748,11 +1759,16 @@ function persistGenerationFormDraft(form, { manual = false } = {}) {
   return saved;
 }
 
-function scheduleGenerationFormDraftSave(form, options = {}) {
-  if (!form) return;
+function cancelGenerationFormDraftSave() {
   if (state.generationDraftSaveTimer) {
     window.clearTimeout(state.generationDraftSaveTimer);
+    state.generationDraftSaveTimer = null;
   }
+}
+
+function scheduleGenerationFormDraftSave(form, options = {}) {
+  if (!form) return;
+  cancelGenerationFormDraftSave();
   state.generationDraftSaveTimer = window.setTimeout(() => {
     state.generationDraftSaveTimer = null;
     if (form.isConnected) persistGenerationFormDraft(form, options);
@@ -2145,8 +2161,12 @@ function bindGlobalEvents() {
   window.addEventListener("hashchange", () => {
     const previousProjectId = currentWorkspaceProjectId();
     const previousActionKey = workspaceActionKey(state.route);
+    const previousAiPath = state.route.path;
     const previousAiCategory = state.route.path === "/workspace/ai"
       ? currentAiLearningCategory()
+      : "";
+    const previousAiMarketScope = state.route.path === "/workspace/ai"
+      ? currentAiLearningMarketScopeId()
       : "";
     window.ContentEngineDesktopV4?.captureCurrentAction?.(previousActionKey);
     state.route = parseRoute();
@@ -2156,6 +2176,9 @@ function bindGlobalEvents() {
     }
     const nextAiCategory = state.route.path === "/workspace/ai"
       ? currentAiLearningCategory()
+      : "";
+    const nextAiMarketScope = state.route.path === "/workspace/ai"
+      ? currentAiLearningMarketScopeId()
       : "";
     const nextActionKey = workspaceActionKey(state.route);
     const actionChanged = previousActionKey !== nextActionKey;
@@ -2177,7 +2200,16 @@ function bindGlobalEvents() {
     if (state.route.path !== "/workspace/research") stopProductResearchPolling();
     if (state.route.path !== "/workspace/ai") {
       stopAiLearningPolling();
-    } else if (previousAiCategory && previousAiCategory !== nextAiCategory) {
+    } else if (
+      previousAiPath !== "/workspace/ai"
+      || (
+        previousAiCategory
+        && (
+          previousAiCategory !== nextAiCategory
+          || previousAiMarketScope !== nextAiMarketScope
+        )
+      )
+    ) {
       stopAiLearningPolling();
       state.aiLearning.requestId += 1;
       state.sections.ai.status = "idle";
@@ -2185,6 +2217,7 @@ function bindGlobalEvents() {
       state.sections.ai.error = null;
       state.aiLearning.error = "";
       state.aiLearning.notice = "";
+      state.aiLearning.marketError = "";
     }
     if (state.route.path !== "/workspace/review") stopContentReviewPolling();
     if (
@@ -6672,6 +6705,18 @@ function generationRepairRouteState(reviewId) {
   return "loading";
 }
 
+function invalidateAiLearningMarketProjectContext() {
+  stopAiLearningPolling();
+  state.aiLearning.requestId += 1;
+  state.aiLearning.marketMutationId += 1;
+  state.aiLearning.marketIndex = null;
+  state.aiLearning.marketDetail = null;
+  state.aiLearning.marketScopeId = "";
+  state.aiLearning.marketError = "";
+  state.aiLearning.marketMutationKind = "";
+  state.aiLearning.notice = "";
+}
+
 function isWorkspaceProjectId(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
     String(value || "").trim(),
@@ -6840,8 +6885,11 @@ function activateWorkspaceProject(projectId, projectName = "Проект") {
   const id = String(projectId || "").trim().toLowerCase();
   if (!isWorkspaceProjectId(id)) return false;
   const previousId = String(state.projectFlow.projectId || storedWorkspaceProject()?.id || "");
+  const projectChanged = previousId !== id;
+  if (projectChanged) cancelGenerationFormDraftSave();
   persistWorkspaceProject(id, projectName);
-  if (previousId === id) return true;
+  if (!projectChanged) return true;
+  invalidateAiLearningMarketProjectContext();
   state.projectFlow.requestId += 1;
   state.projectFlow.status = "idle";
   state.projectFlow.data = null;
@@ -6883,6 +6931,7 @@ function activateWorkspaceProject(projectId, projectName = "Проект") {
   state.generatedVideoQa.entries.clear();
   state.generatedVideoQa.recoveryJobIds.clear();
   state.generatedVideoQa.restored = false;
+  resetGenerationSpecState();
   clearContentGenerationHandoff();
   clearGenerationRepair();
   clearGenerationMediaSelection();
@@ -6895,11 +6944,13 @@ function clearWorkspaceProjectSelection(projectId = "") {
     state.projectFlow.projectId || storedWorkspaceProject()?.id || "",
   ).trim().toLowerCase();
   if (expectedId && selectedId && expectedId !== selectedId) return false;
+  cancelGenerationFormDraftSave();
   try {
     window.sessionStorage.removeItem(WORKSPACE_PROJECT_STORAGE_KEY);
   } catch {
     // A clean URL remains authoritative when storage is unavailable.
   }
+  invalidateAiLearningMarketProjectContext();
   state.projectFlow.requestId += 1;
   state.projectFlow.status = "idle";
   state.projectFlow.data = null;
@@ -6917,6 +6968,10 @@ function clearWorkspaceProjectSelection(projectId = "") {
     target.data = null;
     target.error = null;
   }
+  resetGenerationSpecState();
+  clearContentGenerationHandoff();
+  clearGenerationRepair();
+  clearGenerationMediaSelection();
   return true;
 }
 
@@ -9908,6 +9963,8 @@ function syncContentGenerationHandoff(form, { rebuildPrompt = false } = {}) {
     avoidClaims: handoff.creativeBrief?.avoidClaims || [],
     durationSeconds: generationSkuForForm(form)?.durationSeconds,
     productCategory: form.elements.product_category?.value,
+    researchCategoryRuleRequired:
+      handoff.requiresResearchCategoryRule === true,
   });
   const compilerWarnings = brief?.value === compiled.prompt ? compiled.warnings : [];
   const evaluation = {
@@ -9989,6 +10046,8 @@ function generationPromptInspection(form) {
       avoidClaims: matchingHandoff ? handoff.creativeBrief?.avoidClaims || [] : [],
       durationSeconds: generationSkuForForm(form)?.durationSeconds,
       productCategory: form.elements.product_category?.value,
+      researchCategoryRuleRequired:
+        matchingHandoff && handoff.requiresResearchCategoryRule === true,
     },
   );
 }
@@ -13867,6 +13926,53 @@ function currentAiLearningView() {
   return aiLearningView(action.path === "/workspace/ai" ? action.view : "overview");
 }
 
+function requestedAiLearningMarketScopeId() {
+  const action = workspaceActionDescriptor(state.route);
+  return action.path === "/workspace/ai" && action.entityParameter === "scope"
+    ? String(action.entityId || "").trim().toLowerCase()
+    : "";
+}
+
+function currentProjectAiLearningMarketIndex() {
+  const projectId = currentWorkspaceProjectId();
+  const marketIndex = state.aiLearning.marketIndex;
+  return isWorkspaceProjectId(projectId)
+    && marketIndex?.available
+    && marketIndex.projectId === projectId
+    ? marketIndex
+    : null;
+}
+
+function currentAiLearningMarketScopeId() {
+  const requested = requestedAiLearningMarketScopeId();
+  if (requested) return requested;
+  const current = String(state.aiLearning.marketScopeId || "")
+    .trim()
+    .toLowerCase();
+  const scopes = currentProjectAiLearningMarketIndex()?.scopes || [];
+  return scopes.some((scope) => scope.scopeId === current)
+    ? current
+    : String(scopes[0]?.scopeId || "");
+}
+
+function aiLearningMarketDetailMatchesScope(
+  detail,
+  scope,
+  projectId = currentWorkspaceProjectId(),
+) {
+  return Boolean(
+    detail?.available
+    && scope
+    && isWorkspaceProjectId(projectId)
+    && scope.projectId === projectId
+    && detail.runId === scope.runId
+    && detail.category?.categoryId === scope.categoryId
+    && detail.category?.bindingId === scope.bindingId
+    && detail.category?.bindingVersion === scope.bindingVersion
+    && detail.evidenceHash === scope.evidenceHash
+  );
+}
+
 function renderAiLearningSection(sectionState) {
   if (!canViewAiLearning()) {
     return `<div class="page-wrap">${alertMarkup("ИИ‑центр доступен руководителю, продюсеру и проверяющему.", "danger")}</div>`;
@@ -13874,6 +13980,35 @@ function renderAiLearningSection(sectionState) {
   const snapshot = sectionState.data
     ? normalizeAiLearningControlRoom(sectionState.data)
     : null;
+  const marketIndex = currentProjectAiLearningMarketIndex();
+  const selectedScopeId = currentAiLearningMarketScopeId();
+  const selectedScope = marketIndex?.available
+    ? marketIndex.scopes.find((scope) => scope.scopeId === selectedScopeId)
+    : null;
+  const marketDetail = aiLearningMarketDetailMatchesScope(
+    state.aiLearning.marketDetail,
+    selectedScope,
+  )
+    ? state.aiLearning.marketDetail
+    : null;
+  const marketDetailMarkup = marketDetail
+    ? `<div data-learning-context="ai" data-learning-run-id="${escapeHtml(selectedScope.runId)}">${researchCategoryLearningMarkup(marketDetail, {
+      saving: Boolean(state.aiLearning.marketMutationKind),
+      policyWritable: ["owner", "admin"].includes(
+        state.bootstrap?.membership?.role,
+      ),
+    })}</div>`
+    : "";
+  const marketLearningMarkup = aiLearningMarketScopeIndexMarkup(
+    marketIndex,
+    {
+      selectedScopeId,
+      detailMarkup: marketDetailMarkup,
+      loading: ["idle", "loading", "refreshing"].includes(sectionState.status),
+      error: state.aiLearning.marketError,
+      requiresProject: !isWorkspaceProjectId(currentWorkspaceProjectId()),
+    },
+  );
   return aiLearningControlRoomMarkup(snapshot, {
     category: currentAiLearningCategory(),
     view: currentAiLearningView(),
@@ -13892,6 +14027,8 @@ function renderAiLearningSection(sectionState) {
     notice: state.aiLearning.notice,
     error: state.aiLearning.error || (sectionState.error ? actionErrorMessage(sectionState.error) : ""),
     lastUpdatedAt: state.aiLearning.lastUpdatedAt,
+    marketLearningMarkup,
+    legacyReadOnly: true,
   });
 }
 
@@ -13913,6 +14050,7 @@ function scheduleAiLearningPolling(delay = AI_LEARNING_POLL_INTERVAL_MS) {
     || state.aiLearning.busyResearchReceiptId
     || state.aiLearning.historicalImport.inFlight
     || state.aiLearning.knowledgeMutationKind
+    || state.aiLearning.marketMutationKind
   ) return;
   state.aiLearning.pollTimer = window.setTimeout(() => {
     state.aiLearning.pollTimer = null;
@@ -13929,6 +14067,7 @@ async function pollAiLearningControlRoom() {
     || state.aiLearning.busyResearchReceiptId
     || state.aiLearning.historicalImport.inFlight
     || state.aiLearning.knowledgeMutationKind
+    || state.aiLearning.marketMutationKind
   ) return null;
   return loadAiLearningControlRoom({ silent: true });
 }
@@ -13936,7 +14075,14 @@ async function pollAiLearningControlRoom() {
 async function loadAiLearningControlRoom({ silent = false } = {}) {
   const section = state.sections.ai;
   const category = currentAiLearningCategory();
-  if (!section || !state.api || !canViewAiLearning()) return null;
+  const requestedMarketScopeId = requestedAiLearningMarketScopeId();
+  const projectId = currentWorkspaceProjectId();
+  const hasProject = isWorkspaceProjectId(projectId);
+  if (
+    !section
+    || !state.api
+    || !canViewAiLearning()
+  ) return null;
   const requestId = state.aiLearning.requestId + 1;
   const requestEpoch = state.dataEpoch;
   const requestUserId = state.user?.id;
@@ -13946,17 +14092,29 @@ async function loadAiLearningControlRoom({ silent = false } = {}) {
   section.error = null;
   if (!silent && state.route.path === "/workspace/ai") renderWorkspace("ai");
   try {
-    const raw = await withUiTimeout(
-      state.api.aiLearningControlRoom({ category }),
-      WORKSPACE_REQUEST_TIMEOUT_MS,
-      "ai_learning_control_room_timeout",
-    );
+    const marketIndexRequest = hasProject
+      ? withUiTimeout(
+        state.api.aiLearningMarketScopeIndex({ projectId, limit: 50 }),
+        WORKSPACE_REQUEST_TIMEOUT_MS,
+        "ai_learning_market_scope_index_timeout",
+      ).then((value) => ({ value }), (error) => ({ error }))
+      : Promise.resolve({ skipped: true });
+    const [raw, marketIndexResult] = await Promise.all([
+      withUiTimeout(
+        state.api.aiLearningControlRoom({ category }),
+        WORKSPACE_REQUEST_TIMEOUT_MS,
+        "ai_learning_control_room_timeout",
+      ),
+      marketIndexRequest,
+    ]);
     if (
       requestId !== state.aiLearning.requestId
       || requestEpoch !== state.dataEpoch
       || requestUserId !== state.user?.id
+      || projectId !== currentWorkspaceProjectId()
       || state.route.path !== "/workspace/ai"
       || category !== currentAiLearningCategory()
+      || requestedMarketScopeId !== requestedAiLearningMarketScopeId()
     ) return null;
     const normalized = normalizeAiLearningControlRoom(raw);
     if (normalized.selectedCategory !== category) {
@@ -13965,31 +14123,152 @@ async function loadAiLearningControlRoom({ silent = false } = {}) {
     const current = section.data
       ? normalizeAiLearningControlRoom(section.data)
       : null;
-    if (
+    const authoritativeLegacy = (
       current?.available
       && (
         normalized.stateVersion < current.stateVersion
         || normalized.eventCursor < current.eventCursor
       )
-    ) {
-      section.status = "ready";
-      section.error = null;
-      if (!silent && state.route.path === "/workspace/ai") renderWorkspace("ai");
-      return current;
+    ) ? current : normalized;
+
+    let nextMarketIndex = hasProject
+      ? currentProjectAiLearningMarketIndex()
+      : null;
+    let nextMarketDetail = nextMarketIndex
+      ? state.aiLearning.marketDetail
+      : null;
+    let marketError = hasProject
+      ? ""
+      : "Выберите проект: процент обученности, источники и правила категории всегда привязаны к точному проекту.";
+    if (marketIndexResult.skipped) {
+      nextMarketIndex = null;
+      nextMarketDetail = null;
+    } else if (marketIndexResult.error) {
+      marketError = String(marketIndexResult.error?.message || "")
+        === "ai_learning_market_scope_index_timeout"
+        ? "Список рыночных категорий не ответил вовремя. Последний проверенный индекс оставлен на экране."
+        : actionErrorMessage(marketIndexResult.error);
+    } else {
+      const candidateIndex = normalizeAiLearningMarketScopeIndex(
+        marketIndexResult.value,
+      );
+      if (candidateIndex.available && candidateIndex.projectId !== projectId) {
+        nextMarketIndex = null;
+        nextMarketDetail = null;
+        marketError = "Сервер вернул индекс другого проекта. Ответ отклонён; процент и источники скрыты.";
+      } else if (candidateIndex.available) {
+        nextMarketIndex = candidateIndex;
+      } else {
+        nextMarketIndex = candidateIndex;
+        nextMarketDetail = null;
+        marketError = "Сервер не подтвердил строгий контракт динамических категорий. Процент скрыт, legacy‑оценка не подставлена.";
+      }
     }
-    section.data = normalized;
+
+    const availableScopes = hasProject
+      && nextMarketIndex?.available
+      && nextMarketIndex.projectId === projectId
+      ? nextMarketIndex.scopes.filter((scope) => scope.projectId === projectId)
+      : [];
+    const priorScopeId = String(state.aiLearning.marketScopeId || "")
+      .trim()
+      .toLowerCase();
+    const targetScopeId = requestedMarketScopeId
+      || (availableScopes.some((scope) => scope.scopeId === priorScopeId)
+        ? priorScopeId
+        : String(availableScopes[0]?.scopeId || ""));
+    const targetScope = availableScopes.find(
+      (scope) => scope.scopeId === targetScopeId,
+    ) || null;
+    if (hasProject && requestedMarketScopeId && !targetScope) {
+      marketError = "Выбранная привязка категории устарела или больше недоступна. Выберите актуальный product context.";
+      nextMarketDetail = null;
+    } else if (targetScope) {
+      try {
+        const rawDetail = await withUiTimeout(
+          state.api.researchCategoryLearningStatus(targetScope.runId),
+          WORKSPACE_REQUEST_TIMEOUT_MS,
+          "research_category_learning_status_timeout",
+        );
+        if (
+          requestId !== state.aiLearning.requestId
+          || requestEpoch !== state.dataEpoch
+          || requestUserId !== state.user?.id
+          || projectId !== currentWorkspaceProjectId()
+          || state.route.path !== "/workspace/ai"
+          || requestedMarketScopeId !== requestedAiLearningMarketScopeId()
+        ) return null;
+        const candidateDetail = normalizeResearchCategoryLearning({
+          status: rawDetail?.data && typeof rawDetail.data === "object"
+            && !Array.isArray(rawDetail.data)
+            ? rawDetail.data
+            : rawDetail,
+          unavailable: false,
+          expectedRunId: targetScope.runId,
+        });
+        if (!aiLearningMarketDetailMatchesScope(
+          candidateDetail,
+          targetScope,
+          projectId,
+        )) {
+          throw new Error("ai_learning_market_detail_scope_mismatch");
+        }
+        nextMarketDetail = candidateDetail;
+      } catch (error) {
+        if (
+          requestId !== state.aiLearning.requestId
+          || requestEpoch !== state.dataEpoch
+          || requestUserId !== state.user?.id
+          || projectId !== currentWorkspaceProjectId()
+          || state.route.path !== "/workspace/ai"
+          || requestedMarketScopeId !== requestedAiLearningMarketScopeId()
+        ) return null;
+        if (
+          String(error?.message || "") === "ai_learning_market_detail_scope_mismatch"
+          || !aiLearningMarketDetailMatchesScope(
+            nextMarketDetail,
+            targetScope,
+            projectId,
+          )
+        ) {
+          nextMarketDetail = null;
+        }
+        marketError = String(error?.message || "")
+          === "research_category_learning_status_timeout"
+          ? "Детальный ledger не ответил вовремя. Индекс не запускает provider call; повторите проверку позже."
+          : actionErrorMessage(error);
+      }
+    } else {
+      nextMarketDetail = null;
+    }
+
+    if (
+      requestId !== state.aiLearning.requestId
+      || requestEpoch !== state.dataEpoch
+      || requestUserId !== state.user?.id
+      || projectId !== currentWorkspaceProjectId()
+      || state.route.path !== "/workspace/ai"
+    ) return null;
+    section.data = authoritativeLegacy;
     section.status = "ready";
     section.error = null;
+    state.aiLearning.marketIndex = nextMarketIndex;
+    state.aiLearning.marketDetail = nextMarketDetail;
+    state.aiLearning.marketScopeId = targetScope ? targetScopeId : "";
+    state.aiLearning.marketError = marketError;
     state.aiLearning.error = "";
     state.aiLearning.lastUpdatedAt = Date.now();
     renderWorkspace("ai");
-    return normalized;
+    return authoritativeLegacy;
   } catch (error) {
     if (
       requestId !== state.aiLearning.requestId
       || requestEpoch !== state.dataEpoch
       || requestUserId !== state.user?.id
+      || projectId !== currentWorkspaceProjectId()
+      || state.route.path !== "/workspace/ai"
       || category !== currentAiLearningCategory()
+      || requestedMarketScopeId !== requestedAiLearningMarketScopeId()
     ) return null;
     section.status = section.data ? "ready" : "error";
     section.error = error;
@@ -15390,13 +15669,30 @@ async function handleClick(event) {
   if (action === "select-ai-learning-category") {
     const category = aiLearningCategory(control.dataset.categoryKey);
     state.aiLearning.historicalCaseFilter = "all";
-    navigate(`/workspace/ai?category=${encodeURIComponent(category)}&view=${encodeURIComponent(currentAiLearningView())}`);
+    const scopeId = currentAiLearningMarketScopeId();
+    navigate(`/workspace/ai?category=${encodeURIComponent(category)}&view=${encodeURIComponent(currentAiLearningView())}${scopeId ? `&scope=${encodeURIComponent(scopeId)}` : ""}`);
+    return;
+  }
+
+  if (action === "select-ai-market-learning-scope") {
+    const scopeId = String(control.dataset.scopeId || "").trim().toLowerCase();
+    const marketIndex = currentProjectAiLearningMarketIndex();
+    const scopeExists = marketIndex
+      && marketIndex.scopes.some(
+        (scope) => scope.scopeId === scopeId,
+      );
+    if (!scopeExists) {
+      toast("Привязка категории изменилась. Обновите ИИ‑центр.", "error");
+      return;
+    }
+    navigate(`/workspace/ai?scope=${encodeURIComponent(scopeId)}&category=${encodeURIComponent(currentAiLearningCategory())}&view=${encodeURIComponent(currentAiLearningView())}`);
     return;
   }
 
   if (action === "select-ai-learning-view") {
     const view = aiLearningView(control.dataset.view);
-    navigate(`/workspace/ai?category=${encodeURIComponent(currentAiLearningCategory())}&view=${encodeURIComponent(view)}`);
+    const scopeId = currentAiLearningMarketScopeId();
+    navigate(`/workspace/ai?category=${encodeURIComponent(currentAiLearningCategory())}&view=${encodeURIComponent(view)}${scopeId ? `&scope=${encodeURIComponent(scopeId)}` : ""}`);
     return;
   }
 
@@ -15972,6 +16268,82 @@ async function handleClick(event) {
 
   if (action === "refresh-product-research") {
     await pollProductResearchStatus();
+    return;
+  }
+
+  if (action === "revalidate-product-research-response") {
+    const research = state.productResearch;
+    const runId = String(research.record?.id || "").trim().toLowerCase();
+    const projectId = currentWorkspaceProjectId();
+    if (
+      !runId
+      || String(research.record?.failureCode || "").trim().toLowerCase()
+        !== "provider_response_invalid"
+    ) {
+      toast("Сохранённый ответ нельзя повторно проверить. Обновите статус исследования.", "error");
+      return;
+    }
+    const previousRecord = research.record;
+    research.requestId += 1;
+    const requestId = research.requestId;
+    research.phase = "processing";
+    research.error = "";
+    research.record = {
+      ...previousRecord,
+      status: "processing",
+      failureCode: "",
+      failureMessage: "",
+      statusNotice: "Повторно проверяем тот же сохранённый ответ провайдера. Новый платный запрос не создаётся.",
+    };
+    renderWorkspace("research");
+    try {
+      const raw = await withUiTimeout(
+        state.api.revalidateProductResearchResponse(runId, { projectId }),
+        WORKSPACE_REQUEST_TIMEOUT_MS,
+        "product_research_revalidation_timeout",
+      );
+      if (
+        requestId !== research.requestId
+        || runId !== String(research.record?.id || "").trim().toLowerCase()
+        || projectId !== currentWorkspaceProjectId()
+      ) return;
+      research.record = {
+        ...normalizeProductResearch(raw, research.record),
+        statusNotice: "",
+      };
+      prepareRecommendedResearchHandoff(research.record);
+      const kind = productResearchStatusKind(research.record.status);
+      research.phase = kind === "failed"
+        ? "error"
+        : kind === "active"
+        ? "processing"
+        : kind;
+      research.error = kind === "failed"
+        ? (research.record.failureMessage || "Сохранённый ответ всё ещё не прошёл проверку.")
+        : "";
+      toast(
+        kind === "completed"
+          ? "Сохранённый ответ проверен без нового платного запроса."
+          : "Повторная проверка сохранена. Новый платный запрос не создавался.",
+        kind === "completed" ? "success" : "info",
+      );
+    } catch (error) {
+      if (requestId !== research.requestId) return;
+      const code = String(error?.serverCode || error?.code || "").trim();
+      const timedOut = String(error?.message || "")
+        === "product_research_revalidation_timeout";
+      const message = code === "provider_response_expired"
+        ? "Срок хранения ответа у провайдера истёк. Повторная проверка без нового платного запуска уже невозможна."
+        : timedOut
+        ? "Сервер не завершил повторную проверку вовремя. Новый платный запрос не создавался; обновите статус."
+        : `${actionErrorMessage(error)} Новый платный запрос не создавался.`;
+      research.phase = "error";
+      research.error = message;
+      research.record = { ...previousRecord, statusNotice: "" };
+      toast(message, "error");
+    }
+    if (state.route.path === "/workspace/research") renderWorkspace("research");
+    scheduleProductResearchPolling();
     return;
   }
 
@@ -18655,6 +19027,23 @@ function generationLearningContext(form) {
     form?.elements?.product_category?.value || "",
   ).trim().toLowerCase();
   if (!identity || !autoPrompt || currentPrompt !== autoPrompt) return null;
+  const handoff = state.contentGenerationHandoff;
+  const researchCategorySignal = activeGenerationResearchCategorySignal(identity);
+  if (
+    researchCategorySignal
+    && contentReviewUuid(handoff?.researchId)
+    && contentReviewUuid(handoff?.draftId)
+  ) {
+    return {
+      creative_angle: researchCategorySignal.creativeAngle,
+      hook_patterns: researchCategorySignal.hookPatterns,
+      source: "approved_research",
+      compiler_version: GENERATION_LEARNING_COMPILER_VERSION,
+      creative_brief_draft_id: handoff.draftId,
+      scenario_position: handoff.scenario.position,
+      product_category: productCategory,
+    };
+  }
   const policy = activeGenerationLearningPolicy(form, identity);
   if (policy?.applied) {
     return {
@@ -18666,23 +19055,15 @@ function generationLearningContext(form) {
       product_category: productCategory,
     };
   }
-  const handoff = state.contentGenerationHandoff;
+  const researchSignal = activeGenerationResearchSignal(identity);
   if (
-    handoff
-    && handoff.sku === identity.sku
-    && handoff.productName === identity.productName
-    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
-      String(handoff.draftId || ""),
-    )
+    researchSignal
+    && contentReviewUuid(handoff?.researchId)
+    && contentReviewUuid(handoff?.draftId)
   ) {
-    const signal = inferGenerationCreativeSignals({
-      hook: handoff.scenario?.hook,
-      shotList: handoff.scenario?.shotList,
-      visualDirection: handoff.creativeBrief?.visualDirection,
-    });
     return {
-      creative_angle: signal.creativeAngle,
-      hook_patterns: signal.hookPatterns,
+      creative_angle: researchSignal.creativeAngle,
+      hook_patterns: researchSignal.hookPatterns,
       source: "approved_research",
       compiler_version: GENERATION_LEARNING_COMPILER_VERSION,
       creative_brief_draft_id: handoff.draftId,
@@ -18697,6 +19078,25 @@ function generationLearningContext(form) {
     compiler_version: GENERATION_LEARNING_COMPILER_VERSION,
     product_category: productCategory,
   };
+}
+
+function activeGenerationResearchSignal(identity) {
+  const handoff = state.contentGenerationHandoff;
+  if (
+    !identity
+    || !handoff
+    || handoff.sku !== identity.sku
+    || handoff.productName !== identity.productName
+  ) return null;
+  return inferGenerationCreativeSignals({
+    hook: handoff.scenario?.hook,
+    shotList: handoff.scenario?.shotList,
+  });
+}
+
+function activeGenerationResearchCategorySignal(identity) {
+  if (!activeGenerationResearchSignal(identity)) return null;
+  return generationResearchCategorySignal(state.contentGenerationHandoff);
 }
 
 function generationRepairContext(form) {
@@ -18799,6 +19199,7 @@ function generationSpecResearchProvenance(
 }
 
 function generationSpecPerformanceProvenance(form, identity = null) {
+  if (activeGenerationResearchCategorySignal(identity)) return null;
   const policy = activeGenerationLearningPolicy(form, identity);
   if (!policy?.applied || !policy.policyHash || !policy.version) return null;
   return {
@@ -18819,6 +19220,7 @@ function generationSpecRepairProvenance(form, identity = null) {
 
 function generationSpecPreparePayload(form) {
   const identity = selectedGenerationProductIdentity(form);
+  const projectId = currentWorkspaceProjectId();
   const exactScope = generationSpecExactScope(form, identity);
   const compiled = automaticGenerationBriefCandidate(form, identity);
   const currentBrief = String(form?.elements?.brief?.value || "").trim();
@@ -18837,6 +19239,7 @@ function generationSpecPreparePayload(form) {
   );
   if (
     !identity
+    || !isWorkspaceProjectId(projectId)
     || !exactScope
     || compiled?.ready !== true
     || !editableIntent
@@ -18848,6 +19251,7 @@ function generationSpecPreparePayload(form) {
   ) return null;
   const repairContext = generationRepairContext(form);
   return {
+    project_id: projectId,
     exact_scope: exactScope,
     editable_intent: editableIntent,
     proposed_prompt: currentBrief && currentBrief === acceptedAutomaticBrief
@@ -18986,6 +19390,7 @@ async function refreshGenerationSpec(form, { force = false } = {}) {
   const current = state.generationSpec.data?.generationSpec;
   if (!form || !current) return null;
   const context = {
+    project_id: requireWorkspaceProjectId(),
     spec_id: current.spec_id,
     spec_version: current.spec_version,
     spec_hash: current.spec_hash,
@@ -19211,6 +19616,7 @@ async function runGenerationSpecControl(form, action, {
       });
     } else {
       const input = {
+        project_id: preparedPayload.project_id,
         spec_id: current.spec_id,
         expected_spec_version: current.spec_version,
         expected_spec_hash: current.spec_hash,
@@ -21700,6 +22106,7 @@ async function submitProductResearchMarketCategory(form, submitter) {
     "create_and_bind",
     "reclassify",
     "create_and_reclassify",
+    "reaffirm",
   ]);
   if (!runId || !allowedActions.has(action)) {
     toast("Не удалось определить решение по рыночной категории. Обновите раздел.", "error");
@@ -21708,7 +22115,7 @@ async function submitProductResearchMarketCategory(form, submitter) {
   const registry = research.record?.marketRegistry;
   const currentBinding = registry?.currentBinding || null;
   const allowedForState = currentBinding
-    ? new Set(["reclassify", "create_and_reclassify"])
+    ? new Set(["reclassify", "create_and_reclassify", "reaffirm"])
     : new Set(["bind_existing", "create_and_bind"]);
   if (!registry?.available || registry.canResolve === false || !allowedForState.has(action)) {
     toast("Состояние категории изменилось. Обновите исследование перед решением.", "error");
@@ -21736,7 +22143,7 @@ async function submitProductResearchMarketCategory(form, submitter) {
     confirmation: true,
     reason,
   };
-  if (["bind_existing", "reclassify"].includes(action)) {
+  if (["bind_existing", "reclassify", "reaffirm"].includes(action)) {
     options.category_id = String(values.get("category_id") || "").trim();
   } else {
     options.canonical_name = String(values.get("canonical_name") || "").trim();
@@ -21783,6 +22190,8 @@ async function submitProductResearchMarketCategory(form, submitter) {
       "research_market_category_not_found",
       "research_market_category_unchanged",
       "research_market_category_alias_conflict",
+      "research_market_category_alias_already_registered",
+      "research_market_category_reaffirmation_stale",
     ]);
     if (refreshConflictCodes.has(code)) {
       try {
@@ -22193,10 +22602,117 @@ async function refreshProductResearchCategoryLearning(runId, {
   return normalized;
 }
 
+function categoryLearningUiContext(form) {
+  const aiRoot = form?.closest?.('[data-learning-context="ai"]');
+  if (aiRoot) {
+    const projectId = currentWorkspaceProjectId();
+    const runId = String(
+      aiRoot.dataset.learningRunId
+        || aiRoot.closest("[data-learning-run-id]")?.dataset.learningRunId
+        || state.aiLearning.marketDetail?.runId
+        || "",
+    ).trim().toLowerCase();
+    const selectedScopeId = currentAiLearningMarketScopeId();
+    const marketIndex = currentProjectAiLearningMarketIndex();
+    const scope = marketIndex
+      ? marketIndex.scopes.find(
+        (item) => item.scopeId === selectedScopeId,
+      )
+      : null;
+    const control = state.aiLearning.marketDetail;
+    return {
+      kind: "ai",
+      projectId,
+      runId,
+      control: scope?.runId === runId
+        && aiLearningMarketDetailMatchesScope(control, scope, projectId)
+        ? control
+        : null,
+    };
+  }
+  return {
+    kind: "research",
+    runId: String(state.productResearch.record?.id || "").trim().toLowerCase(),
+    control: state.productResearch.record?.categoryLearning || null,
+  };
+}
+
+function beginCategoryLearningUiMutation(context, phase) {
+  if (context.kind === "ai") {
+    state.aiLearning.marketMutationId += 1;
+    context.mutationId = state.aiLearning.marketMutationId;
+    state.aiLearning.requestId += 1;
+    state.aiLearning.marketMutationKind = phase;
+    state.aiLearning.marketError = "";
+    state.aiLearning.notice = "";
+    if (state.route.path === "/workspace/ai") renderWorkspace("ai");
+    return;
+  }
+  state.productResearch.categoryLearningMutationId += 1;
+  context.mutationId = state.productResearch.categoryLearningMutationId;
+  state.productResearch.phase = phase;
+  state.productResearch.error = "";
+  state.productResearch.notice = "";
+  if (state.route.path === "/workspace/research") renderWorkspace("research");
+}
+
+function categoryLearningUiMutationIsCurrent(context) {
+  if (!Number.isSafeInteger(context?.mutationId)) return true;
+  return context.kind === "ai"
+    ? context.mutationId === state.aiLearning.marketMutationId
+      && context.projectId === currentWorkspaceProjectId()
+    : context.mutationId === state.productResearch.categoryLearningMutationId;
+}
+
+function setCategoryLearningUiNotice(context, message) {
+  if (!categoryLearningUiMutationIsCurrent(context)) return;
+  if (context.kind === "ai") state.aiLearning.notice = String(message || "");
+  else state.productResearch.notice = String(message || "");
+}
+
+function setCategoryLearningUiError(context, error) {
+  if (!categoryLearningUiMutationIsCurrent(context)) return;
+  const message = typeof error === "string" ? error : actionErrorMessage(error);
+  if (context.kind === "ai") state.aiLearning.marketError = message;
+  else state.productResearch.error = message;
+}
+
+async function refreshCategoryLearningUi(context, runId, options = {}) {
+  if (context.kind === "ai") {
+    await loadAiLearningControlRoom({ silent: true });
+    const refreshed = state.aiLearning.marketDetail;
+    const scope = currentProjectAiLearningMarketIndex()?.scopes.find(
+      (item) => item.runId === runId,
+    ) || null;
+    if (!aiLearningMarketDetailMatchesScope(
+      refreshed,
+      scope,
+      context.projectId,
+    )) {
+      throw new Error("ai_learning_market_detail_refresh_invalid");
+    }
+    return refreshed;
+  }
+  return refreshProductResearchCategoryLearning(runId, options);
+}
+
+function finishCategoryLearningUiMutation(context) {
+  if (!categoryLearningUiMutationIsCurrent(context)) return;
+  if (context.kind === "ai") {
+    state.aiLearning.marketMutationKind = "";
+    if (state.route.path === "/workspace/ai") renderWorkspace("ai");
+    scheduleAiLearningPolling();
+    return;
+  }
+  state.productResearch.phase = productResearchRestingPhase();
+  if (state.route.path === "/workspace/research") renderWorkspace("research");
+}
+
 async function submitProductResearchReadinessCapture(form) {
+  const uiContext = categoryLearningUiContext(form);
   const research = state.productResearch;
-  const runId = String(research.record?.id || "").trim().toLowerCase();
-  const control = research.record?.categoryLearning;
+  const runId = uiContext.runId;
+  const control = uiContext.control;
   const expectedEvidenceHash = String(
     new FormData(form).get("expected_evidence_hash") || "",
   ).trim().toLowerCase();
@@ -22209,10 +22725,7 @@ async function submitProductResearchReadinessCapture(form) {
     toast("Доказательная база изменилась. Обновите статус перед фиксацией.", "error");
     return;
   }
-  research.phase = "category-learning-capture";
-  research.error = "";
-  research.notice = "";
-  renderWorkspace("research");
+  beginCategoryLearningUiMutation(uiContext, "category-learning-capture");
   let mutationCompleted = false;
   try {
     await state.api.captureResearchCategoryReadiness(
@@ -22220,34 +22733,34 @@ async function submitProductResearchReadinessCapture(form) {
       expectedEvidenceHash,
     );
     mutationCompleted = true;
-    await refreshProductResearchCategoryLearning(runId);
-    research.notice = "Снимок готовности доказательной базы сохранён в append-only истории. Provider call не выполнялся.";
+    await refreshCategoryLearningUi(uiContext, runId);
+    setCategoryLearningUiNotice(uiContext, "Снимок готовности доказательной базы сохранён в append-only истории. Provider call не выполнялся.");
   } catch (error) {
     if (mutationCompleted) {
-      research.notice = "Снимок сохранён, но свежая история временно недоступна. Не повторяйте фиксацию автоматически.";
+      setCategoryLearningUiNotice(uiContext, "Снимок сохранён, но свежая история временно недоступна. Не повторяйте фиксацию автоматически.");
     } else {
-      research.error = actionErrorMessage(error);
+      setCategoryLearningUiError(uiContext, error);
       const code = String(error?.serverCode || error?.code || "");
       if ([
         "research_category_evidence_changed",
         "research_market_category_required",
       ].includes(code)) {
         try {
-          await refreshProductResearchCategoryLearning(runId);
+          await refreshCategoryLearningUi(uiContext, runId);
         } catch {
           // The stale capture is never retried automatically.
         }
       }
     }
   }
-  research.phase = productResearchRestingPhase();
-  if (state.route.path === "/workspace/research") renderWorkspace("research");
+  finishCategoryLearningUiMutation(uiContext);
 }
 
 async function submitProductResearchYoutubeAnalysisCorrection(form) {
+  const uiContext = categoryLearningUiContext(form);
   const research = state.productResearch;
-  const runId = String(research.record?.id || "").trim().toLowerCase();
-  const control = research.record?.categoryLearning;
+  const runId = uiContext.runId;
+  const control = uiContext.control;
   const observationId = String(form.dataset.observationId || "")
     .trim()
     .toLowerCase();
@@ -22297,12 +22810,14 @@ async function submitProductResearchYoutubeAnalysisCorrection(form) {
   const correctionReason = String(
     values.get("correction_reason") || "",
   ).replace(/\s+/gu, " ").trim();
-  const requestId = research.requestId + 1;
-  research.requestId = requestId;
-  research.phase = "category-learning-youtube-analysis-correction";
-  research.error = "";
-  research.notice = "";
-  renderWorkspace("research");
+  const requestId = uiContext.kind === "research"
+    ? research.requestId + 1
+    : null;
+  if (requestId !== null) research.requestId = requestId;
+  beginCategoryLearningUiMutation(
+    uiContext,
+    "category-learning-youtube-analysis-correction",
+  );
   let mutationCompleted = false;
   try {
     const correction = await state.api.correctResearchYoutubeObservationAnalysis({
@@ -22314,47 +22829,51 @@ async function submitProductResearchYoutubeAnalysisCorrection(form) {
       analysis,
       correction_reason: correctionReason,
     });
-    if (requestId !== research.requestId) return;
+    if (requestId !== null && requestId !== research.requestId) return;
     mutationCompleted = true;
     if (
       Date.parse(correction.retention_expires_at)
         !== Date.parse(observation.retentionExpiresAt)
     ) throw new Error("research_youtube_observation_analysis_response_invalid");
-    await refreshProductResearchCategoryLearning(runId, {
-      expectedRequestId: requestId,
-    });
-    if (requestId !== research.requestId) return;
-    research.notice = "Гипотеза исправлена новой append-only версией. Прежний разбор сохранён до общего retention; provider call, retry и подтверждение конкурента не выполнялись.";
+    await refreshCategoryLearningUi(
+      uiContext,
+      runId,
+      requestId === null ? {} : { expectedRequestId: requestId },
+    );
+    if (requestId !== null && requestId !== research.requestId) return;
+    setCategoryLearningUiNotice(uiContext, "Гипотеза исправлена новой append-only версией. Прежний разбор сохранён до общего retention; provider call, retry и подтверждение конкурента не выполнялись.");
   } catch (error) {
-    if (requestId !== research.requestId) return;
+    if (requestId !== null && requestId !== research.requestId) return;
     if (mutationCompleted) {
-      research.notice = "Исправление сохранено, но свежая история временно недоступна. Не отправляйте его повторно.";
+      setCategoryLearningUiNotice(uiContext, "Исправление сохранено, но свежая история временно недоступна. Не отправляйте его повторно.");
     } else {
-      research.error = actionErrorMessage(error);
+      setCategoryLearningUiError(uiContext, error);
       if ([
         "research_youtube_observation_analysis_head_stale",
         "research_youtube_observation_not_found",
       ].includes(String(error?.serverCode || error?.code || ""))) {
         try {
-          await refreshProductResearchCategoryLearning(runId, {
-            expectedRequestId: requestId,
-          });
-          if (requestId !== research.requestId) return;
+          await refreshCategoryLearningUi(
+            uiContext,
+            runId,
+            requestId === null ? {} : { expectedRequestId: requestId },
+          );
+          if (requestId !== null && requestId !== research.requestId) return;
         } catch {
           // Exact-head conflicts are visible and never retried automatically.
         }
       }
     }
+  } finally {
+    finishCategoryLearningUiMutation(uiContext);
   }
-  if (requestId !== research.requestId) return;
-  research.phase = productResearchRestingPhase();
-  if (state.route.path === "/workspace/research") renderWorkspace("research");
 }
 
 async function submitProductResearchSourceCorrection(form) {
+  const uiContext = categoryLearningUiContext(form);
   const research = state.productResearch;
-  const runId = String(research.record?.id || "").trim().toLowerCase();
-  const control = research.record?.categoryLearning;
+  const runId = uiContext.runId;
+  const control = uiContext.control;
   const sourceLedgerId = String(form.dataset.sourceLedgerId || "")
     .trim()
     .toLowerCase();
@@ -22397,10 +22916,7 @@ async function submitProductResearchSourceCorrection(form) {
   const correctionReason = String(
     values.get("correction_reason") || "",
   ).replace(/\s+/gu, " ").trim();
-  research.phase = "category-learning-correction";
-  research.error = "";
-  research.notice = "";
-  renderWorkspace("research");
+  beginCategoryLearningUiMutation(uiContext, "category-learning-correction");
   let mutationCompleted = false;
   let generationContextInvalidated = false;
   try {
@@ -22414,41 +22930,43 @@ async function submitProductResearchSourceCorrection(form) {
     mutationCompleted = true;
     generationContextInvalidated = invalidateGenerationStateForResearch(runId);
     await Promise.all([
-      refreshProductResearchCategoryLearning(runId),
-      loadResearchStageControl({ runId, silent: true }),
+      refreshCategoryLearningUi(uiContext, runId),
+      uiContext.kind === "research"
+        ? loadResearchStageControl({ runId, silent: true })
+        : Promise.resolve(null),
     ]);
     generationContextInvalidated = invalidateGenerationStateForResearch(runId)
       || generationContextInvalidated;
-    research.notice = `Исправление добавлено новой версией; прежний разбор и lineage сохранены. Зависимые этапы и спецификации помечены устаревшими${generationContextInvalidated ? ", а открытый handoff и управляемое ТЗ очищены" : ""}. Для продолжения подготовьте новое исследование; внешний provider не вызывался.`;
+    setCategoryLearningUiNotice(uiContext, `Исправление добавлено новой версией; прежний разбор и lineage сохранены. Зависимые этапы и спецификации помечены устаревшими${generationContextInvalidated ? ", а открытый handoff и управляемое ТЗ очищены" : ""}. Для продолжения подготовьте новое исследование; внешний provider не вызывался.`);
   } catch (error) {
     if (mutationCompleted) {
       generationContextInvalidated = invalidateGenerationStateForResearch(runId)
         || generationContextInvalidated;
-      research.notice = `Исправление сохранено, но свежий ledger временно недоступен. Не отправляйте его повторно.${generationContextInvalidated ? " Связанный handoff и управляемое ТЗ очищены локально." : ""}`;
+      setCategoryLearningUiNotice(uiContext, `Исправление сохранено, но свежий ledger временно недоступен. Не отправляйте его повторно.${generationContextInvalidated ? " Связанный handoff и управляемое ТЗ очищены локально." : ""}`);
     } else {
-      research.error = actionErrorMessage(error);
+      setCategoryLearningUiError(uiContext, error);
       if (String(error?.serverCode || error?.code || "")
         === "research_source_analysis_head_stale") {
         try {
-          await refreshProductResearchCategoryLearning(runId);
+          await refreshCategoryLearningUi(uiContext, runId);
         } catch {
           // Exact-head conflicts are shown and never retried automatically.
         }
       }
     }
   }
-  research.phase = productResearchRestingPhase();
-  if (state.route.path === "/workspace/research") renderWorkspace("research");
+  finishCategoryLearningUiMutation(uiContext);
 }
 
 async function submitProductResearchCollectionPolicy(form, submitter) {
+  const uiContext = categoryLearningUiContext(form);
   const research = state.productResearch;
   if (!["owner", "admin"].includes(state.bootstrap?.membership?.role)) {
     toast("Политику автосбора может менять только owner/admin.", "error");
     return;
   }
-  const runId = String(research.record?.id || "").trim().toLowerCase();
-  const control = research.record?.categoryLearning;
+  const runId = uiContext.runId;
+  const control = uiContext.control;
   const platform = String(form.dataset.platform || "").trim().toLowerCase();
   const values = new FormData(form);
   const status = String(
@@ -22492,10 +23010,7 @@ async function submitProductResearchCollectionPolicy(form, submitter) {
     form.querySelector('.product-research-learning-acks input:not(:checked)')?.focus();
     return;
   }
-  research.phase = "category-learning-policy";
-  research.error = "";
-  research.notice = "";
-  renderWorkspace("research");
+  beginCategoryLearningUiMutation(uiContext, "category-learning-policy");
   let mutationCompleted = false;
   try {
     await state.api.configureResearchSourceCollectionPolicy(runId, {
@@ -22520,27 +23035,26 @@ async function submitProductResearchCollectionPolicy(form, submitter) {
       no_retry_ack: noRetryAck,
     });
     mutationCompleted = true;
-    await refreshProductResearchCategoryLearning(runId);
-    research.notice = status === "enabled"
+    await refreshCategoryLearningUi(uiContext, runId);
+    setCategoryLearningUiNotice(uiContext, status === "enabled"
       ? "Политика активирована после явных gates. Status/render ничего не запускали; scheduler создаст только bounded enqueue без retry/fallback."
-      : "Политика сохранена в paused-состоянии. Внешний сбор и расход не запускались.";
+      : "Политика сохранена в paused-состоянии. Внешний сбор и расход не запускались.");
   } catch (error) {
     if (mutationCompleted) {
-      research.notice = "Политика сохранена, но свежий status временно недоступен. Не повторяйте изменение автоматически.";
+      setCategoryLearningUiNotice(uiContext, "Политика сохранена, но свежий status временно недоступен. Не повторяйте изменение автоматически.");
     } else {
-      research.error = actionErrorMessage(error);
+      setCategoryLearningUiError(uiContext, error);
       if (String(error?.serverCode || error?.code || "")
         === "research_collection_policy_head_stale") {
         try {
-          await refreshProductResearchCategoryLearning(runId);
+          await refreshCategoryLearningUi(uiContext, runId);
         } catch {
           // Exact-head conflicts are shown and never retried automatically.
         }
       }
     }
   }
-  research.phase = productResearchRestingPhase();
-  if (state.route.path === "/workspace/research") renderWorkspace("research");
+  finishCategoryLearningUiMutation(uiContext);
 }
 
 function productResearchRestingPhase(record = state.productResearch.record) {
@@ -24660,6 +25174,12 @@ function clearAuthenticatedState() {
   state.aiLearning.busyHistoricalCaseId = "";
   state.aiLearning.busyResearchReceiptId = "";
   state.aiLearning.knowledgeMutationKind = "";
+  state.aiLearning.marketIndex = null;
+  state.aiLearning.marketDetail = null;
+  state.aiLearning.marketScopeId = "";
+  state.aiLearning.marketError = "";
+  state.aiLearning.marketMutationKind = "";
+  state.aiLearning.marketMutationId += 1;
   state.aiLearning.historicalCaseFilter = "all";
   state.aiLearning.historicalImport = {
     active: false,
@@ -24700,6 +25220,7 @@ function clearAuthenticatedState() {
   state.managerRecoveryCooldowns.clear();
   state.managerInviteCooldowns.clear();
   state.productResearch.requestId += 1;
+  state.productResearch.categoryLearningMutationId += 1;
   state.productResearch.phase = "idle";
   state.productResearch.record = null;
   state.productResearch.error = "";

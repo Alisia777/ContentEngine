@@ -318,10 +318,13 @@ def test_unknown_paid_provider_outcome_has_one_safe_primary_and_an_explicit_new_
             && expiredLeaseHtml.includes('data-primary-action="true"')
             && !expiredLeaseHtml.includes('data-action="refresh-product-research"')
             && !expiredLeaseHtml.includes("Начать заново"),
-          paidFailureIsExplicit: paidFailedHtml.includes("Результат нельзя использовать")
-            && paidFailedHtml.includes("Предыдущий платный запуск уже был принят")
-            && paidFailedHtml.includes("отдельный запрос")
+          paidFailureIsExplicit: paidFailedHtml.includes("Ответ получен — нужна повторная проверка")
+            && paidFailedHtml.includes('data-action="revalidate-product-research-response"')
+            && paidFailedHtml.includes("без оплаты")
+            && paidFailedHtml.includes("не отправляет новый POST")
             && (paidFailedHtml.match(/data-primary-action="true"/g) || []).length === 1
+            && !paidFailedHtml.includes('data-action="refresh-product-research"')
+            && !paidFailedHtml.includes("Результат нельзя использовать")
             && !paidFailedHtml.includes("Начать заново"),
         };
         """,

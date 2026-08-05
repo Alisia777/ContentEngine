@@ -144,6 +144,10 @@ type ContentEngineDatabase = {
         Args: { p_payload: Json };
         Returns: Json;
       };
+      system_revalidate_product_research_response: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
       system_apply_research_stage_recompute: {
         Args: { p_payload: Json };
         Returns: Json;
@@ -189,7 +193,7 @@ type ContentEngineDatabase = {
 };
 
 type AnalyzePayload = {
-  action: "analyze" | "status";
+  action: "analyze" | "status" | "revalidate";
   research_id: string;
   project_id: string;
 };
@@ -353,7 +357,10 @@ function readRequestPayload(value: unknown): AnalyzePayload | null {
   ) {
     return null;
   }
-  if (value.action !== "analyze" && value.action !== "status") return null;
+  if (
+    value.action !== "analyze" && value.action !== "status" &&
+    value.action !== "revalidate"
+  ) return null;
   return value as AnalyzePayload;
 }
 
@@ -1136,6 +1143,35 @@ function canonicalSourceKey(value: unknown): string | null {
   if (!isPublicHttpsUrl(value)) return null;
   try {
     const url = new URL(value);
+    const hostname = url.hostname.toLocaleLowerCase("en-US").replace(
+      /\.$/u,
+      "",
+    );
+    const youtubeHosts = new Set([
+      "youtube.com",
+      "www.youtube.com",
+      "m.youtube.com",
+      "music.youtube.com",
+      "youtube-nocookie.com",
+      "www.youtube-nocookie.com",
+      "youtu.be",
+    ]);
+    if (youtubeHosts.has(hostname)) {
+      const pathParts = url.pathname.split("/").filter(Boolean);
+      const candidate = hostname === "youtu.be"
+        ? pathParts[0]
+        : url.pathname === "/watch"
+        ? url.searchParams.get("v")
+        : ["shorts", "embed", "live"].includes(pathParts[0] || "")
+        ? pathParts[1]
+        : null;
+      if (
+        typeof candidate === "string" && /^[A-Za-z0-9_-]{11}$/u.test(candidate)
+      ) {
+        return `https://youtube.com/watch?v=${candidate}`;
+      }
+      if (hostname !== "youtu.be") url.hostname = "youtube.com";
+    }
     url.hash = "";
     for (const key of [...url.searchParams.keys()]) {
       const normalized = key.toLocaleLowerCase("en-US");
@@ -1478,7 +1514,7 @@ export function readResearchResult(
     !isTextArray(competitorAnalysis.limitations, 1, 10, 600)
   ) return null;
   const competitorRows = competitorAnalysis.competitors;
-  const competitorCoverage = String(competitorAnalysis.coverage);
+  let competitorCoverage = String(competitorAnalysis.coverage);
   if (
     (competitorCoverage === "none" && competitorRows.length !== 0) ||
     (competitorCoverage !== "none" && competitorRows.length === 0) ||
@@ -1511,6 +1547,7 @@ export function readResearchResult(
       !isBoundedText(row.gap, 3, 500) || !validRefs(row.source_ids)
     )
   ) return null;
+  let competitorEvidenceDowngraded = false;
   if (competitorCoverage === "sufficient") {
     const distinctNames = new Set(
       competitorRows.map((competitor) =>
@@ -1533,7 +1570,20 @@ export function readResearchResult(
     if (
       distinctNames.size < 2 || citedWebSourceIds.size < 2 ||
       independentPublisherDomains.size < 2
-    ) return null;
+    ) {
+      // Preserve the paid result, but never let the model overstate evidence.
+      // This is especially important for several YouTube videos: two videos are
+      // not automatically two independent publishers without channel proof.
+      competitorAnalysis.coverage = "limited";
+      competitorCoverage = "limited";
+      competitorEvidenceDowngraded = true;
+      const limitation =
+        "Для достаточного анализа конкурентов нужны минимум два разных конкурента и два независимо опубликованных источника.";
+      if (
+        competitorAnalysis.limitations.length < 10 &&
+        !competitorAnalysis.limitations.includes(limitation)
+      ) competitorAnalysis.limitations.push(limitation);
+    }
   }
 
   const trendAnalysis = value.trend_analysis;
@@ -1558,6 +1608,7 @@ export function readResearchResult(
     "unclear",
   ]);
   const timeBasedDirections = new Set(["emerging", "growing", "declining"]);
+  let trendEvidenceDowngraded = false;
   if (
     trendSignals.some((signal) => {
       if (
@@ -1615,7 +1666,15 @@ export function readResearchResult(
         datedWebSourceIds.length < 2 || publishedDays.size < 2 ||
         publishedAfterSnapshot || !hasRecentEvidence ||
         !allEvidenceInLookback;
-      if (evidenceInvalid) return true;
+      if (evidenceInvalid) {
+        // Keep the observation as a monitorable hypothesis. Do not discard the
+        // entire paid research and do not expose an uncorroborated direction.
+        signal.direction = "unclear";
+        signal.confidence = "low";
+        signal.recommended_use = "monitor";
+        trendEvidenceDowngraded = true;
+        return false;
+      }
       // Publication dates are extracted from provider-cited public pages, not
       // signed provider metadata. Keep a well-corroborated direction usable,
       // but never let that date basis claim high confidence.
@@ -1623,6 +1682,14 @@ export function readResearchResult(
       return false;
     })
   ) return null;
+  if (trendEvidenceDowngraded) {
+    const limitation =
+      "Направление тренда не подтверждено двумя независимыми датированными источниками; сигнал сохранён только для наблюдения.";
+    if (
+      trendAnalysis.limitations.length < 10 &&
+      !trendAnalysis.limitations.includes(limitation)
+    ) trendAnalysis.limitations.push(limitation);
+  }
   if (
     new Set(
       trendSignals.map((signal) =>
@@ -1654,10 +1721,28 @@ export function readResearchResult(
     !isTextArray(guidance.questions_for_user, 0, 8, 600) ||
     !isTextArray(guidance.suggested_actions, 1, 8, 600) ||
     (guidance.status === "needs_user_decision" &&
-      guidance.questions_for_user.length < 1) ||
-    (guidance.status === "ready_for_brief" &&
-      (competitorCoverage !== "sufficient" || !hasActionableTrend))
+      guidance.questions_for_user.length < 1)
   ) return null;
+  if (
+    guidance.status === "ready_for_brief" &&
+    (competitorCoverage !== "sufficient" || !hasActionableTrend)
+  ) {
+    guidance.status = "needs_more_evidence";
+    guidance.recommended_next_step = competitorEvidenceDowngraded &&
+        trendEvidenceDowngraded
+      ? "Добавьте независимый источник о конкуренте и ещё один датированный источник о динамике тренда."
+      : competitorEvidenceDowngraded
+      ? "Добавьте источник другого независимого издателя о втором конкуренте."
+      : "Добавьте второй независимый датированный источник о динамике тренда.";
+    guidance.reason =
+      "Оплаченный результат сохранён, но доказательств пока недостаточно для передачи в готовый бриф.";
+    const suggestedAction =
+      "Откройте сохранённые источники, добавьте недостающее доказательство и пересчитайте только нужный этап.";
+    guidance.suggested_actions = [
+      suggestedAction,
+      ...guidance.suggested_actions.filter((item) => item !== suggestedAction),
+    ].slice(0, 8);
+  }
 
   if (
     !Array.isArray(value.facts) || value.facts.length < 2 ||
@@ -1980,6 +2065,12 @@ Product Research v2 requirements:
    или возвращён web_search. Не сочиняй и не исправляй URL.
    published_at верни как точный ISO 8601 timestamp только когда дата видна на
    публичной странице; иначе верни null. accessed_at — текущий ISO 8601 timestamp.
+   Если public_url ведёт на YouTube, считай его точным пользовательским референсом:
+   найди и открой этот ролик через web_search, затем отдельно найди публичные страницы
+   товара и конкурентов. Анализируй только доступные странице заголовок, описание,
+   канал и другие явно раскрытые данные. Не утверждай, что просмотрел кадры или
+   расшифровку, если они не были реально доступны. Несколько роликов YouTube не
+   считай независимыми издателями без проверяемого подтверждения разных каналов.
 4. Фото пользователя обозначай source_type=input_photo, url=null и id ровно
    photo:1, photo:2 и так далее. По фото фиксируй только визуально наблюдаемое.
 5. Отделяй факт от гипотезы. Сомнительное утверждение имеет confidence=low.
@@ -2692,9 +2783,34 @@ async function handleCreatorProductResearch(
     return json(request, { ok: false, code: "research_unavailable" }, 503);
   };
 
-  const authorized = await readCurrentStatus();
+  let authorized = await readCurrentStatus();
   if (authorized === null) {
     return json(request, { ok: false, code: "research_rejected" }, 403);
+  }
+  if (payload.action === "revalidate" && authorized.status === "failed") {
+    let revalidation: unknown = null;
+    try {
+      const { data, error } = await supabaseAdmin.rpc(
+        "system_revalidate_product_research_response",
+        { p_payload: { run_id: payload.research_id } },
+      );
+      if (!error) revalidation = data;
+    } catch {
+      revalidation = null;
+    }
+    if (!isRecord(revalidation) || revalidation.ok !== true) {
+      return json(request, {
+        ok: false,
+        code: isRecord(revalidation) &&
+            typeof revalidation.code === "string"
+          ? revalidation.code
+          : "research_response_revalidation_unavailable",
+      });
+    }
+    authorized = await readCurrentStatus();
+    if (authorized === null) {
+      return json(request, { ok: false, code: "research_unavailable" }, 503);
+    }
   }
   if (
     authorized.status === "completed" || authorized.status === "failed" ||
@@ -2705,7 +2821,7 @@ async function handleCreatorProductResearch(
   }
   // A browser status read never turns an unclaimed row into a paid request.
   // The explicit start call or the internal worker owns the sole POST.
-  if (authorized.status === "queued" && payload.action === "status") {
+  if (authorized.status === "queued" && payload.action !== "analyze") {
     return json(request, authorized.data, 202);
   }
 

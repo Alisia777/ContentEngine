@@ -426,6 +426,16 @@ export function normalizeProductResearch(raw, previous = null) {
     || objectValue(analysis.brief)
     || objectValue(result.brief)
     || {};
+  const rawBrief = Object.keys(latestBrief).length
+    ? latestBrief
+    : Object.keys(envelopeBrief).length
+      ? envelopeBrief
+      : (previous?.rawBrief || {});
+  const hasCategoryAnalysis = Boolean(
+    rawBrief?.category_analysis
+    && typeof rawBrief.category_analysis === "object"
+    && !Array.isArray(rawBrief.category_analysis),
+  );
   const brief = normalizeBrief(briefSource);
   const scenarios = normalizeScenarios(
     arrayValue(brief.scenarios).length
@@ -603,11 +613,8 @@ export function normalizeProductResearch(raw, previous = null) {
     factors: normalizeFactors(forecast.factors || prediction.factors || analysis.score_factors || analysis.factors || previous?.factors),
     sources: normalizeSources(root.sources || run.sources || analysis.sources || result.sources || previous?.sources),
     brief: { ...brief, scenarios },
-    rawBrief: Object.keys(latestBrief).length
-      ? latestBrief
-      : Object.keys(envelopeBrief).length
-        ? envelopeBrief
-        : (previous?.rawBrief || {}),
+    rawBrief,
+    hasCategoryAnalysis,
     rawTaskBlueprint: arrayValue(latestDraft.task_blueprint).length ? latestDraft.task_blueprint : (previous?.rawTaskBlueprint || []),
     draftId: String(approval.draft_id || approval.draftId || latestDraft.id || root.draft_id || previous?.draftId || ""),
     sourceIds: stringArray(latestDraft.source_ids).length
@@ -3110,18 +3117,24 @@ export function productResearchProgressMarkup(record, error = "") {
   const paidProviderResultFailed = failed
     && providerResponseBound
     && !providerOutcomeUnknown;
+  const responseValidationFailed = paidProviderResultFailed
+    && failureCode === "provider_response_invalid";
   const failureMessage = providerOutcomeUnknown
     ? "Платный запрос мог быть принят провайдером, но итог не удалось подтвердить в доступное время. Портал не повторяет такой запрос автоматически. Скопируйте ID запуска для поддержки; новый платный анализ запускайте только отдельным осознанным действием."
+    : responseValidationFailed
+      ? `${record?.failureMessage || "Ответ провайдера получен, но локальная проверка не приняла его структуру или источники."} Можно повторно проверить тот же сохранённый response_id без нового платного запроса.`
     : paidProviderResultFailed
       ? `${record?.failureMessage || "Провайдер завершил платный запуск, но пригодный результат не сохранён."} Повторный анализ будет отдельным новым платным запросом.`
     : record?.failureMessage;
   const progress = `
     <section class="card card-pad product-research-progress" ${failed || error ? 'role="alert"' : 'role="status"'} aria-live="polite">
       <div class="product-research-orbit" aria-hidden="true"><span></span><b>A</b></div>
-      <p class="eyebrow">${providerOutcomeUnknown ? "Оплата требует сверки" : paidProviderResultFailed ? "Платный запуск завершён" : failed || error ? "Нужна проверка" : waitingForProviderSlot ? "Анализ в очереди" : "Исследование запущено"}</p>
+      <p class="eyebrow">${providerOutcomeUnknown ? "Оплата требует сверки" : responseValidationFailed ? "Платный ответ сохранён" : paidProviderResultFailed ? "Платный запуск завершён" : failed || error ? "Нужна проверка" : waitingForProviderSlot ? "Анализ в очереди" : "Исследование запущено"}</p>
       <h2>${failed
         ? providerOutcomeUnknown
           ? "Ответ провайдера пока не подтверждён"
+          : responseValidationFailed
+            ? "Ответ получен — нужна повторная проверка"
           : paidProviderResultFailed
             ? "Результат нельзя использовать"
           : "Анализ не завершился"
@@ -3136,6 +3149,8 @@ export function productResearchProgressMarkup(record, error = "") {
       ${!failed && record?.statusNotice ? `<div class="alert alert-warning" role="status"><strong>Запуск сохранён.</strong><span>${escapeHtml(record.statusNotice)}</span></div>` : ""}
       ${providerOutcomeUnknown
         ? `<div class="inline-actions"><button class="btn" type="button" data-primary-action="true" data-action="copy-product-research-support-id" data-research-id="${escapeHtml(record?.id || "")}">Скопировать ID для поддержки</button><button class="btn btn-ghost" type="button" data-action="new-product-research">Подготовить отдельный новый анализ</button></div><small class="product-research-paid-retry-warning">Это будет новая подтверждаемая оплата; старый запрос мог быть принят. Автоматического повтора нет: перед запуском снова откроется форма с обязательными подтверждениями.</small>`
+        : responseValidationFailed
+          ? `<div class="inline-actions"><button class="btn" type="button" data-primary-action="true" data-action="revalidate-product-research-response">Повторно проверить ответ — без оплаты</button><button class="btn btn-ghost" type="button" data-action="new-product-research">Подготовить отдельный новый анализ</button></div><small class="product-research-paid-retry-warning">Повторная проверка читает только уже привязанный response_id и не отправляет новый POST провайдеру. Если срок хранения ответа истёк, портал остановится и сообщит об этом до нового платного действия.</small>`
         : paidProviderResultFailed
           ? `<div class="inline-actions"><button class="btn" type="button" data-primary-action="true" data-action="new-product-research">Подготовить новый платный анализ</button><button class="btn btn-ghost" type="button" data-action="refresh-product-research">Проверить сохранённый статус</button></div><small class="product-research-paid-retry-warning">Предыдущий платный запуск уже был принят провайдером. Новый анализ создаст отдельный запрос и потребует нового подтверждения оплаты.</small>`
         : failed
@@ -7072,6 +7087,23 @@ export function researchMarketCategoryMarkup(value, {
   const alternativeCategories = registry.categories.filter((category) => (
     category.categoryId !== current?.categoryId
   ));
+  const currentCategory = registry.categories.find((category) => (
+    category.categoryId === current?.categoryId
+  )) || null;
+  const marketIdentityKey = (text) => String(text || "")
+    .normalize("NFKC")
+    .toLocaleLowerCase("ru-RU")
+    .replace(/[\s\p{P}]+/gu, " ")
+    .trim();
+  const candidateIdentityKey = marketIdentityKey(candidate?.categoryName);
+  const knownCurrentIdentityKeys = new Set([
+    current?.canonicalName,
+    ...(currentCategory?.aliases || []),
+  ].map(marketIdentityKey).filter(Boolean));
+  const reaffirmSuggested = Boolean(
+    current && candidateIdentityKey
+      && !knownCurrentIdentityKeys.has(candidateIdentityKey),
+  );
   const existingAction = current ? "reclassify" : "bind_existing";
   const createAction = current ? "create_and_reclassify" : "create_and_bind";
   const guidanceLabels = {
@@ -7142,11 +7174,23 @@ export function researchMarketCategoryMarkup(value, {
     <label class="check-row product-research-market-confirmation"><input type="checkbox" name="market_category_confirmation" required ${saving ? "disabled" : ""} /><span><strong>Подтверждаю рыночную категорию для этого товара</strong><br /><small>Это не меняет compliance-категорию, не запускает новый анализ и не обращается к платному провайдеру.</small></span></label>`;
   const reasonField = `
     <label class="field product-research-market-reason"><span>Почему это верная граница${current ? " *" : ""}</span><textarea name="reason" maxlength="500" placeholder="Что отличает категорию и почему прежняя привязка требует изменения" ${saving ? "disabled" : ""}></textarea></label>`;
+  const reaffirmForm = reaffirmSuggested
+    ? `<form id="product-research-market-category-reaffirm-form" class="product-research-market-choice product-research-market-category-form" data-research-id="${escapeHtml(runId)}" data-ce-patch-key="research-market-reaffirm:${escapeHtml(runId)}" novalidate>
+        <input type="hidden" name="candidate_hash" value="${escapeHtml(candidate.candidateHash)}" />
+        <input type="hidden" name="category_id" value="${escapeHtml(current.categoryId)}" />
+        <input type="hidden" name="market_category_action" value="reaffirm" />
+        <div><strong>Подтвердить как новый синоним текущей категории</strong><small>«${escapeHtml(candidate.categoryName)}» будет добавлено к «${escapeHtml(current.canonicalName)}»; история и прежние доказательства не переписываются.</small></div>
+        ${reasonField}
+        ${confirmationField}
+        <button class="btn btn-secondary" type="submit" data-market-category-action="reaffirm" ${saving ? "disabled" : ""}>${saving ? "Сохраняем…" : "Подтвердить синоним"}</button>
+      </form>`
+    : "";
   const decisionForm = registry.available
     && registry.canResolve !== false
     && candidate
     && candidateHashValid
     ? `<div class="product-research-market-forms">
+        ${reaffirmForm}
         <form id="product-research-market-category-existing-form" class="product-research-market-choice product-research-market-category-form" data-research-id="${escapeHtml(runId)}" data-ce-patch-key="research-market-existing:${escapeHtml(runId)}" novalidate>
           <input type="hidden" name="candidate_hash" value="${escapeHtml(candidate.candidateHash)}" />
           <input type="hidden" name="market_category_action" value="${existingAction}" />

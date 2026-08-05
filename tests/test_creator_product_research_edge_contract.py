@@ -30,6 +30,7 @@ def test_research_edge_is_authenticated_origin_bound_and_claims_before_openai() 
     assert '"creator_project_research_status"' in source
     assert '"system_claim_product_research"' in source
     assert '"system_complete_product_research"' in source
+    assert '"system_revalidate_product_research_response"' in source
     claim = source.index('"system_claim_product_research"', source.index("withSupabase"))
     provider = source.index("OPENAI_RESPONSES_URL", claim)
     assert claim < provider
@@ -71,6 +72,8 @@ def test_research_persists_only_provider_citations_and_private_signed_images() -
     assert "visual_analysis: true" in source
     assert 'normalized.startsWith("utm_")' in source
     assert "url.searchParams.sort()" in source
+    assert 'return `https://youtube.com/watch?v=${candidate}`' in source
+    assert '"youtu.be"' in source
     assert 'url.search = ""' not in source
     assert 'const STORAGE_BUCKET = "contentengine-private"' in source
     assert ".createSignedUrl(photo.objectName, SIGNED_IMAGE_TTL_SECONDS)" in source
@@ -84,7 +87,7 @@ def test_ambiguous_openai_outcome_is_terminal_and_never_auto_replayed() -> None:
     source = _source()
 
     status_gate = source.index(
-        'if (authorized.status === "queued" && payload.action === "status")'
+        'if (authorized.status === "queued" && payload.action !== "analyze")'
     )
     claim = source.index('"system_claim_product_research"', status_gate)
     observer = source.index("if (!claim.claimed)", claim)

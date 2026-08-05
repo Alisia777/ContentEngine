@@ -373,19 +373,70 @@ Deno.test("readResearchResult accepts a complete corroborated v2 result", () => 
   assert(validate(fixture) !== null, "expected the canonical fixture to pass");
 });
 
-Deno.test("sufficient competitor coverage rejects duplicates and one-domain evidence", () => {
-  const duplicate = validFixture({ secondCompetitorName: "  ALPHA—BRAND " });
-  assertNull(
-    validate(duplicate),
-    "normalized duplicate competitor names must fail",
+Deno.test("unsupported sufficient coverage is preserved as limited evidence", () => {
+  const duplicate = validFixture({ secondCompetitorName: "ALPHA—BRAND" });
+  assert(
+    validate(duplicate) !== null,
+    "duplicate competitor names should preserve the paid result",
+  );
+  assert(
+    duplicate.competitor_analysis.coverage === "limited" &&
+      duplicate.guidance.status === "needs_more_evidence",
+    "duplicate names must downgrade coverage and guidance",
   );
 
   const sameDomain = validFixture({
     secondSourceUrl: "https://news.alpha.example/competitor-b",
   });
-  assertNull(
-    validate(sameDomain),
-    "two URLs on one publisher domain must not be sufficient coverage",
+  assert(
+    validate(sameDomain) !== null,
+    "one-domain evidence should remain available for correction",
+  );
+  assert(
+    sameDomain.competitor_analysis.coverage === "limited" &&
+      sameDomain.trend_analysis.signals[0].direction === "unclear" &&
+      sameDomain.trend_analysis.signals[0].recommended_use === "monitor",
+    "one publisher must not support sufficient coverage or a trend direction",
+  );
+});
+
+Deno.test("YouTube video aliases resolve to the provider-cited URL", () => {
+  const fixture = validFixture();
+  fixture.sources[0].url =
+    "https://www.youtube.com/watch?v=ABCDEFGHIJK&utm_source=creator";
+  const sources = new Map([
+    [
+      "https://youtube.com/watch?v=ABCDEFGHIJK",
+      "https://youtu.be/ABCDEFGHIJK?si=provider-receipt",
+    ],
+    ["https://beta.example/competitor-b", "https://beta.example/competitor-b"],
+  ]);
+  const result = readResearchResult(
+    fixture,
+    sources,
+    0,
+    ["instagram"],
+  );
+  assert(result !== null, "equivalent YouTube video URLs must verify");
+  assert(
+    fixture.sources[0].url ===
+      "https://youtu.be/ABCDEFGHIJK?si=provider-receipt",
+    "only the exact provider-disclosed URL may be persisted",
+  );
+});
+
+Deno.test("two YouTube videos stay usable without claiming publisher independence", () => {
+  const fixture = validFixture({
+    secondSourceUrl: "https://youtube.com/watch?v=LMNOPQRSTUV",
+  });
+  fixture.sources[0].url = "https://youtube.com/watch?v=ABCDEFGHIJK";
+  const result = validate(fixture);
+  assert(result !== null, "a two-video YouTube sample must remain correctable");
+  assert(
+    fixture.competitor_analysis.coverage === "limited" &&
+      fixture.trend_analysis.signals[0].direction === "unclear" &&
+      fixture.guidance.status === "needs_more_evidence",
+    "two videos without channel proof must not claim independent publishers",
   );
 });
 
@@ -410,9 +461,16 @@ Deno.test("a photo cannot manufacture temporal publisher independence", () => {
     includePhoto: true,
     trendSourceIds: ["web:alpha", "web:beta", "photo:1"],
   });
-  assertNull(
-    validate(fixture, 1),
-    "same-domain web evidence plus a photo must not corroborate a trend",
+  assert(
+    validate(fixture, 1) !== null,
+    "weak temporal evidence should preserve a correctable result",
+  );
+  assert(
+    fixture.trend_analysis.signals[0].direction === "unclear" &&
+      fixture.trend_analysis.signals[0].confidence === "low" &&
+      fixture.trend_analysis.signals[0].recommended_use === "monitor" &&
+      fixture.guidance.status === "needs_more_evidence",
+    "same-domain evidence plus a photo must only produce a monitored hypothesis",
   );
 });
 

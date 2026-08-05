@@ -814,7 +814,8 @@ def test_youtube_analysis_submit_is_approval_cas_and_retention_bound() -> None:
         "expected_retention_expires_at: observation.retentionExpiresAt"
         in handler
     )
-    assert "refreshProductResearchCategoryLearning(runId, {" in handler
+    assert "refreshCategoryLearningUi(" in handler
+    assert "expectedRequestId: requestId" in handler
     assert "expectedRequestId: requestId" in handler
 
 

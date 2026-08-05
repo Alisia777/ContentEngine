@@ -154,7 +154,7 @@ select is(
       and procedure.proname like 'creator_%'
       and has_function_privilege('authenticated', procedure.oid, 'execute')
   ),
-  99,
+  102,
   'authenticated can execute all creator RPCs'
 );
 
@@ -183,6 +183,7 @@ select is(
         'system_reconcile_invited_member',
         'system_claim_product_research',
         'system_complete_product_research',
+        'system_revalidate_product_research_response',
         'system_claim_content_review',
         'system_complete_content_review'
       )
@@ -204,12 +205,13 @@ select is(
         'system_reconcile_invited_member',
         'system_claim_product_research',
         'system_complete_product_research',
+        'system_revalidate_product_research_response',
         'system_claim_content_review',
         'system_complete_content_review'
       )
       and has_function_privilege('service_role', procedure.oid, 'execute')
   ),
-  7,
+  8,
   'service_role can execute all system onboarding RPCs'
 );
 

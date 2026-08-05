@@ -80,6 +80,45 @@ def _run_api_module(body: str) -> dict:
     return json.loads(result.stdout)
 
 
+def test_modern_shot_object_preserves_browser_compiler_text_boundary() -> None:
+    result = _run_view_module(
+        """
+        const normalized = subject.normalizeProductResearch({
+          run: {
+            id: "11111111-1111-4111-8111-111111111112",
+            product_name: "Compiler Product",
+            sku: "COMPILER-SKU",
+          },
+          latest_draft: {
+            id: "11111111-1111-4111-8111-111111111113",
+            status: "approved",
+            brief: {
+              category_analysis: {},
+              scenarios: [{
+                title: "Compiler scenario",
+                platform: "instagram",
+                hook: "Plain hook",
+                shot_list: [{
+                  seconds: "0-2",
+                  visual: "before\\nbuying",
+                  voiceover: "neutral",
+                  on_screen_text: "без текста",
+                }],
+              }],
+            },
+          },
+        });
+        return {
+          hasCategoryAnalysis: normalized.hasCategoryAnalysis,
+          shotList: normalized.scenarios[0]?.shotList,
+        };
+        """
+    )
+    assert result["hasCategoryAnalysis"] is True
+    assert "before\nbuying" in result["shotList"]
+    assert "0-2:" in result["shotList"]
+
+
 
 def test_shared_research_forms_have_unique_patch_keys() -> None:
     keys = re.findall(r'data-ce-patch-key="([^"]+)"', VIEW)
@@ -88,6 +127,7 @@ def test_shared_research_forms_have_unique_patch_keys() -> None:
         'research-youtube-${mode}:${escapeHtml(control.runId)}',
         'research-market-existing:${escapeHtml(runId)}',
         'research-market-create:${escapeHtml(runId)}',
+        'research-market-reaffirm:${escapeHtml(runId)}',
         'research-market-search:${escapeHtml(runId)}',
         'research-watchlist:${escapeHtml(runId)}',
     }
@@ -97,7 +137,7 @@ def test_shared_research_forms_have_unique_patch_keys() -> None:
         r'<form[^>]+data-research-id="[^"]+"[^>]*>',
         VIEW,
     )
-    assert len(shared_run_forms) == 6
+    assert len(shared_run_forms) == 7
     assert all('data-ce-patch-key="' in form for form in shared_run_forms)
 
 def test_manager_workspace_exposes_research_without_changing_six_step_factory() -> None:
@@ -156,6 +196,24 @@ def test_browser_api_uses_narrow_research_rpcs_and_exact_edge_payload() -> None:
         assert "project_id" in source
     assert "body: payload" in invoke
     assert "body: this.withOrganization(payload)" not in invoke
+
+
+def test_browser_api_exposes_confirmed_audited_category_retirement() -> None:
+    assert (
+        'retireResearchMarketCategory: "creator_retire_research_market_category"'
+        in API
+    )
+    retire = _between(
+        API,
+        "  async retireResearchMarketCategory",
+        "  searchResearchMarketCategories",
+    )
+    assert "isUuid(normalizedCategoryId)" in retire
+    assert "reason.length < 3 || reason.length > 500" in retire
+    assert "options.confirmation !== true" in retire
+    assert "this.mutate(RPC.retireResearchMarketCategory" in retire
+    assert "category_id: normalizedCategoryId" in retire
+    assert "confirmation: true" in retire
 
 
 def test_start_form_is_source_aware_paid_and_requires_human_review() -> None:

@@ -417,6 +417,11 @@ const overviewMarkup = subject.aiLearningControlRoomMarkup(normalized, {
   view: "overview",
   saving: false,
 });
+const legacyMarkup = subject.aiLearningControlRoomMarkup(normalized, {
+  category: "cosmetics",
+  view: "overview",
+  legacyReadOnly: true,
+});
 const knowledgeMarkup = subject.aiLearningControlRoomMarkup(normalized, {
   category: "cosmetics",
   view: "knowledge",
@@ -650,6 +655,9 @@ return {
     && markup.includes('name="card_hash"')
     && markup.includes('name="expected_scope_version"'),
   accessibleStatus: markup.includes('aria-live=') || markup.includes('role="status"'),
+  legacyArchiveOnly: legacyMarkup.includes("Архивная политика: влияние отключено")
+    && legacyMarkup.includes("Архивный legacy-показатель")
+    && !legacyMarkup.includes("Правила, которые реально учитывает ИИ"),
   historicalCases: historicalCases.length,
   historicalSummary: normalized.category.historicalCaseSummary,
   historicalFilters: ["good", "bad", "review"].every((key) => (
@@ -727,6 +735,7 @@ return {
         "decisions": True,
         "exactDecisionIdentity": True,
         "accessibleStatus": True,
+        "legacyArchiveOnly": True,
         "historicalCases": 3,
         "historicalSummary": {
             "total": 3,

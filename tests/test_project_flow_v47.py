@@ -485,6 +485,7 @@ process.stdout.write("ok");
 def test_global_workspace_routes_work_without_a_project_but_production_routes_do_not() -> None:
     policy = _function(APP, "function workspaceSectionRequiresProject(")
     workspace = _function(APP, "function renderWorkspace(")
+    ai_loader = _function(APP, "async function loadAiLearningControlRoom(")
 
     assert 'new Set(["home", "team", "feedback", "ai"])' in APP
     assert 'normalizedSection === "work"' in policy
@@ -493,6 +494,30 @@ def test_global_workspace_routes_work_without_a_project_but_production_routes_do
     assert 'if (section !== "home" && !currentWorkspaceProjectId())' not in workspace
     assert 'const notificationOnlyWork = section === "work"' in workspace
     assert 'sectionState.status = "ready"' in workspace
+    assert "const hasProject = isWorkspaceProjectId(projectId)" in ai_loader
+    assert "const marketIndexRequest = hasProject" in ai_loader
+    assert "Promise.resolve({ skipped: true })" in ai_loader
+    assert "state.api.aiLearningControlRoom({ category })" in ai_loader
+
+
+def test_project_change_invalidates_generation_receipt_before_new_scope_is_used() -> None:
+    activate = _function(APP, "function activateWorkspaceProject(")
+    clear = _function(APP, "function clearWorkspaceProjectSelection(")
+    draft_key = _function(APP, "function generationFormDraftStorageKey(")
+
+    for source in (activate, clear):
+        assert "cancelGenerationFormDraftSave();" in source
+        assert "resetGenerationSpecState();" in source
+        assert "clearContentGenerationHandoff();" in source
+        assert "clearGenerationRepair();" in source
+        assert "clearGenerationMediaSelection();" in source
+        assert "clearGenerationFormDraft();" not in source
+
+    assert activate.index("cancelGenerationFormDraftSave();") < activate.index(
+        "persistWorkspaceProject(id, projectName);"
+    )
+    assert "currentWorkspaceProjectId()" in draft_key
+    assert ":${organizationId}:${userId}:${projectId}`" in draft_key
 
 
 def test_stale_or_archived_project_selection_recovers_to_the_catalog() -> None:

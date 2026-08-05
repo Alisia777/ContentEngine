@@ -141,6 +141,18 @@ insert into content_factory.workspace_folders (
   'f1000000-0000-4000-8000-000000000001'
 );
 
+insert into content_factory.workspace_folders (
+  id, organization_id, parent_id, name, color_token, kind, system_role,
+  status, position, created_by, updated_by
+) values (
+  'f1150000-0000-4000-8000-000000000002',
+  'f1100000-0000-4000-8000-000000000001', null,
+  'Other generation spec project', 'violet', 'project', null,
+  'active', 2048,
+  'f1000000-0000-4000-8000-000000000001',
+  'f1000000-0000-4000-8000-000000000001'
+);
+
 insert into content_factory.training_access_waivers (
   organization_id, profile_id, previous_role, granted_role,
   grant_reason, granted_by
@@ -274,6 +286,7 @@ begin
     from generation_spec_test_state state;
     select public.creator_prepare_generation_spec(jsonb_build_object(
       'organization_id', 'f1100000-0000-4000-8000-000000000001',
+      'project_id', 'f1150000-0000-4000-8000-000000000001',
       'idempotency_key', 'generation-spec-bounded-prepare-0001',
       'exact_scope', jsonb_build_object(
         'primary_media_id', 'f1300000-0000-4000-8000-000000000001',
@@ -302,6 +315,7 @@ begin
     approve_value := public.creator_control_generation_spec(
       jsonb_build_object(
         'organization_id', 'f1100000-0000-4000-8000-000000000001',
+        'project_id', 'f1150000-0000-4000-8000-000000000001',
         'spec_id', prepare_value #>> '{generation_spec,spec_id}',
         'expected_spec_version',
           (prepare_value #>> '{generation_spec,spec_version}')::integer,
@@ -380,6 +394,7 @@ update generation_spec_test_state state
 set prepare_result = public.creator_prepare_generation_spec(
   jsonb_build_object(
     'organization_id', 'f1100000-0000-4000-8000-000000000001',
+    'project_id', 'f1150000-0000-4000-8000-000000000001',
     'idempotency_key', 'generation-spec-prepare-0001',
     'exact_scope', jsonb_build_object(
       'primary_media_id', 'f1300000-0000-4000-8000-000000000001',
@@ -459,6 +474,7 @@ update generation_spec_test_state state
 set approve_result = public.creator_control_generation_spec(
   jsonb_build_object(
     'organization_id', 'f1100000-0000-4000-8000-000000000001',
+    'project_id', 'f1150000-0000-4000-8000-000000000001',
     'spec_id', state.prepare_result #>> '{generation_spec,spec_id}',
     'expected_spec_version',
       (state.prepare_result #>> '{generation_spec,spec_version}')::integer,
@@ -484,6 +500,7 @@ select lives_ok(
   $$
     select public.creator_generation_spec_status(jsonb_build_object(
       'organization_id', 'f1100000-0000-4000-8000-000000000001',
+      'project_id', 'f1150000-0000-4000-8000-000000000001',
       'spec_id', approve_result #>> '{generation_spec,spec_id}',
       'spec_version',
         (approve_result #>> '{generation_spec,spec_version}')::integer,
@@ -498,6 +515,7 @@ update generation_spec_test_state state
 set effective_result = public.creator_generation_spec_effective_policy(
   jsonb_build_object(
     'organization_id', 'f1100000-0000-4000-8000-000000000001',
+    'project_id', 'f1150000-0000-4000-8000-000000000001',
     'spec_id', state.approve_result #>> '{generation_spec,spec_id}',
     'spec_version',
       (state.approve_result #>> '{generation_spec,spec_version}')::integer,
@@ -507,16 +525,55 @@ set effective_result = public.creator_generation_spec_effective_policy(
 
 select ok(
   (select effective_result - array[
-    'ok', 'version', 'generation_spec_context', 'status', 'exact_scope',
+    'ok', 'version', 'project_id', 'generation_spec_context', 'status', 'exact_scope',
     'compiled_prompt', 'prompt_hash', 'learning_context', 'repair_context',
     'final_policy_hash', 'outcome_selection', 'automatic_approval',
     'automatic_spend', 'automatic_generation'
   ]::text[] = '{}'::jsonb
+  and effective_result ->> 'project_id' =
+    'f1150000-0000-4000-8000-000000000001'
   and effective_result ->> 'status' = 'approved_current'
   and effective_result -> 'repair_context' = 'null'::jsonb
   and effective_result -> 'outcome_selection' = 'null'::jsonb
   from generation_spec_test_state),
   'effective policy exposes only the strict approved Edge handoff'
+);
+
+select throws_ok(
+  $$
+    select public.creator_generation_spec_effective_policy(
+      jsonb_build_object(
+        'organization_id', 'f1100000-0000-4000-8000-000000000001',
+        'spec_id', approve_result #>> '{generation_spec,spec_id}',
+        'spec_version',
+          (approve_result #>> '{generation_spec,spec_version}')::integer,
+        'spec_hash', approve_result #>> '{generation_spec,spec_hash}'
+      )
+    )
+    from generation_spec_test_state
+  $$,
+  '22023',
+  'project_id_required',
+  'effective policy never falls back to ambient project context'
+);
+
+select throws_ok(
+  $$
+    select public.creator_generation_spec_effective_policy(
+      jsonb_build_object(
+        'organization_id', 'f1100000-0000-4000-8000-000000000001',
+        'project_id', 'f1150000-0000-4000-8000-000000000002',
+        'spec_id', approve_result #>> '{generation_spec,spec_id}',
+        'spec_version',
+          (approve_result #>> '{generation_spec,spec_version}')::integer,
+        'spec_hash', approve_result #>> '{generation_spec,spec_hash}'
+      )
+    )
+    from generation_spec_test_state
+  $$,
+  '42501',
+  'generation_spec_project_scope_mismatch',
+  'effective policy rejects a valid but foreign project for the exact spec'
 );
 
 select is(
@@ -945,6 +1002,7 @@ select is(
 update generation_spec_test_state state
 set patch_result = public.creator_control_generation_spec(jsonb_build_object(
   'organization_id', 'f1100000-0000-4000-8000-000000000001',
+  'project_id', 'f1150000-0000-4000-8000-000000000001',
   'spec_id', state.approve_result #>> '{generation_spec,spec_id}',
   'expected_spec_version',
     (state.approve_result #>> '{generation_spec,spec_version}')::integer,

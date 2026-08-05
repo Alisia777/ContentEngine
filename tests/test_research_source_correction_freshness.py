@@ -149,8 +149,9 @@ def test_browser_refreshes_stage_control_after_source_correction() -> None:
     end = app.index("async function submitProductResearchCollectionPolicy", start)
     correction_flow = app[start:end]
 
-    assert "refreshProductResearchCategoryLearning(runId)" in correction_flow
+    assert "refreshCategoryLearningUi(uiContext, runId)" in correction_flow
     assert "loadResearchStageControl({ runId, silent: true })" in correction_flow
+    assert 'uiContext.kind === "research"' in correction_flow
     assert "Зависимые этапы и спецификации помечены устаревшими" in correction_flow
 
 

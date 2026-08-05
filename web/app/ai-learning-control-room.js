@@ -1,4 +1,30 @@
 const AI_LEARNING_CONTROL_ROOM_VERSION = "ai-learning-control-room-v1";
+const AI_MARKET_SCOPE_INDEX_VERSION = "ai-learning-market-scope-index-v2";
+const AI_MARKET_READINESS_KIND = "category_evidence_readiness_not_model_iq";
+const AI_MARKET_READINESS_VERSION = "category-evidence-readiness-v3";
+const AI_MARKET_SCOPE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+const AI_MARKET_SCOPE_HASH = /^[0-9a-f]{64}$/u;
+const AI_MARKET_SCOPE_STATUSES = new Set([
+  "queued",
+  "processing",
+  "completed",
+  "failed",
+  "cancelled",
+]);
+const AI_MARKET_PRODUCT_STATUSES = new Set(["active", "paused"]);
+const AI_MARKET_GUIDANCE_STATUSES = new Set([
+  "strong_evidence",
+  "developing_evidence",
+  "insufficient_evidence",
+]);
+const AI_MARKET_DIMENSION_KEYS = Object.freeze([
+  "source_volume",
+  "platform_diversity",
+  "competitor_observations",
+  "trend_recency",
+  "analysis_coverage",
+  "human_validation",
+]);
 const AI_LEARNING_VIEWS = new Set(["overview", "knowledge", "teach", "cases", "history"]);
 const AI_LEARNING_STATUSES = new Set([
   "strong_evidence",
@@ -150,6 +176,346 @@ export function aiLearningView(value) {
     40,
   ).toLowerCase();
   return AI_LEARNING_VIEWS.has(candidate) ? candidate : "overview";
+}
+
+/**
+ * Strictly normalizes the server-owned index of dynamic market-category
+ * contexts.  A context is product-specific because automatic collection
+ * policy is product-specific even when evidence/readiness is shared by a
+ * market category.  Unknown category names are never mapped to `other`.
+ */
+export function normalizeAiLearningMarketScopeIndex(value) {
+  const unavailable = (reason = "invalid_contract") => ({
+    available: false,
+    ok: false,
+    version: AI_MARKET_SCOPE_INDEX_VERSION,
+    organizationId: "",
+    projectId: "",
+    metricKind: AI_MARKET_READINESS_KIND,
+    asOf: null,
+    scopes: [],
+    itemLimit: 50,
+    reason,
+  });
+  let source = objectValue(value) || {};
+  if (objectValue(source.data)) source = source.data;
+  if (!exactObjectKeys(source, [
+    "ok",
+    "version",
+    "organization_id",
+    "project_id",
+    "metric_kind",
+    "as_of",
+    "scopes",
+    "limits",
+  ])) return unavailable();
+  const organizationId = exactUuid(source.organization_id);
+  const projectId = exactUuid(source.project_id);
+  const asOf = timestamp(source.as_of);
+  const limits = objectValue(source.limits);
+  if (
+    source.ok !== true
+    || source.version !== AI_MARKET_SCOPE_INDEX_VERSION
+    || !organizationId
+    || !projectId
+    || source.metric_kind !== AI_MARKET_READINESS_KIND
+    || !asOf
+    || !exactObjectKeys(limits, [
+      "item_limit",
+      "detail_rpc",
+      "score_is_model_iq",
+      "status_read_only",
+      "external_call_started",
+    ])
+    || !Number.isSafeInteger(limits.item_limit)
+    || limits.item_limit < 1
+    || limits.item_limit > 50
+    || limits.detail_rpc !== "creator_research_category_learning_status"
+    || limits.score_is_model_iq !== false
+    || limits.status_read_only !== true
+    || limits.external_call_started !== false
+  ) return unavailable();
+
+  const rawScopes = arrayFrom(source.scopes);
+  if (rawScopes.length > limits.item_limit) return unavailable();
+  const scopes = [];
+  const scopeIds = new Set();
+  const productIds = new Set();
+  for (const rawScope of rawScopes) {
+    const scope = objectValue(rawScope);
+    if (!exactObjectKeys(scope, [
+      "scope_id",
+      "project_id",
+      "product_id",
+      "product_name",
+      "product_status",
+      "market_category_id",
+      "canonical_name",
+      "definition",
+      "binding_id",
+      "binding_version",
+      "run_id",
+      "run_status",
+      "run_finished_at",
+      "readiness",
+      "guidance",
+    ])) return unavailable();
+    const scopeId = exactUuid(scope.scope_id);
+    const scopeProjectId = exactUuid(scope.project_id);
+    const productId = exactUuid(scope.product_id);
+    const categoryId = exactUuid(scope.market_category_id);
+    const bindingId = exactUuid(scope.binding_id);
+    const runId = exactUuid(scope.run_id);
+    const productName = cleanText(scope.product_name, 240);
+    const canonicalName = cleanText(scope.canonical_name, 160);
+    const definition = cleanText(scope.definition, 2_000);
+    const bindingVersion = Number(scope.binding_version);
+    const runFinishedAt = scope.run_finished_at === null
+      ? null
+      : timestamp(scope.run_finished_at);
+    if (
+      !scopeId
+      || !scopeProjectId
+      || scopeProjectId !== projectId
+      || !productId
+      || !categoryId
+      || !bindingId
+      || !runId
+      || scopeId !== bindingId
+      || scopeIds.has(scopeId)
+      || productIds.has(productId)
+      || productName.length < 2
+      || canonicalName.length < 2
+      || definition.length < 10
+      || !AI_MARKET_PRODUCT_STATUSES.has(scope.product_status)
+      || !AI_MARKET_SCOPE_STATUSES.has(scope.run_status)
+      || !Number.isSafeInteger(bindingVersion)
+      || bindingVersion < 1
+      || (scope.run_finished_at !== null && !runFinishedAt)
+      || (["completed", "failed", "cancelled"].includes(scope.run_status)
+        ? !runFinishedAt
+        : scope.run_finished_at !== null)
+    ) return unavailable();
+
+    const readiness = normalizeMarketReadiness(scope.readiness, asOf);
+    const guidance = normalizeMarketGuidance(scope.guidance, readiness);
+    if (!readiness || !guidance) return unavailable();
+    scopeIds.add(scopeId);
+    productIds.add(productId);
+    scopes.push({
+      scopeId,
+      projectId: scopeProjectId,
+      productId,
+      productName,
+      productStatus: scope.product_status,
+      categoryId,
+      canonicalName,
+      definition,
+      bindingId,
+      bindingVersion,
+      runId,
+      runStatus: scope.run_status,
+      runFinishedAt,
+      score: readiness.score,
+      evidenceHash: readiness.evidenceHash,
+      readiness,
+      guidance,
+    });
+  }
+  return {
+    available: true,
+    ok: true,
+    version: AI_MARKET_SCOPE_INDEX_VERSION,
+    organizationId,
+    projectId,
+    metricKind: AI_MARKET_READINESS_KIND,
+    asOf,
+    scopes,
+    itemLimit: limits.item_limit,
+    reason: "",
+  };
+}
+
+export function aiLearningMarketScopeIndexMarkup(value, options = {}) {
+  const control = value?.available
+    && Array.isArray(value.scopes)
+    && value.version === AI_MARKET_SCOPE_INDEX_VERSION
+    ? value
+    : normalizeAiLearningMarketScopeIndex(value);
+  const requestedScopeId = exactUuid(options.selectedScopeId);
+  const selected = requestedScopeId
+    ? control.scopes.find((scope) => scope.scopeId === requestedScopeId) || null
+    : control.scopes[0] || null;
+  const loading = options.loading === true;
+  const error = cleanText(options.error, 800);
+  const requiresProject = options.requiresProject === true;
+  const detailMarkup = selected ? String(options.detailMarkup || "") : "";
+  const selectorMarkup = control.scopes.map((scope) => {
+    const active = scope.scopeId === selected?.scopeId;
+    const gapHint = scope.guidance.gaps.length
+      ? scope.guidance.gaps.map((gap) =>
+        `${gap.label}: ${gap.current}/${gap.target}; не хватает ${gap.missing}`
+      ).join(" · ")
+      : "Все шесть измерений достигли текущих целевых порогов.";
+    return `<button class="ai-market-scope-card${active ? " is-active" : ""}" type="button" data-action="select-ai-market-learning-scope" data-scope-id="${escapeHtml(scope.scopeId)}" aria-pressed="${active ? "true" : "false"}" aria-label="${escapeHtml(`${scope.canonicalName}. ${scope.productName}. ${gapHint}`)}" title="${escapeHtml(gapHint)}" ${loading ? "disabled" : ""}>
+      <span><strong>${escapeHtml(scope.canonicalName)}</strong><small>${escapeHtml(scope.productName)} · binding v${scope.bindingVersion}</small></span>
+      <b>${scope.score}%</b>
+    </button>`;
+  }).join("");
+  const content = requiresProject
+    ? `<div class="ai-market-learning-empty" role="status"><strong>Выберите проект для рыночного обучения</strong><p>Процент, источники и правила категории считаются только внутри точного проекта. Глобальный ИИ‑центр остаётся доступен, но проектные данные не смешиваются.</p><a class="btn btn-secondary btn-small" href="#/workspace/home">Выбрать проект</a></div>`
+    : !control.available
+    ? `<div class="ai-market-learning-empty" role="status"><strong>Динамические категории временно недоступны</strong><p>Процент скрыт: сервер не подтвердил точный UUID scope или readiness v3. Legacy‑оценка не подставляется.</p></div>`
+    : !selected && control.scopes.length
+      ? `<div class="ai-market-learning-layout">
+          <aside class="ai-market-scope-selector" aria-label="Категория и товар">${selectorMarkup}</aside>
+          <div class="ai-market-learning-detail"><div class="ai-market-learning-empty" role="status"><strong>Выберите актуальный product context</strong><p>UUID из ссылки устарел или больше недоступен. Доступные категории показаны слева; ни одна из них не выбрана автоматически.</p></div></div>
+        </div>`
+      : !selected
+      ? `<div class="ai-market-learning-empty"><strong>Подтверждённых рыночных категорий пока нет</strong><p>Запустите исследование товара: ИИ предложит границу новой категории, соберёт источники и попросит подтвердить привязку.</p><a class="btn btn-secondary btn-small" href="#/workspace/research">Начать исследование</a></div>`
+      : `<div class="ai-market-learning-layout">
+          <aside class="ai-market-scope-selector" aria-label="Категория и товар">${selectorMarkup}</aside>
+          <div class="ai-market-learning-detail" data-learning-context="ai" data-learning-run-id="${escapeHtml(selected.runId)}" data-learning-scope-id="${escapeHtml(selected.scopeId)}">
+            <div class="ai-market-context-note" role="note"><strong>${escapeHtml(selected.canonicalName)}</strong><span>Товар: ${escapeHtml(selected.productName)}. Readiness и source ledger общие для точной market category; политика автосбора меняется только в этом product context.</span></div>
+            ${detailMarkup || `<div class="ai-market-learning-empty"><strong>${loading ? "Загружаем доказательства…" : "Деталь пока недоступна"}</strong><p>Индекс остаётся read-only; provider call и retry не запускались.</p></div>`}
+          </div>
+        </div>`;
+  return `<section class="ai-market-learning" aria-labelledby="ai-market-learning-title" data-ce-patch-key="ai-market-learning">
+    <div class="ai-market-learning-heading">
+      <div><p class="ai-learning-eyebrow">Evidence-grounded market learning</p><h2 id="ai-market-learning-title">Новые категории, источники и управляемый анализ</h2><p>Здесь процент означает покрытие доказательств, а не IQ модели. Каждую интерпретацию можно проверить и исправить.</p></div>
+      <span class="ai-learning-status-pill is-${selected?.guidance.status === "strong_evidence" ? "strong" : selected?.guidance.status === "developing_evidence" ? "developing" : "insufficient"}">${selected ? `${selected.score}% evidence` : requiresProject ? "нужен проект" : "нет scope"}</span>
+    </div>
+    ${error ? `<div class="ai-learning-message is-error" role="alert">${escapeHtml(error)}</div>` : ""}
+    ${content}
+  </section>`;
+}
+
+function normalizeMarketReadiness(value, expectedAsOf) {
+  const source = objectValue(value);
+  if (!exactObjectKeys(source, [
+    "metric_kind",
+    "definition_version",
+    "score",
+    "dimensions",
+    "weights_total",
+    "evidence_hash",
+    "as_of",
+  ])) return null;
+  const asOf = timestamp(source.as_of);
+  const score = Number(source.score);
+  const dimensions = arrayFrom(source.dimensions).map(normalizeMarketDimension);
+  if (
+    source.metric_kind !== AI_MARKET_READINESS_KIND
+    || source.definition_version !== AI_MARKET_READINESS_VERSION
+    || !Number.isSafeInteger(score)
+    || score < 0
+    || score > 100
+    || source.weights_total !== 100
+    || !AI_MARKET_SCOPE_HASH.test(String(source.evidence_hash || ""))
+    || !asOf
+    || Date.parse(asOf) !== Date.parse(expectedAsOf)
+    || dimensions.length !== AI_MARKET_DIMENSION_KEYS.length
+    || dimensions.some((dimension) => !dimension)
+    || new Set(dimensions.map((dimension) => dimension.key)).size
+      !== AI_MARKET_DIMENSION_KEYS.length
+    || !AI_MARKET_DIMENSION_KEYS.every((key) =>
+      dimensions.some((dimension) => dimension.key === key)
+    )
+    || dimensions.reduce((sum, dimension) => sum + dimension.weight, 0) !== 100
+    || dimensions.reduce((sum, dimension) => sum + dimension.weightedPoints, 0)
+      !== score
+  ) return null;
+  return {
+    definitionVersion: source.definition_version,
+    score,
+    dimensions,
+    evidenceHash: source.evidence_hash,
+    asOf,
+  };
+}
+
+function normalizeMarketDimension(value) {
+  const source = objectValue(value);
+  if (!exactObjectKeys(source, [
+    "key",
+    "label",
+    "weight",
+    "current",
+    "target",
+    "score",
+    "weighted_points",
+    "missing",
+    "next_action",
+  ])) return null;
+  const key = cleanText(source.key, 100);
+  const label = cleanText(source.label, 200);
+  const values = [
+    source.weight,
+    source.current,
+    source.target,
+    source.score,
+    source.weighted_points,
+    source.missing,
+  ].map(Number);
+  const [weight, current, target, score, weightedPoints, missing] = values;
+  const nextAction = source.next_action === null
+    ? ""
+    : safeKey(source.next_action, 120);
+  if (
+    !AI_MARKET_DIMENSION_KEYS.includes(key)
+    || !label
+    || values.some((number) => !Number.isSafeInteger(number) || number < 0)
+    || weight > 100
+    || target < 1
+    || current + missing < target
+    || score > 100
+    || weightedPoints > weight
+    || (missing > 0 && !nextAction)
+    || (missing === 0 && source.next_action !== null)
+  ) return null;
+  return {
+    key,
+    label,
+    weight,
+    current,
+    target,
+    score,
+    weightedPoints,
+    missing,
+    nextAction,
+  };
+}
+
+function normalizeMarketGuidance(value, readiness) {
+  const source = objectValue(value);
+  if (!exactObjectKeys(source, [
+    "status",
+    "gaps",
+    "recommended_next_action",
+  ])) return null;
+  const gaps = arrayFrom(source.gaps).map(normalizeMarketDimension);
+  const expectedGaps = readiness.dimensions.filter((dimension) => dimension.missing > 0);
+  const recommendedNextAction = source.recommended_next_action === null
+    ? ""
+    : safeKey(source.recommended_next_action, 120);
+  if (
+    !AI_MARKET_GUIDANCE_STATUSES.has(source.status)
+    || gaps.some((gap) => !gap)
+    || gaps.length !== expectedGaps.length
+    || gaps.some((gap, index) =>
+      gap.key !== expectedGaps[index].key
+      || gap.current !== expectedGaps[index].current
+      || gap.missing !== expectedGaps[index].missing
+    )
+    || (expectedGaps.length > 0
+      ? recommendedNextAction !== expectedGaps[0].nextAction
+      : source.recommended_next_action !== null)
+  ) return null;
+  return {
+    status: source.status,
+    gaps,
+    recommendedNextAction,
+  };
 }
 
 /** Keeps the case filter URL/state-independent and constrained to known tabs. */
@@ -368,15 +734,20 @@ export function aiLearningControlRoomMarkup(snapshot, options = {}) {
   );
   const notice = cleanText(options.notice || control.notice, 800);
   const error = cleanText(options.error || control.error, 800);
-  const canAddLink = control.available && control.capabilities.canAddLink && !busy;
-  const canUploadFile = control.available && control.capabilities.canUploadFile && !busy;
-  const canDecide = control.available && control.capabilities.canDecide && !busy;
+  const legacyReadOnly = options.legacyReadOnly === true;
+  const marketLearningMarkup = String(options.marketLearningMarkup || "");
+  const canAddLink = control.available && control.capabilities.canAddLink
+    && !busy && !legacyReadOnly;
+  const canUploadFile = control.available && control.capabilities.canUploadFile
+    && !busy && !legacyReadOnly;
+  const canDecide = control.available && control.capabilities.canDecide
+    && !busy && !legacyReadOnly;
   const canDecideHistoricalCase = control.available
     && control.capabilities.canDecideHistoricalCase
-    && !busy;
+    && !busy && !legacyReadOnly;
   const canDecideResearchInbox = control.available
     && control.capabilities.canDecideResearchInbox
-    && !busy;
+    && !busy && !legacyReadOnly;
   const updatedLabel = formatDateTime(options.lastUpdatedAt || control.asOf);
   const researchInbox = arrayFrom(control.researchInbox).filter(
     (item) => item.productCategory === selectedCategory,
@@ -384,9 +755,11 @@ export function aiLearningControlRoomMarkup(snapshot, options = {}) {
   const researchDecisions = arrayFrom(control.researchDecisions).filter(
     (item) => item.productCategory === selectedCategory,
   );
-  const statusAnnouncement = busy
-    ? `Обновляем категорию «${category.label}». Текущая готовность доказательной базы ${category.score} процентов.`
-    : `${category.label}. ${status.label}. Готовность доказательной базы ${category.score} процентов.`;
+  const statusAnnouncement = legacyReadOnly
+    ? `${category.label}. Архивный legacy-показатель ${category.score} процентов; он не используется как readiness или generation policy.`
+    : busy
+      ? `Обновляем категорию «${category.label}». Текущая готовность доказательной базы ${category.score} процентов.`
+      : `${category.label}. ${status.label}. Готовность доказательной базы ${category.score} процентов.`;
 
   return `<section class="ai-learning-control-room" data-ai-view="${view}" data-ai-category="${escapeHtml(selectedCategory)}" data-state-version="${control.stateVersion}" data-event-cursor="${control.eventCursor}" data-ce-patch-key="ai-learning-control-room" aria-labelledby="ai-learning-title">
     <div class="ai-learning-atmosphere" aria-hidden="true"></div>
@@ -424,7 +797,14 @@ export function aiLearningControlRoomMarkup(snapshot, options = {}) {
       { canDecideResearchInbox, busy, busyResearchReceiptId },
     )}
 
-    <div class="ai-learning-category-strip" role="group" aria-label="Категории товаров">
+    ${marketLearningMarkup}
+
+    ${legacyReadOnly ? `<aside class="ai-learning-legacy-boundary" role="note">
+      <strong>Legacy safety bucket · только история</strong>
+      <span>Восемь старых product_category сохранены для совместимости и аудита. Их регистрации и teaching cards не считаются анализом и больше не меняют платную генерацию. Для решений используйте точную market category и evidence ledger выше.</span>
+    </aside>` : ""}
+
+    <div class="ai-learning-category-strip" role="group" aria-label="Legacy safety categories">
       ${control.categories.map((item) => categoryButtonMarkup(item, selectedCategory, busy)).join("")}
     </div>
 
@@ -437,7 +817,7 @@ export function aiLearningControlRoomMarkup(snapshot, options = {}) {
     </div>
 
     <div class="ai-learning-view-panel" id="ai-learning-panel-overview" role="tabpanel" aria-labelledby="ai-learning-tab-overview" ${view === "overview" ? "" : "hidden"} data-ce-patch-key="ai-learning-panel-overview">
-      ${view === "overview" ? overviewMarkup(category, control, status) : ""}
+      ${view === "overview" ? overviewMarkup(category, control, status, legacyReadOnly) : ""}
     </div>
     <div class="ai-learning-view-panel" id="ai-learning-panel-knowledge" role="tabpanel" aria-labelledby="ai-learning-tab-knowledge" ${view === "knowledge" ? "" : "hidden"} data-ce-patch-key="ai-learning-panel-knowledge">
       ${view === "knowledge" ? knowledgeMarkup(category, control, { canAddLink, canUploadFile, busy }) : ""}
@@ -445,6 +825,7 @@ export function aiLearningControlRoomMarkup(snapshot, options = {}) {
     <div class="ai-learning-view-panel" id="ai-learning-panel-teach" role="tabpanel" aria-labelledby="ai-learning-tab-teach" ${view === "teach" ? "" : "hidden"} data-ce-patch-key="ai-learning-panel-teach">
       ${view === "teach" ? teachMarkup(category, control, {
         canDecide,
+        legacyReadOnly,
         busy,
         busyCardId,
       }) : ""}
@@ -459,7 +840,7 @@ export function aiLearningControlRoomMarkup(snapshot, options = {}) {
       }) : ""}
     </div>
     <div class="ai-learning-view-panel" id="ai-learning-panel-history" role="tabpanel" aria-labelledby="ai-learning-tab-history" ${view === "history" ? "" : "hidden"} data-ce-patch-key="ai-learning-panel-history">
-      ${view === "history" ? historyMarkup(category, control) : ""}
+      ${view === "history" ? historyMarkup(category, control, legacyReadOnly) : ""}
     </div>
   </section>`;
 }
@@ -582,12 +963,12 @@ function signalSummaryMarkup(category, control, status) {
   </section>`;
 }
 
-function overviewMarkup(category, control, status) {
+function overviewMarkup(category, control, status, legacyReadOnly = false) {
   const confidence = confidenceText(category);
   return `${signalSummaryMarkup(category, control, status)}
   <div class="ai-learning-overview-grid">
     <article class="ai-learning-readiness-card is-${status.tone}" data-ce-patch-key="ai-readiness-${category.key}">
-      <div class="ai-learning-score-ring" style="--ai-learning-score:${category.score}" role="img" aria-label="Данных для категории собрано на ${category.score} процентов">
+      <div class="ai-learning-score-ring" style="--ai-learning-score:${category.score}" role="img" aria-label="${legacyReadOnly ? "Архивный legacy-показатель" : "Готовность доказательной базы категории"}: ${category.score} процентов">
         <strong>${category.score}%</strong>
         <span>данные</span>
       </div>
@@ -631,7 +1012,7 @@ function overviewMarkup(category, control, status) {
     </div>
   </section>
 
-  ${effectivePolicyMarkup(category.effectivePolicy, control)} `;
+  ${effectivePolicyMarkup(category.effectivePolicy, control, false, legacyReadOnly)} `;
 }
 
 function knowledgeMarkup(category, control, { canAddLink, canUploadFile, busy }) {
@@ -693,6 +1074,7 @@ function knowledgeMarkup(category, control, { canAddLink, canUploadFile, busy })
 
 function teachMarkup(category, control, {
   canDecide,
+  legacyReadOnly = false,
   busy,
   busyCardId,
 }) {
@@ -703,17 +1085,25 @@ function teachMarkup(category, control, {
     : category.teachingCards.length;
   return `<div class="ai-learning-teach-intro">
     <div>
-      <p class="ai-learning-eyebrow">Один сигнал — одно решение</p>
-      <h2>Подтвердите, что ИИ должен делать</h2>
-      <p>На экране только один кандидат правила. После решения следующая карточка появится автоматически.</p>
+      <p class="ai-learning-eyebrow">${legacyReadOnly ? "Human-in-the-loop" : "Один сигнал — одно решение"}</p>
+      <h2>${legacyReadOnly ? "Что для категории хорошо, а что плохо" : "Подтвердите, что ИИ должен делать"}</h2>
+      <p>${legacyReadOnly
+        ? "Это прежняя восьмикатегорийная история. Она не подтверждена parser lineage и больше не применяется к генерации."
+        : "На экране только один кандидат правила. После решения следующая карточка появится автоматически."}</p>
     </div>
     <div class="ai-learning-teach-legend" aria-label="Решение команды">
       <span><b aria-hidden="true">${activeCard ? position : "✓"}</b> ${activeCard ? `из ${category.teachingCards.length}` : "всё проверено"}</span>
     </div>
   </div>
   <aside class="ai-learning-safety-note is-accent" role="note">
-    <strong>Что изменится</strong>
-    <p>«Да» включает только это правило для выбранной категории. «Нет» отклоняет предложение. Остальные категории не меняются.</p>
+    <strong>${legacyReadOnly ? "Audit-only: влияние отключено" : "Немедленное, но ограниченное влияние"}</strong>
+    <p>${legacyReadOnly
+      ? "Для управляемого решения откройте точную market category выше: там доступны source analysis, история версий и CAS-исправления."
+      : "После authoritative-ответа меняется только указанное правило этой категории и его версия. Решение не переобучает базовую модель, не переносится на другие категории и не гарантирует результат."}</p>
+    ${legacyReadOnly ? "" : `
+    <strong>Для карточек правил ниже</strong>
+    <p>Подтверждение карточки суждения выпускает новую версию bounded‑правила категории. У исторических кейсов другой, более строгий порог влияния — он показан в отдельном блоке.</p>
+    `}
   </aside>
   <section class="ai-learning-section ai-learning-judgement-section" aria-labelledby="ai-learning-judgement-title">
     <div class="ai-learning-section-heading">
@@ -983,7 +1373,7 @@ function historicalBatchLedgerMarkup(batches, category, busy) {
   }).join("")}</ul></details>`;
 }
 
-function historyMarkup(category, control) {
+function historyMarkup(category, control, legacyReadOnly = false) {
   return `<div class="ai-learning-history-head">
     <div><p class="ai-learning-eyebrow">Immutable activity</p><h2>История обучения категории</h2><p>Серверный журнал показывает, кто и когда добавил доказательство, принял решение или выпустил новую версию правила.</p></div>
     <dl>
@@ -997,7 +1387,7 @@ function historyMarkup(category, control) {
       ? category.activity.map(activityMarkup).join("")
       : `<li class="ai-learning-timeline-empty" data-ce-patch-key="ai-history-empty"><span></span><div><strong>История пока пуста</strong><p>Первое принятое сервером действие появится здесь без обновления страницы.</p></div></li>`}
   </ol>
-  ${effectivePolicyMarkup(category.effectivePolicy, control, true)}`;
+  ${effectivePolicyMarkup(category.effectivePolicy, control, true, legacyReadOnly)}`;
 }
 
 function categoryButtonMarkup(category, selectedCategory, busy) {
@@ -1144,7 +1534,12 @@ function activityMarkup(item) {
   </li>`;
 }
 
-function effectivePolicyMarkup(policy, control, compact = false) {
+function effectivePolicyMarkup(
+  policy,
+  control,
+  compact = false,
+  legacyReadOnly = false,
+) {
   const instance = compact ? "history" : "overview";
   const headingId = `ai-learning-policy-${instance}-title`;
   const rules = policy.rules.length
@@ -1159,11 +1554,11 @@ function effectivePolicyMarkup(policy, control, compact = false) {
     : emptyMarkup("Активных правил пока нет", "Решения человека появятся здесь только после серверного выпуска новой версии политики.");
   return `<section class="ai-learning-section ai-learning-policy${compact ? " is-compact" : ""}" aria-labelledby="${headingId}" data-ce-patch-key="ai-effective-policy-${instance}-${escapeHtml(policy.hash || "empty")}">
     <div class="ai-learning-section-heading">
-      <div><p class="ai-learning-eyebrow">Применяемые правила</p><h2 id="${headingId}">Что ИИ реально учитывает</h2></div>
-      <span>${policy.rules.length ? `${policy.rules.length} правила` : "Правил нет"}</span>
+      <div><p class="ai-learning-eyebrow">${legacyReadOnly ? "Archived legacy policy" : "Effective policy"}</p><h2 id="${headingId}">${legacyReadOnly ? "Архивная политика: влияние отключено" : "Правила, которые реально учитывает ИИ"}</h2></div>
+      <span>${policy.version ? `v${escapeHtml(policy.version)}` : "Нет версии"}</span>
     </div>
     <div class="ai-learning-policy-body">
-      <div><strong>${escapeHtml(policyStatusLabel(policy.status))}</strong><p>В генерации работают только правила, которые подтвердила команда. Кандидаты и необработанные источники результат не меняют.</p><small>${control.asOf ? `Обновлено ${escapeHtml(formatDateTime(control.asOf))}` : "Ожидаем подтверждённые правила"}</small></div>
+      <div><strong>${legacyReadOnly ? "Audit-only" : escapeHtml(policyStatusLabel(policy.status))}</strong><p>${legacyReadOnly ? "Снимок сохранён только для истории. Он не влияет на prompt, paid generation или policy точной market category." : "Только этот серверный снимок может влиять на bounded-подсказки выбранной категории. Сырые источники и pending-карточки сюда не входят."}</p><small>${policy.hash ? `Policy ${escapeHtml(shortHash(policy.hash))}` : "Policy hash ещё не выпущен"}${control.asOf ? ` · ${escapeHtml(formatDateTime(control.asOf))}` : ""}</small></div>
       ${rules}
     </div>
   </section>`;
@@ -2513,6 +2908,20 @@ function arrayFrom(value) {
 
 function objectValue(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+
+function exactObjectKeys(value, keys) {
+  const source = objectValue(value);
+  if (!source) return false;
+  const actual = Object.keys(source).sort();
+  const expected = [...keys].sort();
+  return actual.length === expected.length
+    && actual.every((key, index) => key === expected[index]);
+}
+
+function exactUuid(value) {
+  const candidate = cleanText(value, 80).toLowerCase();
+  return AI_MARKET_SCOPE_UUID.test(candidate) ? candidate : "";
 }
 
 function clampScore(value) {
