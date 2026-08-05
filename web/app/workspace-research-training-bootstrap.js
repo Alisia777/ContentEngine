@@ -37,8 +37,14 @@
     }),
     Object.freeze({
       match: (route) => route === "/workspace/ai",
-      styles: ["workspace-ai-research-training.css"],
-      modules: ["workspace-ai-research-training.js"],
+      styles: [
+        "workspace-ai-research-training.css",
+        "workspace-ai-exact-youtube-sources.css",
+      ],
+      modules: [
+        "workspace-ai-research-training.js",
+        "workspace-ai-exact-youtube-sources.js",
+      ],
       requiresRpcAliases: true,
     }),
     Object.freeze({
