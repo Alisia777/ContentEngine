@@ -8,6 +8,11 @@
     color-mix(in srgb, var(--surface, #15110e) 94%, black);
 }
 
+.research-video-intake[data-source-mode="media-required"] {
+  border-color: color-mix(in srgb, #ff8f73 54%, var(--line, #32281f));
+  box-shadow: 0 0 0 1px color-mix(in srgb, #ff8f73 12%, transparent);
+}
+
 .research-video-intake__heading {
   display: flex;
   align-items: flex-start;
@@ -51,6 +56,10 @@
 
 .research-video-intake__status[data-tone="ready"] {
   color: #88d29b;
+}
+
+.research-video-intake__status[data-tone="warning"] {
+  color: #f5bf79;
 }
 
 .research-video-intake__status[data-tone="danger"] {
@@ -103,6 +112,47 @@
   color: color-mix(in srgb, #bdeacb 88%, white);
 }
 
+.research-video-intake__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.research-video-intake__actions [hidden] {
+  display: none !important;
+}
+
+.research-youtube-failure-guard {
+  display: grid;
+  gap: 12px;
+  margin: 0 8px 18px;
+  border: 1px solid color-mix(in srgb, #ff8f73 52%, var(--line, #32281f));
+  background:
+    radial-gradient(circle at 0 0, color-mix(in srgb, #ff8f73 12%, transparent), transparent 42%),
+    color-mix(in srgb, var(--surface, #15110e) 95%, black);
+}
+
+.research-youtube-failure-guard h2,
+.research-youtube-failure-guard p {
+  margin: 0;
+}
+
+.research-youtube-failure-guard > p:not(.eyebrow) {
+  max-width: 90ch;
+  line-height: 1.55;
+}
+
+.research-youtube-failure-guard__source {
+  overflow-wrap: anywhere;
+  color: var(--muted, #b6a89b);
+}
+
+.research-youtube-failure-guard code {
+  color: #f5bf79;
+  font-size: .92em;
+}
+
 @media (max-width: 900px) {
   .research-video-intake__flow {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -112,5 +162,10 @@
 @media (max-width: 620px) {
   .research-video-intake__flow {
     grid-template-columns: 1fr;
+  }
+
+  .research-video-intake__actions > * {
+    width: 100%;
+    justify-content: center;
   }
 }
