@@ -22,7 +22,7 @@ jobs:
       actions: read
       contents: read
       packages: read
-      security-events: write
+      security-events: read
     strategy:
       fail-fast: false
       matrix:
@@ -45,3 +45,17 @@ jobs:
         uses: github/codeql-action/analyze@b7351df727350dca84cb9d725d57dcf5bc82ba26 # v3
         with:
           category: /language:${{ matrix.language }}
+          # This private repository does not currently have GitHub Code Security
+          # enabled. Run the full query suite, keep its SARIF as a CI artifact,
+          # and avoid a guaranteed failure in the unavailable upload endpoint.
+          output: ${{ runner.temp }}/codeql-results
+          upload: never
+
+      - name: Preserve CodeQL SARIF
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: codeql-${{ matrix.language }}-sarif
+          path: ${{ runner.temp }}/codeql-results
+          if-no-files-found: warn
+          retention-days: 14
