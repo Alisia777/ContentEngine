@@ -16271,6 +16271,82 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "revalidate-product-research-response") {
+    const research = state.productResearch;
+    const runId = String(research.record?.id || "").trim().toLowerCase();
+    const projectId = currentWorkspaceProjectId();
+    if (
+      !runId
+      || String(research.record?.failureCode || "").trim().toLowerCase()
+        !== "provider_response_invalid"
+    ) {
+      toast("Сохранённый ответ нельзя повторно проверить. Обновите статус исследования.", "error");
+      return;
+    }
+    const previousRecord = research.record;
+    research.requestId += 1;
+    const requestId = research.requestId;
+    research.phase = "processing";
+    research.error = "";
+    research.record = {
+      ...previousRecord,
+      status: "processing",
+      failureCode: "",
+      failureMessage: "",
+      statusNotice: "Повторно проверяем тот же сохранённый ответ провайдера. Новый платный запрос не создаётся.",
+    };
+    renderWorkspace("research");
+    try {
+      const raw = await withUiTimeout(
+        state.api.revalidateProductResearchResponse(runId, { projectId }),
+        WORKSPACE_REQUEST_TIMEOUT_MS,
+        "product_research_revalidation_timeout",
+      );
+      if (
+        requestId !== research.requestId
+        || runId !== String(research.record?.id || "").trim().toLowerCase()
+        || projectId !== currentWorkspaceProjectId()
+      ) return;
+      research.record = {
+        ...normalizeProductResearch(raw, research.record),
+        statusNotice: "",
+      };
+      prepareRecommendedResearchHandoff(research.record);
+      const kind = productResearchStatusKind(research.record.status);
+      research.phase = kind === "failed"
+        ? "error"
+        : kind === "active"
+        ? "processing"
+        : kind;
+      research.error = kind === "failed"
+        ? (research.record.failureMessage || "Сохранённый ответ всё ещё не прошёл проверку.")
+        : "";
+      toast(
+        kind === "completed"
+          ? "Сохранённый ответ проверен без нового платного запроса."
+          : "Повторная проверка сохранена. Новый платный запрос не создавался.",
+        kind === "completed" ? "success" : "info",
+      );
+    } catch (error) {
+      if (requestId !== research.requestId) return;
+      const code = String(error?.serverCode || error?.code || "").trim();
+      const timedOut = String(error?.message || "")
+        === "product_research_revalidation_timeout";
+      const message = code === "provider_response_expired"
+        ? "Срок хранения ответа у провайдера истёк. Повторная проверка без нового платного запуска уже невозможна."
+        : timedOut
+        ? "Сервер не завершил повторную проверку вовремя. Новый платный запрос не создавался; обновите статус."
+        : `${actionErrorMessage(error)} Новый платный запрос не создавался.`;
+      research.phase = "error";
+      research.error = message;
+      research.record = { ...previousRecord, statusNotice: "" };
+      toast(message, "error");
+    }
+    if (state.route.path === "/workspace/research") renderWorkspace("research");
+    scheduleProductResearchPolling();
+    return;
+  }
+
   if (action === "copy-product-research-support-id") {
     const researchId = String(
       control.dataset.researchId || state.productResearch.record?.id || "",

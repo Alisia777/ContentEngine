@@ -99,6 +99,7 @@ def test_research_chain_appends_after_deployed_training_waiver() -> None:
         "202608040014_generation_spec_project_boundaries.sql",
         "202608040015_research_category_alias_reaffirmation.sql",
         "202608040016_ai_market_learning_bridge.sql",
+        "202608040017_product_research_response_revalidation.sql",
     ]
     deployed_boundary = migration_names.index(expected_chain[0])
 

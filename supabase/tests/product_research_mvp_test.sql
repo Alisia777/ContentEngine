@@ -91,7 +91,7 @@ begin
 end;
 $course_gate_fixture$;
 
-select plan(78);
+select plan(83);
 
 select has_table('content_factory', 'product_research_runs', 'research runs table exists');
 select has_table('content_factory', 'product_research_sources', 'research sources table exists');
@@ -212,10 +212,11 @@ select is(
    join pg_namespace namespace on namespace.oid = procedure.pronamespace
    where namespace.nspname = 'public'
      and procedure.proname in (
-       'system_claim_product_research', 'system_complete_product_research'
+       'system_claim_product_research', 'system_complete_product_research',
+       'system_revalidate_product_research_response'
      )),
-  2,
-  'two worker RPCs exist'
+  3,
+  'three worker RPCs exist'
 );
 
 select is(
@@ -223,10 +224,11 @@ select is(
    join pg_namespace namespace on namespace.oid = procedure.pronamespace
    where namespace.nspname = 'public'
      and procedure.proname in (
-       'system_claim_product_research', 'system_complete_product_research'
+       'system_claim_product_research', 'system_complete_product_research',
+       'system_revalidate_product_research_response'
      ) and has_function_privilege('service_role', procedure.oid, 'execute')),
-  2,
-  'service role can execute both worker RPCs'
+  3,
+  'service role can execute all worker RPCs'
 );
 
 select is(
@@ -234,7 +236,8 @@ select is(
    join pg_namespace namespace on namespace.oid = procedure.pronamespace
    where namespace.nspname = 'public'
      and procedure.proname in (
-       'system_claim_product_research', 'system_complete_product_research'
+       'system_claim_product_research', 'system_complete_product_research',
+       'system_revalidate_product_research_response'
      ) and has_function_privilege('authenticated', procedure.oid, 'execute')),
   0,
   'browser sessions cannot claim or complete worker jobs'
@@ -551,6 +554,77 @@ select ok(
     'run_id', (select run_id from research_test_context)
   )) ->> 'claimed')::boolean,
   'second worker cannot claim the paid job'
+);
+
+create temporary table response_revalidation_context (
+  attempt_id uuid,
+  result jsonb
+) on commit drop;
+insert into response_revalidation_context (attempt_id)
+select (
+  public.system_begin_research_provider_attempt(jsonb_build_object(
+    'run_id', context.run_id,
+    'provider_key', 'openai_web_search',
+    'adapter_version', 'openai-responses-web-search-v1',
+    'model', 'gpt-5.5'
+  )) ->> 'attempt_id'
+)::uuid
+from research_test_context context;
+
+update response_revalidation_context
+set result = public.system_bind_research_provider_response(jsonb_build_object(
+  'run_id', (select run_id from research_test_context),
+  'attempt_id', (select attempt_id from response_revalidation_context),
+  'provider_response_id', 'resp_revalidate_fixture_001',
+  'provider_status', 'completed'
+));
+update response_revalidation_context
+set result = public.system_complete_product_research(jsonb_build_object(
+  'run_id', (select run_id from research_test_context),
+  'status', 'failed',
+  'error_code', 'provider_response_invalid',
+  'error_message', 'Saved response needs the current parser.'
+));
+
+select is(
+  (select status from content_factory.product_research_runs
+   where id = (select run_id from research_test_context)),
+  'failed',
+  'an invalid local parse first closes the paid run safely'
+);
+update response_revalidation_context
+set result = public.system_revalidate_product_research_response(
+  jsonb_build_object('run_id', (select run_id from research_test_context))
+);
+select ok(
+  (select (result ->> 'ok')::boolean
+     and not (result ->> 'provider_attempt_created')::boolean
+   from response_revalidation_context),
+  'revalidation reuses the bound response without a provider attempt'
+);
+select ok(
+  (select status = 'processing'
+     and error_code is null
+     and error_message is null
+     and completion_hash is null
+     and finished_at is null
+     and lease_expires_at > clock_timestamp()
+   from content_factory.product_research_runs
+   where id = (select run_id from research_test_context)),
+  'revalidation opens only a bounded parser lease and clears terminal failure fields'
+);
+select is(
+  (select count(*)::integer
+   from content_factory.research_run_provider_bindings binding
+   where binding.run_id = (select run_id from research_test_context)),
+  1,
+  'revalidation preserves the single paid provider binding'
+);
+select ok(
+  not (public.system_claim_product_research(jsonb_build_object(
+    'run_id', (select run_id from research_test_context)
+  )) ->> 'claimed')::boolean,
+  'revalidation cannot claim or submit a second paid attempt'
 );
 
 insert into content_factory.product_research_runs (

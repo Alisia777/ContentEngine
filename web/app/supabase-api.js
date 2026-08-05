@@ -2243,6 +2243,17 @@ export class CreatorApi {
     return result;
   }
 
+  async revalidateProductResearchResponse(runId, options = {}) {
+    const normalizedRunId = this.requireResearchRunId(runId);
+    const projectId = requiredProjectId(options.project_id ?? options.projectId);
+    await this.invokeProductResearch({
+      action: "revalidate",
+      research_id: normalizedRunId,
+      project_id: projectId,
+    });
+    return this.productResearchStatus(normalizedRunId, { projectId });
+  }
+
   researchStageControlStatus(runId, options = {}) {
     const normalizedRunId = this.requireResearchRunId(runId);
     const payload = { run_id: normalizedRunId };
@@ -3414,6 +3425,14 @@ export class CreatorApi {
     if (error) {
       throw new CreatorApiError("Сервис анализа товара временно недоступен. Запуск сохранён — проверьте его статус позже.", {
         code: error?.code || "product_research_request_failed",
+      });
+    }
+    if (
+      data && typeof data === "object" && !Array.isArray(data)
+      && data.ok === false && typeof data.code === "string"
+    ) {
+      throw new CreatorApiError("Сохранённый ответ нельзя повторно проверить.", {
+        code: data.code,
       });
     }
     if (!data || typeof data !== "object" || Array.isArray(data) || data.ok === false || data.error) {

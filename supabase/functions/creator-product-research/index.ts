@@ -144,6 +144,10 @@ type ContentEngineDatabase = {
         Args: { p_payload: Json };
         Returns: Json;
       };
+      system_revalidate_product_research_response: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
       system_apply_research_stage_recompute: {
         Args: { p_payload: Json };
         Returns: Json;
@@ -189,7 +193,7 @@ type ContentEngineDatabase = {
 };
 
 type AnalyzePayload = {
-  action: "analyze" | "status";
+  action: "analyze" | "status" | "revalidate";
   research_id: string;
   project_id: string;
 };
@@ -353,7 +357,10 @@ function readRequestPayload(value: unknown): AnalyzePayload | null {
   ) {
     return null;
   }
-  if (value.action !== "analyze" && value.action !== "status") return null;
+  if (
+    value.action !== "analyze" && value.action !== "status" &&
+    value.action !== "revalidate"
+  ) return null;
   return value as AnalyzePayload;
 }
 
@@ -2776,9 +2783,34 @@ async function handleCreatorProductResearch(
     return json(request, { ok: false, code: "research_unavailable" }, 503);
   };
 
-  const authorized = await readCurrentStatus();
+  let authorized = await readCurrentStatus();
   if (authorized === null) {
     return json(request, { ok: false, code: "research_rejected" }, 403);
+  }
+  if (payload.action === "revalidate" && authorized.status === "failed") {
+    let revalidation: unknown = null;
+    try {
+      const { data, error } = await supabaseAdmin.rpc(
+        "system_revalidate_product_research_response",
+        { p_payload: { run_id: payload.research_id } },
+      );
+      if (!error) revalidation = data;
+    } catch {
+      revalidation = null;
+    }
+    if (!isRecord(revalidation) || revalidation.ok !== true) {
+      return json(request, {
+        ok: false,
+        code: isRecord(revalidation) &&
+            typeof revalidation.code === "string"
+          ? revalidation.code
+          : "research_response_revalidation_unavailable",
+      });
+    }
+    authorized = await readCurrentStatus();
+    if (authorized === null) {
+      return json(request, { ok: false, code: "research_unavailable" }, 503);
+    }
   }
   if (
     authorized.status === "completed" || authorized.status === "failed" ||
@@ -2789,7 +2821,7 @@ async function handleCreatorProductResearch(
   }
   // A browser status read never turns an unclaimed row into a paid request.
   // The explicit start call or the internal worker owns the sole POST.
-  if (authorized.status === "queued" && payload.action === "status") {
+  if (authorized.status === "queued" && payload.action !== "analyze") {
     return json(request, authorized.data, 202);
   }
 

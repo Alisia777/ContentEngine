@@ -13,6 +13,10 @@ BACKGROUND_SQL = (
     ROOT
     / "supabase/migrations/202608040011_research_provider_background_responses.sql"
 )
+REVALIDATION_SQL = (
+    ROOT
+    / "supabase/migrations/202608040017_product_research_response_revalidation.sql"
+)
 
 
 def _read(path: Path) -> str:
@@ -89,13 +93,14 @@ def test_processing_observers_retrieve_by_saved_id_and_never_submit_again() -> N
 def test_status_action_cannot_turn_an_unclaimed_queued_run_into_paid_post() -> None:
     edge = _read(EDGE)
     status_gate = edge.index(
-        'if (authorized.status === "queued" && payload.action === "status")'
+        'if (authorized.status === "queued" && payload.action !== "analyze")'
     )
     claim = edge.index('"system_claim_product_research"', status_gate)
 
-    assert 'type AnalyzePayload = {\n  action: "analyze" | "status";' in edge
+    assert 'type AnalyzePayload = {\n  action: "analyze" | "status" | "revalidate";' in edge
     assert "return json(request, authorized.data, 202);" in edge[status_gate:claim]
     assert "fetchWithTimeout(" not in edge[status_gate:claim]
+    assert "revalidate" in edge[:status_gate]
 
 
 def test_browser_status_expiry_is_reclassified_when_a_paid_attempt_exists() -> None:
@@ -212,6 +217,52 @@ def test_browser_advances_edge_status_before_reading_database_snapshot() -> None
     assert "Research background status refresh unavailable" in status_method
 
 
+def test_failed_paid_response_can_be_revalidated_without_a_new_provider_post() -> None:
+    edge = _read(EDGE)
+    api = _read(API)
+    app = _read(APP)
+    view = _read(VIEW)
+    sql = _read(REVALIDATION_SQL)
+
+    revalidation_gate = _between(
+        edge,
+        'if (payload.action === "revalidate" && authorized.status === "failed")',
+        'if (\n    authorized.status === "completed"',
+    )
+    assert '"system_revalidate_product_research_response"' in revalidation_gate
+    assert 'method: "POST"' not in revalidation_gate
+    assert "authorized = await readCurrentStatus()" in revalidation_gate
+
+    api_method = _between(
+        api,
+        "async revalidateProductResearchResponse(runId, options = {})",
+        "researchStageControlStatus(runId, options = {})",
+    )
+    assert 'action: "revalidate"' in api_method
+    assert "return this.productResearchStatus" in api_method
+
+    action_handler = _between(
+        app,
+        'if (action === "revalidate-product-research-response")',
+        'if (action === "copy-product-research-support-id")',
+    )
+    assert "state.api.revalidateProductResearchResponse" in action_handler
+    assert "Новый платный запрос не создавался" in action_handler
+    assert "provider_response_expired" in action_handler
+
+    assert 'data-action="revalidate-product-research-response"' in view
+    assert "Повторно проверить ответ — без оплаты" in view
+    assert "не отправляет новый POST" in view
+
+    assert "old.error_code = 'provider_response_invalid'" in sql
+    assert "and coalesce(\n      current_setting(" in sql
+    assert "provider_attempt_created', false" in sql
+    assert "clock_timestamp() - interval '8 minutes'" in sql
+    assert "insert into content_factory.research_run_provider_bindings" not in sql
+    assert "grant execute on function public.system_revalidate_product_research_response(jsonb)\n  to service_role" in sql
+    assert "from public, anon, authenticated" in sql
+
+
 def test_research_requires_fixed_ai_category_from_form_through_api_payload() -> None:
     view = _read(VIEW)
     app = _read(APP)
@@ -249,7 +300,7 @@ def test_terminal_unknown_outcome_exports_support_id_and_never_auto_retries() ->
     unknown_markup = _between(
         progress,
         "${providerOutcomeUnknown\n        ? `<div",
-        ": paidProviderResultFailed",
+        ": responseValidationFailed",
     )
 
     assert '=== "provider_outcome_unknown"' in progress

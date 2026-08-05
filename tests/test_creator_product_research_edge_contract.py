@@ -30,6 +30,7 @@ def test_research_edge_is_authenticated_origin_bound_and_claims_before_openai() 
     assert '"creator_project_research_status"' in source
     assert '"system_claim_product_research"' in source
     assert '"system_complete_product_research"' in source
+    assert '"system_revalidate_product_research_response"' in source
     claim = source.index('"system_claim_product_research"', source.index("withSupabase"))
     provider = source.index("OPENAI_RESPONSES_URL", claim)
     assert claim < provider
@@ -86,7 +87,7 @@ def test_ambiguous_openai_outcome_is_terminal_and_never_auto_replayed() -> None:
     source = _source()
 
     status_gate = source.index(
-        'if (authorized.status === "queued" && payload.action === "status")'
+        'if (authorized.status === "queued" && payload.action !== "analyze")'
     )
     claim = source.index('"system_claim_product_research"', status_gate)
     observer = source.index("if (!claim.claimed)", claim)
