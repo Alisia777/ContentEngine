@@ -89,6 +89,8 @@ def test_competitor_and_trend_evidence_can_be_empty_but_facts_are_cited() -> Non
     assert "distinctNames.size < 2" in validator
     assert "citedWebSourceIds.size < 2" in validator
     assert "independentPublisherDomains.size < 2" in validator
+    assert 'competitorAnalysis.coverage = "limited"' in validator
+    assert "competitorEvidenceDowngraded = true" in validator
 
     for cited_guard in (
         "validRefs(categoryAnalysis.source_ids)",
@@ -121,6 +123,10 @@ def test_competitor_patterns_are_structural_and_never_raw_copy_fields() -> None:
     assert "Never copy or reconstruct" in instructions
     assert "raw captions" in instructions
     assert "exact shot" in instructions
+    assert "Если public_url ведёт на YouTube" in instructions
+    assert "Не утверждай, что просмотрел кадры или" in instructions
+    assert "Несколько роликов YouTube не" in instructions
+    assert "считай независимыми издателями" in instructions
 
 
 def test_time_based_trend_requires_independent_dated_sources() -> None:
@@ -144,6 +150,9 @@ def test_time_based_trend_requires_independent_dated_sources() -> None:
     assert "publishedAfterSnapshot" in validator
     assert "!hasRecentEvidence" in validator
     assert "!allEvidenceInLookback" in validator
+    assert 'signal.direction = "unclear"' in validator
+    assert 'signal.confidence = "low"' in validator
+    assert 'signal.recommended_use = "monitor"' in validator
     assert "45 * 86_400_000" in validator
     assert "180 * 86_400_000" in validator
     assert "sourcePublishers.get(id)" in validator
@@ -182,11 +191,13 @@ def test_guidance_is_proactive_and_v2_sections_reach_summary_and_brief() -> None
     assert 'guidance.status === "needs_user_decision"' in validator
     assert "guidance.questions_for_user.length < 1" in validator
     assert 'guidance.status === "ready_for_brief"' in validator
+    assert 'guidance.status = "needs_more_evidence"' in validator
     assert 'competitorCoverage !== "sufficient" || !hasActionableTrend' in validator
     assert 'signal.recommended_use === "test"' in validator
     assert '["medium", "high"].includes(String(signal.confidence))' in validator
     assert 'signal.direction !== "unclear"' in validator
     assert "isTextArray(guidance.suggested_actions, 1, 8, 600)" in validator
+    assert "пересчитайте только нужный этап" in validator
 
     completion = source[
         source.index("function buildCompletionPayload") :

@@ -71,6 +71,8 @@ def test_research_persists_only_provider_citations_and_private_signed_images() -
     assert "visual_analysis: true" in source
     assert 'normalized.startsWith("utm_")' in source
     assert "url.searchParams.sort()" in source
+    assert 'return `https://youtube.com/watch?v=${candidate}`' in source
+    assert '"youtu.be"' in source
     assert 'url.search = ""' not in source
     assert 'const STORAGE_BUCKET = "contentengine-private"' in source
     assert ".createSignedUrl(photo.objectName, SIGNED_IMAGE_TTL_SECONDS)" in source
