@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
+API = (ROOT / "web/app/supabase-api.js").read_text(encoding="utf-8")
 
 
 def _function(name: str, next_name: str) -> str:
@@ -50,3 +51,19 @@ def test_free_prepare_failure_restores_content_but_resets_spend_consent() -> Non
     ]
     assert "restoreGenerationLaunchSnapshot(form, launchSnapshot)" in prepare_catch
     assert "form.elements.real_spend_confirmation.checked = false" in prepare_catch
+
+
+def test_generation_spec_reads_validate_only_the_exact_reference_object() -> None:
+    for method, next_method in (
+        ("generationSpecStatus", "prepareGenerationSpec"),
+        ("generationSpecEffectivePolicy", "savePracticalProject"),
+    ):
+        block = API[
+            API.index(f"  {method}(") :
+            API.index(f"  {next_method}(", API.index(f"  {method}("))
+        ]
+        assert "normalizeGenerationSpecReference({" in block
+        assert "spec_id: context.spec_id" in block
+        assert "spec_version: context.spec_version" in block
+        assert "spec_hash: context.spec_hash" in block
+        assert "normalizeGenerationSpecReference(context)" not in block
