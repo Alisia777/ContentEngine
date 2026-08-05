@@ -1,8 +1,8 @@
 begin;
 
--- Kept after the category-rule migrations because main already owns version
--- 202608040006 for the historical-case ledger. The bridge reads the final
--- governed category state and does not participate in migrations 007-010.
+-- Kept after the project recovery and category-rule migrations. The bridge
+-- reads their final governed category state and introduces no competing
+-- category identity or generation-policy authority.
 
 -- The research subsystem is the only evidence/readiness authority for market
 -- categories.  This read model exposes every product's current dynamic

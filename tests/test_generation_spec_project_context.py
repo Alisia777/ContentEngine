@@ -13,7 +13,7 @@ MIGRATION = (
     ROOT
     / "supabase"
     / "migrations"
-    / "202608040008_generation_spec_project_context.sql"
+    / "202608040012_generation_spec_project_context.sql"
 )
 
 

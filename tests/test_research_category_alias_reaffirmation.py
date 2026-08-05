@@ -10,7 +10,7 @@ MIGRATION = (
     ROOT
     / "supabase"
     / "migrations"
-    / "202608040011_research_category_alias_reaffirmation.sql"
+    / "202608040015_research_category_alias_reaffirmation.sql"
 )
 
 

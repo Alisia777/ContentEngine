@@ -90,11 +90,15 @@ def test_research_chain_appends_after_deployed_training_waiver() -> None:
         "202608040005_project_scoped_workflow.sql",
         "202608040006_ai_historical_case_ledger.sql",
         "202608040007_project_flow_catalog_hotfix.sql",
-        "202608040008_generation_spec_project_context.sql",
-        "202608040009_research_category_generation_rule_binding.sql",
-        "202608040010_generation_spec_project_boundaries.sql",
-        "202608040011_research_category_alias_reaffirmation.sql",
-        "202608040012_ai_market_learning_bridge.sql",
+        "202608040008_project_flow_read_only.sql",
+        "202608040009_project_workspace_reader_recovery.sql",
+        "202608040010_research_ai_handoff.sql",
+        "202608040011_research_provider_background_responses.sql",
+        "202608040012_generation_spec_project_context.sql",
+        "202608040013_research_category_generation_rule_binding.sql",
+        "202608040014_generation_spec_project_boundaries.sql",
+        "202608040015_research_category_alias_reaffirmation.sql",
+        "202608040016_ai_market_learning_bridge.sql",
     ]
     deployed_boundary = migration_names.index(expected_chain[0])
 
