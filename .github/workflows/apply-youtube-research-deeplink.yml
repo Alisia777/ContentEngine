@@ -1,0 +1,162 @@
+name: Apply YouTube research deep-link patch
+
+on:
+  push:
+    branches:
+      - fix/youtube-research-deeplink
+    paths:
+      - .github/workflows/apply-youtube-research-deeplink.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/youtube-research-deeplink
+          fetch-depth: 0
+
+      - name: Patch research form
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("web/app/product-research-view.js")
+          source = path.read_text(encoding="utf-8")
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly one match, found {count}")
+              return text.replace(old, new, 1)
+
+          helper = r'''const PRODUCT_RESEARCH_URL_PREFILL_FIELDS = Object.freeze({
+            product_name: Object.freeze({ key: "productName", maxLength: 180 }),
+            sku: Object.freeze({ key: "sku", maxLength: 120 }),
+            category_name: Object.freeze({ key: "categoryName", maxLength: 160 }),
+            research_focus: Object.freeze({ key: "researchFocus", maxLength: 200 }),
+            marketplace_url: Object.freeze({ key: "marketplaceUrl", maxLength: 2_048 }),
+            competitor_references: Object.freeze({ key: "competitorReferences", maxLength: 650 }),
+            known_facts: Object.freeze({ key: "knownFacts", maxLength: 500 }),
+          });
+          const PRODUCT_RESEARCH_URL_PREFILL_PLATFORMS = new Set([
+            "instagram",
+            "youtube",
+            "vk",
+            "wildberries",
+            "ozon",
+          ]);
+          const PRODUCT_RESEARCH_URL_PREFILL_OBJECTIVES = new Set([
+            "conversion",
+            "awareness",
+            "ugc",
+            "education",
+          ]);
+
+          export function productResearchUrlPrefill(hash = "") {
+            const rawHash = String(
+              hash || (typeof window !== "undefined" ? window.location.hash : ""),
+            );
+            const queryIndex = rawHash.indexOf("?");
+            if (queryIndex < 0) return {};
+            const params = new URLSearchParams(rawHash.slice(queryIndex + 1));
+            if (params.get("research_prefill") !== "1") return {};
+            const prefill = {};
+            Object.entries(PRODUCT_RESEARCH_URL_PREFILL_FIELDS).forEach(([
+              queryKey,
+              { key, maxLength },
+            ]) => {
+              const value = String(params.get(queryKey) || "").trim().slice(0, maxLength);
+              if (value) prefill[key] = value;
+            });
+            if (
+              prefill.marketplaceUrl
+              && !/^https:\/\//iu.test(prefill.marketplaceUrl)
+            ) delete prefill.marketplaceUrl;
+            const productCategory = normalizeProductResearchAiCategory(
+              params.get("product_category"),
+            );
+            if (productCategory) prefill.productCategory = productCategory;
+            const objective = String(params.get("objective") || "").trim().toLowerCase();
+            if (PRODUCT_RESEARCH_URL_PREFILL_OBJECTIVES.has(objective)) {
+              prefill.objective = objective;
+            }
+            const platforms = [
+              ...params.getAll("platform"),
+              ...params.getAll("platforms").flatMap((value) =>
+                String(value || "").split(",")
+              ),
+            ].map((value) => String(value || "").trim().toLowerCase())
+              .filter((value) => PRODUCT_RESEARCH_URL_PREFILL_PLATFORMS.has(value));
+            const uniquePlatforms = [...new Set(platforms)].slice(0, 8);
+            if (uniquePlatforms.length) prefill.platforms = uniquePlatforms;
+            return prefill;
+          }
+
+          '''
+
+          source = replace_once(
+              source,
+              "export function productResearchInputMarkup({\n",
+              helper + "export function productResearchInputMarkup({\n",
+              "insert deep-link helper",
+          )
+          source = replace_once(
+              source,
+              "  const initial = objectValue(defaults) || {};\n",
+              "  const storedDefaults = objectValue(defaults) || {};\n"
+              "  const initial = {\n"
+              "    ...storedDefaults,\n"
+              "    ...productResearchUrlPrefill(),\n"
+              "  };\n",
+              "merge deep-link defaults",
+          )
+          source = replace_once(
+              source,
+              '  const previousResearchId = String(initial.previousResearchId || "").trim();\n',
+              '  const previousResearchId = String(initial.previousResearchId || "").trim();\n'
+              '  const youtubeReference = /^https:\\/\\/(?:www\\.|m\\.)?(?:youtube\\.com\\/(?:shorts\\/|watch\\?|embed\\/|live\\/)|youtu\\.be\\/)/iu.test(\n'
+              '    String(initial.marketplaceUrl || "").trim(),\n'
+              '  );\n',
+              "detect YouTube reference",
+          )
+          source = replace_once(
+              source,
+              '        </div>\n        <div class="form-grid-2">\n          <label class="field"><span>Название товара *',
+              '        </div>\n'
+              '        ${youtubeReference ? `<div class="alert alert-info product-research-reference-notice" role="status"><strong aria-hidden="true">▶</strong><span><strong>YouTube Shorts распознан как публичный референс.</strong> Анализ разберёт структуру, хук, демонстрацию и доказательства; после завершения выводы попадут во входящие выбранной категории ИИ-центра.</span></div>` : ""}\n'
+              '        <div class="form-grid-2">\n'
+              '          <label class="field"><span>Название товара *',
+              "insert YouTube reference notice",
+          )
+          source = replace_once(
+              source,
+              '        <label class="field"><span>Ссылка на карточку товара</span><input name="marketplace_url" type="url" inputmode="url" value="${escapeHtml(initial.marketplaceUrl || "")}" placeholder="https://www.wildberries.ru/catalog/…" /><small class="field-hint">Только публичная HTTPS-ссылка. Пароли и ссылки из личного кабинета сюда не вставляйте.</small></label>\n',
+              '        <label class="field"><span>Публичная ссылка на товар или референс</span><input name="marketplace_url" type="url" inputmode="url" value="${escapeHtml(initial.marketplaceUrl || "")}" placeholder="https://www.youtube.com/shorts/…" /><small class="field-hint">Можно вставить YouTube Shorts/watch/youtu.be, публичную карточку товара или страницу конкурента. Только HTTPS; ссылки из личных кабинетов и пароли не используйте.</small></label>\n',
+              "relabel public source URL",
+          )
+
+          path.write_text(source, encoding="utf-8")
+          PY
+
+      - name: Run research portal contracts
+        run: pytest -q tests/test_youtube_research_deeplink.py tests/test_product_research_portal.py
+
+      - name: Commit patched form
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/app/product-research-view.js tests/test_youtube_research_deeplink.py
+          if git diff --cached --quiet; then
+            echo "No patch changes to commit"
+            exit 0
+          fi
+          git commit -m "Add YouTube research deep-link prefill"
+          git push origin HEAD:fix/youtube-research-deeplink
