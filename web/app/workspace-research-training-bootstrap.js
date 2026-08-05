@@ -1,13 +1,15 @@
 /*
  * ContentEngine · lazy bootstrap for the governed research learning flow.
  *
- * Desktop v4 keeps its small, audited route-loader contract. This extension
- * waits until that loader declares the current route ready, then adds only the
- * research/AI/recommendation assets needed by that route. No provider request,
- * research run or paid call is started here.
+ * Desktop v4 keeps its small, audited route-loader contract. This classic
+ * self-script waits until that loader declares the current route ready, then
+ * dynamically imports only the research/AI/recommendation assets needed by the
+ * route. No provider request, research run or paid call is started here.
  */
 
 const BUILD = "20260805.os4.22";
+const SCRIPT_URL = document.currentScript?.src || window.location.href;
+const BASE_URL = new URL(".", SCRIPT_URL);
 const loadedStyles = new Map();
 const loadedModules = new Map();
 const decoratedApis = new WeakSet();
@@ -52,7 +54,7 @@ function routePath() {
 }
 
 function assetUrl(file) {
-  return new URL(`${file}?v=${BUILD}`, import.meta.url).href;
+  return new URL(`${file}?v=${BUILD}`, BASE_URL).href;
 }
 
 function ensureStyle(file) {
