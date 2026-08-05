@@ -1,0 +1,242 @@
+.ce-research-example-launch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin: 0 0 20px;
+  padding: 18px 20px;
+  border: 1px solid color-mix(in srgb, var(--accent, #c78b46) 32%, transparent);
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(199, 139, 70, .10), rgba(255, 255, 255, .025));
+  box-shadow: 0 20px 50px rgba(0, 0, 0, .18);
+}
+
+.ce-research-example-launch > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.ce-research-example-launch small,
+.ce-research-example-dialog__header small {
+  color: var(--accent, #c78b46);
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: .1em;
+}
+
+.ce-research-example-launch strong {
+  font-size: clamp(17px, 1.6vw, 21px);
+  line-height: 1.18;
+}
+
+.ce-research-example-launch p,
+.ce-research-example-dialog__header p {
+  margin: 0;
+  max-width: 760px;
+  color: var(--text-muted, #b7b1aa);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.ce-research-example-launch .btn {
+  min-width: 172px;
+  min-height: 44px;
+  flex: 0 0 auto;
+}
+
+body.ce-research-example-open {
+  overflow: hidden;
+}
+
+.ce-research-example-dialog {
+  width: min(720px, calc(100vw - 32px));
+  max-height: min(880px, calc(100dvh - 32px));
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, .13);
+  border-radius: 24px;
+  color: var(--text, #f5f1eb);
+  background: #11100f;
+  box-shadow: 0 30px 110px rgba(0, 0, 0, .70);
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.ce-research-example-dialog::backdrop {
+  background: rgba(4, 4, 4, .76);
+  backdrop-filter: blur(12px);
+}
+
+.ce-research-example-dialog__header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 24px 26px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, .08);
+  background: rgba(17, 16, 15, .96);
+  backdrop-filter: blur(18px);
+}
+
+.ce-research-example-dialog__header > div {
+  display: grid;
+  gap: 7px;
+}
+
+.ce-research-example-dialog__header h2 {
+  margin: 0;
+  font-size: clamp(22px, 3vw, 30px);
+  line-height: 1.08;
+}
+
+.ce-research-example-dialog__close {
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 50%;
+  color: inherit;
+  background: rgba(255, 255, 255, .045);
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ce-research-example-form {
+  display: grid;
+  gap: 18px;
+  padding: 24px 26px 28px;
+}
+
+.ce-research-example-form .field {
+  display: grid;
+  gap: 8px;
+}
+
+.ce-research-example-form .field > span {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.ce-research-example-form input,
+.ce-research-example-form select,
+.ce-research-example-form textarea {
+  width: 100%;
+  min-height: 46px;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, .13);
+  border-radius: 12px;
+  padding: 11px 13px;
+  color: inherit;
+  background: rgba(255, 255, 255, .045);
+  font: inherit;
+  font-size: 15px;
+}
+
+.ce-research-example-form textarea {
+  min-height: 112px;
+  resize: vertical;
+}
+
+.ce-research-example-form input:focus,
+.ce-research-example-form select:focus,
+.ce-research-example-form textarea:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent, #c78b46) 68%, transparent);
+  outline-offset: 1px;
+}
+
+.ce-research-example-form__pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.ce-research-example-form__acks {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .025);
+}
+
+.ce-research-example-check {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 10px;
+  align-items: start;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+.ce-research-example-check input {
+  width: 18px;
+  min-height: 18px;
+  margin: 1px 0 0;
+}
+
+.ce-research-example-form__feedback {
+  min-height: 22px;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.ce-research-example-form__feedback[data-tone="danger"] { color: #ffaaa3; }
+.ce-research-example-form__feedback[data-tone="success"] { color: #a7e5bd; }
+.ce-research-example-form__feedback[data-tone="info"] { color: #e1bd8d; }
+
+.ce-research-example-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.ce-research-example-form__actions .btn {
+  min-height: 44px;
+}
+
+@media (max-width: 680px) {
+  .ce-research-example-launch {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+    padding: 16px;
+  }
+
+  .ce-research-example-launch .btn {
+    width: 100%;
+  }
+
+  .ce-research-example-dialog {
+    width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+    border-radius: 18px;
+  }
+
+  .ce-research-example-dialog__header,
+  .ce-research-example-form {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+
+  .ce-research-example-form__pair {
+    grid-template-columns: 1fr;
+  }
+
+  .ce-research-example-form__actions {
+    flex-direction: column-reverse;
+  }
+
+  .ce-research-example-form__actions .btn {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ce-research-example-dialog::backdrop {
+    backdrop-filter: none;
+  }
+}
