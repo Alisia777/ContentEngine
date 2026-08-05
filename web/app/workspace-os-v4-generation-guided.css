@@ -6,7 +6,7 @@ body.ce-v4-generation-guided-route .generation-launch-card > :is(.eyebrow, h2, p
 
 body.ce-v4-generation-guided-route .generation-launch-card,
 body.ce-v4-generation-guided-route .generation-launch-card > #mock-batch-form {
-  width: min(1120px, 100%);
+  width: min(1440px, 100%);
   max-width: none;
 }
 
@@ -234,6 +234,28 @@ body.ce-v4-generation-guided-route .generation-launch-card > #mock-batch-form {
   margin: 0;
 }
 
+#mock-batch-form[data-ce-v4-generation-guided="true"] :is(
+  #generation-spec-card,
+  #generation-learning-status,
+  #generation-repair-status
+) {
+  display: none !important;
+}
+
+#mock-batch-form[data-ce-v4-generation-guided="true"] textarea[name="brief"] {
+  min-height: clamp(220px, 34vh, 340px);
+  resize: vertical;
+  font-size: var(--ce-v4-font-control, 14px);
+  line-height: 1.55;
+}
+
+#mock-batch-form[data-ce-v4-generation-guided="true"] #generation-brief-assist {
+  padding: 12px 14px;
+  border: 1px solid rgba(139, 196, 168, 0.25);
+  border-radius: 12px;
+  background: rgba(139, 196, 168, 0.06);
+}
+
 .ce-v4-generation-guided__error {
   margin: -7px 0 16px;
   padding: 10px 12px;
@@ -305,6 +327,11 @@ body.ce-v4-generation-guided-route .generation-launch-card > #mock-batch-form {
 .ce-v4-generation-guided__launch-status[data-state="ready"] {
   color: var(--ce-v4-success, #8bc4a8);
   background: rgba(139, 196, 168, 0.08);
+}
+
+.ce-v4-generation-guided__launch-status[data-state="working"] {
+  color: var(--guided-accent-bright);
+  background: rgba(236, 136, 75, 0.1);
 }
 
 .ce-v4-generation-guided__actions {

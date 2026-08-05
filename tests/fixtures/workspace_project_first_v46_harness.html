@@ -5,13 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>ContentEngine project-flow v4.7 harness</title>
     <link rel="stylesheet" href="../../web/app/styles.css" />
+    <link rel="stylesheet" href="../../web/app/portal-experience.css" />
     <link rel="stylesheet" href="../../web/app/interface-system.css" />
     <link rel="stylesheet" href="../../web/app/content-review.css" />
     <link rel="stylesheet" href="../../web/app/workspace-board.css" />
-    <link rel="stylesheet" href="../../web/app/workspace-os-v4.css?v=20260804.os4.17" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4.css?v=20260805.os4.18" />
     <link rel="stylesheet" href="../../web/app/workspace-os-v4-polish.css" />
     <link rel="stylesheet" href="../../web/app/workspace-os-v4-context-trash.css" />
-    <link rel="stylesheet" href="../../web/app/workspace-os-v4-flow.css?v=20260804.os4.17" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-flow.css?v=20260805.os4.18" />
     <link rel="stylesheet" href="../../web/app/workspace-os-v4-stability.css" />
     <link rel="stylesheet" href="../../web/app/workspace-os-v4-motion.css" />
     <link rel="stylesheet" href="../../web/app/workspace-os-v4-finder.css" />
@@ -69,17 +70,24 @@
 
       function generationMarkup() {
         return `<div class="page-wrap ce-v4-page"><section class="generation-launch-card card"><p class="eyebrow">Создание</p><h2>Новый запуск</h2><form id="mock-batch-form" novalidate>
-          <div id="generation-readiness" class="generation-readiness"><strong>Готовность запуска</strong></div>
-          <label>Режим<select name="generation_mode" required><option value="mock">Без оплаты</option><option value="real">Реальный ролик</option></select></label>
-          <label>Длительность<select name="duration_seconds"><option>10</option></select></label>
+          <p id="generation-draft-status" class="muted tiny" role="status">Черновик сохраняется в этой вкладке. Подтверждение оплаты никогда не сохраняется.</p>
+          <div id="generation-readiness" class="generation-readiness"><strong>Готовность запуска</strong><span>Все обязательные данные заполнены</span></div>
+          <section id="generation-spec-card" hidden><strong>Служебная техническая версия</strong></section>
+          <label>Режим генерации<select name="generation_mode" required><option value="real_gen4" selected>Анимация товара без речи</option><option value="real_seedance">Ролик с человеком и голосом</option></select></label>
+          <label id="generation-duration-field">Сколько секунд должен длиться ролик?<select name="duration_seconds" required><option value="2">2 секунды</option><option value="5">5 секунд</option><option value="8" selected>8 секунд</option><option value="10">10 секунд</option></select><small id="generation-duration-hint">Для этой модели доступны 2, 5, 8 или 10 секунд. Цена пересчитывается до подтверждения.</small></label>
+          <label id="generation-campaign-field">Кампания и бюджет<select name="campaign_id" required><option value="campaign-1">Август · доступно $25.00</option></select></label>
+          <div id="real-generation-confirmation"><div class="alert alert-warning"><span id="real-generation-price">Один ролик — около $5.00.</span></div><label class="option"><input type="checkbox" name="real_spend_confirmation" value="CONFIRM_RUNWAY_GEN4" required /><span><strong>Подтверждаю создание одного платного видео</strong><br /><small>8 секунд · около $5.00 · AI-проверка запустится автоматически</small></span></label><small id="runway-readiness-status">Техническая готовность будет проверена автоматически перед запуском.</small></div>
           <label>Артикул<input name="sku" value="BOMBBAR-001" required /></label>
           <label>Название товара<input name="product_name" value="Bombbar протеин" required /></label>
-          <label>Категория<input name="product_category" value="Батончики" /></label>
-          <label>Площадка<select name="platform" required><option>TikTok</option></select></label>
-          <label>Куда вести<input name="destination_ref" value="Карточка товара" /></label>
-          <label>Замысел<textarea name="brief" required>Показать упаковку, разлом и честный вкус без медицинских обещаний.</textarea></label>
+          <label>Категория<select name="product_category" required><option value="sports_food" selected>Протеин и спортивное питание</option></select></label>
+          <label>Площадка<select name="platform" required><option value="tiktok">TikTok</option></select></label>
+          <label>Аккаунт или карточка<input name="destination_ref" value="Карточка товара Bombbar" required /></label>
+          <label><span id="generation-brief-label">Ваш замысел ролика</span><textarea name="brief" rows="8" maxlength="1200" required>Показать упаковку крупным планом, затем плавно повернуть батончик и открыть его фактуру. Без медицинских обещаний.</textarea><small id="generation-brief-hint">Опишите движение камеры обычным языком. Портал сохранит ваш замысел и сам добавит ограничения модели.</small></label>
+          <div id="generation-brief-assist"><small id="generation-auto-brief-status">Портал сам подготовит техническое ТЗ при запуске. Ваш текст останется замыслом.</small></div>
+          <div id="generation-learning-status" hidden><strong>Служебный обучающий сигнал</strong></div>
+          <div id="generation-repair-status" hidden><strong>Служебный сигнал исправления</strong></div>
           <fieldset><legend>Исходники</legend><label><input name="media_id" type="checkbox" value="photo-1" checked /> Главное фото товара</label><label><input name="primary_media_id" type="radio" value="photo-1" checked /> Использовать главным</label></fieldset>
-          <button id="generation-submit" class="btn btn-block" type="submit">Создать один ролик</button>
+          <button id="generation-submit" class="btn btn-block" type="submit" disabled>Создать одно платное видео · около $5.00</button>
         </form></section></div>`;
       }
 
@@ -149,9 +157,15 @@
           }
         }
       });
+      content.addEventListener("change", (event) => {
+        if (event.target.matches('[name="real_spend_confirmation"]')) {
+          const submit = content.querySelector("#generation-submit");
+          if (submit) submit.disabled = !event.target.checked;
+        }
+      });
     </script>
     <script type="module">
-      await import("../../web/app/workspace-os-v4.js?v=20260804.os4.17");
+      await import("../../web/app/workspace-os-v4.js?v=20260805.os4.18");
       await import("../../web/app/workspace-os-v4-context-trash.js");
       await import("../../web/app/workspace-os-v4-finder.js");
       await import("../../web/app/workspace-os-v4-generation-guided.js");

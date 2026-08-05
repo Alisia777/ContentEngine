@@ -103,6 +103,35 @@ def test_approved_research_scenario_compiles_to_generation_ready_seedance_prompt
     }
 
 
+def test_compiler_respects_each_provider_prompt_limit_without_limiting_human_idea() -> None:
+    result = _run_module(
+        """
+        const common = {
+          productName: "Точный товар",
+          sku: "SKU-1",
+          scenarioIntent: "Показать товар естественно. ".repeat(80),
+          visualDirection: "Мягкий свет. ".repeat(80),
+          avoidClaims: ["неподтверждённое обещание"],
+          productCategory: "household",
+        };
+        const gen4 = subject.compileSafeGenerationBrief({ ...common, mode: "real_gen4", durationSeconds: 10 });
+        const seedance = subject.compileSafeGenerationBrief({ ...common, mode: "real_seedance", durationSeconds: 15 });
+        return {
+          gen4Ready: gen4.ready,
+          gen4Length: gen4.prompt.length,
+          gen4Limit: subject.contentGenerationPromptLimit("real_gen4"),
+          seedanceReady: seedance.ready,
+          seedanceLength: seedance.prompt.length,
+          seedanceLimit: subject.contentGenerationPromptLimit("real_seedance"),
+        };
+        """
+    )
+    assert result["gen4Ready"] is True
+    assert result["gen4Length"] <= result["gen4Limit"] == 1_000
+    assert result["seedanceReady"] is True
+    assert result["seedanceLength"] <= result["seedanceLimit"] == 1_200
+
+
 def test_handoff_carries_human_research_decision_into_required_prompt_guard() -> None:
     result = _run_module(
         """
@@ -1666,7 +1695,10 @@ def test_portal_connects_approved_scenario_to_paid_generation_readiness() -> Non
     )
     assert "research_scenario_sent_to_generation" in APP
     assert "compileSafeGenerationBrief" in APP
-    assert 'data-action="restore-auto-generation-brief"' in APP
+    assert "scenarioIntent: form.dataset.generationScenarioIntent" in APP
+    assert 'data-action="restore-auto-generation-brief"' not in APP
+    assert "Портал сам подготовит техническое ТЗ при запуске" in APP
+    assert "await ensureApprovedGenerationSpecForPaidStart(form)" in APP
     assert "generationPromptInspection(form)" in APP
     sync_inspection = APP[
         APP.index("function syncContentGenerationHandoff") :
@@ -1683,7 +1715,7 @@ def test_portal_connects_approved_scenario_to_paid_generation_readiness() -> Non
     )
     assert "generation_job_id: jobId" in APP
     assert "creative_brief_draft_id: generationHandoff?.draftId" in APP
-    assert "./content-generation-handoff.js?v=20260804.os4.17" in APP
-    assert "./app.js?v=20260804.os4.17" in INDEX
+    assert "./content-generation-handoff.js?v=20260805.os4.18" in APP
+    assert "./app.js?v=20260805.os4.18" in INDEX
     handoff_header = STYLES.split(".generation-handoff__header {", 1)[1].split("}", 1)[0]
     assert "flex-direction: column;" in handoff_header

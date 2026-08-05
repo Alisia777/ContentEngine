@@ -234,7 +234,7 @@ def test_outcome_learning_sql_disambiguates_values_and_confirmation() -> None:
 
 def test_api_declares_scope_registry_and_three_outcome_control_rpcs() -> None:
     api_source = _read(API_PATH)
-    assert './supabase-api.js?v=20260804.os4.17' in _read(APP_PATH)
+    assert './supabase-api.js?v=20260805.os4.18' in _read(APP_PATH)
     rpc_values = set(
         re.findall(r'"(creator_[a-z0-9_]*research_outcome_learning[a-z0-9_]*)"', api_source)
     )

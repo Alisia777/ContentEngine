@@ -67,10 +67,14 @@ def test_failed_jobs_are_visually_distinguishable_and_manual_intent_is_preserved
     assert "Ваш замысел ролика" in APP
     assert "Ваш замысел кадра" in APP
     assert "Ваш замысел анимации" in APP
-    assert "не заменяя сюжет" in APP
-    assert "Проверить мой замысел и подготовить ТЗ" in APP
+    assert "не меняя сюжет" in APP
+    assert "Проверить мой замысел и подготовить ТЗ" not in APP
+    assert "Портал сам подготовит техническое ТЗ при запуске" in APP
+    assert 'textarea name="brief" rows="8"' in APP
     assert "Ваш замысел сохранён" in APP
     assert "Портал сохранит ваш замысел" in APP
+    assert "form.elements.brief.value = spec.editable_intent" in APP
+    assert "form.elements.brief.value = spec.compiled_prompt" not in APP
 
 
 def test_paid_generation_has_five_explicit_progress_stages() -> None:

@@ -6,9 +6,9 @@
     <title>ContentEngine upload recovery v4.16</title>
     <link rel="stylesheet" href="../../web/app/styles.css" />
     <link rel="stylesheet" href="../../web/app/interface-system.css" />
-    <link rel="stylesheet" href="../../web/app/workspace-os-v4.css?v=20260804.os4.17" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4.css?v=20260805.os4.18" />
     <link rel="stylesheet" href="../../web/app/workspace-os-v4-polish.css" />
-    <link rel="stylesheet" href="../../web/app/workspace-os-v4-flow.css?v=20260804.os4.17" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-flow.css?v=20260805.os4.18" />
     <link rel="stylesheet" href="../../web/app/workspace-os-v4-stability.css" />
     <link rel="stylesheet" href="../../web/app/workspace-os-v4-motion.css" />
   </head>
@@ -64,7 +64,7 @@
       if (!location.hash.startsWith("#/workspace/media")) location.hash = "#/workspace/media?project_id=11111111-1111-4111-8111-111111111111";
     </script>
     <script type="module">
-      await import("../../web/app/workspace-os-v4.js?v=20260804.os4.17");
+      await import("../../web/app/workspace-os-v4.js?v=20260805.os4.18");
       await window.ContentEngineDesktopV4.flush();
       const qa = document.querySelector("#runtime-qa");
       qa.dataset.formVisible = String(Boolean(document.querySelector("#media-upload-form").getClientRects().length));

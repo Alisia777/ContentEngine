@@ -257,6 +257,10 @@ def test_each_guided_step_has_one_visible_panel_and_one_primary_action() -> None
             assert '"btn btn-secondary ce-v4-generation-guided__back"' in source
             assert re.search(r"next\.hidden\s*=\s*index\s*===\s*STEPS\.length\s*-\s*1", source)
             assert re.search(r"submit\.hidden\s*=\s*index\s*!==\s*STEPS\.length\s*-\s*1", source)
+            assert 'node.id === "real-generation-confirmation"' in source
+            mode_start = source.index('node.id === "generation-draft-status"')
+            mode_end = source.index(') return "mode";', mode_start)
+            assert "real_spend_confirmation" not in source[mode_start:mode_end]
         else:
             assert 'data-primary-action", "true"' in source or 'data-primary-action="true"' in source
             assert re.search(

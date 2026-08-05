@@ -47,13 +47,6 @@ export function evaluateGenerationFormReadiness(value = {}) {
           : "Опишите один ролик и главную мысль без неподтверждённых обещаний.",
       ),
       step(
-        "safe_brief",
-        "Проверенное авто-ТЗ",
-        value.safeBriefReady === true,
-        clean(value.safeBriefHint)
-          || "Дождитесь бесплатной проверки авто-ТЗ для выбранной категории, модели и длительности.",
-      ),
-      step(
         "budget",
         "Бюджет кампании",
         Boolean(clean(value.campaignId) && value.spendAllowed === true),
@@ -83,14 +76,9 @@ export function evaluateGenerationFormReadiness(value = {}) {
 
   const completed = steps.filter((item) => item.complete).length;
   const next = steps.find((item) => !item.complete) || null;
-  const safeBriefState = clean(value.safeBriefState)
-    .toLowerCase()
-    .replace(/[^a-z0-9_]/gu, "")
-    .slice(0, 32);
-  const signature = [
-    ...steps.map((item) => `${item.key}:${item.complete ? 1 : 0}`),
-    ...(real ? [`safe_state:${safeBriefState || "pending"}`] : []),
-  ].join("|");
+  const signature = steps
+    .map((item) => `${item.key}:${item.complete ? 1 : 0}`)
+    .join("|");
   return {
     real,
     ready: next === null,
