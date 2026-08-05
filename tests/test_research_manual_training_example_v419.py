@@ -10,6 +10,10 @@ MIGRATION = (
     ROOT
     / "supabase/migrations/202608050001_research_manual_training_example.sql"
 ).read_text(encoding="utf-8")
+RUNTIME_FIX = (
+    ROOT
+    / "supabase/migrations/202608050002_research_manual_training_example_runtime_fix.sql"
+).read_text(encoding="utf-8")
 MODULE = (ROOT / "web/app/research-training-example.js").read_text(
     encoding="utf-8"
 )
@@ -34,6 +38,7 @@ def test_exact_air_fryer_short_is_a_supported_youtube_identity() -> None:
 
 
 def test_manual_example_is_evidence_not_a_paid_provider_run() -> None:
+    combined = MIGRATION + RUNTIME_FIX
     for marker in (
         "creator_register_research_training_example",
         "system_register_research_training_example",
@@ -47,7 +52,7 @@ def test_manual_example_is_evidence_not_a_paid_provider_run() -> None:
         "paid_analysis_performed', false",
         "exact_copy_allowed', false",
     ):
-        assert marker in MIGRATION
+        assert marker in combined
     assert "creator_start_project_research" not in MODULE
     assert "creator-product-research" not in MODULE
     assert "requestSubmit" not in MODULE
@@ -55,7 +60,18 @@ def test_manual_example_is_evidence_not_a_paid_provider_run() -> None:
     assert "Один пример остаётся кандидатом" in MODULE
 
 
+def test_runtime_fix_reads_binding_fields_into_scalar_targets() -> None:
+    assert "binding_id_value uuid;" in RUNTIME_FIX
+    assert "binding_category_id_value uuid;" in RUNTIME_FIX
+    assert "select binding.id," in RUNTIME_FIX
+    assert "into binding_id_value," in RUNTIME_FIX
+    assert "select binding.*" not in RUNTIME_FIX
+    assert "category_binding_id', binding_id_value" in RUNTIME_FIX
+    assert "category_binding_matches', binding_matches" in RUNTIME_FIX
+
+
 def test_manual_example_requires_exact_scope_and_human_acknowledgements() -> None:
+    combined = MIGRATION + RUNTIME_FIX
     for marker in (
         "project_id",
         "run_id",
@@ -68,11 +84,11 @@ def test_manual_example_requires_exact_scope_and_human_acknowledgements() -> Non
         "research_training_example_category_mismatch",
         "research_training_example_ack_required",
     ):
-        assert marker in MIGRATION
+        assert marker in combined
         assert marker in MODULE
     assert "array['owner', 'admin', 'producer']" in MIGRATION
-    assert "category_binding_matches" in MIGRATION
-    assert "provider_citation_verified', false" in MIGRATION
+    assert "category_binding_matches" in combined
+    assert "provider_citation_verified', false" in combined
 
 
 def test_research_route_loads_one_compact_example_action() -> None:
