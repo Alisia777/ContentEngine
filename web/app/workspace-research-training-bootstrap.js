@@ -10,7 +10,7 @@
 (() => {
   "use strict";
 
-  const BUILD = "20260805.research.23";
+  const BUILD = "20260806.research.24";
   const SCRIPT_URL = document.currentScript?.src || window.location.href;
   const BASE_URL = new URL(".", SCRIPT_URL);
   const loadedStyles = new Map();
@@ -31,8 +31,20 @@
   const ROUTES = Object.freeze([
     Object.freeze({
       match: (route) => route === "/workspace/research",
-      styles: ["workspace-research-video-intake.css"],
-      modules: ["workspace-research-video-intake.js"],
+      styles: [
+        "workspace-research-video-intake.css",
+        "workspace-research-failure-recovery.css",
+      ],
+      modules: [
+        "workspace-research-video-intake.js",
+        "workspace-research-failure-recovery.js",
+      ],
+      requiresRpcAliases: false,
+    }),
+    Object.freeze({
+      match: (route) => route === "/workspace/media",
+      styles: ["workspace-research-failure-recovery.css"],
+      modules: ["workspace-research-failure-recovery.js"],
       requiresRpcAliases: false,
     }),
     Object.freeze({
@@ -40,10 +52,12 @@
       styles: [
         "workspace-ai-research-training.css",
         "workspace-ai-exact-youtube-sources.css",
+        "workspace-research-failure-recovery.css",
       ],
       modules: [
         "workspace-ai-research-training.js",
         "workspace-ai-exact-youtube-sources.js",
+        "workspace-research-failure-recovery.js",
       ],
       requiresRpcAliases: true,
     }),
