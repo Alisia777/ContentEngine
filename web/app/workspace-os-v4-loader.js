@@ -23,16 +23,8 @@ window.CONTENTENGINE_DESKTOP_V4 = true;
 const ROUTE_ASSETS = Object.freeze({
   aiLearning: Object.freeze({
     match: (route) => route === "/workspace/ai",
-    styles: [
-      `ai-learning-control-room.css?v=${BUILD}`,
-      `workspace-ai-research-training.css?v=${BUILD}`,
-    ],
-    modules: [`workspace-ai-research-training.js?v=${BUILD}`],
-  }),
-  research: Object.freeze({
-    match: (route) => route === "/workspace/research",
-    styles: [`workspace-research-video-intake.css?v=${BUILD}`],
-    modules: [`workspace-research-video-intake.js?v=${BUILD}`],
+    styles: [`ai-learning-control-room.css?v=${BUILD}`],
+    modules: [],
   }),
   finder: Object.freeze({
     match: (route) => route === "/workspace/board",
@@ -41,14 +33,8 @@ const ROUTE_ASSETS = Object.freeze({
   }),
   generation: Object.freeze({
     match: (route) => route === "/workspace/generation",
-    styles: [
-      `workspace-os-v4-generation-guided.css?v=${BUILD}`,
-      `workspace-generation-research-recommendations.css?v=${BUILD}`,
-    ],
-    modules: [
-      `workspace-os-v4-generation-guided.js?v=${BUILD}`,
-      `workspace-generation-research-recommendations.js?v=${BUILD}`,
-    ],
+    styles: [`workspace-os-v4-generation-guided.css?v=${BUILD}`],
+    modules: [`workspace-os-v4-generation-guided.js?v=${BUILD}`],
   }),
   review: Object.freeze({
     match: (route) => route === "/workspace/review",
