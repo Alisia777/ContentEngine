@@ -1,0 +1,127 @@
+name: Register air-fryer research example once
+
+on:
+  workflow_run:
+    workflows:
+      - Deploy Supabase and GitHub Pages
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: production-air-fryer-research-example
+  cancel-in-progress: false
+
+jobs:
+  register:
+    name: Register supplied YouTube Short without paid analysis
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      contains(github.event.workflow_run.head_commit.message, 'YouTube Shorts learning example')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+      EXPECTED_SUPABASE_PROJECT_REF: iyckwryrucqrxwlowxow
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+      TARGET_PROJECT_ID: 4f0fcfa2-7233-4c0c-9e16-2c20e0aae379
+      TARGET_SOURCE_URL: https://www.youtube.com/shorts/GW-NfEVlPGc
+    steps:
+      - name: Announce governed production intake
+        shell: bash
+        run: |
+          gh issue comment 148 --repo "$GITHUB_REPOSITORY" \
+            --body "⏳ Production deploy завершён. Регистрирую переданный YouTube Short в проекте как публичный learning example без OpenAI/YouTube provider call и без повторной оплаты."
+
+      - name: Check out the deployed revision
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Validate protected production binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${SUPABASE_ACCESS_TOKEN:?Configure SUPABASE_ACCESS_TOKEN in production}"
+          : "${SUPABASE_PROJECT_REF:?Configure SUPABASE_PROJECT_REF as a repository variable}"
+          if [ "$SUPABASE_PROJECT_REF" != "$EXPECTED_SUPABASE_PROJECT_REF" ]; then
+            echo "Production project binding mismatch" >&2
+            exit 1
+          fi
+
+      - name: Register and verify exact example
+        id: register
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          receipt="$RUNNER_TEMP/air-fryer-example-receipt.json"
+          log="$RUNNER_TEMP/air-fryer-example-safe.log"
+          python -m scripts.register_research_training_example \
+            --project-id="$TARGET_PROJECT_ID" \
+            --source-url="$TARGET_SOURCE_URL" \
+            --compliance-category=electronics \
+            --market-category-name="Аэрогрили" \
+            --training-role=reference \
+            --human-summary="Пользователь указал ролик как пример короткого вертикального контента по аэрогрилю; использовать только общую механику подачи и не копировать кадры, лицо, музыку, текст или чужой товар." \
+            --idempotency-key="manual-youtube:4f0fcfa2:GW-NfEVlPGc:reference:v1" \
+            --receipt-path="$receipt" >"$log" 2>&1
+          code=$?
+          cat "$log"
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [ -f "$receipt" ]; then
+            echo "receipt_path=$receipt" >> "$GITHUB_OUTPUT"
+          fi
+          exit "$code"
+
+      - name: Publish safe registration report
+        if: always()
+        env:
+          REGISTER_OUTCOME: ${{ steps.register.outcome }}
+          REGISTER_EXIT_CODE: ${{ steps.register.outputs.exit_code }}
+          RECEIPT_PATH: ${{ steps.register.outputs.receipt_path }}
+        shell: bash
+        run: |
+          if [ "$REGISTER_OUTCOME" = "success" ] && [ "${REGISTER_EXIT_CODE:-0}" = "0" ] && [ -f "$RECEIPT_PATH" ]; then
+            summary="$(python - "$RECEIPT_PATH" <<'PY'
+          import json
+          import sys
+          value = json.load(open(sys.argv[1], encoding='utf-8'))
+          print(
+              f"source_id=`{value.get('source_id', '')}`; "
+              f"run_status=`{value.get('run_status', '')}`; "
+              f"learning_state=`{value.get('learning_state', '')}`; "
+              f"category_binding=`{value.get('category_binding_name', '') or 'ожидается'}`; "
+              f"replay=`{str(bool(value.get('replay'))).lower()}`"
+          )
+          PY
+          )"
+            gh issue comment 148 --repo "$GITHUB_REPOSITORY" \
+              --body "✅ Пример зарегистрирован и повторно прочитан из production receipt. $summary. Provider call: **нет**. Повторный платный анализ: **нет**. Точное копирование: **запрещено**."
+            exit 0
+          fi
+
+          diagnostic="$(tail -n 10 "$RUNNER_TEMP/air-fryer-example-safe.log" 2>/dev/null || true)"
+          if [ -z "$diagnostic" ]; then
+            diagnostic="Защищённая операция завершилась до формирования прикладной диагностики."
+          fi
+          gh issue comment 148 --repo "$GITHUB_REPOSITORY" \
+            --body "❌ Регистрация остановлена fail-closed; пример не считаем загруженным. Безопасная диагностика:\n\n\`\`\`text\n$diagnostic\n\`\`\`"
+
+      - name: Fail closed when receipt is not confirmed
+        if: always() && steps.register.outcome != 'success'
+        shell: bash
+        run: exit 1
