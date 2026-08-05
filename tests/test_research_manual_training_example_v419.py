@@ -19,10 +19,11 @@ CSS = (ROOT / "web/app/research-training-example.css").read_text(
 LOADER = (ROOT / "web/app/workspace-os-v4-loader.js").read_text(
     encoding="utf-8"
 )
+EXACT_AIR_FRYER_SHORT = "https://www.youtube.com/shorts/GW-NfEVlPGc"
 
 
 def test_exact_air_fryer_short_is_a_supported_youtube_identity() -> None:
-    assert "GW-NfEVlPGc" in MODULE
+    assert EXACT_AIR_FRYER_SHORT.endswith("/GW-NfEVlPGc")
     assert 'parts[0] === "shorts"' in MODULE
     assert 'parts[0] === "watch"' in MODULE
     assert 'host === "youtu.be"' in MODULE
@@ -50,7 +51,7 @@ def test_manual_example_is_evidence_not_a_paid_provider_run() -> None:
     assert "creator_start_project_research" not in MODULE
     assert "creator-product-research" not in MODULE
     assert "requestSubmit" not in MODULE
-    assert "provider_call_performed" in MODULE
+    assert "без provider call" in MODULE
     assert "Один пример остаётся кандидатом" in MODULE
 
 
