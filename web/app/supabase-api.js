@@ -27,6 +27,7 @@ export const RPC = Object.freeze({
   registerAiKnowledgeSource: "creator_register_ai_knowledge_source",
   decideAiTeachingCard: "creator_decide_ai_teaching_card",
   decideAiHistoricalCase: "creator_decide_ai_historical_case",
+  decideAiResearchReceipt: "creator_decide_ai_research_receipt",
   generationRepairPolicy: "creator_generation_repair_policy",
   generationSpecStatus: "creator_generation_spec_status",
   prepareGenerationSpec: "creator_prepare_generation_spec",
@@ -873,6 +874,37 @@ export class CreatorApi {
       event_id: eventId,
       expected_scope_version: expectedScopeVersion,
       expected_event_cursor: expectedEventCursor,
+      decision,
+      confirmation: true,
+    });
+  }
+
+  decideAiResearchReceipt(input = {}) {
+    const productCategory = String(input.product_category || "")
+      .trim()
+      .toLowerCase();
+    const receiptId = String(input.receipt_id || "").trim().toLowerCase();
+    const receiptHash = String(input.receipt_hash || "").trim().toLowerCase();
+    const decision = String(input.decision || "").trim().toLowerCase();
+    if (!AI_PRODUCT_CATEGORY_SET.has(productCategory)) {
+      throw new CreatorApiError("Исследование относится к другой товарной категории. Обновите ИИ-центр.", {
+        code: "ai_research_receipt_category_invalid",
+      });
+    }
+    if (
+      !isUuid(receiptId)
+      || !/^[0-9a-f]{64}$/u.test(receiptHash)
+      || !["approve", "reject"].includes(decision)
+      || input.confirmation !== true
+    ) {
+      throw new CreatorApiError("Запись исследования изменилась. Обновите ИИ-центр и повторите решение.", {
+        code: "ai_research_receipt_decision_invalid",
+      });
+    }
+    return this.mutate(RPC.decideAiResearchReceipt, {
+      product_category: productCategory,
+      receipt_id: receiptId,
+      receipt_hash: receiptHash,
       decision,
       confirmation: true,
     });
@@ -1889,6 +1921,14 @@ export class CreatorApi {
         code: "product_research_paid_confirmation_required",
       });
     }
+    const productCategory = String(input?.product_category || "")
+      .trim()
+      .toLowerCase();
+    if (!AI_PRODUCT_CATEGORY_SET.has(productCategory)) {
+      throw new CreatorApiError("Выберите одну категорию для входящих ИИ-центра.", {
+        code: "product_research_ai_category_required",
+      });
+    }
     if (
       !Array.isArray(input?.platforms)
       || input.platforms.length < 1
@@ -1904,7 +1944,11 @@ export class CreatorApi {
     const normalizedProjectId = requiredProjectId(
       projectIdSnake || projectId || input?.project_id || input?.projectId,
     );
-    const payload = { ...input, project_id: normalizedProjectId };
+    const payload = {
+      ...input,
+      product_category: productCategory,
+      project_id: normalizedProjectId,
+    };
     delete payload.projectId;
     const created = await this.mutate(RPC.startProductResearch, payload);
     const source = created?.data && typeof created.data === "object" ? created.data : created;
@@ -1948,6 +1992,23 @@ export class CreatorApi {
       ...scopedPayload,
       project_id: requiredProjectId(options.project_id ?? options.projectId),
     };
+    // Advance a saved background OpenAI response before reading the database
+    // snapshot. This call only performs GET polling for processing rows; the
+    // Edge Function explicitly refuses to turn a queued status read into the
+    // one paid POST. A temporary Edge outage must not hide the last durable
+    // result already stored in Postgres.
+    try {
+      await this.invokeProductResearch({
+        action: "status",
+        research_id: normalizedRunId,
+        project_id: projectScopedPayload.project_id,
+      });
+    } catch (error) {
+      console.warn(
+        "Research background status refresh unavailable",
+        error?.serverCode || error?.code || "",
+      );
+    }
     const requestedOutcomeScope = options?.outcome_scope
       ? requireResearchOutcomeScope(options.outcome_scope)
       : null;

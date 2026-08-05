@@ -26,8 +26,8 @@ BUG_CHECKIN_CSS = (APP / "workspace-ui-bug-checkin.css").read_text(encoding="utf
 
 
 def test_desktop_v4_6_is_the_only_eager_workspace_shell() -> None:
-    assert '<link rel="stylesheet" href="./workspace-os-v4.css?v=20260804.os4.13" />' in INDEX
-    assert '<script type="module" src="./workspace-os-v4-loader.js?v=20260804.os4.13"></script>' in INDEX
+    assert '<link rel="stylesheet" href="./workspace-os-v4.css?v=20260804.os4.17" />' in INDEX
+    assert '<script type="module" src="./workspace-os-v4-loader.js?v=20260804.os4.17"></script>' in INDEX
     assert INDEX.index('./workspace-os-v4-loader.js') < INDEX.index('./app.js')
     assert INDEX.index('./app.js') < INDEX.index('./workspace-build-guard.js')
 
@@ -37,15 +37,15 @@ def test_desktop_v4_6_is_the_only_eager_workspace_shell() -> None:
         flags=re.MULTILINE,
     )
     assert active_modules == [
-        './workspace-os-v4-loader.js?v=20260804.os4.13',
-        './app.js?v=20260804.os4.13',
-        './workspace-build-guard.js?v=20260804.os4.13',
+        './workspace-os-v4-loader.js?v=20260804.os4.17',
+        './app.js?v=20260804.os4.17',
+        './workspace-build-guard.js?v=20260804.os4.17',
     ]
 
 
 def test_route_loader_uses_current_v4_6_guided_assets_and_the_dom_patch() -> None:
     for marker in (
-        'const BUILD = "20260804.os4.13"',
+        'const BUILD = "20260804.os4.17"',
         'new URL(relative, import.meta.url).href',
         'import(href)',
         'return route.startsWith("/workspace/");',
@@ -88,7 +88,7 @@ def test_route_loader_uses_current_v4_6_guided_assets_and_the_dom_patch() -> Non
     assert 'fetch(' not in LOADER
     assert 'XMLHttpRequest' not in LOADER
 
-    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.13";' in APP_SCRIPT
+    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.17";' in APP_SCRIPT
     assert 'patchWorkspaceContent(existingContent, content);' in APP_SCRIPT
     for marker in (
         'export function patchWorkspaceContent(container, markup)',
@@ -170,7 +170,7 @@ def test_system_shell_has_one_dock_one_menubar_and_stable_context_chrome() -> No
     assert "requestSubmit" not in STABILITY
 
 
-def test_dock_explains_that_a_project_is_required_instead_of_silently_bouncing_home() -> None:
+def test_dock_project_guidance_is_clickable_focusable_and_never_uses_a_cross_cursor() -> None:
     dock = CORE[
         CORE.index("function ensureDock()") : CORE.index("\nfunction updateDock()")
     ]
@@ -178,27 +178,53 @@ def test_dock_explains_that_a_project_is_required_instead_of_silently_bouncing_h
     assert 'workspaceRouteRequiresProject(destination)' in dock
     assert '!snapshot.id' in dock
     assert "event.preventDefault()" in dock
-    assert "explainProjectRequired()" in dock
+    assert "explainProjectRequired(destination)" in dock
 
     policy = CORE[
         CORE.index("function workspaceRouteRequiresProject(") :
-        CORE.index("\nfunction explainProjectRequired()")
-    ]
-    explanation = CORE[
-        CORE.index("function explainProjectRequired()") :
         CORE.index("\nfunction routeMatches(")
     ]
+    focus_target = policy[
+        policy.index("function focusProjectChoiceTarget(") :
+        policy.index("function explainProjectRequired(")
+    ]
+    explanation = policy[policy.index("function explainProjectRequired(") :]
     assert 'path === "/workspace/work"' in policy
     assert '=== "notifications"' in policy
     assert "PROJECT_REQUIRED_ROUTES.has(path)" in policy
-    assert "Сначала выберите проект" in explanation
+    assert 'q(\'[data-action="retry-project-flow"]\')' in focus_target
+    assert "focusProjectChoiceTarget" in explanation
+    assert "сначала выберите проект" in explanation
     assert 'window.location.hash = "#/workspace/home"' in explanation
 
     update = CORE[CORE.index("function updateDock()") : CORE.index("\nfunction projectFlowRoot(")]
     assert 'item.classList.toggle("is-project-required", projectRequired)' in update
-    assert 'locked || projectRequired' in update
-    assert "Сначала выберите проект" in update
+    assert 'if (locked) item.setAttribute("aria-disabled", "true")' in update
+    assert "locked || projectRequired" not in update
+    assert 'item.setAttribute("aria-disabled", "true")' not in update[
+        update.index("const projectRequired") : update.index("if (locked)")
+    ]
+    assert "нужен проект. Нажмите, чтобы перейти к выбору проекта" in update
     assert ".ce-v4-dock__item.is-project-required" in CORE_CSS
+    assert re.search(
+        r'\.ce-v4-dock__item\[aria-disabled="true"\]\s*\{[^}]*cursor:\s*pointer',
+        CORE_CSS,
+        flags=re.DOTALL,
+    )
+    assert re.search(
+        r'\.ce-v4-project-progress__steps\s+a\[aria-disabled="true"\]\s*\{[^}]*cursor:\s*pointer',
+        CORE_CSS,
+        flags=re.DOTALL,
+    )
+    assert "cursor: not-allowed" not in CORE_CSS
+    tooltip_rule = re.search(
+        r"\.ce-v4-dock__tooltip\s*\{(?P<body>[^}]*)\}",
+        CORE_CSS,
+        flags=re.DOTALL,
+    )
+    assert tooltip_rule is not None
+    assert re.search(r"width:\s*max-content", tooltip_rule.group("body"))
+    assert re.search(r"max-width:\s*min\(", tooltip_rule.group("body"))
 
 
 def test_loader_reconciles_stale_routes_and_replace_state_reloads_the_current_action() -> None:

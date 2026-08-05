@@ -2,7 +2,7 @@ import {
   CreatorApi,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260804.os4.13";
+} from "./supabase-api.js?v=20260804.os4.17";
 import {
   approvedGenerationSpecContext,
   generationSpecCardMarkup,
@@ -10,8 +10,8 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecScope,
 } from "./generation-spec.js?v=20260803.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.13";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.13";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260804.os4.17";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.17";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -74,7 +74,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260804.os4.13";
+} from "./product-research-view.js?v=20260804.os4.17";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -85,7 +85,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260804.os4.13";
+} from "./ai-learning-control-room.js?v=20260804.os4.17";
 import {
   compileContentGenerationPrompt,
   compileSafeGenerationBrief,
@@ -98,7 +98,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260804.os4.13";
+} from "./content-generation-handoff.js?v=20260804.os4.17";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -112,7 +112,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260804.os4.13";
+} from "./generation-form-draft.js?v=20260804.os4.17";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -145,7 +145,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260804.os4.13";
+} from "./content-review-view.js?v=20260804.os4.17";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -174,7 +174,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260804.os4.13";
+} from "./workspace-board-view.js?v=20260804.os4.17";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -203,7 +203,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260804.os4.13";
+} from "./training-journey.js?v=20260804.os4.17";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -222,7 +222,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260804.os4.13";
+} from "./training-practical-review.js?v=20260804.os4.17";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -241,7 +241,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260804.os4.13";
+} from "./my-work-view.js?v=20260804.os4.17";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -1161,6 +1161,8 @@ const state = {
     busy: false,
     notice: "",
     error: "",
+    projectDraftName: "",
+    projectCreateError: "",
     pendingArchiveFolderId: "",
     dragging: null,
     loadingMore: false,
@@ -1223,6 +1225,7 @@ const state = {
     marketMutationId: 0,
     busyCardId: "",
     busyHistoricalCaseId: "",
+    busyResearchReceiptId: "",
     historicalCaseFilter: "all",
     historicalImport: {
       active: false,
@@ -6732,6 +6735,19 @@ function storedWorkspaceProject() {
   }
 }
 
+function routeWorkspaceProjectId() {
+  if (!state.route.path.startsWith("/workspace/")) return "";
+  const values = state.route.query.getAll("project_id");
+  const projectId = values.length === 1
+    ? String(values[0] || "").trim().toLowerCase()
+    : "";
+  return isWorkspaceProjectId(projectId) ? projectId : "";
+}
+
+function workspaceProjectChooserMode() {
+  return state.route.path === "/workspace/home" && !routeWorkspaceProjectId();
+}
+
 function normalizeProjectFlow(raw) {
   const source = raw?.data ?? raw ?? {};
   const projects = Array.isArray(source.projects) ? source.projects : [];
@@ -6808,18 +6824,20 @@ function exactProjectNextActionRoute(rawFlow, expectedProjectId = currentWorkspa
 }
 
 function currentWorkspaceProjectId() {
-  if (state.route.path.startsWith("/workspace/")) {
-    const values = state.route.query.getAll("project_id");
-    const routeProjectId = values.length === 1
-      ? String(state.route.query.get("project_id") || "").trim().toLowerCase()
-      : "";
-    if (isWorkspaceProjectId(routeProjectId)) return routeProjectId;
-  }
+  const routeProjectId = routeWorkspaceProjectId();
+  if (routeProjectId) return routeProjectId;
+  if (workspaceProjectChooserMode()) return "";
   const flowProjectId = String(state.projectFlow?.data?.project_id || state.projectFlow?.projectId || "")
     .trim()
     .toLowerCase();
   if (isWorkspaceProjectId(flowProjectId)) return flowProjectId;
   return storedWorkspaceProject()?.id || "";
+}
+
+function projectFlowRequestProjectId() {
+  const routeProjectId = routeWorkspaceProjectId();
+  if (workspaceProjectChooserMode()) return "";
+  return routeProjectId || currentWorkspaceProjectId();
 }
 
 function workspaceSectionRequiresProject(section, query = state.route.query) {
@@ -7100,13 +7118,10 @@ function renderWorkspace(section) {
     return;
   }
   const routeProjectId = currentWorkspaceProjectId();
+  const requestedProjectId = projectFlowRequestProjectId();
   if (
     state.projectFlow.status === "idle"
-    || (
-      routeProjectId
-      && routeProjectId !== state.projectFlow.projectId
-      && !["loading", "refreshing"].includes(state.projectFlow.status)
-    )
+    || requestedProjectId !== state.projectFlow.projectId
   ) {
     window.queueMicrotask(() => { void loadProjectFlow({ silent: true }); });
   }
@@ -7149,6 +7164,7 @@ function renderWorkspace(section) {
   }[section];
 
   const initialSectionLoad = section !== "home"
+    && section !== "media"
     && ["idle", "loading"].includes(sectionState.status)
     && !sectionState.data;
   const content = initialSectionLoad ? workspaceInitialLoadingMarkup(section) : renderer(sectionState);
@@ -7747,7 +7763,7 @@ function workspaceContextBarMarkup(activeSection, label) {
         ` : aiLearning ? `
           <a href="#/workspace/ai?category=${encodeURIComponent(currentAiLearningCategory())}&view=overview">Статус</a>
           <a href="#/workspace/ai?category=${encodeURIComponent(currentAiLearningCategory())}&view=knowledge">Знания</a>
-          <a href="#/workspace/ai?category=${encodeURIComponent(currentAiLearningCategory())}&view=teach">ОК / не ОК</a>
+          <a href="#/workspace/ai?category=${encodeURIComponent(currentAiLearningCategory())}&view=teach">Проверить сигнал</a>
         ` : `
           <a href="#/workspace/media">Материалы</a>
           <a class="${activeSection === "generation" ? "is-active" : ""}" href="#/workspace/generation">Создать</a>
@@ -7904,7 +7920,53 @@ function setMobileNavOpen(open, restoreFocus = false) {
   }
 }
 
+function focusAiLearningViewTab(view, attempt = 0) {
+  const normalizedView = aiLearningView(view);
+  const tab = document.getElementById(`ai-learning-tab-${normalizedView}`);
+  if (
+    state.route.path === "/workspace/ai"
+    && currentAiLearningView() === normalizedView
+    && tab instanceof HTMLButtonElement
+  ) {
+    tab.focus({ preventScroll: true });
+    tab.scrollIntoView({ block: "nearest", inline: "nearest" });
+    return true;
+  }
+  if (attempt < 5) {
+    window.setTimeout(() => focusAiLearningViewTab(normalizedView, attempt + 1), 40 * (attempt + 1));
+  }
+  return false;
+}
+
+function handleAiLearningTabsKeyDown(event) {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return false;
+  if (event.altKey || event.ctrlKey || event.metaKey) return false;
+  const target = event.target instanceof Element
+    ? event.target.closest('.ai-learning-view-tabs [role="tab"][data-action="select-ai-learning-view"]')
+    : null;
+  if (!(target instanceof HTMLButtonElement)) return false;
+  const tablist = target.closest('.ai-learning-view-tabs[role="tablist"]');
+  const tabs = Array.from(
+    tablist?.querySelectorAll('[role="tab"][data-action="select-ai-learning-view"]:not(:disabled)') || [],
+  ).filter((tab) => tab instanceof HTMLButtonElement);
+  const currentIndex = tabs.indexOf(target);
+  if (currentIndex < 0 || tabs.length < 1) return false;
+  const nextIndex = event.key === "Home"
+    ? 0
+    : event.key === "End"
+      ? tabs.length - 1
+      : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+  const nextTab = tabs[nextIndex];
+  const view = aiLearningView(nextTab.dataset.view);
+  event.preventDefault();
+  nextTab.focus({ preventScroll: true });
+  navigate(`/workspace/ai?category=${encodeURIComponent(currentAiLearningCategory())}&view=${encodeURIComponent(view)}`);
+  window.setTimeout(() => focusAiLearningViewTab(view), 0);
+  return true;
+}
+
 function handleKeyDown(event) {
+  if (handleAiLearningTabsKeyDown(event)) return;
   const achievement = document.querySelector("[data-training-achievement]");
   if (achievement && event.key === "Escape") {
     event.preventDefault();
@@ -8030,12 +8092,17 @@ function mobileNavMarkup(learningOnly, activeSection = "", activeLearningPath = 
 
 async function loadProjectFlow({ silent = false, force = false } = {}) {
   if (!state.api?.projectFlow) {
+    const unavailableProjectId = projectFlowRequestProjectId();
+    if (unavailableProjectId === "" && state.projectFlow.projectId !== "") {
+      state.projectFlow.data = null;
+    }
+    state.projectFlow.projectId = unavailableProjectId;
     state.projectFlow.status = "error";
     state.projectFlow.error = new Error("workspace_project_flow_unavailable");
     if (state.route.path.startsWith("/workspace/")) render();
     return null;
   }
-  const projectId = currentWorkspaceProjectId();
+  const projectId = projectFlowRequestProjectId();
   if (
     !force
     && ["loading", "refreshing"].includes(state.projectFlow.status)
@@ -8050,8 +8117,10 @@ async function loadProjectFlow({ silent = false, force = false } = {}) {
   const requestEpoch = state.dataEpoch;
   const requestUserId = state.user?.id;
   const requestId = state.projectFlow.requestId + 1;
+  const enteringChooser = projectId === "" && state.projectFlow.projectId !== "";
   state.projectFlow.requestId = requestId;
   state.projectFlow.projectId = projectId;
+  if (enteringChooser) state.projectFlow.data = null;
   state.projectFlow.status = state.projectFlow.data ? "refreshing" : "loading";
   state.projectFlow.error = null;
   if (!silent && state.route.path.startsWith("/workspace/")) render();
@@ -8066,6 +8135,7 @@ async function loadProjectFlow({ silent = false, force = false } = {}) {
       requestEpoch !== state.dataEpoch
       || requestUserId !== state.user?.id
       || requestId !== state.projectFlow.requestId
+      || projectId !== projectFlowRequestProjectId()
     ) return null;
     const flow = normalizeProjectFlow(raw);
     state.projectFlow.data = flow;
@@ -8105,6 +8175,7 @@ async function loadProjectFlow({ silent = false, force = false } = {}) {
       requestEpoch !== state.dataEpoch
       || requestUserId !== state.user?.id
       || requestId !== state.projectFlow.requestId
+      || projectId !== projectFlowRequestProjectId()
     ) return null;
     const serverCode = String(error?.serverCode || error?.code || "").trim().toLowerCase();
     if (
@@ -9269,30 +9340,72 @@ async function submitHomeProjectCreate(form) {
   const values = new FormData(form);
   const name = String(values.get("folder_name") || "").trim();
   if (!name || state.workspaceBoard.busy) return;
+  const knownProjects = normalizeProjectFlow(state.projectFlow?.data || {}).projects;
+  state.workspaceBoard.projectDraftName = name;
   state.workspaceBoard.busy = true;
-  state.workspaceBoard.error = "";
+  state.workspaceBoard.projectCreateError = "";
   state.workspaceBoard.notice = "";
   renderWorkspace("home");
+
+  let response;
   try {
-    const response = await state.api.createProject({ name });
-    const source = response?.data ?? response ?? {};
-    const folderId = String(source.folder?.id || source.folder_id || "");
-    const projectId = String(source.project?.id || source.project_id || folderId || "").trim().toLowerCase();
-    if (!isWorkspaceProjectId(projectId)) throw new Error("workspace_project_id_missing");
-    state.workspaceBoard.selectedFolderId = "all";
-    state.workspaceBoard.notice = `Проект «${name}» создан.`;
-    persistWorkspaceProject(projectId, name);
-    state.projectFlow.data = normalizeProjectFlow(source);
-    state.projectFlow.projectId = projectId;
-    state.projectFlow.status = "ready";
-    state.projectFlow.error = null;
-    await refreshWorkspaceBoardAfterMutation();
-    navigate(`/workspace/board?project_id=${encodeURIComponent(projectId)}`);
+    response = await state.api.createProject({ name });
   } catch (error) {
-    state.workspaceBoard.error = actionErrorMessage(error);
-  } finally {
+    state.workspaceBoard.projectCreateError = actionErrorMessage(error);
     state.workspaceBoard.busy = false;
     if (state.route.path === "/workspace/home") renderWorkspace("home");
+    return;
+  }
+
+  const source = response?.data ?? response ?? {};
+  const flowSource = source.flow && typeof source.flow === "object" ? source.flow : source;
+  const createdFlow = normalizeProjectFlow(flowSource);
+  const folderId = String(source.folder?.id || source.folder_id || "");
+  const projectId = String(
+    createdFlow.project_id || source.project?.id || source.project_id || folderId || "",
+  ).trim().toLowerCase();
+
+  state.workspaceBoard.busy = false;
+  state.workspaceBoard.projectCreateError = "";
+  state.workspaceBoard.projectDraftName = "";
+  state.workspaceBoard.selectedFolderId = "all";
+
+  if (!isWorkspaceProjectId(projectId)) {
+    state.workspaceBoard.notice = "Проект создан, но не открылся автоматически. Выберите его в обновлённом списке.";
+    state.projectFlow.status = "idle";
+    state.projectFlow.data = null;
+    state.projectFlow.error = null;
+    toast(state.workspaceBoard.notice, "warning");
+    navigate("/workspace/home", false, { scopeProject: false });
+    return;
+  }
+
+  activateWorkspaceProject(projectId, name);
+  state.workspaceBoard.notice = `Проект «${name}» создан.`;
+  const createdProject = createdFlow.project && typeof createdFlow.project === "object"
+    ? createdFlow.project
+    : { id: projectId, name };
+  createdFlow.projects = [createdProject, ...createdFlow.projects, ...knownProjects]
+    .filter((project, index, projects) => {
+      const id = String(project?.id || "").trim().toLowerCase();
+      return isWorkspaceProjectId(id)
+        && projects.findIndex((candidate) => String(candidate?.id || "").trim().toLowerCase() === id) === index;
+    });
+  state.projectFlow.data = createdFlow;
+  state.projectFlow.projectId = projectId;
+  state.projectFlow.status = "ready";
+  state.projectFlow.error = null;
+
+  const nextRoute = exactProjectNextActionRoute(createdFlow, projectId)
+    || `/workspace/home?project_id=${encodeURIComponent(projectId)}`;
+  try {
+    await flowHandoff(
+      nextRoute,
+      `Проект «${name}» создан`,
+      "Открываем первый шаг проекта",
+    );
+  } catch {
+    navigate(nextRoute);
   }
 }
 
@@ -9310,11 +9423,29 @@ function homeProjectSwitcherMarkup(action) {
   const projectListFailed = !loading
     && !projects.length
     && projectFlowFailed;
+  const createOnly = canCreateProject
+    && state.route?.path === "/workspace/home"
+    && String(state.route?.query?.get?.("view") || "").trim().toLowerCase() === "new";
+  const projectDraftName = String(state.workspaceBoard.projectDraftName || "");
+  const projectCreateError = String(state.workspaceBoard.projectCreateError || "").trim();
+  const storedProject = projectListFailed ? storedWorkspaceProject() : null;
+  const visibleProjects = projects.length
+    ? projects
+    : storedProject
+      ? [{
+        id: storedProject.id,
+        name: storedProject.name,
+        current_stage: "",
+        next_action: { label: "Проверить доступ и продолжить" },
+        recovery: true,
+      }]
+      : [];
   const projectCards = loading
     ? Array.from({ length: 3 }, () => '<div class="home-project-card home-project-card--loading" aria-hidden="true"><span class="skeleton"></span><span class="skeleton"></span></div>').join("")
-    : projects.map((project) => {
+    : visibleProjects.map((project) => {
       const projectId = String(project.id || "");
       const nextAction = project.next_action || project.nextAction || {};
+      const isRecoveryProject = project.recovery === true;
       const stageLabels = {
         files: "Файлы",
         generation: "Создание",
@@ -9322,15 +9453,16 @@ function homeProjectSwitcherMarkup(action) {
         placement: "Публикация",
         stats: "Результаты",
       };
-      const nextRoute = exactProjectNextActionRoute({
-        project_id: projectId,
-        project,
-        next_action: nextAction,
-      }, projectId) || `/workspace/home?project_id=${encodeURIComponent(projectId)}`;
+      const nextRoute = isRecoveryProject
+        ? `/workspace/home?project_id=${encodeURIComponent(projectId)}`
+        : exactProjectNextActionRoute({
+          project_id: projectId,
+          project,
+          next_action: nextAction,
+        }, projectId) || `/workspace/home?project_id=${encodeURIComponent(projectId)}`;
       const rawFileCount = project.counts?.files;
       const fileCount = Number(rawFileCount);
       const hasFileCount = Number.isFinite(fileCount);
-      const stageLabel = stageLabels[project.current_stage] || "уточнится после открытия";
       return `
         <a class="home-project-card"
            href="#${escapeHtml(nextRoute)}"
@@ -9339,17 +9471,19 @@ function homeProjectSwitcherMarkup(action) {
           <span class="home-project-card__folder" aria-hidden="true">◇</span>
           <span class="home-project-card__copy">
             <strong>${escapeHtml(project.name)}</strong>
-            <small>${hasFileCount ? `${fileCount} объектов · ` : ""}этап: ${escapeHtml(stageLabel)}</small>
+            <small>${isRecoveryProject
+              ? "Сохранён в этом браузере · последний открытый проект"
+              : `${hasFileCount ? `${fileCount} объектов · ` : ""}этап: ${escapeHtml(stageLabels[project.current_stage] || "уточнится после открытия")}`}</small>
             <small>Следующее: ${escapeHtml(nextAction.label || "Открыть проект")}</small>
-            <small>Обновлено: ${project.updated_at ? escapeHtml(formatDate(project.updated_at, true)) : "только что"}</small>
+            <small>${isRecoveryProject
+              ? "Доступ и актуальный этап проверятся после открытия"
+              : `Обновлено: ${project.updated_at ? escapeHtml(formatDate(project.updated_at, true)) : "только что"}`}</small>
           </span>
           <span class="home-project-card__open">Продолжить <i aria-hidden="true">→</i></span>
         </a>`;
     }).join("");
-  const createProject = projectListFailed ? "" : canCreateProject ? `
-    <details class="home-project-create" ${!loading && !projects.length && !projectListFailed ? "open" : ""}>
-      <summary><span aria-hidden="true">＋</span> Новый проект</summary>
-      <form id="home-project-create-form">
+  const projectCreateForm = `
+      <form id="home-project-create-form" aria-label="Создать новый проект">
         <label for="home-project-name">Название проекта</label>
         <div>
           <input id="home-project-name"
@@ -9358,20 +9492,48 @@ function homeProjectSwitcherMarkup(action) {
                  minlength="1"
                  maxlength="120"
                  autocomplete="off"
+                 value="${escapeHtml(projectDraftName)}"
                  placeholder="Например: Bombbar · Август"
                  ${state.workspaceBoard.busy ? "disabled" : ""} />
           <button class="btn" type="submit" data-primary-action="true" ${state.workspaceBoard.busy ? "disabled" : ""}>
             ${state.workspaceBoard.busy ? "Создаём…" : "Создать и открыть"}
           </button>
         </div>
-        <small>Внутри проекта можно создавать обычные папки для исходников, роликов и публикаций.</small>
-      </form>
+        ${projectCreateError
+          ? `<p class="home-project-create__error" role="alert">${escapeHtml(projectCreateError)}</p>`
+            : projectListFailed
+              ? '<small>Список временно недоступен, но новый проект можно создать прямо сейчас.</small>'
+              : '<small>Внутри проекта можно создавать обычные папки для исходников, роликов и публикаций.</small>'}
+      </form>`;
+  const createProject = canCreateProject ? `
+    <details class="home-project-create" ${!loading && !projects.length ? "open" : ""}>
+      <summary><span aria-hidden="true">＋</span> Новый проект</summary>
+      ${projectCreateForm}
     </details>` : `
     <p class="home-project-readonly">Новый проект создаёт руководитель. Выберите доступный проект ниже.</p>`;
+  const retryIsPrimary = projectListFailed && !canCreateProject;
+  const chooserMode = !projectFlow.project_id;
   const actionTitle = readableHomeActionTitle(action);
   const actionControl = action.controlAction
     ? `<button class="btn btn-secondary" type="button" data-action="${escapeHtml(action.controlAction)}" data-review-id="${escapeHtml(action.reviewId || "")}">${escapeHtml(action.cta)} <span aria-hidden="true">→</span></button>`
     : `<a class="btn btn-secondary" href="${escapeHtml(action.href || "#/workspace/board")}">${escapeHtml(action.cta || "Открыть")} <span aria-hidden="true">→</span></a>`;
+  if (createOnly) {
+    return `
+      <section class="home-project-switcher home-project-create-surface" data-ce-v4-project-home aria-labelledby="home-project-create-title">
+        <header>
+          <p class="eyebrow">Новый рабочий стол</p>
+          <h1 id="home-project-create-title">Создайте проект</h1>
+          <p>Дайте проекту понятное название. Портал создаст рабочие папки и сразу откроет первое действие.</p>
+        </header>
+        <div class="home-project-create home-project-create--surface">
+          ${projectCreateForm}
+        </div>
+        <footer>
+          <button class="btn btn-secondary" type="button" data-action="open-project-chooser">← Все проекты</button>
+          <small>Текущий проект не удаляется и остаётся в списке.</small>
+        </footer>
+      </section>`;
+  }
   return `
     <section class="home-project-switcher" data-ce-v4-project-home aria-labelledby="home-projects-title">
       <header class="home-project-switcher__head">
@@ -9382,41 +9544,56 @@ function homeProjectSwitcherMarkup(action) {
         </div>
         ${createProject}
       </header>
-      ${projectFlowFailed ? `
-        <div class="home-project-message" role="${projects.length ? "status" : "alert"}">
-          ${projects.length
-            ? "Точный этап проекта пока не обновился. Проект можно открыть — портал уточнит следующий шаг внутри."
-            : "Не удалось загрузить список проектов. Проверьте соединение и повторите загрузку."}
-        </div>` : ""}
-      ${projectFlowFailed ? `
-        <button class="btn ${projects.length ? "btn-secondary" : ""} home-project-board-retry"
-                type="button"
-                ${projects.length ? "" : 'data-primary-action="true"'}
-                data-action="retry-project-flow">Повторить загрузку проектов</button>` : ""}
-      <div class="home-project-grid">
-        ${projectCards || (projectListFailed ? `
-          <div class="home-project-empty home-project-empty--error" role="alert">
-            <span aria-hidden="true">!</span>
-            <strong>Проекты временно не загрузились</strong>
-            <p>Ничего не потеряно. Нажмите «Повторить загрузку проектов» — портал заново запросит список и папки.</p>
-          </div>` : `
-          <div class="home-project-empty">
-            <span aria-hidden="true">◇</span>
-            <strong>Проектов пока нет</strong>
-            <p>${canCreateProject ? "Введите название выше — портал сразу откроет первый рабочий стол." : "Попросите руководителя создать первый проект."}</p>
-          </div>`)}
+      <div class="home-project-switcher__body">
+        ${projectFlowFailed ? `
+          <div class="home-project-recovery">
+            <div class="home-project-message" role="${projects.length ? "status" : "alert"}">
+              ${projects.length
+                ? "Точный этап проекта пока не обновился. Проект можно открыть — портал уточнит следующий шаг внутри."
+                : "Не удалось загрузить список проектов. Проверьте соединение и повторите загрузку."}
+            </div>
+            <button class="btn ${retryIsPrimary ? "" : "btn-secondary"} home-project-board-retry"
+                    type="button"
+                    ${retryIsPrimary ? 'data-primary-action="true"' : ""}
+                    data-action="retry-project-flow">Повторить загрузку проектов</button>
+          </div>` : ""}
+        <div class="home-project-grid">
+          ${projectCards || (projectListFailed ? `
+            <div class="home-project-empty home-project-empty--error" role="alert">
+              <span aria-hidden="true">!</span>
+              <strong>Проекты временно не загрузились</strong>
+              <p>${canCreateProject
+                ? "Существующие проекты не потеряны. Создайте новый проект выше или отдельно повторите загрузку списка."
+                : "Ничего не потеряно. Повторите загрузку — портал заново запросит список проектов."}</p>
+            </div>` : `
+            <div class="home-project-empty">
+              <span aria-hidden="true">◇</span>
+              <strong>Проектов пока нет</strong>
+              <p>${canCreateProject ? "Введите название выше — портал сразу откроет первый рабочий стол." : "Попросите руководителя создать первый проект."}</p>
+            </div>`)}
+        </div>
       </div>
-      <aside class="home-next-action-compact" aria-label="Следующее доступное действие">
-        <span><small>${escapeHtml(action.step || "Следующее действие")}</small><strong>${escapeHtml(actionTitle)}</strong></span>
-        <p>${escapeHtml(action.description || "Выберите проект, чтобы продолжить.")}</p>
-        ${actionControl}
-      </aside>
+      ${chooserMode ? "" : `
+        <aside class="home-next-action-compact" aria-label="Следующее доступное действие">
+          <span><small>${escapeHtml(action.step || "Следующее действие")}</small><strong>${escapeHtml(actionTitle)}</strong></span>
+          <p>${escapeHtml(action.description || "Выберите проект, чтобы продолжить.")}</p>
+          ${actionControl}
+        </aside>`}
     </section>`;
 }
 
 function renderHomeSection(homeState) {
   const projectFlow = normalizeProjectFlow(state.projectFlow?.data || {});
-  const routeProjectId = currentWorkspaceProjectId();
+  const canCreateProject = ["owner", "admin", "producer"].includes(
+    String(state.bootstrap?.membership?.role || "").trim().toLowerCase(),
+  );
+  const projectChooserControl = `
+    <button class="btn btn-secondary home-project-switch-control"
+            type="button"
+            data-action="open-project-chooser">${canCreateProject ? "Сменить или создать проект" : "Сменить проект"}</button>`;
+  const routeProjectId = workspaceProjectChooserMode()
+    ? ""
+    : routeWorkspaceProjectId() || projectFlow.project_id || "";
   if (
     routeProjectId
     && (
@@ -9438,6 +9615,7 @@ function renderHomeSection(homeState) {
           </div>
           <footer>
             ${failed ? '<button class="btn" type="button" data-primary-action="true" data-action="retry-project-flow">Повторить</button>' : '<span class="muted" role="status">Подождите несколько секунд…</span>'}
+            ${projectChooserControl}
           </footer>
         </section>
       </div>`;
@@ -9493,7 +9671,10 @@ function renderHomeSection(homeState) {
             <span class="home-single-action__mark" aria-hidden="true">!</span>
             <div><h1 id="home-next-action-missing">Следующее действие не определено</h1><p>Портал не откроет случайный раздел или объект из общей очереди. Обновите серверное состояние проекта.</p></div>
           </div>
-          <footer><button class="btn" type="button" data-primary-action="true" data-action="retry-project-flow">Обновить цепочку</button></footer>
+          <footer>
+            <button class="btn" type="button" data-primary-action="true" data-action="retry-project-flow">Обновить цепочку</button>
+            ${projectChooserControl}
+          </footer>
         </section>
       </div>`;
   }
@@ -9523,7 +9704,10 @@ function renderHomeSection(homeState) {
         </dl>
         <footer>
           ${actionControl}
-          <small>Другой проект выбирается в постоянной панели сверху. Этапы переключаются через Dock.</small>
+          <span class="home-single-action__project-nav">
+            ${projectChooserControl}
+            <small>Этапы текущего проекта переключаются через Dock.</small>
+          </span>
         </footer>
       </section>
     </div>`;
@@ -13832,10 +14016,12 @@ function renderAiLearningSection(sectionState) {
     refreshing: sectionState.status === "refreshing",
     busy: Boolean(
       state.aiLearning.knowledgeMutationKind
-        || state.aiLearning.historicalImport.inFlight,
+        || state.aiLearning.historicalImport.inFlight
+        || state.aiLearning.busyResearchReceiptId,
     ),
     busyCardId: state.aiLearning.busyCardId,
     busyHistoricalCaseId: state.aiLearning.busyHistoricalCaseId,
+    busyResearchReceiptId: state.aiLearning.busyResearchReceiptId,
     historicalCaseFilter: state.aiLearning.historicalCaseFilter,
     historicalImport: state.aiLearning.historicalImport,
     notice: state.aiLearning.notice,
@@ -13861,6 +14047,7 @@ function scheduleAiLearningPolling(delay = AI_LEARNING_POLL_INTERVAL_MS) {
     || !state.session
     || state.aiLearning.busyCardId
     || state.aiLearning.busyHistoricalCaseId
+    || state.aiLearning.busyResearchReceiptId
     || state.aiLearning.historicalImport.inFlight
     || state.aiLearning.knowledgeMutationKind
     || state.aiLearning.marketMutationKind
@@ -13877,6 +14064,7 @@ async function pollAiLearningControlRoom() {
     || document.visibilityState !== "visible"
     || state.aiLearning.busyCardId
     || state.aiLearning.busyHistoricalCaseId
+    || state.aiLearning.busyResearchReceiptId
     || state.aiLearning.historicalImport.inFlight
     || state.aiLearning.knowledgeMutationKind
     || state.aiLearning.marketMutationKind
@@ -14113,6 +14301,22 @@ function aiLearningMutationIsVisible(category) {
     && category === currentAiLearningCategory();
 }
 
+function focusNextAiTeachingDecision() {
+  if (state.route.path !== "/workspace/ai" || currentAiLearningView() !== "teach") return false;
+  const target = document.querySelector(
+    '.ai-learning-teaching-card button[data-primary-action="true"]:not(:disabled)',
+  ) || document.querySelector("#ai-learning-judgement-title");
+  if (!(target instanceof HTMLElement)) return false;
+  if (!target.matches("button, a, input, select, textarea, [tabindex]")) target.tabIndex = -1;
+  target.focus({ preventScroll: true });
+  target.scrollIntoView({
+    block: "center",
+    inline: "nearest",
+    behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+  });
+  return true;
+}
+
 function invalidateHiddenAiLearningSnapshot() {
   if (state.route.path === "/workspace/ai") return;
   state.sections.ai.status = "idle";
@@ -14124,16 +14328,10 @@ async function decideAiTeachingCard(control) {
   if (
     state.aiLearning.busyCardId
     || state.aiLearning.busyHistoricalCaseId
+    || state.aiLearning.busyResearchReceiptId
     || state.aiLearning.knowledgeMutationKind
     || state.aiLearning.historicalImport.inFlight
   ) return;
-  const decisionForm = control.closest(".ai-learning-decision-form");
-  const confirmation = decisionForm?.elements?.confirmation;
-  if (!(confirmation instanceof HTMLInputElement) || !confirmation.checked) {
-    toast("Сначала подтвердите, что проверили контекст и границы влияния.", "error");
-    confirmation?.focus();
-    return;
-  }
   const card = control.closest("[data-ai-teaching-card]") || control;
   const category = String(
     control.dataset.productCategory
@@ -14142,6 +14340,11 @@ async function decideAiTeachingCard(control) {
   ).trim().toLowerCase();
   const cardId = String(control.dataset.cardId || card.dataset.cardId || "").trim();
   const decision = String(control.dataset.decision || "").trim().toLowerCase();
+  const judgement = String(control.dataset.aiJudgement || card.dataset.aiJudgement || "unknown")
+    .trim()
+    .toLowerCase();
+  const signalLabel = String(control.dataset.signalLabel || card.dataset.signalLabel || "этот сигнал")
+    .trim();
   const cardVersion = Number(control.dataset.cardVersion || card.dataset.cardVersion);
   const cardHash = String(control.dataset.cardHash || card.dataset.cardHash || "").trim();
   const expectedScopeVersion = Number(
@@ -14156,6 +14359,7 @@ async function decideAiTeachingCard(control) {
   state.aiLearning.busyCardId = cardId;
   state.aiLearning.notice = "";
   state.aiLearning.error = "";
+  let decisionApplied = false;
   renderWorkspace("ai");
   try {
     const response = await state.api.decideAiTeachingCard({
@@ -14170,12 +14374,15 @@ async function decideAiTeachingCard(control) {
         : "operator_rejected",
       confirmation: true,
     });
-    const successMessage = decision === "approve"
-      ? "Правило подтверждено и уже выпущено в новой версии политики этой категории."
-      : "Правило помечено как неверное и исключено из активной политики категории.";
+    const successMessage = decision !== "approve"
+      ? `Сохранено: предложение «${signalLabel}» отклонено. Правило не применяется.`
+      : judgement === "bad"
+        ? `Сохранено: ИИ будет избегать сигнала «${signalLabel}».`
+        : `Сохранено: ИИ будет использовать сигнал «${signalLabel}».`;
     if (aiLearningMutationIsVisible(category)) {
       applyAuthoritativeAiLearningResponse(response, category);
       state.aiLearning.notice = successMessage;
+      decisionApplied = true;
     } else {
       invalidateHiddenAiLearningSnapshot();
       toast(successMessage, "success");
@@ -14196,7 +14403,10 @@ async function decideAiTeachingCard(control) {
     }
   } finally {
     state.aiLearning.busyCardId = "";
-    if (state.route.path === "/workspace/ai") renderWorkspace("ai");
+    if (state.route.path === "/workspace/ai") {
+      renderWorkspace("ai");
+      if (decisionApplied) window.queueMicrotask(() => focusNextAiTeachingDecision());
+    }
     scheduleAiLearningPolling();
   }
 }
@@ -14205,6 +14415,7 @@ async function decideAiHistoricalCase(control) {
   if (
     state.aiLearning.busyCardId
     || state.aiLearning.busyHistoricalCaseId
+    || state.aiLearning.busyResearchReceiptId
     || state.aiLearning.knowledgeMutationKind
     || state.aiLearning.historicalImport.inFlight
   ) return;
@@ -14279,6 +14490,82 @@ async function decideAiHistoricalCase(control) {
   } finally {
     if (state.aiLearning.busyHistoricalCaseId === caseId) {
       state.aiLearning.busyHistoricalCaseId = "";
+    }
+    if (state.route.path === "/workspace/ai") renderWorkspace("ai");
+    scheduleAiLearningPolling();
+  }
+}
+
+async function decideAiResearchReceipt(control) {
+  if (
+    state.aiLearning.busyCardId
+    || state.aiLearning.busyHistoricalCaseId
+    || state.aiLearning.busyResearchReceiptId
+    || state.aiLearning.knowledgeMutationKind
+    || state.aiLearning.historicalImport.inFlight
+  ) return;
+  const card = control.closest("[data-research-receipt-id]") || control;
+  const category = String(
+    control.dataset.productCategory
+      || card.dataset.productCategory
+      || currentAiLearningCategory(),
+  ).trim().toLowerCase();
+  const receiptId = String(
+    control.dataset.receiptId || card.dataset.researchReceiptId || "",
+  ).trim().toLowerCase();
+  const receiptHash = String(control.dataset.receiptHash || "")
+    .trim()
+    .toLowerCase();
+  const decision = String(control.dataset.decision || "").trim().toLowerCase();
+  if (category !== currentAiLearningCategory()) {
+    toast("Категория уже изменилась. Решение по исследованию не отправлено.", "error");
+    return;
+  }
+
+  stopAiLearningPolling();
+  const mutationRequestId = state.aiLearning.requestId + 1;
+  state.aiLearning.requestId = mutationRequestId;
+  state.aiLearning.busyResearchReceiptId = receiptId;
+  state.aiLearning.notice = "";
+  state.aiLearning.error = "";
+  renderWorkspace("ai");
+  try {
+    const response = await state.api.decideAiResearchReceipt({
+      product_category: category,
+      receipt_id: receiptId,
+      receipt_hash: receiptHash,
+      decision,
+      confirmation: true,
+    });
+    if (mutationRequestId !== state.aiLearning.requestId) return;
+    const successMessage = decision === "approve"
+      ? "Исследование проверено и принято в журнал ИИ-центра. Оно не меняет правила и промпты автоматически."
+      : "Исследование исключено из входящих ИИ-центра. Решение сохранено в журнале.";
+    if (aiLearningMutationIsVisible(category)) {
+      applyAuthoritativeAiLearningResponse(response, category);
+      state.aiLearning.notice = successMessage;
+    } else {
+      invalidateHiddenAiLearningSnapshot();
+      toast(successMessage, "success");
+    }
+    await track("ai_research_receipt_decided", {
+      product_category: category,
+      receipt_id: receiptId,
+      decision,
+    });
+  } catch (error) {
+    if (mutationRequestId !== state.aiLearning.requestId) return;
+    const diagnostic = String(
+      error?.serverCode || error?.code || error?.message || "",
+    );
+    state.aiLearning.error = actionErrorMessage(error);
+    if (/ai_research_receipt_(?:stale|already_decided)/u.test(diagnostic)) {
+      await loadAiLearningControlRoom({ silent: true });
+      state.aiLearning.error = "Эта запись уже изменилась в другой вкладке. Решение не повторялось; показан свежий статус.";
+    }
+  } finally {
+    if (state.aiLearning.busyResearchReceiptId === receiptId) {
+      state.aiLearning.busyResearchReceiptId = "";
     }
     if (state.route.path === "/workspace/ai") renderWorkspace("ai");
     scheduleAiLearningPolling();
@@ -14458,7 +14745,11 @@ async function importAiHistoricalCasesFromRegisteredSource({
   productCategory,
   filename,
 } = {}) {
-  if (state.aiLearning.historicalImport.inFlight || state.aiLearning.busyHistoricalCaseId) return;
+  if (
+    state.aiLearning.historicalImport.inFlight
+    || state.aiLearning.busyHistoricalCaseId
+    || state.aiLearning.busyResearchReceiptId
+  ) return;
   const category = aiLearningCategory(productCategory, currentAiLearningCategory());
   const normalizedSourceId = String(sourceId || "").trim().toLowerCase();
   const previous = state.aiLearning.historicalImport;
@@ -14591,6 +14882,7 @@ async function submitAiKnowledgeLink(form) {
   if (
     state.aiLearning.busyCardId
     || state.aiLearning.busyHistoricalCaseId
+    || state.aiLearning.busyResearchReceiptId
     || state.aiLearning.knowledgeMutationKind
     || state.aiLearning.historicalImport.inFlight
   ) return;
@@ -14641,6 +14933,7 @@ async function submitAiKnowledgeFile(form) {
   if (
     state.aiLearning.busyCardId
     || state.aiLearning.busyHistoricalCaseId
+    || state.aiLearning.busyResearchReceiptId
     || state.aiLearning.knowledgeMutationKind
     || state.aiLearning.historicalImport.inFlight
   ) return;
@@ -14747,6 +15040,14 @@ function renderMediaSection(sectionState) {
   const items = listFrom(data, "media", "items", "artifacts");
   const requestedView = String(state.route.query.get("view") || "upload");
   const mediaView = requestedView === "recent" ? "recent" : "upload";
+  const mediaCatalogRecovery = sectionState.status === "error"
+    ? `
+      <div class="alert alert-warning media-catalog-recovery" role="status">
+        <strong aria-hidden="true">!</strong>
+        <span>Не удалось обновить список файлов. Вы всё равно можете выбрать и загрузить файлы ниже.</span>
+        <button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="media">Повторить обновление списка</button>
+      </div>`
+    : "";
   return `
     <div class="page-wrap" data-media-view="${mediaView}">
       ${pageHeader("Материалы", "Загрузите точные фото и видео товара. Они появятся при создании ролика и останутся доступны только вашей команде.", `<span class="badge badge-success">Файлы защищены</span>`)}
@@ -14760,6 +15061,7 @@ function renderMediaSection(sectionState) {
           <p class="eyebrow">Добавить исходник</p>
           <h2 style="font:600 1.45rem/1.2 Georgia,serif; margin:0 0 8px">Точные фото или видео</h2>
           <p class="muted tiny">Файлы попадут в закрытую папку команды. До ${MEDIA_UPLOAD_BATCH_LIMIT} файлов за раз, каждый — максимум ${formatBytes(CONFIG.MAX_UPLOAD_BYTES)}.</p>
+          ${mediaCatalogRecovery}
           <form id="media-upload-form" class="form-stack" novalidate>
             <button class="upload-zone" type="button" data-upload-zone data-action="choose-media-upload-files" aria-controls="media-file" aria-describedby="media-upload-help selected-file-summary">
               <span class="empty-icon" aria-hidden="true">⇧</span>
@@ -14794,7 +15096,7 @@ function renderMediaSection(sectionState) {
               </div>
             </div>
             <label class="acknowledgement"><input name="rights_confirmed" type="checkbox" required /><span>У команды есть право использовать этот материал.</span></label>
-            <button class="btn btn-block" type="submit">Загрузить файлы в защищённую папку</button>
+            <button class="btn btn-block" type="submit" data-primary-action="true">Загрузить файлы в защищённую папку</button>
           </form>
         </section>
         <section class="media-library-panel">
@@ -15227,6 +15529,15 @@ function sectionBody(sectionState, readyMarkup) {
     const section = state.route.path.startsWith("/workspace/")
       ? state.route.path.replace("/workspace/", "")
       : "";
+    if (section === "media") {
+      return `
+        <div class="empty-state media-catalog-recovery" role="alert">
+          <div class="empty-icon" aria-hidden="true">!</div>
+          <h3>Не удалось обновить список файлов</h3>
+          <p>Вы всё равно можете выбрать и загрузить файлы выше. Повторите обновление списка позже.</p>
+          <button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="media">Повторить обновление</button>
+        </div>`;
+    }
     const retry = state.sections[section]
       ? `<button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="${escapeHtml(section)}">Повторить</button>`
       : "";
@@ -15332,6 +15643,16 @@ async function handleClick(event) {
   if (!control) return;
   const action = control.dataset.action;
 
+  if (action === "open-project-chooser") {
+    navigate("/workspace/home", false, { scopeProject: false });
+    return;
+  }
+
+  if (action === "open-project-create") {
+    navigate("/workspace/home?view=new", false, { scopeProject: false });
+    return;
+  }
+
   if (action === "retry-project-flow") {
     control.disabled = true;
     state.projectFlow.status = "idle";
@@ -15405,6 +15726,11 @@ async function handleClick(event) {
 
   if (action === "decide-ai-historical-case") {
     await decideAiHistoricalCase(control);
+    return;
+  }
+
+  if (action === "decide-ai-research-receipt") {
+    await decideAiResearchReceipt(control);
     return;
   }
 
@@ -15942,6 +16268,23 @@ async function handleClick(event) {
 
   if (action === "refresh-product-research") {
     await pollProductResearchStatus();
+    return;
+  }
+
+  if (action === "copy-product-research-support-id") {
+    const researchId = String(
+      control.dataset.researchId || state.productResearch.record?.id || "",
+    ).trim().toLowerCase();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(researchId)) {
+      toast("ID запуска недоступен. Обновите страницу и откройте исследование снова.", "error");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(`ContentEngine research run: ${researchId}`);
+      toast("ID запуска скопирован для поддержки.", "success");
+    } catch {
+      toast(`ID запуска: ${researchId}`, "info");
+    }
     return;
   }
 
@@ -21517,8 +21860,12 @@ async function submitProductResearchStart(form) {
   if (!projectId) return;
   const values = new FormData(form);
   const paidAnalysisConfirmed = values.has("paid_analysis_ack");
+  const humanReviewConfirmed = values.has("human_review_ack");
   const productName = String(values.get("product_name") || "").trim();
   const sku = String(values.get("sku") || "").trim();
+  const productCategory = String(
+    values.get("product_category") || "",
+  ).trim().toLowerCase();
   const categoryName = String(values.get("category_name") || "").trim();
   const researchFocus = String(values.get("research_focus") || "").trim();
   const competitorReferences = String(
@@ -21532,6 +21879,18 @@ async function submitProductResearchStart(form) {
   if (!paidAnalysisConfirmed) {
     toast("Подтвердите платный ИИ-анализ перед запуском.", "error");
     form.elements.paid_analysis_ack?.focus();
+    return;
+  }
+  if (!humanReviewConfirmed) {
+    toast("Подтвердите, что проверите результат до создания задач.", "error");
+    form.elements.human_review_ack?.focus();
+    return;
+  }
+  if (!AI_PRODUCT_CATEGORIES.some((category) => (
+    category.key === productCategory
+  ))) {
+    toast("Выберите одну категорию для входящих ИИ-центра.", "error");
+    form.elements.product_category?.focus();
     return;
   }
   if (!platforms.length) {
@@ -21587,6 +21946,7 @@ async function submitProductResearchStart(form) {
     researchInput: {
       objective,
       objectiveKey,
+      productCategory,
       marketplaceUrl,
       sourceMediaIds,
       platforms,
@@ -21608,6 +21968,7 @@ async function submitProductResearchStart(form) {
       {
         sku,
         product_name: productName,
+        product_category: productCategory,
         objective,
         marketplace_url: marketplaceUrl || null,
         source_media_ids: sourceMediaIds,
@@ -21630,6 +21991,7 @@ async function submitProductResearchStart(form) {
       run_id: state.productResearch.record.id,
       source_media_count: sourceMediaIds.length,
       platform_count: platforms.length,
+      product_category: productCategory,
       category_provided: Boolean(categoryName),
       competitor_references_provided: Boolean(competitorReferences),
     });
@@ -24734,6 +25096,7 @@ function clearAuthenticatedState() {
   state.aiLearning.requestId += 1;
   state.aiLearning.busyCardId = "";
   state.aiLearning.busyHistoricalCaseId = "";
+  state.aiLearning.busyResearchReceiptId = "";
   state.aiLearning.knowledgeMutationKind = "";
   state.aiLearning.marketIndex = null;
   state.aiLearning.marketDetail = null;

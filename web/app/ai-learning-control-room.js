@@ -25,7 +25,7 @@ const AI_MARKET_DIMENSION_KEYS = Object.freeze([
   "analysis_coverage",
   "human_validation",
 ]);
-const AI_LEARNING_VIEWS = new Set(["overview", "knowledge", "teach", "history"]);
+const AI_LEARNING_VIEWS = new Set(["overview", "knowledge", "teach", "cases", "history"]);
 const AI_LEARNING_STATUSES = new Set([
   "strong_evidence",
   "developing_evidence",
@@ -62,6 +62,28 @@ const AI_HISTORICAL_BATCH_STATUSES = new Set([
   "completed",
   "failed",
 ]);
+const AI_RESEARCH_INBOX_STATUSES = new Set(["awaiting_human_review"]);
+const AI_RESEARCH_DECISIONS = new Set(["approve", "reject"]);
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+
+const CREATIVE_ANGLE_LABELS = Object.freeze({
+  product_focus: "Товар — главный объект",
+  trust_builder: "Проверяемое доверие",
+  demonstration: "Показ товара в действии",
+  comparison: "Сравнение вариантов",
+  objection_handling: "Ответ на возражение",
+  curiosity_gap: "Интрига без ложных обещаний",
+});
+
+const GUIDANCE_ACTION_LABELS = Object.freeze({
+  add_category_source: "Добавить проверяемый источник",
+  add_reviewable_source: "Добавить проверяемый источник",
+  add_independent_platform: "Добавить данные с другой площадки",
+  add_competitor_observation: "Добавить наблюдение о конкуренте",
+  refresh_trend_evidence: "Обновить данные о трендах",
+  analyze_source: "Разобрать добавленный источник",
+  validate_evidence: "Подтвердить данные командой",
+});
 
 export const AI_PRODUCT_CATEGORIES = Object.freeze([
   Object.freeze({ id: "cosmetics", value: "cosmetics", key: "cosmetics", slug: "cosmetics", label: "Косметика и уход" }),
@@ -581,6 +603,20 @@ export function normalizeAiLearningControlRoom(value, options = {}) {
     && versionValid
     && categoryContractValid
     && hasSnapshotData;
+  const researchInbox = available
+    ? normalizeResearchInbox(
+      source.research_inbox || source.researchInbox
+        || rawDetail?.research_inbox || rawDetail?.researchInbox,
+      selectedCategory,
+    )
+    : [];
+  const researchDecisions = available
+    ? normalizeResearchDecisions(
+      source.research_decisions || source.researchDecisions
+        || rawDetail?.research_decisions || rawDetail?.researchDecisions,
+      selectedCategory,
+    )
+    : [];
 
   return {
     available,
@@ -606,6 +642,8 @@ export function normalizeAiLearningControlRoom(value, options = {}) {
     categories,
     category,
     categoryDetail: category,
+    researchInbox,
+    researchDecisions,
     guidance: normalizeGuidance(source.guidance, category),
     notice: cleanText(source.notice || source.message, 800),
     error: cleanText(
@@ -688,10 +726,11 @@ export function aiLearningControlRoomMarkup(snapshot, options = {}) {
   const status = statusMeta(category.status, category.score, category.available);
   const busyCardId = cleanText(options.busyCardId, 200);
   const busyHistoricalCaseId = cleanText(options.busyHistoricalCaseId, 200);
+  const busyResearchReceiptId = cleanText(options.busyResearchReceiptId, 200);
   const historicalCaseFilter = aiHistoricalCaseFilter(options.historicalCaseFilter);
   const busy = Boolean(
     options.busy || options.saving || options.loading || options.refreshing
-      || busyCardId || busyHistoricalCaseId,
+      || busyCardId || busyHistoricalCaseId || busyResearchReceiptId,
   );
   const notice = cleanText(options.notice || control.notice, 800);
   const error = cleanText(options.error || control.error, 800);
@@ -706,12 +745,21 @@ export function aiLearningControlRoomMarkup(snapshot, options = {}) {
   const canDecideHistoricalCase = control.available
     && control.capabilities.canDecideHistoricalCase
     && !busy && !legacyReadOnly;
+  const canDecideResearchInbox = control.available
+    && control.capabilities.canDecideResearchInbox
+    && !busy && !legacyReadOnly;
   const updatedLabel = formatDateTime(options.lastUpdatedAt || control.asOf);
+  const researchInbox = arrayFrom(control.researchInbox).filter(
+    (item) => item.productCategory === selectedCategory,
+  );
+  const researchDecisions = arrayFrom(control.researchDecisions).filter(
+    (item) => item.productCategory === selectedCategory,
+  );
   const statusAnnouncement = legacyReadOnly
     ? `${category.label}. Архивный legacy-показатель ${category.score} процентов; он не используется как readiness или generation policy.`
     : busy
-    ? `Обновляем категорию «${category.label}». Текущая готовность доказательной базы ${category.score} процентов.`
-    : `${category.label}. ${status.label}. Готовность доказательной базы ${category.score} процентов.`;
+      ? `Обновляем категорию «${category.label}». Текущая готовность доказательной базы ${category.score} процентов.`
+      : `${category.label}. ${status.label}. Готовность доказательной базы ${category.score} процентов.`;
 
   return `<section class="ai-learning-control-room" data-ai-view="${view}" data-ai-category="${escapeHtml(selectedCategory)}" data-state-version="${control.stateVersion}" data-event-cursor="${control.eventCursor}" data-ce-patch-key="ai-learning-control-room" aria-labelledby="ai-learning-title">
     <div class="ai-learning-atmosphere" aria-hidden="true"></div>
@@ -723,9 +771,9 @@ export function aiLearningControlRoomMarkup(snapshot, options = {}) {
           <span class="ai-learning-orb-ring ai-learning-orb-ring-two"></span>
         </div>
         <div>
-          <p class="ai-learning-eyebrow">AI Learning Control Room</p>
-          <h1 id="ai-learning-title">Командный пункт обучения ИИ</h1>
-          <p>Управляем доказательствами и ограниченными правилами отдельно для каждой категории товаров.</p>
+          <p class="ai-learning-eyebrow">Обучение ИИ по категориям</p>
+          <h1 id="ai-learning-title">Что ИИ знает и чему его научить</h1>
+          <p>Здесь видно, что можно использовать, чего нужно избегать и где данных пока мало.</p>
         </div>
       </div>
       <div class="ai-learning-live" aria-live="polite" aria-atomic="true" data-ce-patch-key="ai-learning-live-status">
@@ -741,6 +789,13 @@ export function aiLearningControlRoomMarkup(snapshot, options = {}) {
     ${!control.available ? unavailableMarkup(control.reason) : ""}
     ${error ? `<div class="ai-learning-message is-error" role="alert">${escapeHtml(error)}</div>` : ""}
     ${notice ? `<div class="ai-learning-message" role="status">${escapeHtml(notice)}</div>` : ""}
+    ${researchInboxMarkup(
+      researchInbox,
+      researchDecisions,
+      selectedCategory,
+      control,
+      { canDecideResearchInbox, busy, busyResearchReceiptId },
+    )}
 
     ${marketLearningMarkup}
 
@@ -756,48 +811,173 @@ export function aiLearningControlRoomMarkup(snapshot, options = {}) {
     <div class="ai-learning-view-tabs" role="tablist" aria-label="Разделы командного пункта">
       ${viewTabMarkup("overview", "Обзор", view)}
       ${viewTabMarkup("knowledge", "База знаний", view)}
-      ${viewTabMarkup("teach", "Обучить", view, category.pendingTeachingCount + category.pendingHistoricalCaseCount)}
+      ${viewTabMarkup("teach", "Обучить", view, category.pendingTeachingCount)}
+      ${viewTabMarkup("cases", "Кейсы", view, category.pendingHistoricalCaseCount)}
       ${viewTabMarkup("history", "История", view)}
     </div>
 
     <div class="ai-learning-view-panel" id="ai-learning-panel-overview" role="tabpanel" aria-labelledby="ai-learning-tab-overview" ${view === "overview" ? "" : "hidden"} data-ce-patch-key="ai-learning-panel-overview">
-      ${overviewMarkup(category, control, status, legacyReadOnly)}
+      ${view === "overview" ? overviewMarkup(category, control, status, legacyReadOnly) : ""}
     </div>
     <div class="ai-learning-view-panel" id="ai-learning-panel-knowledge" role="tabpanel" aria-labelledby="ai-learning-tab-knowledge" ${view === "knowledge" ? "" : "hidden"} data-ce-patch-key="ai-learning-panel-knowledge">
-      ${knowledgeMarkup(category, control, { canAddLink, canUploadFile, busy })}
+      ${view === "knowledge" ? knowledgeMarkup(category, control, { canAddLink, canUploadFile, busy }) : ""}
     </div>
     <div class="ai-learning-view-panel" id="ai-learning-panel-teach" role="tabpanel" aria-labelledby="ai-learning-tab-teach" ${view === "teach" ? "" : "hidden"} data-ce-patch-key="ai-learning-panel-teach">
-      ${teachMarkup(category, control, {
+      ${view === "teach" ? teachMarkup(category, control, {
         canDecide,
         legacyReadOnly,
-        canDecideHistoricalCase,
         busy,
         busyCardId,
+      }) : ""}
+    </div>
+    <div class="ai-learning-view-panel" id="ai-learning-panel-cases" role="tabpanel" aria-labelledby="ai-learning-tab-cases" ${view === "cases" ? "" : "hidden"} data-ce-patch-key="ai-learning-panel-cases">
+      ${view === "cases" ? historicalCasesMarkup(category, control, {
+        canDecideHistoricalCase,
+        busy,
         busyHistoricalCaseId,
-        historicalCaseFilter,
+        filter: historicalCaseFilter,
         historicalImport: options.historicalImport,
-      })}
+      }) : ""}
     </div>
     <div class="ai-learning-view-panel" id="ai-learning-panel-history" role="tabpanel" aria-labelledby="ai-learning-tab-history" ${view === "history" ? "" : "hidden"} data-ce-patch-key="ai-learning-panel-history">
-      ${historyMarkup(category, control, legacyReadOnly)}
+      ${view === "history" ? historyMarkup(category, control, legacyReadOnly) : ""}
+    </div>
+  </section>`;
+}
+
+function researchInboxMarkup(
+  items,
+  decisions,
+  productCategory,
+  control,
+  { canDecideResearchInbox, busy, busyResearchReceiptId },
+) {
+  if (!items.length && !decisions.length) return "";
+  const title = items.length === 1
+    ? "1 исследование ждёт вашей проверки"
+    : items.length > 1
+      ? `${items.length} исследований ждут вашей проверки`
+      : "Очередь исследований разобрана";
+  const pendingMarkup = items.length
+    ? `<div class="ai-learning-source-list">
+      ${items.map((item) => {
+        const itemBusy = busyResearchReceiptId === item.id;
+        const disabled = busy || itemBusy || !canDecideResearchInbox;
+        return `<article class="ai-learning-source is-active" data-research-receipt-id="${escapeHtml(item.id)}" data-ce-patch-key="ai-research-receipt-${escapeHtml(item.id)}">
+          <div class="ai-learning-source-kind" aria-hidden="true">↳</div>
+          <div class="ai-learning-source-copy">
+            <div><span>Исследование</span><span class="ai-learning-source-status">Ждёт решения человека</span></div>
+            <h3>${escapeHtml(item.title || item.productName || "Новое исследование")}</h3>
+            <p>${escapeHtml([item.projectName, item.productName].filter(Boolean).join(" · ") || "Откройте точный проект и результат")}</p>
+            <small>${item.sourceCount} ${item.sourceCount === 1 ? "источник" : "источников"}${item.receivedAt ? ` · получено ${escapeHtml(formatDateTime(item.receivedAt))}` : ""}</small>
+            <a href="${escapeHtml(item.deepLink)}">Открыть факты и источники <span aria-hidden="true">→</span></a>
+            <small>Нажимая «Проверено — принять», вы подтверждаете, что открыли результат и сверили факты и источники. Это решение не создаёт правило ИИ.</small>
+            <div class="ai-learning-decision-actions">
+              <button class="is-primary is-good" type="button" data-primary-action="true" data-action="decide-ai-research-receipt" data-product-category="${escapeHtml(productCategory)}" data-receipt-id="${escapeHtml(item.id)}" data-receipt-hash="${escapeHtml(item.receiptHash)}" data-event-cursor="${item.eventCursor}" data-decision="approve" data-confirmation="true" ${disabled ? "disabled" : ""}>${itemBusy ? "Сохраняем…" : "Проверено — принять"}</button>
+              <button class="is-secondary" type="button" data-action="decide-ai-research-receipt" data-product-category="${escapeHtml(productCategory)}" data-receipt-id="${escapeHtml(item.id)}" data-receipt-hash="${escapeHtml(item.receiptHash)}" data-event-cursor="${item.eventCursor}" data-decision="reject" data-confirmation="true" ${disabled ? "disabled" : ""}>${itemBusy ? "Сохраняем…" : "Не использовать"}</button>
+            </div>
+            ${capabilityHint(control.capabilities.canDecideResearchInbox, "разбирать входящие исследования")}
+          </div>
+        </article>`;
+      }).join("")}
+    </div>`
+    : `<div class="ai-learning-recorded-decision is-good" role="status"><strong>Новых исследований для решения нет</strong><span>Последние решения сохранены в журнале ниже.</span></div>`;
+  const historyMarkup = decisions.length
+    ? `<div class="ai-learning-research-decision-history" aria-label="Последние решения по исследованиям">
+      <div class="ai-learning-section-heading"><div><p class="ai-learning-eyebrow">Сохранённые решения</p><h3>Что уже разобрано</h3></div><span>${decisions.length}</span></div>
+      <div class="ai-learning-source-list">
+        ${decisions.map((item) => `<article class="ai-learning-source" data-ce-patch-key="ai-research-decision-${escapeHtml(item.id)}">
+          <div class="ai-learning-source-kind" aria-hidden="true">${item.decision === "approve" ? "✓" : "×"}</div>
+          <div class="ai-learning-source-copy">
+            <div><span>Решение человека</span><span class="ai-learning-source-status">${item.decision === "approve" ? "Проверено и принято" : "Исключено"}</span></div>
+            <h3>${escapeHtml(item.title || item.productName || "Исследование")}</h3>
+            <p>${escapeHtml([item.projectName, item.productName].filter(Boolean).join(" · ") || "Решение сохранено")}</p>
+            <small>${item.decidedByName ? `${escapeHtml(item.decidedByName)} · ` : ""}${escapeHtml(formatDateTime(item.decidedAt) || "время решения не указано")}</small>
+            <a href="${escapeHtml(item.deepLink)}">Открыть сохранённое исследование <span aria-hidden="true">→</span></a>
+          </div>
+        </article>`).join("")}
+      </div>
+    </div>`
+    : "";
+  return `<section class="ai-learning-signal-summary ai-learning-research-inbox" aria-labelledby="ai-learning-research-inbox-title" data-ce-patch-key="ai-research-inbox-${escapeHtml(productCategory)}-${items.length}-${items[0]?.eventCursor || 0}-${decisions[0]?.eventCursor || 0}">
+    <div class="ai-learning-signal-summary__heading">
+      <div><p class="ai-learning-eyebrow">Входящие из исследований</p><h2 id="ai-learning-research-inbox-title">${escapeHtml(title)}</h2><p>«Принять» закрывает входящее как проверенное человеком, «Не использовать» исключает его. Оба решения сохраняются в истории, но сами по себе не обучают ИИ, не копируют сырой анализ в промпт и не меняют правила генерации.</p></div>
+    </div>
+    ${pendingMarkup}
+    ${historyMarkup}
+  </section>`;
+}
+
+function creativeAngleKey(value) {
+  const candidate = cleanText(value, 800).toLowerCase();
+  const exact = candidate.split(".").at(-1) || "";
+  if (Object.hasOwn(CREATIVE_ANGLE_LABELS, exact)) return exact;
+  return Object.keys(CREATIVE_ANGLE_LABELS).find((key) => (
+    candidate.includes(key)
+  )) || "";
+}
+
+function creativeAngleLabel(value) {
+  const key = creativeAngleKey(value);
+  return key ? CREATIVE_ANGLE_LABELS[key] : "Сигнал ещё не распознан";
+}
+
+function effectivePolicyRule(policy, id) {
+  return policy.rules.find((rule) => rule.id === id) || null;
+}
+
+function signalSummaryMarkup(category, control, status) {
+  const preferred = effectivePolicyRule(category.effectivePolicy, "preferred_angle");
+  const avoided = effectivePolicyRule(category.effectivePolicy, "avoid_angle");
+  const dataIsInsufficient = ["insufficient_evidence", "cold_start", "unknown"].includes(category.status);
+  const dataIsReady = category.status === "strong_evidence";
+  const recommended = cleanText(control.guidance?.recommendedNextAction, 120).toLowerCase();
+  const nextView = category.pendingTeachingCount > 0
+    ? "teach"
+    : category.pendingHistoricalCaseCount > 0
+      ? "cases"
+      : category.gaps.length > 0 ? "knowledge" : "history";
+  const nextLabel = category.pendingTeachingCount > 0
+    ? "Проверить следующий сигнал"
+    : category.pendingHistoricalCaseCount > 0
+      ? "Проверить исторический кейс"
+      : category.gaps.length > 0
+        ? GUIDANCE_ACTION_LABELS[recommended] || "Добавить недостающие данные"
+        : "Посмотреть историю решений";
+  const dataLabel = dataIsInsufficient
+    ? "Данных недостаточно"
+    : dataIsReady ? "Данных достаточно" : "Данные ещё собираются";
+  const dataCopy = dataIsInsufficient
+    ? "Новые выводы пока не применяются без решения человека."
+    : status.label;
+  return `<section class="ai-learning-signal-summary" aria-labelledby="ai-learning-signal-summary-title" data-ce-patch-key="ai-signal-summary-${escapeHtml(category.key)}-${escapeHtml(category.effectivePolicy.hash || "empty")}">
+    <div class="ai-learning-signal-summary__heading">
+      <div><p class="ai-learning-eyebrow">Только подтверждённые правила</p><h2 id="ai-learning-signal-summary-title">Что ИИ реально применяет</h2></div>
+      <button type="button" data-action="select-ai-learning-view" data-view="${nextView}" data-primary-action="true">${escapeHtml(nextLabel)} →</button>
+    </div>
+    <div class="ai-learning-signal-state-grid">
+      <article class="ai-learning-signal-state is-good"><span><b aria-hidden="true">✓</b> Можно использовать</span><strong>${preferred ? escapeHtml(creativeAngleLabel(preferred.effect)) : "Пока не подтверждено"}</strong><small>${preferred ? "Это правило уже учитывается ИИ." : "Правило не применяется без решения команды."}</small></article>
+      <article class="ai-learning-signal-state is-bad"><span><b aria-hidden="true">×</b> Нужно избегать</span><strong>${avoided ? escapeHtml(creativeAngleLabel(avoided.effect)) : "Пока не подтверждено"}</strong><small>${avoided ? "ИИ исключает этот приём из результата." : "Запрета пока нет."}</small></article>
+      <article class="ai-learning-signal-state is-${dataIsReady ? "ready" : "unknown"}"><span><b aria-hidden="true">!</b> ${dataLabel}</span><strong>${category.score}% готовности</strong><small>${escapeHtml(dataCopy)}</small></article>
     </div>
   </section>`;
 }
 
 function overviewMarkup(category, control, status, legacyReadOnly = false) {
   const confidence = confidenceText(category);
-  return `<div class="ai-learning-overview-grid">
+  return `${signalSummaryMarkup(category, control, status)}
+  <div class="ai-learning-overview-grid">
     <article class="ai-learning-readiness-card is-${status.tone}" data-ce-patch-key="ai-readiness-${category.key}">
       <div class="ai-learning-score-ring" style="--ai-learning-score:${category.score}" role="img" aria-label="${legacyReadOnly ? "Архивный legacy-показатель" : "Готовность доказательной базы категории"}: ${category.score} процентов">
         <strong>${category.score}%</strong>
-        <span>evidence</span>
+        <span>данные</span>
       </div>
       <div class="ai-learning-readiness-copy">
         <p class="ai-learning-eyebrow">${escapeHtml(category.label)}</p>
-        <h2>Готовность доказательной базы</h2>
+        <h2>Насколько хватает данных</h2>
         <span class="ai-learning-status-pill is-${status.tone}">${escapeHtml(status.label)}</span>
-        <p>Показатель отражает покрытие проверяемых источников и решений команды. Это не IQ, не accuracy модели и не гарантия качества результата.</p>
-        <small>Версия области: ${category.scopeVersion || "—"}${category.evidenceHash ? ` · evidence ${escapeHtml(shortHash(category.evidenceHash))}` : ""}</small>
+        <p>Процент показывает только объём проверенных источников и решений команды. Это не оценка интеллекта и не гарантия результата.</p>
+        <small>${control.asOf ? `Обновлено ${escapeHtml(formatDateTime(control.asOf))}` : "Ожидаем первый расчёт"}</small>
       </div>
     </article>
     <div class="ai-learning-metric-grid" aria-label="Метрики категории">
@@ -810,7 +990,7 @@ function overviewMarkup(category, control, status, legacyReadOnly = false) {
 
   <section class="ai-learning-section ai-learning-dimensions-section" aria-labelledby="ai-learning-dimensions-title">
     <div class="ai-learning-section-heading">
-      <div><p class="ai-learning-eyebrow">Signal map</p><h2 id="ai-learning-dimensions-title">Из чего складывается готовность</h2></div>
+      <div><p class="ai-learning-eyebrow">Почему такая оценка</p><h2 id="ai-learning-dimensions-title">Из чего складывается готовность</h2></div>
       <span>${category.dimensions.length ? `${category.dimensions.length} измерений` : "Ожидаем метрики"}</span>
     </div>
     <div class="ai-learning-dimensions">
@@ -822,7 +1002,7 @@ function overviewMarkup(category, control, status, legacyReadOnly = false) {
 
   <section class="ai-learning-section ai-learning-gaps-section" aria-labelledby="ai-learning-gaps-title">
     <div class="ai-learning-section-heading">
-      <div><p class="ai-learning-eyebrow">Next best evidence</p><h2 id="ai-learning-gaps-title">Чего не хватает ИИ</h2></div>
+      <div><p class="ai-learning-eyebrow">Следующий шаг</p><h2 id="ai-learning-gaps-title">Чего не хватает ИИ</h2></div>
       <span>${category.gaps.length ? `${category.gaps.length} пробела` : "Пробелы закрыты"}</span>
     </div>
     <div class="ai-learning-gap-grid">
@@ -895,24 +1075,24 @@ function knowledgeMarkup(category, control, { canAddLink, canUploadFile, busy })
 function teachMarkup(category, control, {
   canDecide,
   legacyReadOnly = false,
-  canDecideHistoricalCase,
   busy,
   busyCardId,
-  busyHistoricalCaseId,
-  historicalCaseFilter,
-  historicalImport,
 }) {
+  const pendingCards = category.teachingCards.filter((card) => card.status === "pending");
+  const activeCard = pendingCards[0] || null;
+  const position = activeCard
+    ? Math.max(1, category.teachingCards.findIndex((card) => card.id === activeCard.id) + 1)
+    : category.teachingCards.length;
   return `<div class="ai-learning-teach-intro">
     <div>
-      <p class="ai-learning-eyebrow">Human-in-the-loop</p>
-      <h2>Что для категории хорошо, а что плохо</h2>
+      <p class="ai-learning-eyebrow">${legacyReadOnly ? "Human-in-the-loop" : "Один сигнал — одно решение"}</p>
+      <h2>${legacyReadOnly ? "Что для категории хорошо, а что плохо" : "Подтвердите, что ИИ должен делать"}</h2>
       <p>${legacyReadOnly
         ? "Это прежняя восьмикатегорийная история. Она не подтверждена parser lineage и больше не применяется к генерации."
-        : "ИИ показывает своё текущее суждение по одному ограниченному сигналу. Вы подтверждаете или отклоняете его — решение применяется сервером к новой версии правила без перезагрузки страницы."}</p>
+        : "На экране только один кандидат правила. После решения следующая карточка появится автоматически."}</p>
     </div>
     <div class="ai-learning-teach-legend" aria-label="Решение команды">
-      <span class="is-good"><b aria-hidden="true">✓</b> ОК, верно</span>
-      <span class="is-bad"><b aria-hidden="true">×</b> Не ОК</span>
+      <span><b aria-hidden="true">${activeCard ? position : "✓"}</b> ${activeCard ? `из ${category.teachingCards.length}` : "всё проверено"}</span>
     </div>
   </div>
   <aside class="ai-learning-safety-note is-accent" role="note">
@@ -925,22 +1105,15 @@ function teachMarkup(category, control, {
     <p>Подтверждение карточки суждения выпускает новую версию bounded‑правила категории. У исторических кейсов другой, более строгий порог влияния — он показан в отдельном блоке.</p>
     `}
   </aside>
-  ${historicalCasesMarkup(category, control, {
-    canDecideHistoricalCase,
-    busy,
-    busyHistoricalCaseId,
-    filter: historicalCaseFilter,
-    historicalImport,
-  })}
   <section class="ai-learning-section ai-learning-judgement-section" aria-labelledby="ai-learning-judgement-title">
     <div class="ai-learning-section-heading">
-      <div><p class="ai-learning-eyebrow">Rule candidates</p><h2 id="ai-learning-judgement-title">Суждения ИИ по сигналам</h2></div>
-      <span>${category.teachingCards.length} карточек</span>
+      <div><p class="ai-learning-eyebrow">Кандидат правила</p><h2 id="ai-learning-judgement-title">Текущее решение</h2></div>
+      <span>${activeCard ? `Сигнал ${position} из ${category.teachingCards.length}` : "Очередь закончена"}</span>
     </div>
   <div class="ai-learning-teaching-list" aria-live="polite">
-    ${category.teachingCards.length
-      ? category.teachingCards.map((card) => teachingCardMarkup(card, category, control, { canDecide, busy, busyCardId })).join("")
-      : emptyMarkup("Нет карточек для решения", "Новые карточки появятся после анализа проверенных источников и результатов контента.")}
+    ${activeCard
+      ? teachingCardMarkup(activeCard, category, control, { canDecide, busy, busyCardId })
+      : emptyMarkup("Все предложения проверены", "Подтверждённые правила видны на вкладке «Обзор». Новые появятся после анализа свежих данных.")}
   </div>
   </section>`;
 }
@@ -1292,34 +1465,47 @@ function teachingCardMarkup(card, category, control, { canDecide, busy, busyCard
   const decided = card.status !== "pending";
   const cardBusy = Boolean(busyCardId && busyCardId === card.id);
   const disabled = !canDecide || decided || busy || cardBusy;
-  const judgement = card.aiJudgement === "good"
-    ? "ИИ считает сигнал хорошим"
-    : card.aiJudgement === "bad"
-      ? "ИИ считает сигнал плохим"
-      : "ИИ просит решения человека";
+  const angleKey = creativeAngleKey(card.signalKey);
+  const signalLabel = angleKey
+    ? creativeAngleLabel(angleKey)
+    : card.title || humanizeKey(card.signalKey) || "Сигнал требует проверки";
+  const authoritativeTitle = card.title && card.title !== signalLabel
+    ? card.title
+    : "";
+  const isGood = card.aiJudgement === "good";
+  const isBad = card.aiJudgement === "bad";
+  const judgement = isGood
+    ? "Предложение: использовать"
+    : isBad ? "Предупреждение: избегать" : "Данных недостаточно";
+  const explanation = isGood
+    ? "Если подтвердить, ИИ будет чаще выбирать этот приём для данной категории."
+    : isBad
+      ? "Если подтвердить, ИИ будет избегать этого приёма для данной категории."
+      : "Правило пока не применяется. Добавьте данные, чтобы команда могла принять решение.";
+  const approveLabel = isGood ? "Да, использовать" : "Да, избегать";
+  const rejectLabel = isGood ? "Нет, не считать полезным" : "Нет, не считать плохим";
   const cardKey = `ai-teaching-${category.key}-${card.id}-${card.version}-${card.hash || "nohash"}`;
-  return `<article class="ai-learning-teaching-card is-${escapeHtml(card.status)}${cardBusy ? " is-busy" : ""}" data-ai-teaching-card data-product-category="${escapeHtml(category.key)}" data-card-id="${escapeHtml(card.id)}" data-card-version="${card.version}" data-card-hash="${escapeHtml(card.hash)}" data-scope-version="${category.scopeVersion}" data-ce-patch-key="${escapeHtml(cardKey)}">
+  return `<article class="ai-learning-teaching-card is-${escapeHtml(card.status)}${cardBusy ? " is-busy" : ""}" data-ai-teaching-card data-product-category="${escapeHtml(category.key)}" data-card-id="${escapeHtml(card.id)}" data-card-version="${card.version}" data-card-hash="${escapeHtml(card.hash)}" data-scope-version="${category.scopeVersion}" data-ai-judgement="${escapeHtml(card.aiJudgement)}" data-signal-label="${escapeHtml(signalLabel)}" data-ce-patch-key="${escapeHtml(cardKey)}">
     <header>
-      <div><p class="ai-learning-eyebrow">${escapeHtml(card.signalKey || "Сигнал категории")}</p><h3>${escapeHtml(card.title || "Проверить суждение ИИ")}</h3></div>
+      <div><p class="ai-learning-eyebrow">Кандидат правила</p><h3>${escapeHtml(signalLabel)}</h3></div>
       <span class="ai-learning-judgement is-${escapeHtml(card.aiJudgement)}">${escapeHtml(judgement)}</span>
     </header>
-    ${card.context ? `<p class="ai-learning-teaching-context">${escapeHtml(card.context)}</p>` : ""}
-    ${card.rationale ? `<blockquote>${escapeHtml(card.rationale)}</blockquote>` : ""}
+    ${authoritativeTitle ? `<p class="ai-learning-teaching-context"><strong>Что именно:</strong> ${escapeHtml(authoritativeTitle)}</p>` : ""}
+    ${card.context ? `<p class="ai-learning-teaching-context"><strong>Контекст:</strong> ${escapeHtml(card.context)}</p>` : ""}
+    ${card.rationale ? `<blockquote><strong>Почему:</strong> ${escapeHtml(card.rationale)}</blockquote>` : ""}
+    <p class="ai-learning-teaching-context">${escapeHtml(explanation)}</p>
     <dl>
-      <div><dt>Доказательств</dt><dd>${card.evidenceCount}</dd></div>
-      <div><dt>Версия</dt><dd>${card.version}</dd></div>
-      <div><dt>Candidate</dt><dd><code>${escapeHtml(shortHash(card.hash || card.id))}</code></dd></div>
+      <div><dt>Решений команды</dt><dd>${card.evidenceCount}</dd></div>
     </dl>
-    ${decided ? teachingDecisionMarkup(card) : `<form class="ai-learning-decision-form" data-form="ai-learning-decision" data-ce-patch-key="ai-decision-form-${escapeHtml(card.id)}" novalidate>
+    ${decided ? teachingDecisionMarkup(card) : !isGood && !isBad ? `<div class="ai-learning-decision-actions"><button class="is-primary" type="button" data-action="select-ai-learning-view" data-view="knowledge">Добавить данные</button></div>` : `<form class="ai-learning-decision-form" data-form="ai-learning-decision" data-ce-patch-key="ai-decision-form-${escapeHtml(card.id)}" novalidate>
       ${scopeInputs(control, category)}
       <input type="hidden" name="card_id" value="${escapeHtml(card.id)}" />
       <input type="hidden" name="card_version" value="${card.version}" />
       <input type="hidden" name="card_hash" value="${escapeHtml(card.hash)}" />
       <input type="hidden" name="expected_scope_version" value="${category.scopeVersion}" />
-      <label class="ai-learning-confirm"><input type="checkbox" name="confirmation" value="true" required ${disabled ? "disabled" : ""} /><span>Я проверил контекст и понимаю, что решение изменит только bounded-правило этой категории.</span></label>
       <div class="ai-learning-decision-actions">
-        <button class="is-good" type="submit" data-action="decide-ai-teaching-card" data-product-category="${escapeHtml(category.key)}" data-card-id="${escapeHtml(card.id)}" data-card-version="${card.version}" data-card-hash="${escapeHtml(card.hash)}" data-scope-version="${category.scopeVersion}" data-decision="approve" ${disabled ? "disabled" : ""}><span aria-hidden="true">✓</span> ${cardBusy ? "Применяем…" : "ОК, верно"}</button>
-        <button class="is-bad" type="submit" data-action="decide-ai-teaching-card" data-product-category="${escapeHtml(category.key)}" data-card-id="${escapeHtml(card.id)}" data-card-version="${card.version}" data-card-hash="${escapeHtml(card.hash)}" data-scope-version="${category.scopeVersion}" data-decision="reject" ${disabled ? "disabled" : ""}><span aria-hidden="true">×</span> ${cardBusy ? "Применяем…" : "Не ОК"}</button>
+        <button class="is-primary is-${isGood ? "good" : "bad"}" type="submit" data-primary-action="true" data-action="decide-ai-teaching-card" data-product-category="${escapeHtml(category.key)}" data-card-id="${escapeHtml(card.id)}" data-card-version="${card.version}" data-card-hash="${escapeHtml(card.hash)}" data-scope-version="${category.scopeVersion}" data-ai-judgement="${escapeHtml(card.aiJudgement)}" data-signal-label="${escapeHtml(signalLabel)}" data-decision="approve" ${disabled ? "disabled" : ""}><span aria-hidden="true">✓</span> ${cardBusy ? "Сохраняем…" : approveLabel}</button>
+        <button class="is-secondary" type="submit" data-action="decide-ai-teaching-card" data-product-category="${escapeHtml(category.key)}" data-card-id="${escapeHtml(card.id)}" data-card-version="${card.version}" data-card-hash="${escapeHtml(card.hash)}" data-scope-version="${category.scopeVersion}" data-ai-judgement="${escapeHtml(card.aiJudgement)}" data-signal-label="${escapeHtml(signalLabel)}" data-decision="reject" ${disabled ? "disabled" : ""}><span aria-hidden="true">×</span> ${cardBusy ? "Сохраняем…" : rejectLabel}</button>
       </div>
       ${capabilityHint(control.capabilities.canDecide, "принимать решения")}
     </form>`}
@@ -1330,8 +1516,12 @@ function teachingDecisionMarkup(card) {
   const decision = AI_TEACHING_DECISIONS.has(card.decision)
     ? card.decision
     : card.status === "approved" ? "approve" : "reject";
-  return `<div class="ai-learning-recorded-decision is-${decision === "approve" ? "good" : "bad"}" role="status">
-    <strong>${decision === "approve" ? "Подтверждено: суждение верно" : "Отклонено: суждение неверно"}</strong>
+  const accepted = decision === "approve";
+  const acceptedLabel = card.aiJudgement === "bad"
+    ? "Подтверждено: ИИ избегает этот сигнал"
+    : "Подтверждено: ИИ использует этот сигнал";
+  return `<div class="ai-learning-recorded-decision is-${accepted ? "good" : "bad"}" role="status">
+    <strong>${accepted ? acceptedLabel : "Отклонено: правило не применяется"}</strong>
     <span>${card.decidedBy ? `${escapeHtml(card.decidedBy)} · ` : ""}${escapeHtml(formatDateTime(card.decidedAt) || "решение сохранено")}</span>
     ${card.reason ? `<p>${escapeHtml(card.reason)}</p>` : ""}
   </div>`;
@@ -1353,7 +1543,14 @@ function effectivePolicyMarkup(
   const instance = compact ? "history" : "overview";
   const headingId = `ai-learning-policy-${instance}-title`;
   const rules = policy.rules.length
-    ? `<ul>${policy.rules.map((rule) => `<li data-ce-patch-key="ai-policy-rule-${escapeHtml(rule.id)}"><span>${escapeHtml(rule.label)}</span><small>${escapeHtml(rule.effect)}</small></li>`).join("")}</ul>`
+    ? `<ul>${policy.rules.map((rule) => {
+      const label = rule.id === "preferred_angle"
+        ? "Можно использовать"
+        : rule.id === "avoid_angle" ? "Нужно избегать" : rule.label;
+      const angleKey = creativeAngleKey(rule.effect);
+      const effect = angleKey ? creativeAngleLabel(angleKey) : rule.effect;
+      return `<li data-ce-patch-key="ai-policy-rule-${escapeHtml(rule.id)}"><span>${escapeHtml(label)}</span><small>${escapeHtml(effect)}</small></li>`;
+    }).join("")}</ul>`
     : emptyMarkup("Активных правил пока нет", "Решения человека появятся здесь только после серверного выпуска новой версии политики.");
   return `<section class="ai-learning-section ai-learning-policy${compact ? " is-compact" : ""}" aria-labelledby="${headingId}" data-ce-patch-key="ai-effective-policy-${instance}-${escapeHtml(policy.hash || "empty")}">
     <div class="ai-learning-section-heading">
@@ -2236,6 +2433,11 @@ function normalizeCapabilities(raw, actor) {
       ["can_decide_historical_case", "canDecideHistoricalCase"],
       false,
     ),
+    canDecideResearchInbox: capability(
+      source,
+      ["can_decide_research_inbox", "canDecideResearchInbox"],
+      false,
+    ),
     canViewHistory: capability(
       source,
       ["view_history", "can_view_history", "canViewHistory"],
@@ -2244,11 +2446,163 @@ function normalizeCapabilities(raw, actor) {
   };
 }
 
+function normalizeResearchInbox(raw, selectedCategory) {
+  return arrayFrom(raw).map((item, index) => {
+    const source = objectValue(item);
+    if (!source) return null;
+    const productCategory = cleanText(
+      source.product_category || source.productCategory,
+      80,
+    ).toLowerCase();
+    const status = cleanText(source.status, 80).toLowerCase();
+    const projectId = cleanText(source.project_id || source.projectId, 80);
+    const runId = cleanText(source.run_id || source.runId, 80);
+    const receiptId = cleanText(
+      source.receipt_id || source.receiptId || source.id,
+      80,
+    );
+    if (
+      productCategory !== selectedCategory
+      || !AI_CATEGORY_BY_KEY.has(productCategory)
+      || !AI_RESEARCH_INBOX_STATUSES.has(status)
+      || !UUID_PATTERN.test(projectId)
+      || !UUID_PATTERN.test(runId)
+      || !UUID_PATTERN.test(receiptId)
+      || source.requires_human_review !== true
+      || source.raw_research_enters_prompt_automatically !== false
+      || source.affects_effective_policy !== false
+    ) return null;
+    return {
+      id: receiptId,
+      projectId,
+      runId,
+      productCategory,
+      status,
+      receiptHash: cleanText(
+        source.receipt_hash || source.receiptHash,
+        64,
+      ).toLowerCase(),
+      projectName: cleanText(
+        source.project_name || source.projectName,
+        180,
+      ),
+      productName: cleanText(
+        source.product_name || source.productName,
+        240,
+      ),
+      title: cleanText(
+        source.research_title || source.researchTitle || source.title,
+        240,
+      ),
+      sourceCount: nonNegativeInteger(
+        source.source_count ?? source.sourceCount,
+        0,
+      ),
+      eventCursor: nonNegativeInteger(
+        source.event_cursor ?? source.eventCursor,
+        index + 1,
+      ),
+      receivedAt: timestamp(
+        source.received_at || source.receivedAt,
+      ),
+      deepLink: `#/workspace/research?project_id=${projectId}&run=${runId}`,
+      requiresHumanReview: true,
+      affectsEffectivePolicy: false,
+    };
+  }).filter((item) => (
+    item && /^[0-9a-f]{64}$/u.test(item.receiptHash)
+  )).slice(0, 50);
+}
+
+function normalizeResearchDecisions(raw, selectedCategory) {
+  return arrayFrom(raw).map((item, index) => {
+    const source = objectValue(item);
+    if (!source) return null;
+    const productCategory = cleanText(
+      source.product_category || source.productCategory,
+      80,
+    ).toLowerCase();
+    const decision = cleanText(source.decision, 20).toLowerCase();
+    const dispositionId = cleanText(
+      source.disposition_id || source.dispositionId || source.id,
+      80,
+    );
+    const receiptId = cleanText(
+      source.receipt_id || source.receiptId,
+      80,
+    );
+    const projectId = cleanText(source.project_id || source.projectId, 80);
+    const runId = cleanText(source.run_id || source.runId, 80);
+    const receiptHash = cleanText(
+      source.receipt_hash || source.receiptHash,
+      64,
+    ).toLowerCase();
+    if (
+      productCategory !== selectedCategory
+      || !AI_CATEGORY_BY_KEY.has(productCategory)
+      || !AI_RESEARCH_DECISIONS.has(decision)
+      || !UUID_PATTERN.test(dispositionId)
+      || !UUID_PATTERN.test(receiptId)
+      || !UUID_PATTERN.test(projectId)
+      || !UUID_PATTERN.test(runId)
+      || !/^[0-9a-f]{64}$/u.test(receiptHash)
+      || source.human_review_completed !== true
+      || source.raw_research_enters_prompt_automatically !== false
+      || source.affects_effective_policy !== false
+    ) return null;
+    return {
+      id: dispositionId,
+      receiptId,
+      receiptHash,
+      projectId,
+      runId,
+      productCategory,
+      decision,
+      reasonCode: cleanText(
+        source.reason_code || source.reasonCode,
+        120,
+      ),
+      projectName: cleanText(
+        source.project_name || source.projectName,
+        180,
+      ),
+      productName: cleanText(
+        source.product_name || source.productName,
+        240,
+      ),
+      title: cleanText(
+        source.research_title || source.researchTitle || source.title,
+        240,
+      ),
+      decidedBy: cleanText(
+        source.decided_by || source.decidedBy,
+        80,
+      ),
+      decidedByName: cleanText(
+        source.decided_by_name || source.decidedByName,
+        180,
+      ),
+      decidedAt: timestamp(source.decided_at || source.decidedAt),
+      eventCursor: nonNegativeInteger(
+        source.event_cursor ?? source.eventCursor,
+        index + 1,
+      ),
+      deepLink: `#/workspace/research?project_id=${projectId}&run=${runId}`,
+      humanReviewCompleted: true,
+      affectsEffectivePolicy: false,
+    };
+  }).filter(Boolean).slice(0, 50);
+}
+
 function normalizeGuidance(raw, category) {
   const source = objectValue(raw) || {};
   return {
     status: cleanText(source.status, 80).toLowerCase() || category.status,
     summary: cleanText(source.summary || source.message, 800),
+    recommendedNextAction: cleanText(
+      source.recommended_next_action || source.recommendedNextAction,
+      120,
+    ).toLowerCase(),
     scoreIsNotModelIq: source.score_is_not_model_iq !== false,
     rawSourcesEnterPromptAutomatically:
       source.raw_sources_enter_prompt_automatically === true,

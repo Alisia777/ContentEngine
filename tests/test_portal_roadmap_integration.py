@@ -97,5 +97,5 @@ def test_release_entry_assets_use_current_cache_versions() -> None:
         "workspace-build-guard.js",
     ):
         assert f'./{asset}?v={BUILD_ID}' in INDEX
-    assert './supabase-api.js?v=20260804.os4.13' in APP
+    assert './supabase-api.js?v=20260804.os4.17' in APP
     assert './catalog.js?v=20260804.1' in APP

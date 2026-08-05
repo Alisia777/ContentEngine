@@ -447,9 +447,12 @@ select ok(
 select ok(
   strpos(lower(pg_get_functiondef(
     'public.system_complete_product_research(jsonb)'::regprocedure
+  )), 'complete_product_research_pre_ai_handoff_v1') > 0
+  and strpos(lower(pg_get_functiondef(
+    'content_factory_private.complete_product_research_pre_ai_handoff_v1(jsonb)'::regprocedure
   )), 'complete_product_research_v2_base') > 0
   and strpos(lower(pg_get_functiondef(
-    'public.system_complete_product_research(jsonb)'::regprocedure
+    'content_factory_private.complete_product_research_pre_ai_handoff_v1(jsonb)'::regprocedure
   )), 'system_register_research_category_sources') > 0
   and strpos(lower(pg_get_functiondef(
     'public.creator_resolve_research_market_category(jsonb)'::regprocedure

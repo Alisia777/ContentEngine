@@ -12,7 +12,10 @@ const RESEARCH_PROVIDER_ADAPTER_VERSION = "openai-responses-web-search-v1";
 const STORAGE_BUCKET = "contentengine-private";
 const MAX_BODY_BYTES = 8_192;
 const MAX_PROVIDER_JSON_BYTES = 1_572_864;
-const OPENAI_TIMEOUT_MS = 110_000;
+const OPENAI_TIMEOUT_MS = 25_000;
+// OpenAI retains a store=false background response for roughly ten minutes.
+// Stop polling one minute earlier so the final GET stays inside that window.
+const MAX_BACKGROUND_RESPONSE_AGE_MS = 9 * 60 * 1_000;
 const SIGNED_IMAGE_TTL_SECONDS = 900;
 const MIN_PHOTOS = 0;
 const MAX_PHOTOS = 5;
@@ -153,6 +156,18 @@ type ContentEngineDatabase = {
         Args: { p_payload: Json };
         Returns: Json;
       };
+      system_bind_research_provider_response: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
+      system_read_research_provider_response: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
+      system_record_research_provider_response_status: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
     };
   };
   content_factory: {
@@ -174,9 +189,26 @@ type ContentEngineDatabase = {
 };
 
 type AnalyzePayload = {
-  action: "analyze";
+  action: "analyze" | "status";
   research_id: string;
   project_id: string;
+};
+
+type ProviderResponseStatus =
+  | "queued"
+  | "in_progress"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "incomplete";
+
+type ProviderContinuation = {
+  attemptId: string;
+  model: string;
+  boundAt: string;
+  responseId: string | null;
+  providerStatus: ProviderResponseStatus | null;
+  acceptedAt: string | null;
 };
 
 type ResearchPhoto = {
@@ -321,7 +353,7 @@ function readRequestPayload(value: unknown): AnalyzePayload | null {
   ) {
     return null;
   }
-  if (value.action !== "analyze") return null;
+  if (value.action !== "analyze" && value.action !== "status") return null;
   return value as AnalyzePayload;
 }
 
@@ -2019,6 +2051,7 @@ function openAiRequestBody(
       },
     },
     max_output_tokens: MAX_OUTPUT_TOKENS,
+    background: true,
     store: false,
   };
 }
@@ -2045,6 +2078,87 @@ function providerFailureForHttp(status: number): string {
   if (status === 429) return "provider_rate_limited";
   if (status >= 400 && status < 500) return "provider_request_rejected";
   return "provider_unavailable";
+}
+
+const PROVIDER_RESPONSE_STATUSES = new Set<ProviderResponseStatus>([
+  "queued",
+  "in_progress",
+  "completed",
+  "failed",
+  "cancelled",
+  "incomplete",
+]);
+
+function readProviderResponseIdentity(
+  value: unknown,
+  expectedId: string | null = null,
+): { id: string; status: ProviderResponseStatus } | null {
+  if (!isRecord(value)) return null;
+  const id = typeof value.id === "string" ? value.id : "";
+  const status = typeof value.status === "string"
+    ? value.status as ProviderResponseStatus
+    : null;
+  if (
+    !/^resp_[A-Za-z0-9_-]+$/u.test(id) || id.length > 255 ||
+    status === null || !PROVIDER_RESPONSE_STATUSES.has(status) ||
+    (expectedId !== null && id !== expectedId)
+  ) return null;
+  return { id, status };
+}
+
+function providerResponsePending(status: ProviderResponseStatus): boolean {
+  return status === "queued" || status === "in_progress";
+}
+
+function providerResponseAgeMs(acceptedAt: string | null): number {
+  if (acceptedAt === null) return Number.POSITIVE_INFINITY;
+  const timestamp = Date.parse(acceptedAt);
+  return Number.isFinite(timestamp)
+    ? Math.max(0, Date.now() - timestamp)
+    : Number.POSITIVE_INFINITY;
+}
+
+function readProviderContinuation(value: unknown): ProviderContinuation | null {
+  if (!isRecord(value) || value.ok !== true || !isRecord(value.attempt)) {
+    return null;
+  }
+  const attemptId = value.attempt.attempt_id;
+  const model = value.attempt.model;
+  const boundAt = value.attempt.bound_at;
+  if (
+    !isUuid(attemptId) || typeof model !== "string" ||
+    !/^[A-Za-z0-9][A-Za-z0-9._:-]{1,79}$/u.test(model) ||
+    typeof boundAt !== "string" || !Number.isFinite(Date.parse(boundAt))
+  ) return null;
+  if (value.response === null || value.response === undefined) {
+    return {
+      attemptId,
+      model,
+      boundAt,
+      responseId: null,
+      providerStatus: null,
+      acceptedAt: null,
+    };
+  }
+  if (!isRecord(value.response)) return null;
+  const responseId = value.response.provider_response_id;
+  const providerStatus = value.response.provider_status;
+  const acceptedAt = value.response.accepted_at;
+  if (
+    typeof responseId !== "string" ||
+    !/^resp_[A-Za-z0-9_-]+$/u.test(responseId) || responseId.length > 255 ||
+    typeof providerStatus !== "string" ||
+    !PROVIDER_RESPONSE_STATUSES.has(providerStatus as ProviderResponseStatus) ||
+    typeof acceptedAt !== "string" || !Number.isFinite(Date.parse(acceptedAt))
+  ) return null;
+  return {
+    attemptId,
+    model,
+    boundAt,
+    responseId,
+    providerStatus: providerStatus as ProviderResponseStatus,
+    acceptedAt,
+  };
 }
 
 function readPublicStatusEnvelope(
@@ -2458,6 +2572,75 @@ async function handleCreatorProductResearch(
     return null;
   };
 
+  const readProviderResponse = async (): Promise<
+    ProviderContinuation | null
+  > => {
+    try {
+      const { data, error } = await supabaseAdmin.rpc(
+        "system_read_research_provider_response",
+        { p_payload: { run_id: payload.research_id } },
+      );
+      return error === null ? readProviderContinuation(data) : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const bindProviderResponse = async (
+    attemptId: string,
+    responseId: string,
+    providerStatus: ProviderResponseStatus,
+  ): Promise<{ acceptedAt: string } | null> => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const { data, error } = await supabaseAdmin.rpc(
+          "system_bind_research_provider_response",
+          {
+            p_payload: {
+              run_id: payload.research_id,
+              attempt_id: attemptId,
+              provider_response_id: responseId,
+              provider_status: providerStatus,
+            },
+          },
+        );
+        if (
+          error === null && isRecord(data) && data.ok === true &&
+          data.attempt_id === attemptId &&
+          data.provider_response_id === responseId &&
+          typeof data.accepted_at === "string" &&
+          Number.isFinite(Date.parse(data.accepted_at))
+        ) return { acceptedAt: data.accepted_at };
+      } catch {
+        // The exact same receipt is safe to retry; never retry the paid POST.
+      }
+    }
+    return null;
+  };
+
+  const recordProviderResponseStatus = async (
+    attemptId: string,
+    responseId: string,
+    providerStatus: ProviderResponseStatus,
+  ): Promise<boolean> => {
+    try {
+      const { data, error } = await supabaseAdmin.rpc(
+        "system_record_research_provider_response_status",
+        {
+          p_payload: {
+            run_id: payload.research_id,
+            attempt_id: attemptId,
+            provider_response_id: responseId,
+            provider_status: providerStatus,
+          },
+        },
+      );
+      return error === null && isRecord(data) && data.ok === true;
+    } catch {
+      return false;
+    }
+  };
+
   const recordProviderHealth = async (
     attemptId: string,
     status: "ready" | "degraded" | "blocked" | "unknown",
@@ -2474,12 +2657,23 @@ async function handleCreatorProductResearch(
       healthPayload.citation_count = Number(citationCount);
     }
     try {
-      await supabaseAdmin.rpc("system_record_research_provider_health", {
-        p_payload: healthPayload,
-      });
+      const { error } = await supabaseAdmin.rpc(
+        "system_record_research_provider_health",
+        {
+          p_payload: healthPayload,
+        },
+      );
+      if (error) throw error;
     } catch {
       // Never repeat or reinterpret a paid request because telemetry failed.
     }
+  };
+
+  const pending = async (): Promise<Response> => {
+    const current = await readCurrentStatus();
+    return current === null
+      ? json(request, { ok: false, code: "research_unavailable" }, 503)
+      : json(request, current.data, 202);
   };
 
   const fail = async (code: string, message: string): Promise<Response> => {
@@ -2502,18 +2696,17 @@ async function handleCreatorProductResearch(
   if (authorized === null) {
     return json(request, { ok: false, code: "research_rejected" }, 403);
   }
-  if (authorized.status !== "queued") {
-    if (
-      authorized.status === "completed" || authorized.status === "failed" ||
-      authorized.status === "cancelled"
-    ) {
-      await applyStageRecompute();
-    }
-    return json(
-      request,
-      authorized.data,
-      authorized.status === "processing" ? 202 : 200,
-    );
+  if (
+    authorized.status === "completed" || authorized.status === "failed" ||
+    authorized.status === "cancelled"
+  ) {
+    await applyStageRecompute();
+    return json(request, authorized.data);
+  }
+  // A browser status read never turns an unclaimed row into a paid request.
+  // The explicit start call or the internal worker owns the sole POST.
+  if (authorized.status === "queued" && payload.action === "status") {
+    return json(request, authorized.data, 202);
   }
 
   let claim: { claimed: boolean; run: ResearchRun } | null = null;
@@ -2527,12 +2720,11 @@ async function handleCreatorProductResearch(
     claim = null;
   }
   if (claim === null || claim.run.id !== payload.research_id) {
-    return await fail(
-      "input_validation_failed",
-      "Не удалось безопасно проверить товар, площадки или выбранные фотографии.",
-    );
+    return ["queued", "processing"].includes(authorized.status)
+      ? await pending()
+      : json(request, { ok: false, code: "research_unavailable" }, 503);
   }
-  if (!claim.claimed) {
+  if (claim.run.status !== "processing") {
     const current = await readCurrentStatus();
     return current === null
       ? json(request, { ok: false, code: "research_unavailable" }, 503)
@@ -2541,12 +2733,6 @@ async function handleCreatorProductResearch(
         current.data,
         current.status === "processing" ? 202 : 200,
       );
-  }
-  if (claim.run.status !== "processing") {
-    return await fail(
-      "internal_error",
-      "Не удалось зафиксировать запуск анализа.",
-    );
   }
   if (
     claim.run.photos.length > MAX_PHOTOS ||
@@ -2570,106 +2756,324 @@ async function handleCreatorProductResearch(
     );
   }
 
-  const signedImageUrls: string[] = [];
-  for (const photo of claim.run.photos) {
+  let model = openAiModel();
+  let providerRequestedAt = new Date().toISOString();
+  let providerAttemptId = "";
+  let providerValue: unknown;
+  let continuation = await readProviderResponse();
+  let providerResponse: Response;
+
+  if (!claim.claimed) {
+    // Another request already crossed the local paid boundary.  With no saved
+    // response id we cannot prove whether its POST reached OpenAI, so this path
+    // only waits and eventually closes as unknown; it never issues another POST.
+    if (continuation === null) return await pending();
+    providerAttemptId = continuation.attemptId;
+    model = continuation.model;
+    providerRequestedAt = continuation.boundAt;
+    if (continuation.responseId === null || continuation.acceptedAt === null) {
+      if (
+        providerResponseAgeMs(continuation.boundAt) <
+          MAX_BACKGROUND_RESPONSE_AGE_MS
+      ) {
+        return await pending();
+      }
+      await recordProviderHealth(
+        providerAttemptId,
+        "unknown",
+        "provider_outcome_unknown",
+      );
+      return await fail(
+        "provider_outcome_unknown",
+        UNKNOWN_PROVIDER_OUTCOME_MESSAGE,
+      );
+    }
+    const responseAge = providerResponseAgeMs(continuation.acceptedAt);
     try {
-      const { data, error } = await supabaseAdmin.storage.from(
-        STORAGE_BUCKET,
-      ).createSignedUrl(photo.objectName, SIGNED_IMAGE_TTL_SECONDS);
-      const signedUrl = error
-        ? null
-        : validateSignedStorageUrl(data?.signedUrl);
-      if (signedUrl === null) {
+      providerResponse = await fetchWithTimeout(
+        `${OPENAI_RESPONSES_URL}/${
+          encodeURIComponent(continuation.responseId)
+        }`,
+        {
+          method: "GET",
+          redirect: "manual",
+          headers: {
+            authorization: `Bearer ${apiKey}`,
+            "content-type": "application/json",
+            "X-Client-Request-Id": claim.run.id,
+          },
+        },
+        OPENAI_TIMEOUT_MS,
+      );
+    } catch {
+      if (responseAge < MAX_BACKGROUND_RESPONSE_AGE_MS) {
+        await recordProviderResponseStatus(
+          providerAttemptId,
+          continuation.responseId,
+          continuation.providerStatus &&
+            providerResponsePending(continuation.providerStatus)
+            ? continuation.providerStatus
+            : "in_progress",
+        );
+        return await pending();
+      }
+      await recordProviderHealth(
+        providerAttemptId,
+        "unknown",
+        "provider_outcome_unknown",
+      );
+      return await fail(
+        "provider_outcome_unknown",
+        UNKNOWN_PROVIDER_OUTCOME_MESSAGE,
+      );
+    }
+    if (!providerResponse.ok) {
+      const failureCode = providerFailureForHttp(providerResponse.status);
+      await providerResponse.body?.cancel();
+      if (responseAge < MAX_BACKGROUND_RESPONSE_AGE_MS) {
+        await recordProviderResponseStatus(
+          providerAttemptId,
+          continuation.responseId,
+          continuation.providerStatus &&
+            providerResponsePending(continuation.providerStatus)
+            ? continuation.providerStatus
+            : "in_progress",
+        );
+        if (failureCode === "provider_authentication_failed") {
+          await recordProviderHealth(
+            providerAttemptId,
+            "blocked",
+            failureCode,
+          );
+        }
+        return await pending();
+      }
+      await recordProviderHealth(
+        providerAttemptId,
+        failureCode === "provider_authentication_failed"
+          ? "blocked"
+          : "unknown",
+        failureCode === "provider_authentication_failed"
+          ? failureCode
+          : "provider_outcome_unknown",
+      );
+      return await fail(
+        "provider_outcome_unknown",
+        UNKNOWN_PROVIDER_OUTCOME_MESSAGE,
+      );
+    }
+    try {
+      providerValue = await readProviderJson(providerResponse);
+    } catch {
+      if (responseAge < MAX_BACKGROUND_RESPONSE_AGE_MS) return await pending();
+      await recordProviderHealth(
+        providerAttemptId,
+        "unknown",
+        "provider_outcome_unknown",
+      );
+      return await fail(
+        "provider_outcome_unknown",
+        UNKNOWN_PROVIDER_OUTCOME_MESSAGE,
+      );
+    }
+    const identity = readProviderResponseIdentity(
+      providerValue,
+      continuation.responseId,
+    );
+    if (identity === null) {
+      if (responseAge < MAX_BACKGROUND_RESPONSE_AGE_MS) {
+        await recordProviderResponseStatus(
+          providerAttemptId,
+          continuation.responseId,
+          continuation.providerStatus &&
+            providerResponsePending(continuation.providerStatus)
+            ? continuation.providerStatus
+            : "in_progress",
+        );
+        return await pending();
+      }
+      await recordProviderHealth(
+        providerAttemptId,
+        "unknown",
+        "provider_outcome_unknown",
+      );
+      return await fail(
+        "provider_outcome_unknown",
+        UNKNOWN_PROVIDER_OUTCOME_MESSAGE,
+      );
+    }
+    await recordProviderResponseStatus(
+      providerAttemptId,
+      identity.id,
+      identity.status,
+    );
+    if (providerResponsePending(identity.status)) return await pending();
+    if (identity.status !== "completed") {
+      await recordProviderHealth(
+        providerAttemptId,
+        "degraded",
+        "provider_request_rejected",
+      );
+      return await fail(
+        "provider_request_rejected",
+        "Сервис анализа завершил фоновый запрос без результата.",
+      );
+    }
+  } else {
+    const signedImageUrls: string[] = [];
+    for (const photo of claim.run.photos) {
+      try {
+        const { data, error } = await supabaseAdmin.storage.from(
+          STORAGE_BUCKET,
+        ).createSignedUrl(photo.objectName, SIGNED_IMAGE_TTL_SECONDS);
+        const signedUrl = error
+          ? null
+          : validateSignedStorageUrl(data?.signedUrl);
+        if (signedUrl === null) {
+          return await fail(
+            "image_access_failed",
+            "Не удалось безопасно подготовить одно из фото товара.",
+          );
+        }
+        signedImageUrls.push(signedUrl);
+      } catch {
         return await fail(
           "image_access_failed",
           "Не удалось безопасно подготовить одно из фото товара.",
         );
       }
-      signedImageUrls.push(signedUrl);
-    } catch {
+    }
+    model = openAiModel();
+    providerRequestedAt = new Date().toISOString();
+    providerAttemptId = await beginProviderAttempt(model) || "";
+    if (!providerAttemptId) {
       return await fail(
-        "image_access_failed",
-        "Не удалось безопасно подготовить одно из фото товара.",
+        "provider_configuration_error",
+        "Сервер не смог зафиксировать разрешённый provider-план до платного запроса.",
+      );
+    }
+    try {
+      providerResponse = await fetchWithTimeout(
+        OPENAI_RESPONSES_URL,
+        {
+          method: "POST",
+          redirect: "manual",
+          headers: {
+            authorization: `Bearer ${apiKey}`,
+            "content-type": "application/json",
+            "idempotency-key": `product-research:${claim.run.id}`,
+            "X-Client-Request-Id": claim.run.id,
+          },
+          body: JSON.stringify(
+            openAiRequestBody(claim.run, signedImageUrls, providerRequestedAt),
+          ),
+        },
+        OPENAI_TIMEOUT_MS,
+      );
+    } catch {
+      await recordProviderHealth(
+        providerAttemptId,
+        "unknown",
+        "provider_outcome_unknown",
+      );
+      // The paid POST may have reached the provider even though its response
+      // did not reach this worker. Keep the one local run processing for the
+      // bounded reconciliation window. Observers only wait and eventually
+      // close it as unknown; no path below can issue a second POST.
+      return await pending();
+    }
+    if (!providerResponse.ok) {
+      const failureCode = providerFailureForHttp(providerResponse.status);
+      await providerResponse.body?.cancel();
+      await recordProviderHealth(
+        providerAttemptId,
+        failureCode === "provider_authentication_failed" ||
+          failureCode === "provider_request_rejected"
+          ? "blocked"
+          : failureCode === "provider_outcome_unknown"
+          ? "unknown"
+          : "degraded",
+        failureCode,
+      );
+      if (failureCode === "provider_outcome_unknown") {
+        // A 408/5xx response does not prove that the paid operation was not
+        // accepted. Preserve the single attempt and let status observers wait
+        // for the bounded no-response receipt window without replaying POST.
+        return await pending();
+      }
+      return await fail(
+        failureCode,
+        "Сервис анализа отклонил запрос.",
+      );
+    }
+    try {
+      providerValue = await readProviderJson(providerResponse);
+    } catch {
+      await recordProviderHealth(
+        providerAttemptId,
+        "unknown",
+        "provider_outcome_unknown",
+      );
+      return await fail(
+        "provider_outcome_unknown",
+        UNKNOWN_PROVIDER_OUTCOME_MESSAGE,
+      );
+    }
+    const identity = readProviderResponseIdentity(providerValue);
+    if (identity === null) {
+      await recordProviderHealth(
+        providerAttemptId,
+        "unknown",
+        "provider_outcome_unknown",
+      );
+      return await fail(
+        "provider_outcome_unknown",
+        UNKNOWN_PROVIDER_OUTCOME_MESSAGE,
+      );
+    }
+    const bound = await bindProviderResponse(
+      providerAttemptId,
+      identity.id,
+      identity.status,
+    );
+    if (bound === null) {
+      await recordProviderHealth(
+        providerAttemptId,
+        "unknown",
+        "provider_outcome_unknown",
+      );
+      return await fail(
+        "provider_outcome_unknown",
+        UNKNOWN_PROVIDER_OUTCOME_MESSAGE,
+      );
+    }
+    continuation = {
+      attemptId: providerAttemptId,
+      model,
+      boundAt: providerRequestedAt,
+      responseId: identity.id,
+      providerStatus: identity.status,
+      acceptedAt: bound.acceptedAt,
+    };
+    await recordProviderResponseStatus(
+      providerAttemptId,
+      identity.id,
+      identity.status,
+    );
+    if (providerResponsePending(identity.status)) return await pending();
+    if (identity.status !== "completed") {
+      await recordProviderHealth(
+        providerAttemptId,
+        "degraded",
+        "provider_request_rejected",
+      );
+      return await fail(
+        "provider_request_rejected",
+        "Сервис анализа завершил фоновый запрос без результата.",
       );
     }
   }
 
-  const model = openAiModel();
-  const providerRequestedAt = new Date().toISOString();
-  const providerAttemptId = await beginProviderAttempt(model);
-  if (providerAttemptId === null) {
-    return await fail(
-      "provider_configuration_error",
-      "Сервер не смог зафиксировать разрешённый provider-план до платного запроса.",
-    );
-  }
-  let providerResponse: Response;
-  try {
-    providerResponse = await fetchWithTimeout(
-      OPENAI_RESPONSES_URL,
-      {
-        method: "POST",
-        redirect: "manual",
-        headers: {
-          authorization: `Bearer ${apiKey}`,
-          "content-type": "application/json",
-          "idempotency-key": `product-research:${claim.run.id}`,
-          "X-Client-Request-Id": claim.run.id,
-        },
-        body: JSON.stringify(
-          openAiRequestBody(claim.run, signedImageUrls, providerRequestedAt),
-        ),
-      },
-      OPENAI_TIMEOUT_MS,
-    );
-  } catch {
-    // A network error or local timeout does not prove that OpenAI rejected the
-    // paid request. Close the run without any automatic provider resubmission.
-    await recordProviderHealth(
-      providerAttemptId,
-      "unknown",
-      "provider_outcome_unknown",
-    );
-    return await fail(
-      "provider_outcome_unknown",
-      UNKNOWN_PROVIDER_OUTCOME_MESSAGE,
-    );
-  }
-  if (!providerResponse.ok) {
-    const failureCode = providerFailureForHttp(providerResponse.status);
-    await providerResponse.body?.cancel();
-    await recordProviderHealth(
-      providerAttemptId,
-      failureCode === "provider_authentication_failed" ||
-        failureCode === "provider_request_rejected"
-        ? "blocked"
-        : failureCode === "provider_outcome_unknown"
-        ? "unknown"
-        : "degraded",
-      failureCode,
-    );
-    return await fail(
-      failureCode,
-      failureCode === "provider_outcome_unknown"
-        ? UNKNOWN_PROVIDER_OUTCOME_MESSAGE
-        : "Сервис анализа отклонил запрос.",
-    );
-  }
-
-  let providerValue: unknown;
-  try {
-    providerValue = await readProviderJson(providerResponse);
-  } catch {
-    await recordProviderHealth(
-      providerAttemptId,
-      "degraded",
-      "provider_response_invalid",
-    );
-    return await fail(
-      "provider_response_invalid",
-      "Сервис анализа вернул неполный результат.",
-    );
-  }
   const outputText = extractOutputText(providerValue);
   const providerSources = extractProviderSources(providerValue);
   if (outputText === null || providerSources.size < 1) {

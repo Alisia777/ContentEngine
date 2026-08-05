@@ -1,5 +1,18 @@
 const ACTIVE_STATUSES = new Set(["queued", "starting", "researching", "processing", "running"]);
 const READY_STATUSES = new Set(["ready", "completed", "succeeded", "draft", "approved"]);
+export const PRODUCT_RESEARCH_AI_CATEGORIES = Object.freeze([
+  Object.freeze({ value: "cosmetics", label: "Косметика и уход" }),
+  Object.freeze({ value: "baa", label: "БАДы" }),
+  Object.freeze({ value: "sports_food", label: "Спортивное питание" }),
+  Object.freeze({ value: "food", label: "Еда и напитки" }),
+  Object.freeze({ value: "household", label: "Товары для дома" }),
+  Object.freeze({ value: "apparel", label: "Одежда и аксессуары" }),
+  Object.freeze({ value: "electronics", label: "Электроника" }),
+  Object.freeze({ value: "other", label: "Другая категория" }),
+]);
+const PRODUCT_RESEARCH_AI_CATEGORY_SET = new Set(
+  PRODUCT_RESEARCH_AI_CATEGORIES.map(({ value }) => value),
+);
 const RESEARCH_OUTCOME_VERSION = "research-outcome-learning-control-v1";
 const RESEARCH_OUTCOME_SCOPE_REGISTRY_VERSION = "research-outcome-scope-registry-v1";
 const RESEARCH_OUTCOME_ANGLES = new Set([
@@ -40,6 +53,14 @@ const RESEARCH_YOUTUBE_STATUSES = new Set([
   "processing",
   "completed",
   "failed",
+]);
+const RESEARCH_PROVIDER_RESPONSE_STATUSES = new Set([
+  "queued",
+  "in_progress",
+  "completed",
+  "failed",
+  "cancelled",
+  "incomplete",
 ]);
 const RESEARCH_YOUTUBE_TRANSPORT_FAILURE_CODES = new Set([
   "provider_configuration_error",
@@ -355,6 +376,9 @@ export function normalizeProductResearch(raw, previous = null) {
     rawResearchInput.objective,
   );
   const researchInput = {
+    productCategory: normalizeProductResearchAiCategory(
+      rawResearchInput.product_category || rawResearchInput.productCategory,
+    ),
     objective: recoveredResearchInput.objective,
     objectiveKey: String(
       rawResearchInput.objective_key
@@ -628,6 +652,10 @@ export function normalizeProductResearch(raw, previous = null) {
     approved,
     taskIds,
     statusNotice: String(root.status_notice || root.statusNotice || previous?.statusNotice || ""),
+    failureCode: String(
+      run.error_code || run.failure_code || root.error_code
+        || root.failure_code || previous?.failureCode || "",
+    ).trim().toLowerCase(),
     failureMessage: String(run.error_message || run.failure_message || root.error_message || root.failure_message || root.error?.message || ""),
     updatedAt: String(run.updated_at || root.updated_at || previous?.updatedAt || ""),
   };
@@ -2977,6 +3005,19 @@ export function productResearchStatusKind(status) {
   return ACTIVE_STATUSES.has(normalized) ? "active" : "active";
 }
 
+/**
+ * Accepts only the fixed category vocabulary shared with the AI control room.
+ * Free-form titles and product names are deliberately never inferred here.
+ */
+export function normalizeProductResearchAiCategory(value, fallback = "") {
+  const candidate = String(value || "").trim().toLowerCase();
+  if (PRODUCT_RESEARCH_AI_CATEGORY_SET.has(candidate)) return candidate;
+  const fallbackCandidate = String(fallback || "").trim().toLowerCase();
+  return PRODUCT_RESEARCH_AI_CATEGORY_SET.has(fallbackCandidate)
+    ? fallbackCandidate
+    : "";
+}
+
 export function productResearchInputMarkup({
   media = [],
   mediaLoading = false,
@@ -2990,6 +3031,12 @@ export function productResearchInputMarkup({
   const objective = ["conversion", "awareness", "ugc", "education"].includes(
     String(initial.objective || "").trim(),
   ) ? String(initial.objective).trim() : "conversion";
+  const selectedAiCategory = normalizeProductResearchAiCategory(
+    initial.productCategory || initial.product_category,
+  );
+  const aiCategoryOptions = PRODUCT_RESEARCH_AI_CATEGORIES.map((category) => (
+    `<option value="${category.value}" ${selectedAiCategory === category.value ? "selected" : ""}>${escapeHtml(category.label)}</option>`
+  )).join("");
   const previousResearchId = String(initial.previousResearchId || "").trim();
   const mediaMarkup = media.length
     ? `<div class="product-research-media-grid">${media.map((item) => researchMediaMarkup(item, selectedMediaIds)).join("")}</div>`
@@ -3012,9 +3059,10 @@ export function productResearchInputMarkup({
           <label class="field"><span>Артикул / SKU *</span><input name="sku" value="${escapeHtml(initial.sku || "")}" required maxlength="120" autocomplete="off" placeholder="Например: 159068498" /></label>
         </div>
         <div class="form-grid-2">
-          <label class="field"><span>Категория товара</span><input name="category_name" value="${escapeHtml(initial.categoryName || "")}" maxlength="160" autocomplete="off" placeholder="Например: несмываемый уход для волос" /><small class="field-hint">Если категория новая или неясная, оставьте поле пустым — ИИ предложит определение и попросит подтвердить его.</small></label>
-          <label class="field"><span>Что особенно важно исследовать</span><input name="research_focus" value="${escapeHtml(initial.researchFocus || "")}" maxlength="200" autocomplete="off" placeholder="Например: хуки конкурентов, возражения, сезонный спрос" /><small class="field-hint">Необязательно. Система всё равно проверит рынок, конкурентов, тренды и пробелы в данных.</small></label>
+          <label class="field"><span>Категория для ИИ-центра *</span><select name="product_category" required aria-describedby="product-research-ai-category-hint"><option value="">Выберите одну категорию</option>${aiCategoryOptions}</select><small id="product-research-ai-category-hint" class="field-hint">После анализа результат попадёт только во входящие этой категории. ИИ не применит его без проверки человеком.</small></label>
+          <label class="field"><span>Точная подкатегория (необязательно)</span><input name="category_name" value="${escapeHtml(initial.categoryName || "")}" maxlength="160" autocomplete="off" placeholder="Например: несмываемый уход для волос" /><small class="field-hint">Это пояснение для анализа, а не скрытый выбор категории ИИ.</small></label>
         </div>
+        <label class="field"><span>Что особенно важно исследовать</span><input name="research_focus" value="${escapeHtml(initial.researchFocus || "")}" maxlength="200" autocomplete="off" placeholder="Например: хуки конкурентов, возражения, сезонный спрос" /><small class="field-hint">Необязательно. Система всё равно проверит рынок, конкурентов, тренды и пробелы в данных.</small></label>
         <label class="field"><span>Ссылка на карточку товара</span><input name="marketplace_url" type="url" inputmode="url" value="${escapeHtml(initial.marketplaceUrl || "")}" placeholder="https://www.wildberries.ru/catalog/…" /><small class="field-hint">Только публичная HTTPS-ссылка. Пароли и ссылки из личного кабинета сюда не вставляйте.</small></label>
         <label class="field"><span>Известные конкуренты или ориентиры</span><textarea name="competitor_references" maxlength="650" placeholder="По одному названию, публичной ссылке или @аккаунту на строку. Если список пуст, ИИ сам найдёт сопоставимые предложения и честно оценит полноту выборки.">${escapeHtml(initial.competitorReferences || "")}</textarea><small class="field-hint">Это ориентиры для поиска, а не разрешение копировать чужие тексты, лица, музыку или последовательность кадров.</small></label>
         <fieldset class="product-research-platforms">
@@ -3044,6 +3092,7 @@ export function productResearchInputMarkup({
           <li><span>2</span><div><strong>ТЗ и три сценария</strong><p>Хуки, композиции фото, реплики и кадры видео, доказательства и стоп-формулировки можно исправить.</p></div></li>
           <li><span>3</span><div><strong>Оценка потенциала</strong><p>Сильные стороны и риски — без обещания «вирусности».</p></div></li>
           <li><span>4</span><div><strong>Задачи одним нажатием</strong><p>Только после вашего финального подтверждения.</p></div></li>
+          <li><span>5</span><div><strong>Входящие ИИ-центра</strong><p>Готовое исследование появится в выбранной категории для разбора. Само по себе оно не меняет правила ИИ.</p></div></li>
         </ol>
         <div class="product-research-privacy"><strong>Что анализ не делает</strong><p>Не входит в чужие кабинеты, не обходит защиту площадок и не считает неподтверждённое свойство фактом.</p></div>
       </aside>
@@ -3052,18 +3101,51 @@ export function productResearchInputMarkup({
 
 export function productResearchProgressMarkup(record, error = "") {
   const failed = productResearchStatusKind(record?.status) === "failed";
+  const providerAttemptExists = Boolean(
+    record?.providerControl?.runControl?.attempt,
+  );
+  const waitingForProviderSlot = String(record?.status || "").trim().toLowerCase() === "queued"
+    && !providerAttemptExists;
+  const providerResponseBound =
+    record?.providerControl?.responseState?.bindingState === "bound";
+  const failureCode = String(record?.failureCode || "").trim().toLowerCase();
+  const providerOutcomeUnknown = failed
+    && (
+      failureCode === "provider_outcome_unknown"
+      || (failureCode === "processing_lease_expired" && providerAttemptExists)
+    );
+  const paidProviderResultFailed = failed
+    && providerResponseBound
+    && !providerOutcomeUnknown;
+  const failureMessage = providerOutcomeUnknown
+    ? "Платный запрос мог быть принят провайдером, но итог не удалось подтвердить в доступное время. Портал не повторяет такой запрос автоматически. Скопируйте ID запуска для поддержки; новый платный анализ запускайте только отдельным осознанным действием."
+    : paidProviderResultFailed
+      ? `${record?.failureMessage || "Провайдер завершил платный запуск, но пригодный результат не сохранён."} Повторный анализ будет отдельным новым платным запросом.`
+    : record?.failureMessage;
   const progress = `
     <section class="card card-pad product-research-progress" ${failed || error ? 'role="alert"' : 'role="status"'} aria-live="polite">
       <div class="product-research-orbit" aria-hidden="true"><span></span><b>A</b></div>
-      <p class="eyebrow">${failed || error ? "Нужна проверка" : "Исследование запущено"}</p>
+      <p class="eyebrow">${providerOutcomeUnknown ? "Оплата требует сверки" : paidProviderResultFailed ? "Платный запуск завершён" : failed || error ? "Нужна проверка" : waitingForProviderSlot ? "Анализ в очереди" : "Исследование запущено"}</p>
       <h2>${failed
-        ? "Анализ не завершился"
+        ? providerOutcomeUnknown
+          ? "Ответ провайдера пока не подтверждён"
+          : paidProviderResultFailed
+            ? "Результат нельзя использовать"
+          : "Анализ не завершился"
         : error
           ? "Не удалось подтвердить текущий статус"
+          : waitingForProviderSlot
+            ? "Ожидает свободного места у провайдера"
           : `Собираем доказательства для «${escapeHtml(record?.productName || "товара") }»`}</h2>
-      <p>${escapeHtml(error || record?.failureMessage || "Проверяем карточку, доступные публичные источники, формулировки покупателей и будущие сценарии. Страницу можно оставить открытой — статус обновляется автоматически.")}</p>
+      <p>${escapeHtml(error || failureMessage || (waitingForProviderSlot
+        ? "Запуск сохранён и начнётся автоматически. Повторно нажимать ничего не нужно — нового запроса и списания портал не создаст."
+        : "Проверяем карточку, доступные публичные источники, формулировки покупателей и будущие сценарии. Страницу можно оставить открытой — статус обновляется автоматически."))}</p>
       ${!failed && record?.statusNotice ? `<div class="alert alert-warning" role="status"><strong>Запуск сохранён.</strong><span>${escapeHtml(record.statusNotice)}</span></div>` : ""}
-      ${failed
+      ${providerOutcomeUnknown
+        ? `<div class="inline-actions"><button class="btn" type="button" data-primary-action="true" data-action="copy-product-research-support-id" data-research-id="${escapeHtml(record?.id || "")}">Скопировать ID для поддержки</button><button class="btn btn-ghost" type="button" data-action="new-product-research">Подготовить отдельный новый анализ</button></div><small class="product-research-paid-retry-warning">Это будет новая подтверждаемая оплата; старый запрос мог быть принят. Автоматического повтора нет: перед запуском снова откроется форма с обязательными подтверждениями.</small>`
+        : paidProviderResultFailed
+          ? `<div class="inline-actions"><button class="btn" type="button" data-primary-action="true" data-action="new-product-research">Подготовить новый платный анализ</button><button class="btn btn-ghost" type="button" data-action="refresh-product-research">Проверить сохранённый статус</button></div><small class="product-research-paid-retry-warning">Предыдущий платный запуск уже был принят провайдером. Новый анализ создаст отдельный запрос и потребует нового подтверждения оплаты.</small>`
+        : failed
         ? `<div class="inline-actions"><button class="btn btn-secondary" type="button" data-action="refresh-product-research">Проверить статус</button><button class="btn btn-ghost" type="button" data-action="new-product-research">Начать заново</button></div>`
         : error
           ? `<div class="inline-actions"><button class="btn btn-secondary" type="button" data-action="refresh-product-research">Проверить статус активного запуска</button></div>`
@@ -3812,6 +3894,9 @@ export function normalizeResearchProviderControl(value) {
     && automaticFallback === false
     && externalCallPerformed === false;
   const runSource = objectValue(source.run_control || source.runControl) || {};
+  const responseSource = objectValue(
+    source.response_state || source.responseState,
+  ) || {};
   const authorizationSource = objectValue(runSource.authorization) || {};
   const attemptSource = objectValue(runSource.attempt) || {};
   const providers = arrayValue(source.providers).slice(0, 12).map((item) => {
@@ -3854,6 +3939,20 @@ export function normalizeResearchProviderControl(value) {
       },
     };
   }).filter((provider) => provider.providerKey);
+  const responseBindingState = String(
+    responseSource.binding_state || responseSource.bindingState || "not_bound",
+  ).trim().toLowerCase();
+  const responseStatusCandidate = String(
+    responseSource.provider_status || responseSource.providerStatus || "",
+  ).trim().toLowerCase();
+  const responseSuffixCandidate = String(
+    responseSource.provider_response_suffix
+      || responseSource.providerResponseSuffix
+      || "",
+  ).trim();
+  const responseBound = responseBindingState === "bound"
+    && RESEARCH_PROVIDER_RESPONSE_STATUSES.has(responseStatusCandidate)
+    && /^[A-Za-z0-9_-]{1,8}$/u.test(responseSuffixCandidate);
   return {
     available: contractValid,
     version: String(source.version || ""),
@@ -3888,6 +3987,19 @@ export function normalizeResearchProviderControl(value) {
         boundAt: String(attemptSource.bound_at || attemptSource.boundAt || "").trim(),
       } : null,
     } : null,
+    responseState: {
+      bindingState: responseBound ? "bound" : "not_bound",
+      providerStatus: responseBound ? responseStatusCandidate : "",
+      providerResponseSuffix: responseBound ? responseSuffixCandidate : "",
+      acceptedAt: responseBound
+        ? String(responseSource.accepted_at || responseSource.acceptedAt || "").trim()
+        : "",
+      lastCheckedAt: responseBound
+        ? String(
+          responseSource.last_checked_at || responseSource.lastCheckedAt || "",
+        ).trim()
+        : "",
+    },
     controls: {
       explicitPaidAnalysisRequired: controlsSource.explicit_paid_analysis_required === true
         || controlsSource.explicitPaidAnalysisRequired === true,
@@ -6918,10 +7030,28 @@ export function researchProviderControlMarkup(value, { compact = false } = {}) {
     : health.checkedAt
       ? `${researchDateLabel(health.checkedAt)} · ${health.citationCount === null ? "число цитат не зафиксировано" : `${health.citationCount} цитат`}${health.failureCode ? ` · ${failureLabels[health.failureCode] || "зафиксирован отказ"}` : ""}`
       : "Квитанция появится только после реальной попытки анализа.";
+  const responseState = control.responseState || {};
+  const responseBound = responseState.bindingState === "bound";
+  const responseStatusLabels = {
+    queued: "принят в очередь провайдера",
+    in_progress: "провайдер выполняет анализ",
+    completed: "ответ провайдера готов",
+    failed: "провайдер завершил с ошибкой",
+    cancelled: "провайдер отменил ответ",
+    incomplete: "провайдер вернул неполный ответ",
+  };
+  const responseStateTitle = responseBound
+    ? `привязан · …${responseState.providerResponseSuffix}`
+    : "не привязан";
+  const responseStateDetail = responseBound
+    ? `${responseStatusLabels[responseState.providerStatus] || "статус требует проверки"}${responseState.acceptedAt ? ` · принят ${researchDateLabel(responseState.acceptedAt)}` : ""}${responseState.lastCheckedAt ? ` · последний GET ${researchDateLabel(responseState.lastCheckedAt)}` : " · GET ещё не зафиксирован"}`
+    : runControl.attempt
+      ? "Попытка создана, но сохранённый response_id пока не подтверждён. Новый POST не запускайте."
+      : "Платный запрос ещё не создавался.";
   return `
     <section class="card product-research-control-plane${compact ? " is-compact" : ""}" aria-labelledby="product-research-provider-title" data-provider-health="${escapeHtml(control.available ? healthStatus : "unavailable")}">
       <div class="card-header">
-        <div><p class="eyebrow">Контроль платного провайдера</p><h2 id="product-research-provider-title">Одна разрешённая попытка, без скрытого переключения</h2><p>Сервер связывает явное подтверждение оплаты, выбранный адаптер и квитанцию фактического ответа. Проверка статуса сама не обращается во внешний сервис.</p></div>
+        <div><p class="eyebrow">Контроль платного провайдера</p><h2 id="product-research-provider-title">Одна разрешённая попытка, без скрытого переключения</h2><p>Сервер связывает явное подтверждение оплаты, выбранный адаптер и квитанцию фактического ответа. Проверка статуса не создаёт новый платный запуск: она читает только уже сохранённый response_id. Повторного POST и нового списания нет.</p></div>
         <span class="badge">${escapeHtml(badgeLabel)}</span>
       </div>
       ${!control.available ? `<div class="alert alert-warning product-research-control-alert" role="status"><strong>Контур телеметрии временно недоступен.</strong><span>Сохранённый результат исследования остаётся доступен; перед новым платным запуском обновите статус.</span></div>` : ""}
@@ -6930,8 +7060,9 @@ export function researchProviderControlMarkup(value, { compact = false } = {}) {
         <div><small>Адаптер</small><strong>${escapeHtml(provider?.displayName || providerKey || "не выбран")}</strong><span>${escapeHtml(provider ? `${provider.lifecycleStatus} · ${provider.rolloutStage} · ${runControl.attempt?.adapterVersion || runControl.authorization?.adapterVersion || "—"}` : "нет привязки к запуску")}</span></div>
         <div><small>Привязка попытки</small><strong>${escapeHtml(attemptLabel)}</strong><span>${escapeHtml(runControl.attempt?.model || "без модели")}</span></div>
         <div><small>Последняя квитанция провайдера в команде</small><strong>${escapeHtml(healthLabels[healthStatus] || "нет данных")}</strong><span>${escapeHtml(healthDetail)}</span></div>
+        <div><small>Сохранённый ответ этого запуска</small><strong>${escapeHtml(responseStateTitle)}</strong><span>${escapeHtml(responseStateDetail)}</span></div>
       </div>
-      ${compact || !control.available ? "" : `<div class="product-research-control-note"><strong>Автоматические canary и fallback выключены.</strong><span>Новый внешний вызов возможен только как отдельное явно разрешённое действие; статус и мониторинг не создают запусков и не списывают средства.</span></div>`}
+      ${compact || !control.available ? "" : `<div class="product-research-control-note"><strong>Автоматические canary и fallback выключены.</strong><span>Новый платный POST возможен только как отдельное явно подтверждённое действие. Проверка сохранённого response_id выполняет только GET и не создаёт повторной попытки или списания.</span></div>`}
     </section>`;
 }
 

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ru" data-portal-theme="obsidian">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ContentEngine project chooser recovery v4.15</title>
+    <link rel="stylesheet" href="../../web/app/styles.css" />
+    <link rel="stylesheet" href="../../web/app/interface-system.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4.css?v=20260804.os4.17" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-polish.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-flow.css?v=20260804.os4.17" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-stability.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-motion.css" />
+  </head>
+  <body>
+    <div id="app" class="app-root">
+      <div class="workspace-shell" data-workspace-section="home" data-workspace-role="owner">
+        <aside class="sidebar"></aside>
+        <section class="workspace-main">
+          <main id="main-content" tabindex="-1">
+            <div id="workspace-content">
+              <div class="page-wrap workspace-home workspace-home--project-choice ce-v4-page">
+                <section class="home-project-switcher" data-ce-v4-project-home aria-labelledby="home-projects-title">
+                  <header class="home-project-switcher__head">
+                    <div>
+                      <p class="eyebrow">Рабочие столы</p>
+                      <h1 id="home-projects-title">Выберите проект</h1>
+                      <p>Один проект хранит свои файлы и проходит понятный путь: создать → проверить → опубликовать → увидеть результат.</p>
+                    </div>
+                    <details class="home-project-create" open>
+                      <summary><span aria-hidden="true">＋</span> Новый проект</summary>
+                      <form id="home-project-create-form">
+                        <label for="home-project-name">Название проекта</label>
+                        <div>
+                          <input id="home-project-name" name="folder_name" placeholder="Например: Bombbar · Август" />
+                          <button class="btn" type="submit" data-primary-action="true">Создать и открыть</button>
+                        </div>
+                        <small>Список временно недоступен, но новый проект можно создать прямо сейчас.</small>
+                      </form>
+                    </details>
+                  </header>
+                  <div class="home-project-switcher__body">
+                    <div class="home-project-recovery">
+                      <div class="home-project-message" role="alert">Не удалось загрузить список проектов. Проверьте соединение и повторите загрузку.</div>
+                      <button class="btn btn-secondary home-project-board-retry" type="button">Повторить загрузку проектов</button>
+                    </div>
+                    <div class="home-project-grid" id="project-grid"></div>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </main>
+        </section>
+      </div>
+    </div>
+    <output id="runtime-qa" hidden></output>
+    <script>
+      window.CONTENTENGINE_DESKTOP_V4 = true;
+      if (!location.hash.startsWith("#/workspace/")) location.hash = "#/workspace/home";
+      const withStoredProject = new URLSearchParams(location.search).get("stored") !== "0";
+      document.querySelector("#project-grid").innerHTML = withStoredProject
+        ? `<a class="home-project-card" href="#/workspace/home?project_id=11111111-1111-4111-8111-111111111111" data-ce-v4-project-id="11111111-1111-4111-8111-111111111111" data-ce-v4-project-name="Bombbar · Август">
+            <span class="home-project-card__folder" aria-hidden="true">◇</span>
+            <span class="home-project-card__copy"><strong>Bombbar · Август</strong><small>Сохранён в этом браузере · последний открытый проект</small><small>Следующее: Проверить доступ и продолжить</small><small>Доступ и актуальный этап проверятся после открытия</small></span>
+            <span class="home-project-card__open">Продолжить <i aria-hidden="true">→</i></span>
+          </a>`
+        : `<div class="home-project-empty home-project-empty--error" role="alert"><span aria-hidden="true">!</span><strong>Проекты временно не загрузились</strong><p>Существующие проекты не потеряны. Создайте новый проект выше или повторите загрузку списка.</p></div>`;
+    </script>
+    <script type="module">
+      await import("../../web/app/workspace-os-v4.js?v=20260804.os4.17");
+      await window.ContentEngineDesktopV4.flush();
+      const qa = document.querySelector("#runtime-qa");
+      const page = document.querySelector(".ce-v4-page");
+      qa.dataset.primaryCount = String(document.querySelectorAll('[data-primary-action="true"]:not([hidden])').length);
+      qa.dataset.pageWidth = String(Math.round(page?.getBoundingClientRect().width || 0));
+      qa.dataset.viewportWidth = String(innerWidth);
+      qa.dataset.bodyScrollHeight = String(document.body.scrollHeight);
+      qa.dataset.viewportHeight = String(innerHeight);
+      qa.dataset.createVisible = String(Boolean(document.querySelector("#home-project-create-form")?.getClientRects().length));
+    </script>
+  </body>
+</html>

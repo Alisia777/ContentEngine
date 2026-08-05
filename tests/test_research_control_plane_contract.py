@@ -90,15 +90,28 @@ def test_provider_sql_requires_paid_authorization_and_never_auto_canaries() -> N
     assert not re.search(r"\b(?:cron|http|net)\s*\.", status, re.I)
 
 
-def test_edge_binds_provider_before_the_only_paid_transport() -> None:
+def test_edge_records_attempt_before_paid_transport_and_binds_before_waiting() -> None:
     edge = _read(EDGE_PATH)
-    analyze = edge[edge.index("const providerRequestedAt") : edge.index("const completed =")]
-    assert analyze.index("beginProviderAttempt(model)") < analyze.index("fetchWithTimeout(")
-    assert analyze.count("fetchWithTimeout(") == 1
+    analyze = edge[
+        edge.index("let model = openAiModel()") : edge.index("const outputText")
+    ]
+    paid_post = analyze.index(
+        "providerResponse = await fetchWithTimeout(\n        OPENAI_RESPONSES_URL,"
+    )
+    begin = analyze.index("beginProviderAttempt(model)", paid_post - 1_000)
+    bind = analyze.index("await bindProviderResponse(", paid_post)
+    pending = analyze.index(
+        "if (providerResponsePending(identity.status)) return await pending();",
+        bind,
+    )
+    observer = analyze[: analyze.index("} else {\n    const signedImageUrls")]
+
+    assert begin < paid_post < bind < pending
+    assert edge.count('method: "POST"') == 1
+    assert 'method: "GET"' in observer
+    assert 'method: "POST"' not in observer
     assert "provider_outcome_unknown" in analyze
-    assert 'recordProviderHealth(\n    providerAttemptId,\n    "ready"' in analyze
     assert "automatic fallback" not in analyze.casefold()
-    assert "retry" not in analyze.casefold()
 
 
 def test_browser_status_degrades_satellite_controls_independently() -> None:

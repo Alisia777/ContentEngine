@@ -22,7 +22,7 @@ def _between(source: str, start: str, end: str) -> str:
 
 
 def test_academy_uses_the_single_v44_interface_graph() -> None:
-    assert BUILD == "20260804.os4.13"
+    assert BUILD == "20260804.os4.17"
     for asset in (
         "interface-system.css",
         "workspace-os-v4.css",

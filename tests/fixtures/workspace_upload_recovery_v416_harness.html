@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ru" data-portal-theme="obsidian">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ContentEngine upload recovery v4.16</title>
+    <link rel="stylesheet" href="../../web/app/styles.css" />
+    <link rel="stylesheet" href="../../web/app/interface-system.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4.css?v=20260804.os4.17" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-polish.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-flow.css?v=20260804.os4.17" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-stability.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-motion.css" />
+  </head>
+  <body>
+    <div id="app" class="app-root">
+      <div class="workspace-shell"
+           data-workspace-section="media"
+           data-workspace-role="owner"
+           data-workspace-authorized-routes="/workspace/home /workspace/board /workspace/media /workspace/generation /workspace/review /workspace/placement /workspace/stats /workspace/research">
+        <script id="workspace-project-flow-snapshot" type="application/json">{"project_id":"11111111-1111-4111-8111-111111111111","project":{"id":"11111111-1111-4111-8111-111111111111","name":"Бады"},"stages":[{"code":"files","state":"current","label":"Файлы"}],"next_action":{"label":"Добавить первый материал","route":"/workspace/media?project_id=11111111-1111-4111-8111-111111111111"},"counts":{"files":0}}</script>
+        <aside class="sidebar"></aside>
+        <section class="workspace-main">
+          <main id="main-content" tabindex="-1">
+            <div id="workspace-content">
+              <div class="page-wrap ce-v4-page" data-media-view="upload">
+                <header class="page-header">
+                  <div><p class="eyebrow">Проект · Бады</p><h1>Добавить материал</h1><p>Один экран — одна загрузка. Список старых файлов не блокирует новое действие.</p></div>
+                </header>
+                <div class="split-grid split-grid-media">
+                  <section class="card card-pad media-upload-panel">
+                    <p class="eyebrow">Добавить исходник</p>
+                    <h2>Точные фото или видео</h2>
+                    <p class="muted tiny">Файлы попадут в закрытую папку проекта.</p>
+                    <div class="alert alert-warning media-catalog-recovery" role="status">
+                      <strong aria-hidden="true">!</strong>
+                      <span>Не удалось обновить список файлов. Вы всё равно можете выбрать и загрузить файлы ниже.</span>
+                      <button class="btn btn-secondary btn-small" type="button">Повторить обновление списка</button>
+                    </div>
+                    <form id="media-upload-form" class="form-stack" novalidate>
+                      <button class="upload-zone" type="button" data-upload-zone>
+                        <span class="empty-icon" aria-hidden="true">⇧</span>
+                        <span class="upload-zone__label">Выбрать файлы</span>
+                        <small class="muted">Фото JPG, PNG, WEBP или видео MP4.</small>
+                      </button>
+                      <input class="upload-zone__input" id="media-file" type="file" multiple />
+                      <label class="field"><span>Тип материала</span><select><option>Фото товара</option></select></label>
+                      <label class="acknowledgement"><input type="checkbox" /><span>У команды есть право использовать этот материал.</span></label>
+                      <button class="btn btn-block" type="submit" data-primary-action="true">Загрузить файлы в защищённую папку</button>
+                    </form>
+                  </section>
+                  <section class="media-library-panel"><h2>Список файлов временно недоступен</h2></section>
+                </div>
+              </div>
+            </div>
+          </main>
+        </section>
+      </div>
+    </div>
+    <output id="runtime-qa" hidden></output>
+    <script>
+      window.CONTENTENGINE_DESKTOP_V4 = true;
+      sessionStorage.setItem("contentengine.desktop-v4.project", JSON.stringify({ id: "11111111-1111-4111-8111-111111111111", name: "Бады" }));
+      if (!location.hash.startsWith("#/workspace/media")) location.hash = "#/workspace/media?project_id=11111111-1111-4111-8111-111111111111";
+    </script>
+    <script type="module">
+      await import("../../web/app/workspace-os-v4.js?v=20260804.os4.17");
+      await window.ContentEngineDesktopV4.flush();
+      const qa = document.querySelector("#runtime-qa");
+      qa.dataset.formVisible = String(Boolean(document.querySelector("#media-upload-form").getClientRects().length));
+      qa.dataset.recoveryVisible = String(Boolean(document.querySelector(".media-catalog-recovery").getClientRects().length));
+      qa.dataset.libraryVisible = String(Boolean(document.querySelector(".media-library-panel").getClientRects().length));
+      qa.dataset.primaryCount = String(document.querySelectorAll('[data-primary-action="true"]:not([hidden])').length);
+      qa.dataset.dialogCount = String(document.querySelectorAll('[role="dialog"], [class*="backdrop"]').length);
+    </script>
+  </body>
+</html>

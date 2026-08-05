@@ -17,12 +17,12 @@ MANIFEST = json.loads((APP_DIR / "build.json").read_text(encoding="utf-8"))
 
 def test_build_id_is_consistent_across_entrypoints() -> None:
     build_id = MANIFEST["id"]
-    assert build_id == "20260804.os4.13"
+    assert build_id == "20260804.os4.17"
     assert f'content="{build_id}"' in APP_INDEX
     assert f'content="{build_id}"' in ROOT_INDEX
     assert f'const CURRENT_BUILD = "{build_id}"' in SCRIPT
-    assert MANIFEST["label"] == "ContentEngine Desktop v4.13"
-    assert 'const BUILD_BADGE = "Desktop · 4.13"' in SCRIPT
+    assert MANIFEST["label"] == "ContentEngine Desktop v4.17"
+    assert 'const BUILD_BADGE = "Desktop · 4.14"' in SCRIPT
 
 
 def test_desktop_flag_loader_runs_before_app_and_build_guard_runs_last() -> None:

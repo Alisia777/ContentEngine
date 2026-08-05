@@ -6,9 +6,9 @@
  * reads secrets or clones file inputs.
  */
 
-import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.13";
+import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.17";
 
-const BUILD = "20260804.os4.13";
+const BUILD = "20260804.os4.17";
 const STORAGE_KEY = "contentengine.desktop-v4.v1";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
 const PROJECT_CONTEXT_KEY = "contentengine.desktop-v4.project";
@@ -241,21 +241,38 @@ function workspaceRouteRequiresProject(route) {
   return PROJECT_REQUIRED_ROUTES.has(path);
 }
 
-function explainProjectRequired() {
+function projectChooserMode() {
+  if (routePath() !== "/workspace/home") return false;
+  const values = routeQuery().getAll("project_id");
+  return values.length !== 1 || !PROJECT_ID_PATTERN.test(String(values[0] || "").trim().toLowerCase());
+}
+
+function focusProjectChoiceTarget(attempt = 0) {
+  const target = q('[data-action="retry-project-flow"]')
+    || q("[data-ce-v4-project-id]")
+    || q("#home-projects-title");
+  if (target instanceof HTMLElement) {
+    if (!target.matches("button, a, input, select, textarea, [tabindex]")) target.tabIndex = -1;
+    target.focus({ preventScroll: false });
+    target.scrollIntoView?.({ block: "center", inline: "nearest", behavior: REDUCED_MOTION.matches ? "auto" : "smooth" });
+    return true;
+  }
+  if (attempt < 5) window.setTimeout(() => focusProjectChoiceTarget(attempt + 1), 80 * (attempt + 1));
+  return false;
+}
+
+function explainProjectRequired(destination = "") {
+  const label = routeRecord(routeParts(destination).path)?.label || "Раздел";
   showSystemToast(
-    "Сначала выберите проект — после этого откроется нужный раздел.",
+    `${label}: сначала выберите проект. Нажмите на карточку проекта — раздел откроется с его данными.`,
     "warning",
   );
   if (routePath() !== "/workspace/home") {
     window.location.hash = "#/workspace/home";
+    window.setTimeout(() => focusProjectChoiceTarget(), 0);
     return;
   }
-  window.queueMicrotask(() => {
-    const heading = q("#home-projects-title");
-    if (!(heading instanceof HTMLElement)) return;
-    heading.tabIndex = -1;
-    heading.focus({ preventScroll: false });
-  });
+  window.queueMicrotask(() => focusProjectChoiceTarget());
 }
 
 function routeMatches(route, expected) {
@@ -288,7 +305,7 @@ function navigate(route, options) {
   const requestedProjectId = routeParts(requested).query.get("project_id");
   const currentProjectId = routeQuery().get("project_id") || projectContext()?.id || "";
   if (workspaceRouteRequiresProject(requested) && !requestedProjectId && !currentProjectId) {
-    explainProjectRequired();
+    explainProjectRequired(requested);
     return "/workspace/home";
   }
   const destination = settings.preserveProject === false
@@ -299,6 +316,14 @@ function navigate(route, options) {
   closeTransientOverlays(true);
   window.location.hash = `#${destination}`;
   return destination;
+}
+
+function navigatePrimaryRoute(route) {
+  const requested = String(route || "/workspace/home");
+  if (routeParts(requested).path === "/workspace/home") {
+    return navigate("/workspace/home", { preserveProject: false });
+  }
+  return navigate(requested);
 }
 
 function focusFinderSearch(query = "") {
@@ -593,7 +618,10 @@ function handoff(route, options = {}) {
 function projectMenuParts() {
   const trigger = q("[data-ce-v4-project-trigger]", runtime.menubar);
   const menu = q("[data-ce-v4-project-menu]", runtime.menubar);
-  const items = qa("[data-ce-v4-project-option], [data-ce-v4-all-projects]", menu);
+  const items = qa(
+    "[data-ce-v4-project-option], [data-ce-v4-create-project], [data-ce-v4-all-projects]",
+    menu,
+  );
   return { trigger, menu, items };
 }
 
@@ -640,7 +668,9 @@ function handleProjectMenuKeydown(event) {
     closeProjectMenu();
     return;
   }
-  const current = items.indexOf(target?.closest?.("[data-ce-v4-project-option], [data-ce-v4-all-projects]"));
+  const current = items.indexOf(target?.closest?.(
+    "[data-ce-v4-project-option], [data-ce-v4-create-project], [data-ce-v4-all-projects]",
+  ));
   if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
   event.preventDefault();
   const next = event.key === "Home"
@@ -669,6 +699,10 @@ function projectSelectionRoute(project) {
 function syncProjectSwitcher(snapshot = projectFlowSnapshot()) {
   const { trigger, menu } = projectMenuParts();
   if (!trigger || !menu) return;
+  const workspaceRole = String(
+    q(".workspace-shell[data-workspace-role]")?.dataset.workspaceRole || "",
+  ).trim().toLowerCase();
+  const canCreateProject = ["owner", "admin", "producer"].includes(workspaceRole);
   const triggerName = q("[data-ce-v4-project-name]", trigger);
   const triggerMeta = q("[data-ce-v4-project-meta]", trigger);
   if (triggerName) triggerName.textContent = snapshot.id ? snapshot.name : "Выбрать проект";
@@ -679,6 +713,7 @@ function syncProjectSwitcher(snapshot = projectFlowSnapshot()) {
   const signature = JSON.stringify({
     id: snapshot.id,
     nextAction: snapshot.nextAction?.route || "",
+    canCreateProject,
     projects: snapshot.projects.map((project) => [
       project.id,
       project.name,
@@ -714,8 +749,23 @@ function syncProjectSwitcher(snapshot = projectFlowSnapshot()) {
     link.append(mark, copy, create("span", "ce-v4-project-menu__check", selected ? "✓" : ""));
     fragment.append(link);
   });
-  const allProjects = create("a", "ce-v4-project-menu__all", "Все проекты");
-  allProjects.href = `#${routeWithProject("/workspace/home", snapshot.id)}`;
+  if (canCreateProject) {
+    const createProject = create(
+      "button",
+      "ce-v4-project-menu__command ce-v4-project-menu__create",
+      "＋ Новый проект",
+    );
+    createProject.type = "button";
+    createProject.dataset.ceV4CreateProject = "true";
+    createProject.setAttribute("role", "menuitem");
+    fragment.append(createProject);
+  }
+  const allProjects = create(
+    "button",
+    "ce-v4-project-menu__command ce-v4-project-menu__all",
+    "Все проекты",
+  );
+  allProjects.type = "button";
   allProjects.dataset.ceV4AllProjects = "true";
   allProjects.setAttribute("role", "menuitem");
   fragment.append(allProjects);
@@ -835,7 +885,18 @@ function ensureMenubar() {
       closeProjectMenu();
       navigate(projectOption.getAttribute("href")?.replace(/^#/, "") || projectSelectionRoute(selected));
     }
-    if (target?.closest("[data-ce-v4-all-projects]")) closeProjectMenu();
+    if (target?.closest("[data-ce-v4-create-project]")) {
+      event.preventDefault();
+      closeProjectMenu();
+      navigate("/workspace/home?view=new", { preserveProject: false });
+      return;
+    }
+    if (target?.closest("[data-ce-v4-all-projects]")) {
+      event.preventDefault();
+      closeProjectMenu();
+      navigate("/workspace/home", { preserveProject: false });
+      return;
+    }
     if (target?.closest("[data-ce-v4-refresh]")) refreshWorkspace();
     if (target?.closest("[data-ce-v4-fullscreen]")) void toggleFullscreen();
     const notificationControl = target?.closest("[data-ce-v4-notifications]");
@@ -935,9 +996,16 @@ function ensureDock() {
     if (!(item instanceof HTMLElement)) return;
     const destination = String(item.dataset.ceV4Route || "");
     const snapshot = projectFlowSnapshot();
+    const opensProjectCatalog = routeParts(destination).path === "/workspace/home";
+    if (opensProjectCatalog) {
+      event.preventDefault();
+      event.stopPropagation();
+      navigatePrimaryRoute(destination);
+      return;
+    }
     if (workspaceRouteRequiresProject(destination) && !snapshot.id) {
       event.preventDefault();
-      explainProjectRequired();
+      explainProjectRequired(destination);
       return;
     }
     const stage = stageForRoute(destination, snapshot);
@@ -946,7 +1014,7 @@ function ensureDock() {
       explainLockedStage(stage);
       return;
     }
-    if (!destination || routeMatches(routePath(), destination)) return;
+    if (!destination || (!opensProjectCatalog && routeMatches(routePath(), destination))) return;
     item.classList.remove("is-launching");
     window.requestAnimationFrame(() => {
       if (!item.isConnected) return;
@@ -983,7 +1051,9 @@ function updateDock() {
     const hasStageState = Boolean(snapshot.hasFlow && stage && stage.state !== "unknown");
     const locked = stageLocked(stage, snapshot);
     const projectRequired = workspaceRouteRequiresProject(item.dataset.ceV4Route) && !snapshot.id;
-    const destination = stage?.destination || projectRoute(item.dataset.ceV4Route, context);
+    const destination = item.dataset.ceV4Route === "/workspace/home"
+      ? "/workspace/home"
+      : stage?.destination || projectRoute(item.dataset.ceV4Route, context);
     item.href = `#${destination}`;
     item.classList.toggle("is-active", active);
     item.classList.toggle("is-project-required", projectRequired);
@@ -992,7 +1062,7 @@ function updateDock() {
     });
     item.dataset.ceV4StageState = hasStageState ? stage.state : "unknown";
     item.setAttribute("aria-current", active ? "page" : "false");
-    if (locked || projectRequired) item.setAttribute("aria-disabled", "true");
+    if (locked) item.setAttribute("aria-disabled", "true");
     else item.removeAttribute("aria-disabled");
     const count = q("[data-ce-v4-dock-count]", item);
     const showCount = Boolean(stage && Number.isFinite(stage.count) && stage.count > 0);
@@ -1007,7 +1077,9 @@ function updateDock() {
     const reasonText = locked && stage.reason ? stage.reason : "";
     const shortcutIndex = shortcutIndexByRoute.get(item.dataset.ceV4Route);
     const shortcut = Number.isInteger(shortcutIndex) ? `⌥${shortcutIndex + 1}` : "";
-    const semantic = [record?.label, stateText, countText, reasonText, record?.description, shortcut].filter(Boolean).join(" · ");
+    const semantic = projectRequired
+      ? `${record?.label || "Раздел"} — нужен проект. Нажмите, чтобы перейти к выбору проекта`
+      : [record?.label, stateText, countText, reasonText, record?.description, shortcut].filter(Boolean).join(" · ");
     const tooltip = q(".ce-v4-dock__tooltip", item);
     if (tooltip) tooltip.textContent = semantic;
     item.title = semantic;
@@ -1061,8 +1133,9 @@ function mountHome() {
   const page = currentPage();
   if (!page) return;
   q(":scope > .ce-v4-home", page)?.remove();
-  page.classList.add("ce-v4-home-page", "ce-v4-project-home");
   const projects = q("[data-ce-v4-project-home]", page);
+  page.classList.add("ce-v4-home-page");
+  page.classList.toggle("ce-v4-project-home", Boolean(projects));
   if (projects) projects.dataset.ceV4Surface = "true";
 }
 
@@ -1177,17 +1250,20 @@ function projectFlowSnapshot() {
   const rawProject = normalizeProjectRecord(raw.project);
   if (rawProject && !projects.some((item) => item.id === rawProject.id)) projects.unshift(rawProject);
 
-  const stored = storedProjectContext();
+  const chooserMode = projectChooserMode();
+  const stored = chooserMode ? null : storedProjectContext();
   const queryProjectId = String(routeQuery().get("project_id") || "").trim();
   const rootProjectId = String(root?.dataset.projectId || root?.dataset.workspaceProjectId || "").trim();
   const rawProjectId = String(raw.project_id || rawProject?.id || "").trim();
-  const id = queryProjectId || rootProjectId || rawProjectId || stored?.id || "";
+  const id = chooserMode ? "" : queryProjectId || rootProjectId || rawProjectId || stored?.id || "";
   const nextAction = normalizeProjectNextAction(rawNextAction, id);
   const catalogProject = projects.find((item) => item.id === id) || null;
   const rootProjectName = rootProjectId === id ? root?.dataset.projectName : "";
   const storedProjectName = stored?.id === id ? stored.name : "";
   const name = compact(catalogProject?.name || rootProjectName || rawProject?.name || storedProjectName || "Проект", 80);
-  const rootFolderId = String(catalogProject?.rootFolderId || rawProject?.rootFolderId || stored?.rootFolderId || id || "").trim();
+  const rootFolderId = id
+    ? String(catalogProject?.rootFolderId || rawProject?.rootFolderId || stored?.rootFolderId || id).trim()
+    : "";
   const currentStage = normalizeStageCode(
     root?.dataset.projectCurrentStage || root?.dataset.currentStage || raw.current_stage || rawProject?.currentStage || "",
   );
@@ -1453,7 +1529,7 @@ function openMission() {
     const target = event.target instanceof Element ? event.target : null;
     if (event.target === backdrop || target?.closest("[data-ce-v4-close]")) closeElementOverlay("mission");
     const route = target?.closest("[data-route]")?.dataset.route;
-    if (route) navigate(route);
+    if (route) navigatePrimaryRoute(route);
   });
   input.addEventListener("input", () => {
     const needle = input.value.trim().toLocaleLowerCase("ru-RU");
@@ -1470,7 +1546,7 @@ function spotlightRecords(query = "") {
     subtitle: item.description,
     icon: item.icon,
     keywords: `${item.label} ${item.description}`.toLocaleLowerCase("ru-RU"),
-    run: () => navigate(item.route),
+    run: () => navigatePrimaryRoute(item.route),
   }));
   qa(".workspace-board__item, .task-card, .my-work-item, .placement-card, [data-generation-job-id]").filter(isVisible).slice(0, 80).forEach((node) => {
     const title = compact(q("h2, h3, strong", node)?.textContent || node.textContent, 100);
@@ -1924,7 +2000,7 @@ function handleKeydown(event) {
       const snapshot = projectFlowSnapshot();
       const stage = stageForRoute(item.route, snapshot);
       if (stageLocked(stage, snapshot)) explainLockedStage(stage);
-      else navigate(item.route);
+      else navigatePrimaryRoute(item.route);
     }
   }
 }

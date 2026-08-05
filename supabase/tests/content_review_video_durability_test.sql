@@ -81,8 +81,17 @@ select is(
        'system_complete_content_review',
        'system_reconcile_background_leases'
      )
-     and pg_get_functiondef(procedure.oid) like
-       '%pg_advisory_xact_lock%'),
+     and (
+       pg_get_functiondef(procedure.oid) like '%pg_advisory_xact_lock%'
+       or (
+         procedure.proname = 'system_reconcile_background_leases'
+         and pg_get_functiondef(procedure.oid) like
+           '%system_reconcile_background_leases_pre_response_v417%'
+         and pg_get_functiondef(
+           'content_factory_private.system_reconcile_background_leases_pre_response_v417(jsonb)'::regprocedure
+         ) like '%pg_advisory_xact_lock%'
+       )
+     )),
   5,
   'attempt lifecycle RPCs share one per-review advisory lock order'
 );
