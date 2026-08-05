@@ -104,12 +104,17 @@ function contains(node, selector) {
 
 function classifyNode(node, fallback = "mode") {
   if (!node) return fallback;
-  if (node.id === "generation-submit" || contains(node, "#generation-submit")) return "launch";
+  if (
+    node.id === "generation-submit"
+    || node.id === "generation-readiness"
+    || node.id === "generation-spec-card"
+    || node.id === "real-generation-confirmation"
+    || contains(node, "#generation-submit, #generation-readiness, #generation-spec-card, #real-generation-confirmation, [name=\"real_spend_confirmation\"]")
+  ) return "launch";
   if (
     node.id === "generation-draft-status"
-    || node.id === "generation-readiness"
-    || contains(node, '[name="generation_mode"], [name="duration_seconds"], [name="campaign_id"], [name="real_spend_confirmation"]')
-    || node.matches?.("#generation-duration-field, #generation-mock-explanation, #generation-campaign-field, #real-generation-confirmation")
+    || contains(node, '[name="generation_mode"], [name="duration_seconds"], [name="campaign_id"]')
+    || node.matches?.("#generation-duration-field, #generation-mock-explanation, #generation-campaign-field")
   ) return "mode";
   if (
     node.id === "generation-product-identity-note"
@@ -394,10 +399,15 @@ function syncSummary(form) {
   const status = q("[data-ce-v4-generation-launch-status]", form);
   if (status) {
     const ready = submit && !submit.disabled && form.dataset.busy !== "true";
-    status.dataset.state = ready ? "ready" : "pending";
+    const busy = form.dataset.busy === "true";
+    const rawBlocker = String(submit?.dataset.launchBlocker || "").trim();
+    const blocker = rawBlocker ? compact(rawBlocker, 240) : "";
+    status.dataset.state = ready ? "ready" : busy ? "working" : "pending";
     status.textContent = ready
-      ? "Всё готово. Следующее нажатие создаст результат."
-      : "Запуск пока заблокирован. Вернитесь к шагу с подсказкой и заполните его.";
+      ? "Всё готово. Одно нажатие подготовит техническое ТЗ и создаст результат."
+      : busy
+        ? "Портал проверяет техническое ТЗ. Не нажимайте запуск повторно."
+        : blocker || "Заполните обязательное поле текущего шага.";
   }
 }
 

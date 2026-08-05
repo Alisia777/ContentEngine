@@ -6,9 +6,9 @@
  * reads secrets or clones file inputs.
  */
 
-import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260804.os4.17";
+import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260805.os4.18";
 
-const BUILD = "20260804.os4.17";
+const BUILD = "20260805.os4.18";
 const STORAGE_KEY = "contentengine.desktop-v4.v1";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
 const PROJECT_CONTEXT_KEY = "contentengine.desktop-v4.project";
@@ -1011,7 +1011,7 @@ function ensureDock() {
     const stage = stageForRoute(destination, snapshot);
     if (stageLocked(stage, snapshot)) {
       event.preventDefault();
-      explainLockedStage(stage);
+      openRequiredStage(stage, snapshot);
       return;
     }
     if (!destination || (!opensProjectCatalog && routeMatches(routePath(), destination))) return;
@@ -1279,12 +1279,16 @@ function projectFlowSnapshot() {
       : currentStage === item.code
         ? "current"
         : "unknown";
+    const reasonCode = String(match?.reason_code || "");
+    const reason = reasonCode === "content_approval_required"
+      ? "Проверку выполняете вы: откройте готовый материал и выберите «Одобрить», «На доработку» или «Отклонить»."
+      : compact(match?.reason || match?.reason_text || "", 180);
     return {
       ...item,
       state,
       count: stageCount(match, counts, item),
-      reason: compact(match?.reason || match?.reason_text || "", 180),
-      reasonCode: String(match?.reason_code || ""),
+      reason,
+      reasonCode,
       canonicalRoute: routeWithProject(item.route, id),
       destination: routeWithProject(
         nextAction?.stage === item.code && nextAction?.route
@@ -1380,6 +1384,26 @@ function explainLockedStage(stage) {
   showSystemToast(stage?.reason || fallback, stage?.state === "blocked" ? "error" : "warning");
 }
 
+function openRequiredStage(stage, snapshot = projectFlowSnapshot()) {
+  const required = snapshot.stages.find((item) => item.state === "current")
+    || snapshot.stages.find((item) => item.state === "blocked")
+    || null;
+  const destination = String(
+    snapshot.nextAction?.route || required?.destination || "",
+  ).trim();
+  if (!destination) {
+    explainLockedStage(stage);
+    return;
+  }
+  const targetLabel = required?.label || "текущий шаг";
+  const explanation = stage?.reason
+    || "Сначала завершите текущее действие проекта.";
+  showSystemToast(`${explanation} Открываю: ${targetLabel}.`, "warning");
+  if (workspaceActionKey(destination) !== workspaceActionKey()) {
+    navigatePrimaryRoute(destination);
+  }
+}
+
 function syncProjectProgress() {
   const route = routePath();
   const snapshot = projectFlowSnapshot();
@@ -1423,7 +1447,7 @@ function syncProjectProgress() {
       const stage = stageForRoute(target.dataset.ceV4ProjectStage, currentSnapshot);
       if (!stageLocked(stage, currentSnapshot)) return;
       event.preventDefault();
-      explainLockedStage(stage);
+      openRequiredStage(stage, currentSnapshot);
     });
     page.prepend(progress);
   }
@@ -1999,7 +2023,7 @@ function handleKeydown(event) {
       event.preventDefault();
       const snapshot = projectFlowSnapshot();
       const stage = stageForRoute(item.route, snapshot);
-      if (stageLocked(stage, snapshot)) explainLockedStage(stage);
+      if (stageLocked(stage, snapshot)) openRequiredStage(stage, snapshot);
       else navigatePrimaryRoute(item.route);
     }
   }

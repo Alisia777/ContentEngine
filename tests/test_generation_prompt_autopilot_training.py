@@ -35,7 +35,9 @@ def test_training_preserves_assessment_identity_while_updating_the_scenario() ->
 def test_training_navigation_maps_to_the_simplified_generation_action() -> None:
     assert '["generation", "Создание контента", "✦"]' in CATALOG
     assert 'label: "Создать"' in APP
-    assert 'data-action="restore-auto-generation-brief"' in APP
+    assert 'data-action="restore-auto-generation-brief"' not in APP
+    assert "Портал сам подготовит техническое ТЗ при запуске" in APP
+    assert "ensureApprovedGenerationSpecForPaidStart" in APP
     assert "compileSafeGenerationBrief" in APP
     assert "generationPromptInspection(form)" in APP
 

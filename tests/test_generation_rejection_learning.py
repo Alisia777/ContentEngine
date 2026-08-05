@@ -175,7 +175,7 @@ def test_exhaustion_is_blocked_in_browser_edge_and_database_before_spend() -> No
     for token in (
         "Автогенерация остановлена",
         "Все безопасные структуры",
-        "Автогенерация остановлена после QA",
+        "Этот вариант остановлен проверкой качества",
         "generation_learning_rejection_guard_blocked",
     ):
         assert token in APP

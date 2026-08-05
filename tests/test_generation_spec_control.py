@@ -152,7 +152,7 @@ process.stdout.write(JSON.stringify({{
     }
 
 
-def test_ui_requires_explicit_current_server_approval_before_paid_preflight() -> None:
+def test_one_paid_click_prepares_and_approves_current_server_spec_before_preflight() -> None:
     for token in (
         'from "./generation-spec.js?v=20260803.1"',
         "generationSpecCardMarkup",
@@ -171,13 +171,22 @@ def test_ui_requires_explicit_current_server_approval_before_paid_preflight() ->
     readiness = APP.index("${generationReadinessMarkup(initialGenerationReadiness)}")
     card = APP.index("${generationSpecCardMarkup({", readiness)
     assert readiness < card
+    assert "hidden: true" in APP[card : card + 180]
+    helper_start = APP.index("async function ensureApprovedGenerationSpecForPaidStart")
+    helper_end = APP.index("function generationLearningOptOut", helper_start)
+    helper = APP[helper_start:helper_end]
+    assert 'runGenerationSpecControl(form, "prepare")' in helper
+    assert 'runGenerationSpecControl(form, "patch")' in helper
+    assert 'runGenerationSpecControl(form, "approve")' in helper
+    assert "await refreshGenerationSpec(form, { force: true })" in helper
     submit = APP.index("async function submitRealGeneration")
-    freshness = APP.index(
-        "await refreshGenerationSpec(form, { force: true })", submit
+    automatic_approval = APP.index(
+        "await ensureApprovedGenerationSpecForPaidStart(form)", submit
     )
-    preflight = APP.index("runGenerationPreflightForPaidStart", freshness)
+    preflight = APP.index("runGenerationPreflightForPaidStart", automatic_approval)
     paid_start = APP.index("state.api.startRealGeneration(payload)", preflight)
-    assert submit < freshness < preflight < paid_start
+    assert submit < automatic_approval < preflight < paid_start
+    assert APP[submit:paid_start].count("state.api.startRealGeneration(payload)") == 0
     assert "head_event_hash" not in APP
     assert "head_event_hash" not in API
 
@@ -413,11 +422,11 @@ def test_edge_accepts_only_atomic_terminal_stale_claim_as_non_retryable() -> Non
 
 
 def test_generation_spec_cache_versions_are_published_consistently() -> None:
-    assert './supabase-api.js?v=20260804.os4.17' in APP
-    assert './app.js?v=20260804.os4.17' in INDEX
+    assert './supabase-api.js?v=20260805.os4.18' in APP
+    assert './app.js?v=20260805.os4.18' in INDEX
     for name in (
         "workspace-os-v4-context-trash.js",
         "workspace-os-v4-trash-rpc-alias.js",
     ):
         source = (ROOT / "web/app" / name).read_text(encoding="utf-8")
-        assert './supabase-api.js?v=20260804.os4.17' in source
+        assert './supabase-api.js?v=20260805.os4.18' in source

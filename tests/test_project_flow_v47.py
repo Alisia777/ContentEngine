@@ -193,6 +193,20 @@ def test_exact_next_action_is_validated_and_drives_the_canonical_dock_destinatio
     assert 'item.href = `#${destination}`' in update_dock
 
 
+def test_future_stage_click_opens_the_required_action_instead_of_dead_end_toasts() -> None:
+    locked = _function(CORE, "function openRequiredStage(")
+    dock = _function(CORE, "function ensureDock(")
+    progress = _function(CORE, "function syncProjectProgress(")
+
+    assert 'snapshot.nextAction?.route || required?.destination' in locked
+    assert 'item.state === "current"' in locked
+    assert 'item.state === "blocked"' in locked
+    assert "navigatePrimaryRoute(destination)" in locked
+    assert "openRequiredStage(stage, snapshot)" in dock
+    assert "openRequiredStage(stage, currentSnapshot)" in progress
+    assert "Проверку выполняете вы" in CORE
+
+
 def test_exact_task_handoff_uses_fresh_server_flow_and_keeps_origin_stage() -> None:
     exact = _function(APP, "function exactProjectNextActionRoute(")
     click = _function(APP, "async function handleClick(")
@@ -665,7 +679,7 @@ def test_archiving_a_project_uses_its_dedicated_path_and_clears_stale_scope() ->
 
 
 def test_v47_assets_share_one_release_key() -> None:
-    build = "20260804.os4.17"
+    build = "20260805.os4.18"
     assert f'const BUILD = "{build}"' in LOADER
     assert f'const BUILD = "{build}"' in CORE
     for asset in (

@@ -62,6 +62,12 @@ export function contentGenerationDurationSeconds(mode, value = null) {
   return normalizedMode === REAL_GEN4_MODE ? 5 : 8;
 }
 
+export function contentGenerationPromptLimit(mode) {
+  return normalizeMode(mode) === REAL_GEN4_MODE
+    ? 1_000
+    : CONTENT_GENERATION_PROMPT_LIMIT;
+}
+
 export function seedanceSpokenWordLimit(durationSeconds = 8) {
   const duration = contentGenerationDurationSeconds(
     REAL_SEEDANCE_MODE,
@@ -341,7 +347,7 @@ export function compileContentGenerationPrompt(
       Boolean(researchCategoryRuleFragment),
     )),
   ];
-  const prompt = fitPrompt(promptLines, generationPromptLimit(normalizedMode));
+  const prompt = fitPrompt(promptLines, contentGenerationPromptLimit(normalizedMode));
   if (!prompt) {
     blockers.push({
       code: "prompt_too_long",
@@ -527,7 +533,7 @@ export function compileSafeGenerationBrief({
     ];
   }
 
-  const prompt = fitPrompt(promptLines, generationPromptLimit(normalizedMode));
+  const prompt = fitPrompt(promptLines, contentGenerationPromptLimit(normalizedMode));
   if (!prompt) {
     blockers.push({
       code: "prompt_too_long",
@@ -1228,11 +1234,11 @@ export function inspectContentGenerationPrompt(
     blockers.push({ code: "prompt_missing", message: "Промпт для генерации пуст." });
     return result(normalized, blockers, warnings);
   }
-  const promptLimit = generationPromptLimit(normalizedMode);
+  const promptLimit = contentGenerationPromptLimit(normalizedMode);
   if (normalized.length > promptLimit) {
     blockers.push({
       code: "prompt_too_long",
-      message: `Промпт длиннее ${promptLimit} символов.`,
+      message: `Техническое ТЗ длиннее лимита модели (${promptLimit} символов).`,
     });
   }
   if (EXTERNAL_REFERENCE_PATTERN.test(normalized)) {
@@ -1726,12 +1732,6 @@ function fitPrompt(items, maximum) {
     if (render().length <= maximum) return render();
   }
   return "";
-}
-
-function generationPromptLimit(mode) {
-  return normalizeMode(mode) === REAL_GEN4_MODE
-    ? 1_000
-    : CONTENT_GENERATION_PROMPT_LIMIT;
 }
 
 function required(text) {

@@ -207,7 +207,7 @@ def test_edge_and_browser_validate_the_same_bounded_learning_contract() -> None:
         'source: "performance_learning"',
         'source: "approved_research"',
         'source: "baseline"',
-        "currentPrompt !== autoPrompt",
+        "compiled.prompt !== autoPrompt",
         'data-action="disable-generation-learning"',
         'data-action="enable-generation-learning"',
         "Тексты обещаний, права и параметры запуска не обучаются",
@@ -215,8 +215,8 @@ def test_edge_and_browser_validate_the_same_bounded_learning_contract() -> None:
         assert token in APP
     assert ".generation-learning-status" in STYLES
     assert "./styles.css?v=20260730.4" in INDEX
-    assert "./app.js?v=20260804.os4.17" in INDEX
-    assert "./supabase-api.js?v=20260804.os4.17" in APP
+    assert "./app.js?v=20260805.os4.18" in INDEX
+    assert "./supabase-api.js?v=20260805.os4.18" in APP
 
 
 def test_paid_start_waits_for_the_exact_learning_lookup_before_any_provider_call() -> None:
@@ -240,8 +240,9 @@ def test_paid_start_waits_for_the_exact_learning_lookup_before_any_provider_call
     paid_start = submit.index("state.api.startRealGeneration(payload)", preflight)
     assert ensure < refresh < preflight < paid_start
     assert "learning_context: learningContext" in submit
-    assert "Ваш замысел сохранён. Перед платным запуском подготовьте безопасную версию ТЗ" in submit
-    assert "не заменит сюжет" in submit
+    assert "syncAutomaticGenerationBrief(form" in submit
+    assert "await ensureApprovedGenerationSpecForPaidStart(form)" in submit
+    assert "Проверка товара ещё не закончилась" in submit
 
 
 def test_edge_fails_closed_when_learning_cannot_be_verified_before_paid_state() -> None:
