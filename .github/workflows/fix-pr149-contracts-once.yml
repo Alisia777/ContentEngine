@@ -1,0 +1,102 @@
+name: Fix PR149 contracts once
+
+on:
+  push:
+    branches:
+      - agent/youtube-short-training-example-v1
+    paths:
+      - .github/workflows/fix-pr149-contracts-once.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fix-pr149-contracts-once
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out pull request branch
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: agent/youtube-short-training-example-v1
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Merge current main and repair exact contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "ContentEngine CI"
+          git config user.email "actions@users.noreply.github.com"
+          git fetch origin main
+          git merge --no-edit origin/main
+
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("supabase/tests/creator_factory_test.sql")
+          text = path.read_text(encoding="utf-8")
+
+          if "'creator_register_research_training_example'" not in text:
+              marker = "        'creator_resolve_research_market_category'\n"
+              replacement = (
+                  "        'creator_resolve_research_market_category',\n"
+                  "        'creator_register_research_training_example'\n"
+              )
+              if marker not in text:
+                  raise SystemExit("creator RPC inventory marker not found")
+              text = text.replace(marker, replacement, 1)
+
+          text = text.replace(
+              "  87,\n  'all browser RPCs expose exactly p_payload jsonb'",
+              "  88,\n  'all browser RPCs expose exactly p_payload jsonb'",
+              1,
+          )
+          text = text.replace(
+              "  103,\n  'authenticated can execute all creator RPCs'",
+              "  104,\n  'authenticated can execute all creator RPCs'",
+              1,
+          )
+
+          system_marker = "        'system_revalidate_product_research_response',\n"
+          system_replacement = (
+              "        'system_revalidate_product_research_response',\n"
+              "        'system_register_research_training_example',\n"
+          )
+          occurrences = text.count(system_marker)
+          if occurrences != 2:
+              raise SystemExit(f"expected two system RPC inventory markers, got {occurrences}")
+          text = text.replace(system_marker, system_replacement)
+          text = text.replace(
+              "  8,\n  'service_role can execute all system onboarding RPCs'",
+              "  9,\n  'service_role can execute all system onboarding RPCs'",
+              1,
+          )
+          path.write_text(text, encoding="utf-8")
+
+          manual_test = Path("tests/test_research_manual_training_example_v419.py")
+          contract = manual_test.read_text(encoding="utf-8")
+          required = (
+              "202608050101_research_manual_training_example.sql",
+              "202608050102_research_manual_training_example_runtime_fix.sql",
+              "202608050103_research_manual_training_example_service_actor_final.sql",
+          )
+          missing = [item for item in required if item not in contract]
+          if missing:
+              raise SystemExit(f"manual example contract still misses {missing}")
+          PY
+
+          git rm -f \
+            supabase/migrations/202608050003_research_manual_training_example_service_actor_fix.sql
+          git rm -f .github/workflows/fix-pr149-contracts-once.yml
+
+          git add \
+            supabase/tests/creator_factory_test.sql \
+            tests/test_research_manual_training_example_v419.py \
+            supabase/migrations/202608050103_research_manual_training_example_service_actor_final.sql
+          git commit -m "Rebase Shorts intake and align RPC contracts"
+          git push origin HEAD:agent/youtube-short-training-example-v1
