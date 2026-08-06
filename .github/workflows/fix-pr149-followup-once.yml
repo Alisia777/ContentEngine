@@ -1,0 +1,106 @@
+name: Fix PR149 follow-up contracts once
+
+on:
+  push:
+    branches:
+      - agent/youtube-short-training-example-v1
+    paths:
+      - .github/workflows/fix-pr149-followup-once.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fix-pr149-followup-contracts-once
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out pull request branch
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: agent/youtube-short-training-example-v1
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Merge current main and repair final contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "ContentEngine CI"
+          git config user.email "actions@users.noreply.github.com"
+          git fetch origin main
+
+          set +e
+          git merge --no-commit origin/main
+          merge_code=$?
+          set -e
+          if [ "$merge_code" -ne 0 ]; then
+            conflicts="$(git diff --name-only --diff-filter=U)"
+            if [ "$conflicts" != "web/app/workspace-os-v4-loader.js" ]; then
+              echo "Unexpected merge conflicts:" >&2
+              printf '%s\n' "$conflicts" >&2
+              exit 1
+            fi
+            git checkout --theirs web/app/workspace-os-v4-loader.js
+            python - <<'PY'
+          from pathlib import Path
+
+          path = Path("web/app/workspace-os-v4-loader.js")
+          text = path.read_text(encoding="utf-8")
+          if "research-training-example.js" not in text:
+              anchor = '''  aiLearning: Object.freeze({
+              match: (route) => route === "/workspace/ai",
+              styles: [`ai-learning-control-room.css?v=${BUILD}`],
+              modules: [],
+            }),
+          '''
+              addition = anchor + '''  researchExample: Object.freeze({
+              match: (route) => route === "/workspace/research",
+              styles: [`research-training-example.css?v=${BUILD}`],
+              modules: [`research-training-example.js?v=${BUILD}`],
+            }),
+          '''
+              if anchor not in text:
+                  raise SystemExit("latest loader research insertion anchor not found")
+              text = text.replace(anchor, addition, 1)
+          path.write_text(text, encoding="utf-8")
+          PY
+            git add web/app/workspace-os-v4-loader.js
+          fi
+          git commit -m "Merge current main into Shorts intake"
+
+          python - <<'PY'
+          from pathlib import Path
+
+          gate = Path("tests/test_server_course_knowledge_gate.py")
+          text = gate.read_text(encoding="utf-8")
+          old = "assert \"87,\\n  'all browser rpcs expose exactly p_payload jsonb'\" in creator"
+          new = "assert \"88,\\n  'all browser rpcs expose exactly p_payload jsonb'\" in creator"
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new not in text:
+              raise SystemExit("course gate RPC count assertion not found")
+          gate.write_text(text, encoding="utf-8")
+
+          manual = Path("tests/test_research_manual_training_example_v419.py")
+          text = manual.read_text(encoding="utf-8")
+          old = "assert 'parts[0] === \\\"shorts\\\"' in MODULE"
+          new = "assert '[\\\"shorts\\\", \\\"embed\\\", \\\"live\\\"].includes(parts[0])' in MODULE"
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new not in text:
+              raise SystemExit("YouTube Shorts browser assertion not found")
+          manual.write_text(text, encoding="utf-8")
+          PY
+
+          git rm -f .github/workflows/fix-pr149-followup-once.yml
+          git add \
+            tests/test_server_course_knowledge_gate.py \
+            tests/test_research_manual_training_example_v419.py \
+            web/app/workspace-os-v4-loader.js
+          git commit -m "Finalize Shorts intake contracts on current main"
+          git push origin HEAD:agent/youtube-short-training-example-v1

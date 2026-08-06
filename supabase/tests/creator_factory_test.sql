@@ -136,12 +136,13 @@ select is(
         'creator_research_watchlist_status',
         'creator_research_youtube_overview',
         'creator_research_youtube_status',
-        'creator_resolve_research_market_category'
+        'creator_resolve_research_market_category',
+        'creator_register_research_training_example'
       ])
       and procedure.pronargs = 1
       and pg_get_function_identity_arguments(procedure.oid) = 'p_payload jsonb'
   ),
-  87,
+  88,
   'all browser RPCs expose exactly p_payload jsonb'
 );
 
@@ -154,7 +155,7 @@ select is(
       and procedure.proname like 'creator_%'
       and has_function_privilege('authenticated', procedure.oid, 'execute')
   ),
-  103,
+  104,
   'authenticated can execute all creator RPCs'
 );
 
@@ -184,6 +185,7 @@ select is(
         'system_claim_product_research',
         'system_complete_product_research',
         'system_revalidate_product_research_response',
+        'system_register_research_training_example',
         'system_claim_content_review',
         'system_complete_content_review'
       )
@@ -206,12 +208,13 @@ select is(
         'system_claim_product_research',
         'system_complete_product_research',
         'system_revalidate_product_research_response',
+        'system_register_research_training_example',
         'system_claim_content_review',
         'system_complete_content_review'
       )
       and has_function_privilege('service_role', procedure.oid, 'execute')
   ),
-  8,
+  9,
   'service_role can execute all system onboarding RPCs'
 );
 

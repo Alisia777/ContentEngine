@@ -26,6 +26,11 @@ const ROUTE_ASSETS = Object.freeze({
     styles: [`ai-learning-control-room.css?v=${BUILD}`],
     modules: [],
   }),
+  researchExample: Object.freeze({
+    match: (route) => route === "/workspace/research",
+    styles: [`research-training-example.css?v=${BUILD}`],
+    modules: [`research-training-example.js?v=${BUILD}`],
+  }),
   finder: Object.freeze({
     match: (route) => route === "/workspace/board",
     styles: [`workspace-os-v4-finder.css?v=${BUILD}`],
