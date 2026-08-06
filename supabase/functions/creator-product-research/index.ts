@@ -1098,6 +1098,28 @@ function canonicalSourceKey(value: unknown): string | null {
   if (!isPublicHttpsUrl(value)) return null;
   try {
     const url = new URL(value);
+    const hostname = url.hostname.toLocaleLowerCase("en-US");
+    if (
+      hostname === "youtu.be" || hostname === "www.youtu.be" ||
+      hostname === "youtube.com" || hostname === "www.youtube.com" ||
+      hostname === "m.youtube.com" || hostname === "music.youtube.com"
+    ) {
+      let videoId: string | null = null;
+      if (
+        hostname === "youtu.be" || hostname === "www.youtu.be"
+      ) {
+        videoId = url.pathname.slice(1).split("/")[0].trim() || null;
+      } else if (url.pathname.startsWith("/watch")) {
+        videoId = String(url.searchParams.get("v") || "").trim() || null;
+      } else if (url.pathname.startsWith("/shorts/")) {
+        videoId = url.pathname.slice("/shorts/".length).split("/")[0].trim();
+      } else if (url.pathname.startsWith("/embed/")) {
+        videoId = url.pathname.slice("/embed/".length).split("/")[0].trim();
+      }
+      if (videoId && /^[A-Za-z0-9_-]{6,}$/.test(videoId)) {
+        return `https://www.youtube.com/watch?v=${videoId}`;
+      }
+    }
     url.hash = "";
     for (const key of [...url.searchParams.keys()]) {
       const normalized = key.toLocaleLowerCase("en-US");

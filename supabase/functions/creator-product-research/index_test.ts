@@ -463,6 +463,26 @@ Deno.test("trend identity is allowlisted and unique inside one snapshot", () => 
   );
 });
 
+Deno.test(
+  "youtube short links must be normalized to the same cited video identity",
+  () => {
+    const fixture = validFixture();
+    fixture.sources[0].url = "https://www.youtube.com/watch?v=ab123CdEfG_";
+    const customProviderSources = new Map([
+      ["https://youtu.be/ab123CdEfG_", "https://youtu.be/ab123CdEfG_"],
+    ]);
+    assert(
+      readResearchResult(
+        fixture,
+        customProviderSources,
+        0,
+        ["instagram"],
+      ) !== null,
+      "short-form and watch-form YouTube URLs must be accepted as one source",
+    );
+  },
+);
+
 Deno.test("recompute context is exact, cross-bound, and prompt-labeled as direction", () => {
   const parsed = readResearchStageRecomputeContext(recomputeContextFixture());
   assert(parsed !== null, "the exact migration envelope must pass");
