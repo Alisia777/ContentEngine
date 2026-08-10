@@ -346,10 +346,16 @@ type CommonStartPayload = {
   allow_real_spend: true;
   learning_context: GenerationLearningContext;
   generation_spec_context: GenerationSpecContext;
+  generation_reference_context?: GenerationVideoReferenceContext;
   learning_opt_out?: true;
   repair_context?: GenerationRepairContext;
   review_autostart_confirmed?: true;
   review_autostart_terms_version?: "generated-video-qa-autostart-v1";
+};
+
+type GenerationVideoReferenceContext = {
+  binding_id: string;
+  binding_hash: string;
 };
 
 type GenerationLearningContext = {
@@ -983,6 +989,7 @@ function readStartPayload(value: unknown): StartPayload | null {
     "repair_context",
     "review_autostart_confirmed",
     "review_autostart_terms_version",
+    "generation_reference_context",
   ]);
   if (!hasOnlyKeys(value, allowed)) return null;
   if (![...required].every((key) => Object.hasOwn(value, key))) return null;
@@ -1088,6 +1095,12 @@ function readStartPayload(value: unknown): StartPayload | null {
   if (readGenerationSpecContext(value.generation_spec_context) === null) {
     return null;
   }
+  if (
+    Object.hasOwn(value, "generation_reference_context")
+    && readGenerationVideoReferenceContext(
+      value.generation_reference_context,
+    ) === null
+  ) return null;
   if (
     Object.hasOwn(value, "learning_opt_out") &&
     (
@@ -1314,6 +1327,21 @@ function readGenerationSpecContext(
     !SHA256_PATTERN.test(value.spec_hash)
   ) return null;
   return value as GenerationSpecContext;
+}
+
+function readGenerationVideoReferenceContext(
+  value: unknown,
+): GenerationVideoReferenceContext | null {
+  if (!isRecord(value)) return null;
+  const keys = new Set(["binding_id", "binding_hash"]);
+  if (
+    !hasOnlyKeys(value, keys)
+    || Object.keys(value).length !== keys.size
+    || !isUuid(value.binding_id)
+    || typeof value.binding_hash !== "string"
+    || !SHA256_PATTERN.test(value.binding_hash)
+  ) return null;
+  return value as GenerationVideoReferenceContext;
 }
 
 function readGenerationSpecScope(value: unknown): GenerationSpecScope | null {

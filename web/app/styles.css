@@ -6144,6 +6144,31 @@ html[data-portal-theme="obsidian"] .generation-readiness {
   gap: 4px;
 }
 
+.generation-reference-lineage {
+  display: grid;
+  max-width: 680px;
+  margin-top: 10px;
+  padding: 11px 12px;
+  border: 1px solid #d9cfb8;
+  border-radius: 11px;
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--surface) 88%, #fff4d6);
+  font-size: 0.72rem;
+  line-height: 1.45;
+  gap: 5px;
+}
+
+.generation-reference-lineage.is-ready {
+  border-color: rgba(38, 108, 83, 0.28);
+  color: var(--forest);
+  background: var(--forest-pale);
+}
+
+.generation-reference-lineage > .btn {
+  width: fit-content;
+  margin-top: 4px;
+}
+
 .generation-technical-qa.is-progress {
   border-color: #cad9e2;
   color: #31596d;

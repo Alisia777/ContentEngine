@@ -40,6 +40,10 @@ export const RPC = Object.freeze({
     "contentengine_bind_generation_spec_ai_research",
   generationSpecAiResearchBinding:
     "contentengine_generation_spec_ai_research_binding",
+  bindGenerationSpecVideoReference:
+    "contentengine_bind_generation_spec_video_reference",
+  generationVideoReferenceLineage:
+    "contentengine_generation_video_reference_lineage",
   generationArchive: "creator_generation_archive",
   archiveGenerationBatch: "creator_archive_generation_batch",
   workspaceBrowser: "creator_workspace_browser",
@@ -1219,6 +1223,67 @@ export class CreatorApi {
           spec_version: context.spec_version,
           spec_hash: context.spec_hash,
         }),
+      }),
+    );
+  }
+
+  bindGenerationSpecVideoReference(input = {}) {
+    const reference = normalizeGenerationSpecReference(input);
+    const videoId = String(input.video_id || "").trim();
+    const canonicalUrl = String(input.canonical_url || "").trim();
+    const mechanicsSummary = String(input.mechanics_summary || "")
+      .replace(/\s+/gu, " ").trim();
+    if (
+      !/^[A-Za-z0-9_-]{11}$/u.test(videoId)
+      || canonicalUrl !== `https://youtube.com/watch?v=${videoId}`
+      || mechanicsSummary.length < 20
+      || mechanicsSummary.length > 360
+      || /(?:https?:\/\/|www\.|youtube(?:-nocookie)?\.com|youtu\.be)/iu
+        .test(mechanicsSummary)
+      || input.source_access_confirmed !== true
+      || input.transformative_use_confirmed !== true
+      || input.confirmation !== true
+    ) {
+      throw new CreatorApiError(
+        "Проверьте видеореференс, описание механики и два подтверждения.",
+        { code: "generation_video_reference_binding_payload_invalid" },
+      );
+    }
+    return this.call(
+      RPC.bindGenerationSpecVideoReference,
+      this.withOrganization({
+        project_id: requiredProjectId(input.project_id || input.projectId),
+        ...reference,
+        video_id: videoId,
+        canonical_url: canonicalUrl,
+        mechanics_summary: mechanicsSummary,
+        source_access_confirmed: true,
+        transformative_use_confirmed: true,
+        attestation_version: "generation-video-reference-v1",
+        confirmation: true,
+      }),
+    );
+  }
+
+  generationVideoReferenceLineage(input = {}) {
+    const projectId = requiredProjectId(input.project_id || input.projectId);
+    if (input.generation_job_id) {
+      return this.call(
+        RPC.generationVideoReferenceLineage,
+        this.withOrganization({
+          project_id: projectId,
+          generation_job_id: requireGenerationSpecUuid(
+            input.generation_job_id,
+            "generation_video_reference_lineage_payload_invalid",
+          ),
+        }),
+      );
+    }
+    return this.call(
+      RPC.generationVideoReferenceLineage,
+      this.withOrganization({
+        project_id: projectId,
+        ...normalizeGenerationSpecReference(input),
       }),
     );
   }
@@ -4363,6 +4428,24 @@ export class CreatorApi {
     const generationSpecContext = normalizeGenerationSpecReference(
       batch.generation_spec_context,
     );
+    let generationReferenceContext;
+    if (batch?.generation_reference_context !== undefined) {
+      const context = batch.generation_reference_context;
+      if (
+        !hasExactObjectKeys(context, ["binding_id", "binding_hash"])
+        || !isUuid(String(context.binding_id || ""))
+        || !/^[0-9a-f]{64}$/u.test(String(context.binding_hash || ""))
+      ) {
+        throw new CreatorApiError(
+          "Видеореференс не привязан к точной версии ТЗ.",
+          { code: "generation_video_reference_context_invalid" },
+        );
+      }
+      generationReferenceContext = {
+        binding_id: String(context.binding_id).toLowerCase(),
+        binding_hash: String(context.binding_hash).toLowerCase(),
+      };
+    }
     if (
       batch?.learning_opt_out !== undefined
       && (
@@ -4421,6 +4504,9 @@ export class CreatorApi {
       ...batchPayload,
       project_id: projectId,
       generation_spec_context: generationSpecContext,
+      ...(generationReferenceContext
+        ? { generation_reference_context: generationReferenceContext }
+        : {}),
       campaign_id: campaignId,
       count: 1,
       media_ids: batch.media_ids.map(String),
@@ -6527,6 +6613,14 @@ function toFriendlyMessage(error) {
     generation_mode_prompt_binding_invalid: "ТЗ не соответствует техническому контракту выбранной модели. Восстановите безопасное авто-ТЗ: точный товар, формат, длительность, реплика и запрет надписей будут проверены заново.",
     generation_spec_context_required: "Портал не привязал техническое ТЗ к запуску. Деньги не списаны — повторите запуск.",
     generation_spec_context_invalid: "Техническая версия устарела. Деньги не списаны — повторите запуск.",
+    generation_video_reference_binding_payload_invalid: "Проверьте YouTube-ссылку и описание механики видеореференса.",
+    generation_video_reference_attestation_required: "Подтвердите законный доступ к референсу и перенос только механики.",
+    generation_video_reference_prompt_binding_invalid: "Механика референса не вошла в проверяемое ТЗ. Деньги не списаны.",
+    generation_video_reference_marker_invalid: "Служебная строка видеореференса повреждена или добавлена вручную. Обновите авто-ТЗ — деньги не списаны.",
+    generation_video_reference_context_invalid: "Видеореференс не привязан к платному запуску. Деньги не списаны.",
+    generation_video_reference_scope_mismatch: "Видеореференс относится к другому проекту или версии ТЗ.",
+    generation_video_reference_job_binding_invalid: "Сервер не сохранил lineage видеореференса. Деньги не списаны.",
+    generation_video_reference_lineage_response_invalid: "Общая запись видеореференса повреждена. Обновите запуск или обратитесь к руководителю.",
     generation_spec_prepare_payload_invalid: "Портал не смог подготовить техническое ТЗ. Проверьте замысел и выбранный товар.",
     generation_spec_control_payload_invalid: "Техническая версия изменилась. Повторите запуск — платный запрос не выполнялся.",
     generation_spec_patch_invalid: "Не удалось сохранить исправленный замысел в технической версии. Повторите запуск.",
