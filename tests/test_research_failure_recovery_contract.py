@@ -58,20 +58,21 @@ def test_mp4_handoff_opens_the_real_media_upload_form() -> None:
     assert "#/workspace/board?" not in source
 
 
-def test_recovery_module_is_loaded_on_research_media_and_ai_routes() -> None:
+def test_recovery_module_is_loaded_on_every_handoff_route() -> None:
     bootstrap = read(BOOTSTRAP)
     index = read(INDEX)
     for marker in (
         'route === "/workspace/research"',
         'route === "/workspace/media"',
+        'route === "/workspace/review"',
         'route === "/workspace/ai"',
         "workspace-research-failure-recovery.css",
         "workspace-research-failure-recovery.js",
-        'const BUILD = "20260810.research.27"',
+        'const BUILD = "20260810.research.28"',
     ):
         assert marker in bootstrap
     assert (
-        'workspace-research-training-bootstrap.js?v=20260810.research.27'
+        'workspace-research-training-bootstrap.js?v=20260810.research.28'
         in index
     )
 

@@ -11,6 +11,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 APP_DIR = ROOT / "web" / "app"
 HANDOFF = APP_DIR / "exact-youtube-media-handoff.js"
+DRAFT = APP_DIR / "exact-youtube-research-draft.js"
 APP = APP_DIR / "app.js"
 API = APP_DIR / "supabase-api.js"
 RECOVERY = APP_DIR / "workspace-research-failure-recovery.js"
@@ -55,7 +56,8 @@ def test_handoff_is_bound_to_org_user_tab_project_source_and_preserves_retry() -
         project_id: '44444444-4444-4444-8444-444444444444',
         source_id: '55555555-5555-4555-8555-555555555555',
       }};
-      const requestedAt = '2026-08-10T12:00:00.000Z';
+      const now = Date.now();
+      const requestedAt = new Date(now - 5 * 60 * 1000).toISOString();
       const wrote = mod.writeExactYoutubeMediaHandoff(storage, {{
         ...context,
         canonical_url: 'https://youtube.com/watch?v=RIJ_v--Yncw',
@@ -63,7 +65,6 @@ def test_handoff_is_bound_to_org_user_tab_project_source_and_preserves_retry() -
         product_sku: 'WB-518413561',
         requested_at: requestedAt,
       }});
-      const now = Date.parse('2026-08-10T12:05:00.000Z');
       const exact = mod.readExactYoutubeMediaHandoff(storage, context, {{ now }});
       const wrongUser = mod.readExactYoutubeMediaHandoff(storage, {{
         ...context,
@@ -74,7 +75,7 @@ def test_handoff_is_bound_to_org_user_tab_project_source_and_preserves_retry() -
         session_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       }}, {{ now }});
       const expired = mod.readExactYoutubeMediaHandoff(storage, context, {{
-        now: Date.parse('2026-08-10T18:05:00.000Z'),
+        now: now + mod.EXACT_YOUTUBE_MEDIA_HANDOFF_MAX_AGE_MS + 1,
       }});
       const progress = mod.updateExactYoutubeMediaHandoffProgress(
         storage,
@@ -93,10 +94,10 @@ def test_handoff_is_bound_to_org_user_tab_project_source_and_preserves_retry() -
         canonical_url: 'https://youtube.com/watch?v=RIJ_v--Yncw',
         product_name: 'Аэрогриль MILIO A425D-Black',
         product_sku: 'WB-518413561',
-        requested_at: '2026-08-10T12:06:00.000Z',
+        requested_at: new Date(now).toISOString(),
       }});
       const preserved = mod.readExactYoutubeMediaHandoff(storage, context, {{
-        now: Date.parse('2026-08-10T12:07:00.000Z'),
+        now: now + 60 * 1000,
       }});
       const attachmentId = '99999999-9999-4999-8999-999999999999';
       const reviewRoute = mod.exactYoutubeResearchEvidenceRoute({{
@@ -533,6 +534,7 @@ def test_research_form_upload_click_opens_exact_media_context_with_product_ident
 def test_research_upload_double_click_registers_once_and_starts_no_paid_call() -> None:
     script = f"""
       const handoff = await import({json.dumps(HANDOFF.as_uri())});
+      const draft = await import({json.dumps(DRAFT.as_uri())});
       const values = new Map();
       const storage = {{
         getItem: (key) => values.get(key) ?? null,
@@ -603,9 +605,35 @@ def test_research_upload_double_click_registers_once_and_starts_no_paid_call() -
       const intake = await import({json.dumps(RESEARCH_INTAKE.as_uri())});
       const productName = {{ value: 'MILIO A425D-Black', focus: () => {{}} }};
       const sku = {{ value: '518413561', focus: () => {{}} }};
-      const fields = {{ product_name: productName, sku }};
+      const fields = {{
+        product_name: productName,
+        sku,
+        product_category: {{ value: 'household' }},
+        category_name: {{ value: 'Аэрогрили и мультипечи' }},
+        research_focus: {{ value: 'Результат сначала, быстрый процесс и payoff' }},
+        marketplace_url: {{
+          value: 'https://www.wildberries.ru/catalog/518413561/detail.aspx',
+        }},
+        competitor_references: {{ value: 'Только механика референса' }},
+        objective: {{ value: 'conversion' }},
+        known_facts: {{ value: '4 л; 1500 Вт; 10 программ; гарантия 3 года' }},
+      }};
+      const platforms = [
+        {{ value: 'youtube' }}, {{ value: 'wildberries' }},
+      ];
+      const sourceMediaIds = [
+        {{ value: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }},
+        {{ value: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }},
+      ];
       const form = {{
         elements: {{ namedItem: (name) => fields[name] || null }},
+        querySelectorAll: (selector) => {{
+          if (selector === 'input[name="platforms"]:checked') return platforms;
+          if (selector === 'input[name="source_media_ids"]:checked') {{
+            return sourceMediaIds;
+          }}
+          return [];
+        }},
       }};
       const input = {{
         value: 'https://www.youtube.com/watch?v=YiIjPmQ-XgU&t=64s',
@@ -636,6 +664,7 @@ def test_research_upload_double_click_registers_once_and_starts_no_paid_call() -
         window.location.hash.split('?')[1] || '',
       );
       const stored = handoff.readExactYoutubeMediaHandoff(storage, ids);
+      const storedDraft = draft.readExactYoutubeResearchDraft(storage, ids);
       process.stdout.write(JSON.stringify({{
         rpcNames,
         firstPrevented: firstEvent.prevented,
@@ -646,6 +675,13 @@ def test_research_upload_double_click_registers_once_and_starts_no_paid_call() -
         routeSku: routeQuery.get('product_sku'),
         stored: stored.ok,
         storedSource: stored.handoff?.source_id,
+        draftOk: storedDraft.ok,
+        draftCategory: storedDraft.draft?.product_category,
+        draftMarketplace: storedDraft.draft?.marketplace_url,
+        draftPlatforms: storedDraft.draft?.platforms,
+        draftPhotos: storedDraft.draft?.source_media_ids,
+        draftFocus: storedDraft.draft?.research_focus,
+        draftFacts: storedDraft.draft?.known_facts,
       }}));
     """
     assert run_node(script) == {
@@ -658,6 +694,18 @@ def test_research_upload_double_click_registers_once_and_starts_no_paid_call() -
         "routeSku": "518413561",
         "stored": True,
         "storedSource": "55555555-5555-4555-8555-555555555555",
+        "draftOk": True,
+        "draftCategory": "household",
+        "draftMarketplace": (
+            "https://www.wildberries.ru/catalog/518413561/detail.aspx"
+        ),
+        "draftPlatforms": ["youtube", "wildberries"],
+        "draftPhotos": [
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        ],
+        "draftFocus": "Результат сначала, быстрый процесс и payoff",
+        "draftFacts": "4 л; 1500 Вт; 10 программ; гарантия 3 года",
     }
 
 

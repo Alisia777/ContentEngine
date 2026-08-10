@@ -10,7 +10,7 @@
 (() => {
   "use strict";
 
-  const BUILD = "20260810.research.27";
+  const BUILD = "20260810.research.28";
   const SCRIPT_URL = document.currentScript?.src || window.location.href;
   const BASE_URL = new URL(".", SCRIPT_URL);
   const loadedStyles = new Map();
@@ -43,6 +43,12 @@
     }),
     Object.freeze({
       match: (route) => route === "/workspace/media",
+      styles: ["workspace-research-failure-recovery.css"],
+      modules: ["workspace-research-failure-recovery.js"],
+      requiresRpcAliases: false,
+    }),
+    Object.freeze({
+      match: (route) => route === "/workspace/review",
       styles: ["workspace-research-failure-recovery.css"],
       modules: ["workspace-research-failure-recovery.js"],
       requiresRpcAliases: false,

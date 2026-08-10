@@ -12,10 +12,16 @@ import {
   readExactYoutubeMediaHandoff,
   writeExactYoutubeMediaHandoff,
 } from "./exact-youtube-media-handoff.js?v=20260810.exact-video.2";
+import {
+  clearExactYoutubeResearchDraft,
+  exactYoutubeResearchHydration,
+  readExactYoutubeResearchDraft,
+} from "./exact-youtube-research-draft.js?v=20260810.exact-research-draft.1";
 
 const RESEARCH_ROUTE = "/workspace/research";
 const MEDIA_ROUTE = "/workspace/media";
 const AI_ROUTE = "/workspace/ai";
+const REVIEW_ROUTE = "/workspace/review";
 const FAILURE_GUARD_SELECTOR = "[data-research-youtube-failure-guard]";
 const RECOVERY_ROOT_ATTRIBUTE = "data-research-failure-recovery-root";
 const MEDIA_HANDOFF_ATTRIBUTE = "data-youtube-media-handoff";
@@ -120,6 +126,120 @@ function currentUploadHandoff(sourceId) {
     project_id: currentProjectId(),
     source_id: sourceId,
   });
+}
+
+function currentExactResearchDraft(sourceId) {
+  const context = window.ContentEngineWorkspaceRuntime
+    ?.getExactYoutubeHandoffContext?.() || {};
+  return readExactYoutubeResearchDraft(window.sessionStorage, {
+    organization_id: context.organization_id,
+    user_id: context.user_id,
+    session_id: context.session_id,
+    project_id: currentProjectId(),
+    source_id: sourceId,
+  });
+}
+
+function exactResearchFormControl(form, name) {
+  return form.elements?.namedItem?.(name) || null;
+}
+
+function ensureExactResearchCategoryPlaceholder(select) {
+  if (!(select instanceof HTMLSelectElement)) return;
+  if (select.querySelector('option[value=""]')) return;
+  const option = document.createElement("option");
+  option.value = "";
+  option.textContent = "Выберите категорию";
+  option.disabled = true;
+  select.prepend(option);
+}
+
+export function hydrateExactYoutubeResearchDraft() {
+  if (routePath() !== REVIEW_ROUTE) return false;
+  const params = routeParams();
+  if (params.get("purpose") !== "exact_youtube_research") return false;
+  const sourceId = String(params.get("youtube_source") || "")
+    .trim()
+    .toLowerCase();
+  const form = document.getElementById("exact-youtube-research-evidence-form");
+  if (!(form instanceof HTMLFormElement) || !UUID_PATTERN.test(sourceId)) {
+    return false;
+  }
+  if (form.dataset.exactResearchDraftHydrated === "true") return true;
+  form.dataset.exactResearchDraftHydrated = "true";
+
+  const category = exactResearchFormControl(form, "product_category");
+  ensureExactResearchCategoryPlaceholder(category);
+  const stored = currentExactResearchDraft(sourceId);
+  if (!stored.ok) {
+    if (category instanceof HTMLSelectElement) category.value = "";
+    return true;
+  }
+
+  const photoRadios = [...form.querySelectorAll(
+    'input[type="radio"][name="source_media_id"]',
+  )].filter((input) => input instanceof HTMLInputElement);
+  const baseObjective = String(
+    exactResearchFormControl(form, "objective")?.value || "",
+  ).trim();
+  const hydration = exactYoutubeResearchHydration(
+    stored.draft,
+    photoRadios.map((input) => input.value),
+    baseObjective,
+  );
+
+  if (category instanceof HTMLSelectElement) {
+    const validCategory = [...category.options].some(
+      (option) => option.value === hydration.productCategory,
+    );
+    category.value = validCategory ? hydration.productCategory : "";
+  }
+  const marketplace = exactResearchFormControl(form, "marketplace_url");
+  if (marketplace instanceof HTMLInputElement && hydration.marketplaceUrl) {
+    marketplace.value = hydration.marketplaceUrl;
+  }
+  const objective = exactResearchFormControl(form, "objective");
+  if (objective instanceof HTMLTextAreaElement && hydration.objective) {
+    objective.value = hydration.objective;
+  }
+  if (hydration.platforms.length) {
+    const selected = new Set(hydration.platforms);
+    form.querySelectorAll('input[type="checkbox"][name="platforms"]')
+      .forEach((input) => {
+        if (input instanceof HTMLInputElement) {
+          input.checked = selected.has(input.value);
+        }
+      });
+  }
+  if (hydration.sourceMediaId) {
+    const selectedPhoto = photoRadios.find(
+      (input) => input.value === hydration.sourceMediaId,
+    );
+    if (selectedPhoto) selectedPhoto.checked = true;
+  }
+
+  for (const name of [
+    "media_matches_registered_source",
+    "external_ai_processing_ack",
+    "paid_analysis_ack",
+    "human_review_ack",
+  ]) {
+    const acknowledgement = exactResearchFormControl(form, name);
+    if (acknowledgement instanceof HTMLInputElement) {
+      acknowledgement.checked = false;
+    }
+  }
+  return true;
+}
+
+function clearCompletedExactResearchDraft() {
+  if (routePath() !== RESEARCH_ROUTE) return;
+  const researchId = String(routeParams().get("research_id") || "")
+    .trim()
+    .toLowerCase();
+  if (UUID_PATTERN.test(researchId)) {
+    clearExactYoutubeResearchDraft(window.sessionStorage);
+  }
 }
 
 function bindUploadHandoffLink(
@@ -597,9 +717,11 @@ function repairAiCenterLinks() {
 }
 
 function mount() {
+  clearCompletedExactResearchDraft();
   if (renderFreshResearch()) return;
   repairFailureGuard();
   mountMediaHandoff();
+  hydrateExactYoutubeResearchDraft();
   repairAiCenterLinks();
 }
 
@@ -630,4 +752,5 @@ export const ResearchFailureRecovery = Object.freeze({
   mount,
   mediaHandoffHash,
   freshResearchHash,
+  hydrateExactYoutubeResearchDraft,
 });
