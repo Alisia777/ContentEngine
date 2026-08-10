@@ -1096,10 +1096,10 @@ function readStartPayload(value: unknown): StartPayload | null {
     return null;
   }
   if (
-    Object.hasOwn(value, "generation_reference_context")
-    && readGenerationVideoReferenceContext(
-      value.generation_reference_context,
-    ) === null
+    Object.hasOwn(value, "generation_reference_context") &&
+    readGenerationVideoReferenceContext(
+        value.generation_reference_context,
+      ) === null
   ) return null;
   if (
     Object.hasOwn(value, "learning_opt_out") &&
@@ -1335,11 +1335,11 @@ function readGenerationVideoReferenceContext(
   if (!isRecord(value)) return null;
   const keys = new Set(["binding_id", "binding_hash"]);
   if (
-    !hasOnlyKeys(value, keys)
-    || Object.keys(value).length !== keys.size
-    || !isUuid(value.binding_id)
-    || typeof value.binding_hash !== "string"
-    || !SHA256_PATTERN.test(value.binding_hash)
+    !hasOnlyKeys(value, keys) ||
+    Object.keys(value).length !== keys.size ||
+    !isUuid(value.binding_id) ||
+    typeof value.binding_hash !== "string" ||
+    !SHA256_PATTERN.test(value.binding_hash)
   ) return null;
   return value as GenerationVideoReferenceContext;
 }
