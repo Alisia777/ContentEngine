@@ -58,7 +58,6 @@ function identity(input = {}) {
   return {
     organization_id: uuid(input.organization_id ?? input.organizationId),
     user_id: uuid(input.user_id ?? input.userId),
-    session_id: uuid(input.session_id ?? input.sessionId),
     project_id: uuid(input.project_id ?? input.projectId),
     source_id: uuid(input.source_id ?? input.sourceId),
   };
@@ -141,6 +140,9 @@ function parseStored(storage) {
 export function writeExactYoutubeResearchDraft(storage, input = {}) {
   const exactIdentity = identity(input);
   if (!identityComplete(exactIdentity)) return false;
+  // Retain the old v1 field for rollback/mixed-cache compatibility only.
+  // sessionStorage provides tab locality; this volatile UUID is not authority.
+  const legacySessionId = uuid(input.session_id ?? input.sessionId);
   const requestedAt = compactText(
     input.requested_at ?? input.requestedAt,
     64,
@@ -152,6 +154,7 @@ export function writeExactYoutubeResearchDraft(storage, input = {}) {
       JSON.stringify({
         version: 1,
         ...exactIdentity,
+        ...(legacySessionId ? { session_id: legacySessionId } : {}),
         ...normalizedDraft(input),
         requested_at: requestedAt,
       }),
