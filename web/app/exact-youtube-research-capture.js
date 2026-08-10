@@ -1,6 +1,7 @@
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
+const MAX_EXACT_VIDEO_CAPTURE_BYTES = 52_428_800;
 
 function normalized(value) {
   return String(value || "").trim().toLowerCase();
@@ -9,6 +10,121 @@ function normalized(value) {
 function objectKey(value) {
   const candidate = String(value || "").trim();
   return candidate && candidate.length <= 1_000 ? candidate : "";
+}
+
+function byteHex(buffer) {
+  return Array.from(new Uint8Array(buffer), (byte) => (
+    byte.toString(16).padStart(2, "0")
+  )).join("");
+}
+
+export async function verifyExactYoutubeResearchCaptureBlob(
+  media,
+  blob,
+  {
+    subtle = globalThis.crypto?.subtle,
+  } = {},
+) {
+  const expectedSize = Number(media?.sizeBytes);
+  const expectedSha256 = normalized(media?.sha256);
+  if (
+    normalized(media?.mimeType) !== "video/mp4"
+    || !Number.isInteger(expectedSize)
+    || expectedSize < 1
+    || expectedSize > MAX_EXACT_VIDEO_CAPTURE_BYTES
+    || !SHA256_PATTERN.test(expectedSha256)
+    || typeof blob?.arrayBuffer !== "function"
+    || typeof blob?.slice !== "function"
+    || typeof subtle?.digest !== "function"
+  ) {
+    return { ok: false, code: "exact_youtube_capture_blob_context_invalid" };
+  }
+  if (Number(blob.size) !== expectedSize) {
+    return { ok: false, code: "exact_youtube_capture_blob_size_mismatch" };
+  }
+  try {
+    const bytes = await blob.arrayBuffer();
+    if (
+      bytes.byteLength !== expectedSize
+      || bytes.byteLength > MAX_EXACT_VIDEO_CAPTURE_BYTES
+    ) {
+      return {
+        ok: false,
+        code: "exact_youtube_capture_blob_size_mismatch",
+      };
+    }
+    const actualSha256 = byteHex(await subtle.digest("SHA-256", bytes));
+    if (actualSha256 !== expectedSha256) {
+      return {
+        ok: false,
+        code: "exact_youtube_capture_blob_hash_mismatch",
+      };
+    }
+    const normalizedBlob = blob.slice(0, expectedSize, "video/mp4");
+    if (
+      Number(normalizedBlob?.size) !== expectedSize
+      || String(normalizedBlob?.type || "").toLowerCase() !== "video/mp4"
+    ) {
+      return {
+        ok: false,
+        code: "exact_youtube_capture_blob_read_failed",
+      };
+    }
+    return {
+      ok: true,
+      code: "ok",
+      blob: normalizedBlob,
+      sizeBytes: bytes.byteLength,
+      sha256: actualSha256,
+    };
+  } catch {
+    return {
+      ok: false,
+      code: "exact_youtube_capture_blob_read_failed",
+    };
+  }
+}
+
+export async function captureVerifiedPrivateVideoBlob(
+  media,
+  blob,
+  capture,
+  {
+    subtle = globalThis.crypto?.subtle,
+    createObjectURL = (value) => globalThis.URL.createObjectURL(value),
+    revokeObjectURL = (value) => globalThis.URL.revokeObjectURL(value),
+  } = {},
+) {
+  if (
+    typeof capture !== "function"
+    || typeof createObjectURL !== "function"
+    || typeof revokeObjectURL !== "function"
+  ) {
+    return { ok: false, code: "private_video_capture_callback_invalid" };
+  }
+  const verified = await verifyExactYoutubeResearchCaptureBlob(
+    media,
+    blob,
+    { subtle },
+  );
+  if (!verified.ok) return verified;
+  let objectUrl = "";
+  try {
+    objectUrl = String(createObjectURL(verified.blob) || "").trim();
+    if (!objectUrl.startsWith("blob:")) {
+      return { ok: false, code: "private_video_capture_object_url_invalid" };
+    }
+    const evidence = await capture({ ...media, url: objectUrl });
+    return {
+      ok: true,
+      code: "ok",
+      evidence,
+      sizeBytes: verified.sizeBytes,
+      sha256: verified.sha256,
+    };
+  } finally {
+    if (objectUrl) revokeObjectURL(objectUrl);
+  }
 }
 
 export function resolveExactYoutubeResearchCaptureMedia(

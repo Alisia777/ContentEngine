@@ -1112,8 +1112,8 @@ def test_runtime_wiring_is_bounded_honest_and_mobile_safe() -> None:
     assert "> summary:focus-visible::after" in css
     assert ":hover > summary::after" in css
     assert "@media (max-width: 620px)" in css
-    assert '"./supabase-api.js?v=20260810.os4.25"' in app
-    assert '"./product-research-view.js?v=20260810.os4.25"' in app
+    assert '"./supabase-api.js?v=20260810.os4.26"' in app
+    assert '"./product-research-view.js?v=20260810.os4.26"' in app
     assert 'href="./product-research.css?v=20260803.9"' in index
-    assert 'src="./app.js?v=20260810.os4.25"' in index
+    assert 'src="./app.js?v=20260810.os4.26"' in index
     assert "20260803.os4.8" not in index

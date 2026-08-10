@@ -26,7 +26,8 @@ def test_review_catalog_exposes_only_exact_category_and_platform_context() -> No
 
 
 def test_generated_media_defaults_follow_server_bound_context() -> None:
-    assert "raw.preview_url || raw.url" in VIEW
+    assert "raw.preview_url || raw.previewUrl" in VIEW
+    assert "|| raw.url" in VIEW
     assert "raw.product_category" in VIEW
     assert "metadata.content_review_category" in VIEW
     assert "raw.platform" in VIEW

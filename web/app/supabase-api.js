@@ -5025,6 +5025,23 @@ export class CreatorApi {
     }
   }
 
+  async downloadPrivateObject(objectKey) {
+    this.assertReadableObjectKey(objectKey);
+    const { data, error } = await this.supabase.storage
+      .from(this.storageBucket)
+      .download(objectKey);
+    if (error) {
+      throw new CreatorApiError(toFriendlyMessage(error), error);
+    }
+    if (!data || typeof data.arrayBuffer !== "function") {
+      throw new CreatorApiError(
+        "Защищённый файл не был возвращён хранилищем.",
+        { code: "private_object_download_missing" },
+      );
+    }
+    return data;
+  }
+
   async removePrivateObjects(objectKeys) {
     const keys = [...new Set((objectKeys || []).map((value) => String(value || "").trim()).filter(Boolean))];
     if (!keys.length) return;

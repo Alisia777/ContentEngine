@@ -1800,9 +1800,8 @@ async function captureVideoEvidence(media, onProgress) {
   video.preload = "auto";
   video.muted = true;
   video.playsInline = true;
-  video.src = media.url;
   try {
-    await waitForEvent(video, "loadedmetadata", 15_000, "Не удалось прочитать параметры MP4.");
+    await loadVideoMetadata(video, media.url);
     const width = Number(video.videoWidth);
     const height = Number(video.videoHeight);
     const duration = Number(video.duration);
@@ -2717,6 +2716,46 @@ function waitForEvent(target, eventName, timeoutMs, message) {
   });
 }
 
+function loadVideoMetadata(video, url, timeoutMs = 15_000) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timer = 0;
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      video.removeEventListener("loadedmetadata", onSuccess);
+      video.removeEventListener("error", onError);
+    };
+    const onSuccess = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+    const onError = () => {
+      if (settled) return;
+      settled = true;
+      const mediaErrorCode = Number(video.error?.code) || 0;
+      const networkState = Number(video.networkState) || 0;
+      const readyState = Number(video.readyState) || 0;
+      cleanup();
+      reject(userError(
+        `Не удалось прочитать параметры MP4 (media=${mediaErrorCode}, network=${networkState}, ready=${readyState}).`,
+      ));
+    };
+    video.addEventListener("loadedmetadata", onSuccess, { once: true });
+    video.addEventListener("error", onError, { once: true });
+    timer = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(userError("Чтение параметров MP4 заняло больше 15 секунд."));
+    }, timeoutMs);
+    video.src = url;
+    video.load();
+    if (video.readyState >= 1) window.queueMicrotask(onSuccess);
+  });
+}
+
 function drawSource(source, sourceWidth, sourceHeight) {
   const maxDimension = 720;
   const scale = Math.min(1, maxDimension / Math.max(sourceWidth, sourceHeight));
@@ -3029,22 +3068,30 @@ function normalizeSoundAssessment(raw) {
 
 function normalizeMedia(raw) {
   const metadata = objectFrom(raw.metadata) || {};
-  const mimeType = text(raw.mime_type || raw.content_type, 120).toLowerCase();
+  const mimeType = text(
+    raw.mime_type || raw.mimeType || raw.content_type || raw.contentType,
+    120,
+  ).toLowerCase();
   const kind = text(raw.kind || metadata.kind, 80).toLowerCase();
   const isVideo = mimeType === "video/mp4" || kind === "source_video" || kind === "generated_video";
   const isImage = mimeType.startsWith("image/") || ["product_photo", "packshot", "creator_reference"].includes(kind);
   const url = safeMediaUrl(
-    raw.signed_url || raw.access_url || raw.preview_url || raw.url,
+    raw.signed_url || raw.signedUrl
+    || raw.access_url || raw.accessUrl
+    || raw.preview_url || raw.previewUrl
+    || raw.url,
   );
-  const model = text(metadata.model, 120).toLowerCase();
-  const audioExpected = typeof metadata.audio === "boolean"
-    ? metadata.audio
+  const model = text(metadata.model || raw.generationModel, 120).toLowerCase();
+  const audioExpected = typeof raw.audioExpected === "boolean"
+    ? raw.audioExpected
+    : typeof metadata.audio === "boolean"
+      ? metadata.audio
     : model === "gen4_turbo"
       ? false
       : null;
   return {
     id: text(raw.public_id || raw.id || raw.media_id, 180),
-    productId: text(raw.product_id || metadata.product_id, 180),
+    productId: text(raw.product_id || raw.productId || metadata.product_id, 180),
     productCategory: text(
       raw.product_category
       || metadata.content_review_category
@@ -3061,21 +3108,25 @@ function normalizeMedia(raw) {
       raw.generation_job_id || metadata.generation_job_id,
       180,
     ).toLowerCase(),
-    name: text(raw.original_filename || raw.name || metadata.original_filename || metadata.filename || metadata.name || "Материал", 300),
+    name: text(raw.original_filename || raw.originalFilename || raw.name || metadata.original_filename || metadata.filename || metadata.name || "Материал", 300),
     mimeType,
     kind,
     isVideo,
     isImage,
     supported: isVideo || isImage,
     url,
-    objectName: text(raw.object_name || raw.object_key, 600),
+    objectName: text(
+      raw.object_name || raw.objectName || raw.object_key || raw.objectKey,
+      600,
+    ),
     status: text(raw.status, 40).toLowerCase(),
     sha256: text(raw.sha256, 180),
-    sizeBytes: nonNegativeInteger(raw.size_bytes),
+    sizeBytes: nonNegativeInteger(raw.size_bytes ?? raw.sizeBytes),
     generationModel: model,
     audioExpected,
     spokenScript: text(
-      raw.spoken_script || metadata.spoken_script || metadata.review_script_text,
+      raw.spoken_script || raw.spokenScript
+      || metadata.spoken_script || metadata.review_script_text,
       6000,
     ),
   };

@@ -736,10 +736,9 @@ def test_exact_video_route_captures_five_frames_then_starts_product_research_onl
     ):
         assert marker in render
     for marker in (
-        "captureContentReviewEvidence(captureVideo)",
         "requireFreshExactYoutubeResearchSource(context",
         "resolveExactYoutubeResearchCaptureMedia(",
-        "state.api.signedPrivateObjectUrls([freshObjectKey], 600)",
+        "captureVerifiedPrivateVideoEvidence(",
         "persistContentReviewVideoEvidence(",
         "saveExactYoutubeResearchEvidence(context, evidence)",
         "state.api.startProductResearch(",
