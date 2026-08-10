@@ -6275,6 +6275,7 @@ function toFriendlyMessage(error) {
     generation_rejected: "Сервер отклонил платный запуск. Проверьте доступ, исходник и подтверждение расходов.",
     generation_unavailable: "Сервис платной генерации временно недоступен. Повторите попытку позже.",
     product_research_input_invalid: "Проверьте название товара и артикул.",
+    research_youtube_source_requires_media: "YouTube-ссылка относится к отдельному видеоисточнику. Сначала добавьте разрешённый MP4 в исследование или исключите YouTube-ссылку из рыночного запроса.",
     product_research_paid_confirmation_required: "Подтвердите платный ИИ-анализ перед запуском.",
     paid_analysis_ack_required: "Подтвердите платный ИИ-анализ перед запуском.",
     research_execution_authorization_required: "Сервер не получил подтверждение платного анализа. Начните новый запуск и подтвердите расход ещё раз.",

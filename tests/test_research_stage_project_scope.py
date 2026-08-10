@@ -13,6 +13,7 @@ MIGRATION = (
 )
 API = ROOT / "web/app/supabase-api.js"
 APP = ROOT / "web/app/app.js"
+PGTAP = ROOT / "supabase/tests/research_stage_control_loop_test.sql"
 
 
 def _read(path: Path) -> str:
@@ -150,6 +151,43 @@ def test_project_context_is_restored_on_success_and_exception() -> None:
     for wrapper in (status, control):
         assert "child_run.project_id = project_id_value" in wrapper
         assert "research_stage_recompute_child_project_scope_mismatch" in wrapper
+
+
+def test_runtime_stage_control_fixture_uses_the_same_project_contract() -> None:
+    sql = _read(PGTAP)
+    folded = _compact(sql)
+
+    assert parse_sql(sql)
+    assert "insert into content_factory.workspace_folders" in folded
+    assert "insert into content_factory.workspace_project_memberships" in folded
+    assert "'fa500000-0000-4000-8000-000000000001'" in folded
+    assert "'fa500000-0000-4000-8000-000000000002'" in folded
+    assert re.search(
+        r"insert\s+into\s+content_factory\.product_research_runs\s*\("
+        r"[^)]*\bproject_id\b",
+        sql,
+        re.IGNORECASE | re.DOTALL,
+    )
+
+    calls = list(
+        re.finditer(
+            r"public\.creator_(?:research_stage_control_status|"
+            r"control_research_stage)\s*\(\s*jsonb_build_object\s*\(",
+            sql,
+            re.IGNORECASE,
+        )
+    )
+    assert len(calls) >= 24
+    windows = [sql[call.start() : call.start() + 360] for call in calls]
+    missing_project = [window for window in windows if "'project_id'" not in window]
+    # One negative assertion deliberately proves that the browser contract
+    # rejects an omitted project.  Every functional fixture call is scoped.
+    assert len(missing_project) == 1
+    assert "project_id_invalid" in sql
+    assert "research_run_project_scope_mismatch" in sql
+    assert sql.count(
+        "'project_id', 'fa500000-0000-4000-8000-000000000001'"
+    ) >= 24
 
 
 def test_browser_contract_requires_and_propagates_project_id() -> None:

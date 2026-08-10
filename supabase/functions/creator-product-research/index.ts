@@ -30,6 +30,8 @@ const UNKNOWN_PROVIDER_OUTCOME_MESSAGE =
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const SOURCE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/u;
+const UNATTACHED_YOUTUBE_URL_PATTERN =
+  /https?:\/\/(?:[a-z0-9-]+\.)*(?:youtube(?:-nocookie)?\.com|youtu\.be)(?:[/?#:]|$)/iu;
 const PROVIDER_FAILURE_CODES = new Set([
   "provider_configuration_error",
   "provider_authentication_failed",
@@ -657,6 +659,11 @@ function readRun(value: unknown): ResearchRun | null {
     photos: safePhotos,
     recomputeContext,
   };
+}
+
+export function containsUnattachedYoutubeUrl(value: unknown): boolean {
+  return typeof value === "string" &&
+    UNATTACHED_YOUTUBE_URL_PATTERN.test(value);
 }
 
 function readClaimEnvelope(
@@ -2849,6 +2856,15 @@ async function handleCreatorProductResearch(
         current.data,
         current.status === "processing" ? 202 : 200,
       );
+  }
+  if (
+    containsUnattachedYoutubeUrl(claim.run.brief)
+    || containsUnattachedYoutubeUrl(claim.run.productUrl)
+  ) {
+    return await fail(
+      "input_validation_failed",
+      "YouTube-ссылка без привязанного законно полученного MP4 не отправляется в платный анализ товара и рынка. Сохраните источник отдельно и загрузите видеофайл.",
+    );
   }
   if (
     claim.run.photos.length > MAX_PHOTOS ||

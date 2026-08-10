@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS = ROOT / "supabase/migrations"
 PREVIOUS = MIGRATIONS / "202608100002_workspace_media_classification_and_folders.sql"
 MIGRATION = MIGRATIONS / "202608100003_project_team_shared_media_access.sql"
+WORKSPACE_PGTAP = ROOT / "supabase/tests/workspace_folders_test.sql"
 
 
 def _read(path: Path) -> str:
@@ -126,6 +127,20 @@ def test_backfill_preserves_admins_creators_and_real_contributors_only() -> None
         r"'reviewer', 'operator' ?\)",
         source,
     )
+
+
+def test_runtime_workspace_fixture_grants_exact_project_collaborators() -> None:
+    source = _read(WORKSPACE_PGTAP)
+    normalized = _normalized(source)
+
+    parse_sql(source)
+    assert "insert into content_factory.workspace_project_memberships" in normalized
+    for profile_id in (
+        "94000000-0000-4000-8000-000000000002",
+        "94000000-0000-4000-8000-000000000003",
+    ):
+        assert profile_id in normalized
+    assert normalized.count("94400000-0000-4000-8000-000000000100") >= 2
 
 
 def test_membership_management_is_owner_admin_only_and_audited() -> None:

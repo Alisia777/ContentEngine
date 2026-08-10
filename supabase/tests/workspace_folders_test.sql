@@ -499,6 +499,29 @@ insert into content_factory.workspace_folders (
     '94000000-0000-4000-8000-000000000005'
   );
 
+-- Organization membership alone no longer grants project access.  Both
+-- operators are explicit collaborators of the main project: the current
+-- operator exercises its browser and move permissions, while the second owns
+-- a foreign item used by the write-authorization assertions below.
+insert into content_factory.workspace_project_memberships (
+  organization_id, project_id, profile_id, access_role, status,
+  granted_by, updated_by
+) values (
+  '94100000-0000-4000-8000-000000000001',
+  '94400000-0000-4000-8000-000000000100',
+  '94000000-0000-4000-8000-000000000002',
+  'member', 'active',
+  '94000000-0000-4000-8000-000000000001',
+  '94000000-0000-4000-8000-000000000001'
+), (
+  '94100000-0000-4000-8000-000000000001',
+  '94400000-0000-4000-8000-000000000100',
+  '94000000-0000-4000-8000-000000000003',
+  'member', 'active',
+  '94000000-0000-4000-8000-000000000001',
+  '94000000-0000-4000-8000-000000000001'
+);
+
 insert into content_factory.media_objects (
   id, organization_id, project_id, owner_id, bucket_id, object_name,
   mime_type, size_bytes, sha256, status, metadata,

@@ -121,6 +121,12 @@ def test_ai_center_exposes_breakdown_selection_and_editable_scenarios() -> None:
     assert "replacedByResearchTraining" in AI_CENTER
 
 
+def test_generation_marks_ai_ready_state_as_advisory_and_editable() -> None:
+    assert "Готово ИИ · можно изменить" in GENERATION
+    assert "Все поля можно изменить" in GENERATION
+    assert "Рекомендация · не обязательна" in GENERATION
+
+
 def test_generation_is_ai_first_but_never_overwrites_human_edits() -> None:
     node = shutil.which("node")
     if not node:
