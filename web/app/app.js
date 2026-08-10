@@ -3,7 +3,7 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260810.os4.25";
+} from "./supabase-api.js?v=20260810.os4.26";
 import {
   clearExactYoutubeMediaHandoff,
   exactYoutubeRegisteredMediaId,
@@ -13,9 +13,10 @@ import {
   updateExactYoutubeMediaHandoffProgress,
 } from "./exact-youtube-media-handoff.js?v=20260810.exact-video.2";
 import {
+  captureVerifiedPrivateVideoBlob,
   exactYoutubeResearchFailureRecovery,
   resolveExactYoutubeResearchCaptureMedia,
-} from "./exact-youtube-research-capture.js?v=20260810.exact-video-capture.1";
+} from "./exact-youtube-research-capture.js?v=20260810.exact-video-capture.2";
 import {
   generationSpecCardMarkup,
   generationSpecScopesMatch,
@@ -23,8 +24,8 @@ import {
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
 } from "./generation-spec.js?v=20260803.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260810.os4.25";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260810.os4.25";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260810.os4.26";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260810.os4.26";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -87,7 +88,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260810.os4.25";
+} from "./product-research-view.js?v=20260810.os4.26";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -98,7 +99,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260810.os4.25";
+} from "./ai-learning-control-room.js?v=20260810.os4.26";
 import {
   compileContentGenerationPrompt,
   compileSafeGenerationBrief,
@@ -111,7 +112,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260810.os4.25";
+} from "./content-generation-handoff.js?v=20260810.os4.26";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -125,7 +126,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260810.os4.25";
+} from "./generation-form-draft.js?v=20260810.os4.26";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -137,7 +138,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260810.os4.25";
+} from "./generation-autopilot.js?v=20260810.os4.26";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -158,7 +159,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260810.os4.25";
+} from "./content-review-view.js?v=20260810.os4.26";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -187,7 +188,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260810.os4.25";
+} from "./workspace-board-view.js?v=20260810.os4.26";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -216,7 +217,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260810.os4.25";
+} from "./training-journey.js?v=20260810.os4.26";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -235,7 +236,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260810.os4.25";
+} from "./training-practical-review.js?v=20260810.os4.26";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -254,7 +255,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260810.os4.25";
+} from "./my-work-view.js?v=20260810.os4.26";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -12432,6 +12433,44 @@ async function loadGeneratedVideoQaMedia(mediaId, fallbackUrl = "") {
   return resolveGeneratedVideoReviewMedia(media, fallbackUrl);
 }
 
+async function captureVerifiedPrivateVideoEvidence(
+  media,
+  { onProgress, onVerified } = {},
+) {
+  const source = media && typeof media === "object" ? media : {};
+  const objectName = String(source.objectName || "").trim();
+  if (
+    source.isVideo !== true
+    || String(source.mimeType || "").trim().toLowerCase() !== "video/mp4"
+    || !objectName
+  ) {
+    throw new CreatorApiError(
+      "MP4 не прошёл сверку с защищённым каталогом. Обновите раздел и выберите файл снова.",
+      { code: "private_video_capture_context_invalid" },
+    );
+  }
+  const privateBlob = await withUiTimeout(
+    state.api.downloadPrivateObject(objectName),
+    90_000,
+    "private_video_capture_download_timeout",
+  );
+  const captured = await captureVerifiedPrivateVideoBlob(
+    source,
+    privateBlob,
+    async (localMedia) => {
+      onVerified?.({ sizeBytes: Number(localMedia?.sizeBytes) || 0 });
+      return captureContentReviewEvidence(localMedia, { onProgress });
+    },
+  );
+  if (!captured.ok) {
+    throw new CreatorApiError(
+      "Защищённый MP4 не совпал с записью каталога по размеру или SHA-256. Кадры не извлечены.",
+      { code: captured.code },
+    );
+  }
+  return captured.evidence;
+}
+
 async function resolveGeneratedVideoReviewMedia(media, fallbackUrl = "") {
   const source = media && typeof media === "object" ? media : {};
   if (source.kind !== "generated_video") return source;
@@ -12456,7 +12495,7 @@ async function resolveGeneratedVideoReviewMedia(media, fallbackUrl = "") {
       url = signedUrl;
     }
   }
-  if (!url) {
+  if (!url && !String(source.objectName || "").trim()) {
     throw new Error("Для готового MP4 не удалось получить защищённую ссылку.");
   }
   return { ...source, url };
@@ -12483,7 +12522,7 @@ async function prepareGeneratedVideoTechnicalQa(entry) {
         completedFrames: 0,
         totalFrames: 5,
       });
-      capturedEvidence = await captureContentReviewEvidence(media, {
+      capturedEvidence = await captureVerifiedPrivateVideoEvidence(media, {
         onProgress: (progress) => {
           if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id) return;
           setGeneratedVideoQaStatus(mediaId, {
@@ -25567,25 +25606,14 @@ async function submitExactYoutubeResearchEvidence(form) {
       : null;
     let captureVideo = verifiedVideo;
     if (!capturedEvidence) {
-      setStatus("Обновляем защищённую ссылку на подтверждённый MP4. Платный анализ ещё не начат…");
+      setStatus("Безопасно загружаем подтверждённый MP4 из приватного хранилища. Платный анализ ещё не начат…");
       const freshObjectKey = verifiedVideo.objectName;
-      const signedUrls = await withUiTimeout(
-        state.api.signedPrivateObjectUrls([freshObjectKey], 600),
-        WORKSPACE_REQUEST_TIMEOUT_MS,
-        "exact_youtube_research_signed_url_timeout",
+      capturedEvidence = await captureVerifiedPrivateVideoEvidence(
+        { ...verifiedVideo, objectName: freshObjectKey },
+        {
+          onVerified: () => setStatus("SHA-256 совпал. Бесплатно извлекаем пять контрольных JPEG из локальной копии в браузере. Платный анализ ещё не начат…"),
+        },
       );
-      const freshSignedUrl = String(
-        signedUrls?.get?.(freshObjectKey) || "",
-      ).trim();
-      if (!isTrustedGenerationDownload(freshSignedUrl)) {
-        throw new CreatorApiError(
-          "Не удалось получить свежую защищённую ссылку на подтверждённый MP4. Платный анализ не запущен — повторите подготовку.",
-          { code: "exact_youtube_research_signed_url_missing" },
-        );
-      }
-      captureVideo = { ...verifiedVideo, url: freshSignedUrl };
-      setStatus("Бесплатно извлекаем пять контрольных JPEG в браузере. Платный анализ ещё не начат…");
-      capturedEvidence = await captureContentReviewEvidence(captureVideo);
     }
     if (durableEvidence?.status !== "ready") {
       setStatus("Сохраняем пять кадров в защищённом evidence-контуре. Платный анализ ещё не начат…");
@@ -25816,7 +25844,9 @@ async function submitContentReview(form) {
   try {
     evidence = durableEvidence
       ? { frames: [], technical_metrics: durableEvidence.technicalMetrics }
-      : await captureContentReviewEvidence(media);
+      : media.isVideo
+        ? await captureVerifiedPrivateVideoEvidence(media)
+        : await captureContentReviewEvidence(media);
   } catch (error) {
     review.phase = "idle";
     review.error = actionErrorMessage(error);

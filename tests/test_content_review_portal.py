@@ -23,9 +23,9 @@ def test_review_is_a_first_class_versioned_workspace_stage() -> None:
     assert "review: renderContentReviewSection" in APP
     assert 'section === "review"' in APP
     assert 'state.api.contentReviewCatalog({ limit: 50, projectId })' in APP
-    assert './content-review-view.js?v=20260810.os4.25' in APP
-    assert './content-review.css?v=20260810.os4.25' in INDEX
-    assert './app.js?v=20260810.os4.25' in INDEX
+    assert './content-review-view.js?v=20260810.os4.26' in APP
+    assert './content-review.css?v=20260810.os4.26' in INDEX
+    assert './app.js?v=20260810.os4.26' in INDEX
     assert "20260716.1" not in INDEX
     assert "20260716.1" not in "\n".join(
         line for line in APP.splitlines() if line.startswith("import ")
@@ -697,7 +697,7 @@ def test_successful_generated_video_prepares_durable_technical_qa_automatically(
         APP.index("function resumeGeneratedVideoTechnicalQa")
     ]
     assert "loadGeneratedVideoQaMedia" in prepare
-    assert "captureContentReviewEvidence" in prepare
+    assert "captureVerifiedPrivateVideoEvidence" in prepare
     assert "persistContentReviewVideoEvidence" in prepare
     assert "saveGeneratedVideoQaEvidence" in prepare
     assert "startContentReview" not in prepare
@@ -853,7 +853,7 @@ if (JSON.stringify(codes) !== JSON.stringify(["HIGH.ONE", "HUMAN.TWO"])) throw n
 
 
 def test_new_media_of_the_same_product_keeps_comparison_history() -> None:
-    assert "productId: text(raw.product_id || metadata.product_id" in VIEW
+    assert "productId: text(raw.product_id || raw.productId || metadata.product_id" in VIEW
     assert "const previousSameMedia = completedRuns.find" in APP
     assert "const previousSameProduct = media.productId" in APP
     assert "item.media?.productId === media.productId" in APP
