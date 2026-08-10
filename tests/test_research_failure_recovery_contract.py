@@ -67,11 +67,11 @@ def test_recovery_module_is_loaded_on_research_media_and_ai_routes() -> None:
         'route === "/workspace/ai"',
         "workspace-research-failure-recovery.css",
         "workspace-research-failure-recovery.js",
-        'const BUILD = "20260810.research.26"',
+        'const BUILD = "20260810.research.27"',
     ):
         assert marker in bootstrap
     assert (
-        'workspace-research-training-bootstrap.js?v=20260810.research.26'
+        'workspace-research-training-bootstrap.js?v=20260810.research.27'
         in index
     )
 

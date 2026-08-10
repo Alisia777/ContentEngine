@@ -1,5 +1,4 @@
 from pathlib import Path
-import base64
 import json
 import shutil
 import subprocess
@@ -79,9 +78,8 @@ def test_exact_youtube_short_is_canonicalized_and_merged_into_research() -> None
     node = shutil.which("node")
     if not node:
         pytest.skip("node is unavailable")
-    encoded = base64.b64encode(RESEARCH.encode("utf-8")).decode("ascii")
     script = f"""
-      const mod = await import('data:text/javascript;base64,{encoded}');
+      const mod = await import({json.dumps((APP / "workspace-research-video-intake.js").as_uri())});
       const input = 'https://www.youtube.com/shorts/CXssfXBVInw';
       const canonical = mod.canonicalResearchVideoUrl(input);
       const merged = mod.mergeResearchVideoReference(

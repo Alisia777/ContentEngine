@@ -7,6 +7,8 @@
  * (or a separately approved media provider) before any paid analysis starts.
  */
 
+import { writeExactYoutubeMediaHandoff } from "./exact-youtube-media-handoff.js?v=20260810.exact-video.2";
+
 const ROUTE = "/workspace/research";
 const FORM_ID = "product-research-start-form";
 const FIELD_ID = "research-training-video-url";
@@ -150,12 +152,35 @@ function projectId() {
   return UUID_PATTERN.test(value) ? value : "";
 }
 
-function filesHash(sourceId = "") {
-  const currentProjectId = projectId();
+function hashUrl(route, values = {}) {
   const query = new URLSearchParams();
-  if (currentProjectId) query.set("project_id", currentProjectId);
-  query.set("youtube_source", sourceId || "pending_media");
-  return `#/workspace/board?${query.toString()}`;
+  Object.entries(values).forEach(([key, value]) => {
+    const normalized = String(value ?? "").trim();
+    if (normalized) query.set(key, normalized);
+  });
+  const suffix = query.toString();
+  return `#${route}${suffix ? `?${suffix}` : ""}`;
+}
+
+export function researchVideoMediaHash({
+  projectId: exactProjectId = projectId(),
+  sourceId = "",
+  canonicalUrl = "",
+  productName = "",
+  productSku = "",
+} = {}) {
+  return hashUrl("/workspace/media", {
+    view: "upload",
+    project_id: exactProjectId,
+    youtube_source: sourceId,
+    video_url: canonicalUrl,
+    product_name: productName,
+    product_sku: productSku,
+    return_to: hashUrl(ROUTE, {
+      project_id: exactProjectId,
+      source_url: canonicalUrl,
+    }),
+  });
 }
 
 function pendingSourceKey() {
@@ -236,6 +261,73 @@ function fieldText(form, names, limit) {
   return "";
 }
 
+export function prepareResearchVideoMediaHandoff({
+  storage,
+  context = {},
+  source = {},
+  canonicalUrl = "",
+  productName = "",
+  productSku = "",
+} = {}) {
+  const exactProjectId = String(context.project_id || context.projectId || "")
+    .trim()
+    .toLowerCase();
+  const exactSourceId = String(source.id || source.source_id || "")
+    .trim()
+    .toLowerCase();
+  const sourceProjectId = String(source.project_id || exactProjectId)
+    .trim()
+    .toLowerCase();
+  const requestedCanonical = canonicalResearchVideoUrl(canonicalUrl);
+  const sourceCanonical = canonicalResearchVideoUrl(source.canonical_url || "");
+  const exactCanonical = sourceCanonical || requestedCanonical;
+  if (
+    !UUID_PATTERN.test(exactProjectId)
+    || !UUID_PATTERN.test(exactSourceId)
+    || sourceProjectId !== exactProjectId
+    || !exactCanonical
+    || (requestedCanonical && requestedCanonical !== exactCanonical)
+  ) {
+    return { ok: false, code: "exact_youtube_media_handoff_scope_invalid" };
+  }
+  const exactProductName = String(source.product_name || productName || "")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .slice(0, 300);
+  const exactProductSku = String(source.product_sku || productSku || "")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .slice(0, 160);
+  const wrote = writeExactYoutubeMediaHandoff(storage, {
+    organization_id: context.organization_id || context.organizationId,
+    user_id: context.user_id || context.userId,
+    session_id: context.session_id || context.sessionId,
+    project_id: exactProjectId,
+    source_id: exactSourceId,
+    canonical_url: exactCanonical,
+    product_name: exactProductName,
+    product_sku: exactProductSku,
+  });
+  if (!wrote) {
+    return { ok: false, code: "exact_youtube_media_handoff_storage_invalid" };
+  }
+  return {
+    ok: true,
+    code: "ok",
+    href: researchVideoMediaHash({
+      projectId: exactProjectId,
+      sourceId: exactSourceId,
+      canonicalUrl: exactCanonical,
+      productName: exactProductName,
+      productSku: exactProductSku,
+    }),
+    sourceId: exactSourceId,
+    canonicalUrl: exactCanonical,
+    productName: exactProductName,
+    productSku: exactProductSku,
+  };
+}
+
 async function registerExactSource(form, canonical) {
   const currentProjectId = projectId();
   const videoId = canonical.slice(-11);
@@ -290,11 +382,85 @@ async function registerExactSource(form, canonical) {
   return source;
 }
 
+export async function openResearchVideoMediaUpload(
+  event,
+  form,
+  panel,
+  input,
+  status,
+  upload,
+) {
+  event.preventDefault();
+  if (upload.dataset.busy === "true") return;
+  const canonical = validateInput(input, status);
+  if (!canonical) {
+    input.reportValidity();
+    input.focus({ preventScroll: true });
+    return;
+  }
+  const productName = fieldText(form, ["product_name", "title", "name"], 300);
+  const productSku = fieldText(form, ["sku", "product_sku", "article"], 160);
+  if (!productName || !productSku) {
+    status.textContent =
+      "Сначала укажите точное название товара и SKU — они будут перенесены в загрузку этого MP4.";
+    status.dataset.tone = "danger";
+    const missing = !productName
+      ? form.elements?.namedItem?.("product_name")
+      : form.elements?.namedItem?.("sku");
+    missing?.focus?.({ preventScroll: true });
+    return;
+  }
+  upload.dataset.busy = "true";
+  upload.setAttribute("aria-disabled", "true");
+  status.textContent =
+    "Сохраняем точный источник без оплаты и готовим связанную форму загрузки MP4…";
+  status.dataset.tone = "warning";
+  try {
+    const source = await registerExactSource(form, canonical);
+    const sourceId = String(source.id || "").trim().toLowerCase();
+    rememberPendingSource(canonical, sourceId);
+    const prepared = prepareResearchVideoMediaHandoff({
+      storage: window.sessionStorage,
+      context: window.ContentEngineWorkspaceRuntime
+        ?.getExactYoutubeHandoffContext?.() || {},
+      source,
+      canonicalUrl: canonical,
+      productName,
+      productSku,
+    });
+    if (!prepared.ok) throw new Error(prepared.code);
+    panel.dataset.sourceId = prepared.sourceId;
+    panel.dataset.sourceMode = "awaiting-media";
+    upload.href = prepared.href;
+    status.textContent =
+      "Источник сохранён без оплаты. Открываем форму одного точного MP4 с уже заполненными товаром и SKU.";
+    status.dataset.tone = "ready";
+    window.location.hash = prepared.href.slice(1);
+  } catch {
+    upload.removeAttribute("aria-disabled");
+    status.textContent =
+      "Платный запуск не выполнялся. Не удалось подготовить точную связь с MP4 — обновите Исследования и повторите эту кнопку.";
+    status.dataset.tone = "danger";
+  } finally {
+    delete upload.dataset.busy;
+  }
+}
+
 function createActions(form, panel, input, status) {
   const actions = el("div", "research-video-intake__actions");
   const upload = el("a", "btn btn-primary", "Перейти в Файлы и загрузить MP4");
-  upload.href = filesHash();
+  upload.href = hashUrl(ROUTE, { project_id: projectId() });
   upload.dataset.researchVideoUpload = "true";
+  upload.addEventListener("click", (event) => {
+    void openResearchVideoMediaUpload(
+      event,
+      form,
+      panel,
+      input,
+      status,
+      upload,
+    );
+  });
 
   const withoutVideo = el(
     "button",
@@ -442,7 +608,9 @@ function blockUrlOnlySubmit(event, form, panel, input, status, canonical) {
     panel.dataset.sourceMode = "awaiting-media";
     rememberPendingSource(canonical, sourceId);
     const upload = panel.querySelector("[data-research-video-upload]");
-    if (upload instanceof HTMLAnchorElement) upload.href = filesHash(sourceId);
+    if (upload instanceof HTMLAnchorElement) {
+      upload.href = hashUrl(ROUTE, { project_id: projectId() });
+    }
     status.textContent =
       "Шаг 1 выполнен: ролик сохранён в Исследованиях и уже виден в ИИ-центре как источник, ожидающий MP4. Платного вызова не было.";
     status.dataset.tone = "ready";
@@ -533,7 +701,11 @@ function guardRejectedZeroCitationRun() {
   }
   const actions = el("div", "research-video-intake__actions");
   const upload = el("a", "btn btn-primary", "Загрузить MP4 для настоящего разбора");
-  upload.href = filesHash(pending?.sourceId || "");
+  upload.href = researchVideoMediaHash({
+    projectId: projectId(),
+    sourceId: pending?.sourceId || "",
+    canonicalUrl: pending?.canonical || "",
+  });
   const savedStatus = [...root.querySelectorAll("button, a")].find((node) =>
     /проверить сохранённый статус/iu.test(String(node.textContent || ""))
   );

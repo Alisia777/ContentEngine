@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import base64
 import json
 import shutil
 import subprocess
@@ -12,6 +11,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "web" / "app"
 SOURCE = (APP / "workspace-research-video-intake.js").read_text(encoding="utf-8")
+SOURCE_PATH = APP / "workspace-research-video-intake.js"
 STYLES = (APP / "workspace-research-video-intake.css").read_text(encoding="utf-8")
 
 
@@ -55,9 +55,8 @@ def test_exact_acceptance_short_still_canonicalizes_without_network_or_spend() -
     node = shutil.which("node")
     if not node:
         pytest.skip("node is unavailable")
-    encoded = base64.b64encode(SOURCE.encode("utf-8")).decode("ascii")
     script = f"""
-      const mod = await import('data:text/javascript;base64,{encoded}');
+      const mod = await import({json.dumps(SOURCE_PATH.as_uri())});
       const values = [
         'https://www.youtube.com/shorts/CXssfXBVInw',
         'https://youtu.be/CXssfXBVInw?si=test',

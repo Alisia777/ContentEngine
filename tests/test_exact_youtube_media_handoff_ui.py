@@ -15,6 +15,7 @@ APP = APP_DIR / "app.js"
 API = APP_DIR / "supabase-api.js"
 RECOVERY = APP_DIR / "workspace-research-failure-recovery.js"
 AI_QUEUE = APP_DIR / "workspace-ai-exact-youtube-sources.js"
+RESEARCH_INTAKE = APP_DIR / "workspace-research-video-intake.js"
 
 
 def read(path: Path) -> str:
@@ -432,6 +433,231 @@ def test_ai_queue_explicit_click_contract_creates_handoff_but_direct_url_does_no
         "began": True,
         "after": True,
         "product": "MILIO A425D-Black",
+    }
+
+
+def test_research_form_upload_click_opens_exact_media_context_with_product_identity() -> None:
+    script = f"""
+      const intake = await import({json.dumps(RESEARCH_INTAKE.as_uri())});
+      const handoff = await import({json.dumps(HANDOFF.as_uri())});
+      const values = new Map();
+      const storage = {{
+        getItem: (key) => values.get(key) ?? null,
+        setItem: (key, value) => values.set(key, value),
+        removeItem: (key) => values.delete(key),
+      }};
+      const context = {{
+        organization_id: '11111111-1111-4111-8111-111111111111',
+        user_id: '22222222-2222-4222-8222-222222222222',
+        session_id: '33333333-3333-4333-8333-333333333333',
+        project_id: '44444444-4444-4444-8444-444444444444',
+      }};
+      const source = {{
+        id: '55555555-5555-4555-8555-555555555555',
+        project_id: context.project_id,
+        canonical_url: 'https://youtube.com/watch?v=YiIjPmQ-XgU',
+        product_name: 'MILIO A425D-Black',
+        product_sku: '518413561',
+      }};
+      const prepared = intake.prepareResearchVideoMediaHandoff({{
+        storage,
+        context,
+        source,
+        canonicalUrl: 'https://www.youtube.com/watch?v=YiIjPmQ-XgU&t=64s',
+        productName: 'ignored browser draft',
+        productSku: 'ignored-sku',
+      }});
+      const [path, rawQuery = ''] = prepared.href.slice(1).split('?');
+      const query = new URLSearchParams(rawQuery);
+      const expected = {{
+        ...context,
+        source_id: query.get('youtube_source'),
+      }};
+      const mounted = handoff.readExactYoutubeMediaHandoff(storage, expected);
+      process.stdout.write(JSON.stringify({{
+        ok: prepared.ok,
+        path,
+        view: query.get('view'),
+        project: query.get('project_id'),
+        source: query.get('youtube_source'),
+        canonical: query.get('video_url'),
+        productName: query.get('product_name'),
+        productSku: query.get('product_sku'),
+        returnTo: query.get('return_to'),
+        mountOk: mounted.ok,
+        mountedCanonical: mounted.handoff?.canonical_url,
+        mountedProductName: mounted.handoff?.product_name,
+        mountedProductSku: mounted.handoff?.product_sku,
+      }}));
+    """
+    assert run_node(script) == {
+        "ok": True,
+        "path": "/workspace/media",
+        "view": "upload",
+        "project": "44444444-4444-4444-8444-444444444444",
+        "source": "55555555-5555-4555-8555-555555555555",
+        "canonical": "https://youtube.com/watch?v=YiIjPmQ-XgU",
+        "productName": "MILIO A425D-Black",
+        "productSku": "518413561",
+        "returnTo": (
+            "#/workspace/research?"
+            "project_id=44444444-4444-4444-8444-444444444444&"
+            "source_url=https%3A%2F%2Fyoutube.com%2Fwatch%3Fv%3DYiIjPmQ-XgU"
+        ),
+        "mountOk": True,
+        "mountedCanonical": "https://youtube.com/watch?v=YiIjPmQ-XgU",
+        "mountedProductName": "MILIO A425D-Black",
+        "mountedProductSku": "518413561",
+    }
+
+    intake_source = read(RESEARCH_INTAKE)
+    recovery_source = read(RECOVERY)
+    assert 'upload.addEventListener("click"' in intake_source
+    assert "openResearchVideoMediaUpload(" in intake_source
+    mount = recovery_source[
+        recovery_source.index("function mountMediaHandoff(") : recovery_source.index(
+            "function repairAiCenterLinks(",
+            recovery_source.index("function mountMediaHandoff("),
+        )
+    ]
+    for marker in (
+        'name="media_matches_registered_source"',
+        'sourceLabel.textContent = String(sourceSnapshot.canonical_url',
+        '["product_name", sourceSnapshot.product_name]',
+        '["sku", sourceSnapshot.product_sku]',
+        'field.dataset.exactYoutubeIdentity = "true"',
+    ):
+        assert marker in mount
+
+
+def test_research_upload_double_click_registers_once_and_starts_no_paid_call() -> None:
+    script = f"""
+      const handoff = await import({json.dumps(HANDOFF.as_uri())});
+      const values = new Map();
+      const storage = {{
+        getItem: (key) => values.get(key) ?? null,
+        setItem: (key, value) => values.set(key, value),
+        removeItem: (key) => values.delete(key),
+      }};
+      const ids = {{
+        organization_id: '11111111-1111-4111-8111-111111111111',
+        user_id: '22222222-2222-4222-8222-222222222222',
+        session_id: '33333333-3333-4333-8333-333333333333',
+        project_id: '44444444-4444-4444-8444-444444444444',
+        source_id: '55555555-5555-4555-8555-555555555555',
+      }};
+      let releaseRegistration;
+      const registrationGate = new Promise((resolve) => {{
+        releaseRegistration = resolve;
+      }});
+      const rpcNames = [];
+      const api = {{
+        organizationId: ids.organization_id,
+        withOrganization: (payload) => ({{
+          organization_id: ids.organization_id,
+          ...payload,
+        }}),
+        call: async (name) => {{
+          rpcNames.push(name);
+          await registrationGate;
+          return {{
+            ok: true,
+            version: 'exact-youtube-source-intake-v1',
+            source: {{
+              id: ids.source_id,
+              project_id: ids.project_id,
+              video_id: 'YiIjPmQ-XgU',
+              canonical_url: 'https://youtube.com/watch?v=YiIjPmQ-XgU',
+              product_name: 'MILIO A425D-Black',
+              product_sku: '518413561',
+              status: 'awaiting_media',
+              media_required: true,
+              source_hash: 'a'.repeat(64),
+            }},
+            contract: {{
+              registered_in_research: true,
+              visible_in_ai_center: true,
+              url_is_video_evidence: false,
+              paid_analysis_allowed: false,
+              external_call_started: false,
+              paid_call_started: false,
+            }},
+          }};
+        }},
+      }};
+      globalThis.window = {{
+        location: {{
+          hash: `#/workspace/research?project_id=${{ids.project_id}}`,
+        }},
+        sessionStorage: storage,
+        ContentEngineWorkspaceRuntime: {{
+          getApi: () => api,
+          getExactYoutubeHandoffContext: () => ({{
+            organization_id: ids.organization_id,
+            user_id: ids.user_id,
+            session_id: ids.session_id,
+            project_id: ids.project_id,
+          }}),
+        }},
+      }};
+      const intake = await import({json.dumps(RESEARCH_INTAKE.as_uri())});
+      const productName = {{ value: 'MILIO A425D-Black', focus: () => {{}} }};
+      const sku = {{ value: '518413561', focus: () => {{}} }};
+      const fields = {{ product_name: productName, sku }};
+      const form = {{
+        elements: {{ namedItem: (name) => fields[name] || null }},
+      }};
+      const input = {{
+        value: 'https://www.youtube.com/watch?v=YiIjPmQ-XgU&t=64s',
+        setCustomValidity: () => {{}},
+        reportValidity: () => true,
+        focus: () => {{}},
+      }};
+      const panel = {{ dataset: {{}} }};
+      const status = {{ dataset: {{}}, textContent: '' }};
+      const attributes = new Map();
+      const upload = {{
+        dataset: {{}},
+        href: '',
+        setAttribute: (key, value) => attributes.set(key, value),
+        removeAttribute: (key) => attributes.delete(key),
+      }};
+      const firstEvent = {{ prevented: 0, preventDefault() {{ this.prevented += 1; }} }};
+      const secondEvent = {{ prevented: 0, preventDefault() {{ this.prevented += 1; }} }};
+      const first = intake.openResearchVideoMediaUpload(
+        firstEvent, form, panel, input, status, upload,
+      );
+      const second = intake.openResearchVideoMediaUpload(
+        secondEvent, form, panel, input, status, upload,
+      );
+      releaseRegistration();
+      await Promise.all([first, second]);
+      const routeQuery = new URLSearchParams(
+        window.location.hash.split('?')[1] || '',
+      );
+      const stored = handoff.readExactYoutubeMediaHandoff(storage, ids);
+      process.stdout.write(JSON.stringify({{
+        rpcNames,
+        firstPrevented: firstEvent.prevented,
+        secondPrevented: secondEvent.prevented,
+        route: window.location.hash.split('?')[0],
+        routeSource: routeQuery.get('youtube_source'),
+        routeProduct: routeQuery.get('product_name'),
+        routeSku: routeQuery.get('product_sku'),
+        stored: stored.ok,
+        storedSource: stored.handoff?.source_id,
+      }}));
+    """
+    assert run_node(script) == {
+        "rpcNames": ["contentengine_register_exact_youtube_source"],
+        "firstPrevented": 1,
+        "secondPrevented": 1,
+        "route": "/workspace/media",
+        "routeSource": "55555555-5555-4555-8555-555555555555",
+        "routeProduct": "MILIO A425D-Black",
+        "routeSku": "518413561",
+        "stored": True,
+        "storedSource": "55555555-5555-4555-8555-555555555555",
     }
 
 

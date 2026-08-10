@@ -411,6 +411,7 @@ function mountMediaHandoff() {
       <p class="eyebrow">ВОССТАНОВЛЕНИЕ ИССЛЕДОВАНИЯ</p>
       <h2>Загрузите именно MP4 ролика</h2>
       <p>Это настоящий экран загрузки. После выбора файла используйте штатную кнопку «Загрузить файлы в защищённую папку» ниже.</p>
+      <p class="youtube-media-handoff__source"><strong>Точный источник:</strong> <code data-youtube-media-source></code></p>
       <label class="acknowledgement youtube-media-handoff__match">
         <input name="media_matches_registered_source" type="checkbox" form="media-upload-form" required />
         <span>Подтверждаю: выбранный MP4 — это тот же ролик, что зарегистрированная ссылка YouTube, а не другое видео по теме.</span>
@@ -453,6 +454,22 @@ function mountMediaHandoff() {
     );
     return;
   }
+  const sourceSnapshot = initialHandoff.handoff || {};
+  const sourceLabel = panel.querySelector("[data-youtube-media-source]");
+  if (sourceLabel) {
+    sourceLabel.textContent = String(sourceSnapshot.canonical_url || "").trim();
+  }
+  [
+    ["product_name", sourceSnapshot.product_name],
+    ["sku", sourceSnapshot.product_sku],
+  ].forEach(([name, value]) => {
+    const field = form.elements.namedItem(name);
+    const exactValue = String(value || "").trim();
+    if (!(field instanceof HTMLInputElement) || !exactValue) return;
+    field.value = exactValue;
+    field.readOnly = true;
+    field.dataset.exactYoutubeIdentity = "true";
+  });
   const savedMediaId = String(
     initialHandoff.handoff?.progress?.media_id || "",
   ).trim().toLowerCase();

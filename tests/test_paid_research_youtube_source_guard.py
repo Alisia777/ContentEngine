@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import json
 from pathlib import Path
 import re
@@ -195,9 +194,8 @@ def test_youtube_reference_sanitizer_is_idempotent_and_keeps_lookalikes() -> Non
     if not node:
         pytest.skip("node is unavailable")
 
-    encoded = base64.b64encode(_read(INTAKE).encode("utf-8")).decode("ascii")
     script = f"""
-      const mod = await import('data:text/javascript;base64,{encoded}');
+      const mod = await import({json.dumps(INTAKE.as_uri())});
       const inputs = [
         'Creator https://youtu.be/CXssfXBVInw, keep',
         'https://www.youtube.com/watch?v=CXssfXBVInw',
