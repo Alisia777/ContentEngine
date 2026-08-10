@@ -947,6 +947,9 @@ select matches(
 select ok(
   strpos(lower(pg_get_functiondef(
     'public.system_claim_product_research(jsonb)'::regprocedure
+  )), 'system_claim_product_research_pre_exact_video_v1') > 0
+  and strpos(lower(pg_get_functiondef(
+    'content_factory_private.system_claim_product_research_pre_exact_video_v1(jsonb)'::regprocedure
   )), 'system_claim_product_research_pre_background_v417') > 0
   and strpos(lower(pg_get_functiondef(
     'content_factory_private.system_claim_product_research_pre_background_v417(jsonb)'::regprocedure
@@ -954,7 +957,7 @@ select ok(
   and strpos(lower(pg_get_functiondef(
     'content_factory_private.system_claim_product_research_pre_stage_recompute_v3(jsonb)'::regprocedure
   )), 'research_execution_authorization_required') > 0,
-  'claim wrapper delegates only through the immutable authorization gate'
+  'exact claim wrapper delegates only through the immutable authorization gate'
 );
 select ok(
   position(

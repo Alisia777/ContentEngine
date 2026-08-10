@@ -259,6 +259,7 @@ create temporary table shared_path_context (
   claim_result jsonb,
   completion_result jsonb,
   queue_result jsonb,
+  save_result jsonb,
   approval_result jsonb,
   decision_result jsonb,
   recommendation_result jsonb,
@@ -266,6 +267,7 @@ create temporary table shared_path_context (
   binding_result jsonb,
   run_id uuid,
   draft_id uuid,
+  human_draft_id uuid,
   receipt_id uuid,
   receipt_hash text,
   selection_id uuid
@@ -385,6 +387,7 @@ set completion_result = public.system_complete_product_research(
           'finding', 'A concise visual proof is suitable for testing.'
         ),
         'guidance', jsonb_build_object(
+          'status', 'ready_for_brief',
           'recommendation', 'Keep every preset editable.'
         ),
         'audience', jsonb_build_array('Household product buyer'),
@@ -505,22 +508,60 @@ select ok(
   'AI Center receives material, results, conclusions, analysis, and scenarios'
 );
 
+-- Production never approves the provider-authored v2 draft directly.  The
+-- operator first saves an explicit human draft, preserving the immutable AI
+-- evidence sections and exact source set, and only then approves that version.
+update shared_path_context context_row
+set save_result = public.creator_save_project_creative_brief_draft(
+  jsonb_build_object(
+    'organization_id', 'ca100000-0000-4000-8000-000000000001',
+    'project_id', 'ca200000-0000-4000-8000-000000000001',
+    'run_id', context_row.run_id,
+    'title', ai_draft.title,
+    'brief', ai_draft.brief,
+    'source_ids', ai_draft.source_ids,
+    'task_blueprint', ai_draft.task_blueprint,
+    'idempotency_key', 'shared-path-brief-human-save-0001'
+  )
+)
+from content_factory.creative_brief_drafts ai_draft
+where ai_draft.id = context_row.draft_id;
+
+update shared_path_context
+set human_draft_id = (save_result #>> '{draft,id}')::uuid;
+
+select ok(
+  exists (
+    select 1
+    from shared_path_context context_row
+    join content_factory.creative_brief_drafts human_draft
+      on human_draft.id = context_row.human_draft_id
+     and human_draft.previous_draft_id = context_row.draft_id
+     and human_draft.run_id = context_row.run_id
+     and human_draft.project_id =
+       'ca200000-0000-4000-8000-000000000001'
+     and human_draft.origin = 'human'
+     and human_draft.status = 'draft'
+  ),
+  'operator saves a project-bound human draft before approval'
+);
+
 update shared_path_context context_row
 set approval_result = public.creator_approve_project_creative_brief(
   jsonb_build_object(
     'organization_id', 'ca100000-0000-4000-8000-000000000001',
     'project_id', 'ca200000-0000-4000-8000-000000000001',
-    'draft_id', context_row.draft_id,
+    'draft_id', context_row.human_draft_id,
     'idempotency_key', 'shared-path-brief-approve-0001'
   )
 );
 
 select ok(
-  (select approval_result ->> 'draft_id' = draft_id::text
+  (select approval_result ->> 'draft_id' = human_draft_id::text
      and approval_result ->> 'project_id' =
        'ca200000-0000-4000-8000-000000000001'
    from shared_path_context),
-  'the exact research result becomes an approved generation provenance source'
+  'the human-reviewed research result becomes approved generation provenance'
 );
 
 update shared_path_context context_row

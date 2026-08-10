@@ -32,6 +32,7 @@ def test_fixture_connects_authoritative_research_ai_and_generation_seams() -> No
         "public.system_claim_product_research(",
         "public.system_complete_product_research(",
         "public.contentengine_ai_research_training_queue(",
+        "public.creator_save_project_creative_brief_draft(",
         "public.creator_approve_project_creative_brief(",
         "public.contentengine_decide_ai_research_training(",
         "public.contentengine_generation_research_recommendations(",
@@ -45,6 +46,8 @@ def test_fixture_connects_authoritative_research_ai_and_generation_seams() -> No
     assert "research_summary,conclusions,0" in source
     assert "queue,0,sources" in source
     assert "queue,0,analysis,guidance,recommendation" in source
+    assert "human_draft.origin = 'human'" in source
+    assert "human_draft.previous_draft_id = context_row.draft_id" in source
     assert "contract,presets_are_advisory" in source
     assert "contract,recommendations_are_editable" in source
     assert "generation_spec_ai_research_bindings binding" in source
