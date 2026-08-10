@@ -30,6 +30,14 @@
   font-size: 12px;
   white-space: nowrap;
 }
+.generation-research-recommendations__badge[data-state="ready"] {
+  background: color-mix(in srgb, #78d99a 18%, transparent);
+  color: #9fddb0;
+}
+.generation-research-recommendations__badge[data-state="manual"] {
+  background: color-mix(in srgb, var(--muted, #a99c90) 15%, transparent);
+  color: var(--muted, #a99c90);
+}
 
 .generation-research-recommendations__options {
   display: flex;
@@ -80,6 +88,48 @@
   gap: 10px;
 }
 
+.generation-research-recommendations__preset {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 7px;
+  margin: 4px 0;
+  padding: 0;
+  list-style: none;
+}
+.generation-research-recommendations__preset li {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid color-mix(in srgb, var(--line, #34291f) 76%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface, #15110e) 72%, transparent);
+}
+.generation-research-recommendations__preset li[data-applied="true"] {
+  border-color: color-mix(in srgb, #78d99a 48%, var(--line, #34291f));
+}
+.generation-research-recommendations__preset li[data-edited="true"] {
+  border-color: color-mix(in srgb, #efc37f 50%, var(--line, #34291f));
+}
+.generation-research-recommendations__preset-label {
+  color: var(--muted, #a99c90);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.generation-research-recommendations__preset strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.generation-research-recommendations__preset-state { color: var(--muted, #a99c90); }
+.generation-research-recommendations__preset li[data-applied="true"] .generation-research-recommendations__preset-state {
+  color: #9fddb0;
+}
+.generation-research-recommendations__preset li[data-edited="true"] .generation-research-recommendations__preset-state {
+  color: #efc37f;
+}
+
 .generation-research-recommendations__status {
   min-height: 1.3em;
   margin: 0;
@@ -88,6 +138,7 @@
 .generation-research-recommendations__status[data-tone="ready"] { color: #9fddb0; }
 .generation-research-recommendations__status[data-tone="edited"] { color: #efc37f; }
 .generation-research-recommendations__status[data-tone="danger"] { color: #ff9f97; }
+.generation-research-recommendations__status[data-tone="manual"] { color: var(--muted, #a99c90); }
 
 .generation-research-recommendations__actions {
   display: flex;

@@ -369,8 +369,12 @@ def test_portal_exposes_stage_control_only_through_lazy_corrections_view() -> No
     assert "RPC.researchStageControlStatus" in status_method
     assert "this.call(" in status_method
     assert "history_limit" in status_method and "branch_id" in status_method
+    assert "requiredProjectId(" in status_method
+    assert "project_id: projectId" in status_method
     assert "RPC.controlResearchStage" in control_method
     assert "this.mutate(" in control_method
+    assert "requiredProjectId(" in control_method
+    assert "project_id: projectId" in control_method
     for exact_field in (
         "expected_head_event_id",
         "expected_artifact_id",
@@ -900,6 +904,7 @@ def test_api_sends_branch_revision_for_every_action_and_cancel_never_invokes_edg
         API_PATH,
         """
         const runId = "20000000-0000-4000-8000-000000000001";
+        const projectId = "90000000-0000-4000-8000-000000000001";
         const branchId = "30000000-0000-4000-8000-000000000001";
         const branchRevisionHash = "c".repeat(64);
         const eventId = "40000000-0000-4000-8000-000000000001";
@@ -928,7 +933,11 @@ def test_api_sends_branch_revision_for_every_action_and_cancel_never_invokes_edg
               adapter_version: "research-stage-recompute-v1",
               max_provider_attempts: 1,
               automatic_provider_action: false,
-              invoke: { action: "analyze", research_id: childRunId },
+              invoke: {
+                action: "analyze",
+                research_id: childRunId,
+                project_id: projectId,
+              },
             } : null,
           };
         };
@@ -937,10 +946,12 @@ def test_api_sends_branch_revision_for_every_action_and_cancel_never_invokes_edg
           return { accepted: true };
         };
         await api.researchStageControlStatus(runId, {
+          project_id: projectId,
           branch_id: branchId,
           history_limit: 30,
         });
         const common = {
+          project_id: projectId,
           branch_id: branchId,
           stage: "category",
           expected_head_event_id: eventId,
@@ -1014,6 +1025,7 @@ def test_api_sends_branch_revision_for_every_action_and_cancel_never_invokes_edg
         "rpc": "creator_research_stage_control_status",
         "payload": {
             "run_id": "20000000-0000-4000-8000-000000000001",
+            "project_id": "90000000-0000-4000-8000-000000000001",
             "branch_id": "30000000-0000-4000-8000-000000000001",
             "history_limit": 30,
             "organization_id": "10000000-0000-4000-8000-000000000001",
@@ -1032,6 +1044,7 @@ def test_api_sends_branch_revision_for_every_action_and_cancel_never_invokes_edg
         "payload": {
             "action": "analyze",
             "research_id": "80000000-0000-4000-8000-000000000001",
+            "project_id": "90000000-0000-4000-8000-000000000001",
         },
     }]
     assert result["firstAccepted"] is True

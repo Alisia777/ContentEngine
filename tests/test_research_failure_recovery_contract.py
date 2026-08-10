@@ -21,6 +21,10 @@ def read(path: Path) -> str:
 
 def test_failed_research_can_be_closed_and_replaced_with_a_fresh_form() -> None:
     source = read(RECOVERY)
+    assert (
+        'from "./product-research-view.js?v=20260810.os4.23"'
+        in source
+    )
     for marker in (
         "data-research-youtube-failure-guard",
         "Закрыть ошибочный запуск",
@@ -63,11 +67,11 @@ def test_recovery_module_is_loaded_on_research_media_and_ai_routes() -> None:
         'route === "/workspace/ai"',
         "workspace-research-failure-recovery.css",
         "workspace-research-failure-recovery.js",
-        'const BUILD = "20260806.research.24"',
+        'const BUILD = "20260810.research.25"',
     ):
         assert marker in bootstrap
     assert (
-        'workspace-research-training-bootstrap.js?v=20260806.research.24'
+        'workspace-research-training-bootstrap.js?v=20260810.research.25'
         in index
     )
 

@@ -15,6 +15,9 @@ export const RPC = Object.freeze({
   submitExam: "creator_submit_exam",
   workspaceSection: "creator_workspace_section",
   projectFlow: "creator_project_flow",
+  projectMembers: "creator_project_members",
+  grantProjectMember: "creator_grant_project_member",
+  revokeProjectMember: "creator_revoke_project_member",
   projectMedia: "creator_project_media",
   projectPlacement: "creator_project_placement",
   createProject: "creator_create_workspace_project",
@@ -33,6 +36,10 @@ export const RPC = Object.freeze({
   prepareGenerationSpec: "creator_prepare_generation_spec",
   controlGenerationSpec: "creator_control_generation_spec",
   generationSpecEffectivePolicy: "creator_generation_spec_effective_policy",
+  bindGenerationSpecAiResearch:
+    "contentengine_bind_generation_spec_ai_research",
+  generationSpecAiResearchBinding:
+    "contentengine_generation_spec_ai_research_binding",
   generationArchive: "creator_generation_archive",
   archiveGenerationBatch: "creator_archive_generation_batch",
   workspaceBrowser: "creator_workspace_browser",
@@ -1165,6 +1172,55 @@ export class CreatorApi {
     );
   }
 
+  bindGenerationSpecAiResearch(input = {}) {
+    const reference = normalizeGenerationSpecReference({
+      spec_id: input.spec_id,
+      spec_version: input.spec_version,
+      spec_hash: input.spec_hash,
+    });
+    const recommendationPosition = Number(input.recommendation_position);
+    if (
+      !Number.isInteger(recommendationPosition)
+      || recommendationPosition < 1
+      || recommendationPosition > 3
+      || input.confirmation !== true
+    ) {
+      throw new CreatorApiError(
+        "Не удалось подтвердить выбранную рекомендацию ИИ‑центра.",
+        { code: "generation_spec_ai_research_binding_payload_invalid" },
+      );
+    }
+    return this.call(
+      RPC.bindGenerationSpecAiResearch,
+      this.withOrganization({
+        project_id: requiredProjectId(input.project_id || input.projectId),
+        ...reference,
+        selection_id: requireGenerationSpecUuid(
+          input.selection_id,
+          "generation_spec_ai_research_binding_payload_invalid",
+        ),
+        recommendation_position: recommendationPosition,
+        confirmation: true,
+      }),
+    );
+  }
+
+  generationSpecAiResearchBinding(context = {}) {
+    return this.call(
+      RPC.generationSpecAiResearchBinding,
+      this.withOrganization({
+        project_id: requiredProjectId(
+          context.project_id || context.projectId,
+        ),
+        ...normalizeGenerationSpecReference({
+          spec_id: context.spec_id,
+          spec_version: context.spec_version,
+          spec_hash: context.spec_hash,
+        }),
+      }),
+    );
+  }
+
   savePracticalProject(payload) {
     return this.mutate(RPC.savePracticalProject, payload);
   }
@@ -1334,6 +1390,44 @@ export class CreatorApi {
       ...(normalizedProjectId ? { project_id: normalizedProjectId } : {}),
       ...(includeProjects === false ? { include_projects: false } : {}),
     }));
+  }
+
+  projectMembers({ projectId = "", project_id: projectIdSnake = "" } = {}) {
+    return this.call(RPC.projectMembers, this.withOrganization({
+      project_id: requiredProjectId(projectIdSnake || projectId),
+    }));
+  }
+
+  grantProjectMember(
+    profileId,
+    { projectId = "", project_id: projectIdSnake = "" } = {},
+  ) {
+    const normalizedProfileId = String(profileId || "").trim().toLowerCase();
+    if (!isUuid(normalizedProfileId)) {
+      throw new CreatorApiError("Не удалось определить участника команды.", {
+        code: "project_member_profile_id_invalid",
+      });
+    }
+    return this.mutate(RPC.grantProjectMember, {
+      project_id: requiredProjectId(projectIdSnake || projectId),
+      profile_id: normalizedProfileId,
+    });
+  }
+
+  revokeProjectMember(
+    profileId,
+    { projectId = "", project_id: projectIdSnake = "" } = {},
+  ) {
+    const normalizedProfileId = String(profileId || "").trim().toLowerCase();
+    if (!isUuid(normalizedProfileId)) {
+      throw new CreatorApiError("Не удалось определить участника команды.", {
+        code: "project_member_profile_id_invalid",
+      });
+    }
+    return this.mutate(RPC.revokeProjectMember, {
+      project_id: requiredProjectId(projectIdSnake || projectId),
+      profile_id: normalizedProfileId,
+    });
   }
 
   projectMedia(
@@ -2284,7 +2378,13 @@ export class CreatorApi {
 
   researchStageControlStatus(runId, options = {}) {
     const normalizedRunId = this.requireResearchRunId(runId);
-    const payload = { run_id: normalizedRunId };
+    const projectId = requiredProjectId(
+      options.project_id ?? options.projectId,
+    );
+    const payload = {
+      run_id: normalizedRunId,
+      project_id: projectId,
+    };
     if (options.branch_id !== undefined || options.branchId !== undefined) {
       const branchId = String(
         options.branch_id ?? options.branchId ?? "",
@@ -2315,6 +2415,9 @@ export class CreatorApi {
 
   async controlResearchStage(runId, options = {}) {
     const normalizedRunId = this.requireResearchRunId(runId);
+    const projectId = requiredProjectId(
+      options.project_id ?? options.projectId,
+    );
     const branchId = String(
       options.branch_id ?? options.branchId ?? "",
     ).trim().toLowerCase();
@@ -2354,6 +2457,7 @@ export class CreatorApi {
 
     const payload = {
       run_id: normalizedRunId,
+      project_id: projectId,
       branch_id: branchId,
       stage,
       action,
@@ -2447,6 +2551,7 @@ export class CreatorApi {
       || recompute.max_provider_attempts !== 1
       || recompute.invoke?.action !== "analyze"
       || String(recompute.invoke?.research_id || "").toLowerCase() !== childRunId
+      || String(recompute.invoke?.project_id || "").toLowerCase() !== projectId
     ) {
       throw new CreatorApiError("Запрос пересчёта сохранён, но точный дочерний запуск не подтверждён. Не повторяйте команду.", {
         code: "research_stage_recompute_prepare_invalid",
@@ -2468,6 +2573,7 @@ export class CreatorApi {
       const accepted = await this.invokeProductResearch({
         action: "analyze",
         research_id: childRunId,
+        project_id: projectId,
       });
       return { ...source, analysis_request: accepted };
     } catch (error) {
@@ -2481,9 +2587,12 @@ export class CreatorApi {
     }
   }
 
-  async resumeResearchStageRecompute(childRunId, requestId) {
+  async resumeResearchStageRecompute(childRunId, requestId, options = {}) {
     const normalizedChildRunId = String(childRunId || "").trim().toLowerCase();
     const normalizedRequestId = String(requestId || "").trim().toLowerCase();
+    const projectId = requiredProjectId(
+      options.project_id ?? options.projectId,
+    );
     if (!isUuid(normalizedChildRunId) || !isUuid(normalizedRequestId)) {
       throw new CreatorApiError("Сохранённый пересчёт изменился. Сначала обновите его статус.", {
         code: "research_stage_recompute_resume_invalid",
@@ -2493,6 +2602,7 @@ export class CreatorApi {
       return await this.invokeProductResearch({
         action: "analyze",
         research_id: normalizedChildRunId,
+        project_id: projectId,
       });
     } catch (error) {
       error.job = {
@@ -5959,6 +6069,18 @@ function toFriendlyMessage(error) {
   const known = {
     project_id_required: "Выберите активный проект и заново подготовьте версию ТЗ.",
     workspace_project_not_found: "Активный проект больше недоступен. Вернитесь на рабочий стол и выберите проект заново.",
+    workspace_project_access_required: "Нет доступа к выбранному проекту. Попросите владельца или администратора добавить вас в проект.",
+    research_run_project_scope_mismatch: "Исследование относится к другому проекту. Откройте исходный проект и обновите снимок этапов.",
+    research_stage_recompute_child_project_scope_mismatch: "Сохранённый пересчёт не привязан к этому проекту. Платный запуск остановлен; обновите статус без повтора.",
+    project_members_payload_invalid: "Параметры списка доступа устарели. Выберите проект заново.",
+    project_member_grant_payload_invalid: "Не удалось безопасно выдать доступ. Обновите список проекта.",
+    project_member_revoke_payload_invalid: "Не удалось безопасно отозвать доступ. Обновите список проекта.",
+    project_member_profile_id_invalid: "Не удалось определить участника команды. Обновите список.",
+    project_members_response_invalid: "Сервер вернул неполный список доступа. Обновите выбранный проект.",
+    project_member_mutation_response_invalid: "Сервер не подтвердил изменение доступа. Обновите список перед повтором.",
+    project_member_target_not_operational: "Доступ к проекту можно выдать только активному участнику с рабочей ролью.",
+    project_member_not_found: "Участник уже не имеет доступа к этому проекту. Список будет обновлён.",
+    project_member_is_protected: "Доступ владельца, администратора или создателя проекта нельзя отозвать.",
     generation_spec_project_scope_mismatch: "Исследование, товар или исходники относятся к другому проекту. Платный запуск остановлен.",
     generation_spec_research_category_rule_stale: "Правило категории из исследования изменилось. Бесплатно пересчитайте ТЗ и утвердите новую версию.",
     onboarding_required: "Сначала завершите обучение и сдайте экзамен.",
@@ -6106,6 +6228,15 @@ function toFriendlyMessage(error) {
     generation_spec_prepare_payload_invalid: "Портал не смог подготовить техническое ТЗ. Проверьте замысел и выбранный товар.",
     generation_spec_control_payload_invalid: "Техническая версия изменилась. Повторите запуск — платный запрос не выполнялся.",
     generation_spec_patch_invalid: "Не удалось сохранить исправленный замысел в технической версии. Повторите запуск.",
+    generation_spec_ai_research_binding_payload_invalid: "Не удалось связать техническую версию с выбранной рекомендацией ИИ‑центра. Платный запуск остановлен.",
+    generation_spec_ai_research_binding_confirmation_required: "Подтвердите применение рекомендательного пресета ИИ‑центра ещё раз.",
+    generation_spec_ai_research_binding_version_invalid: "Версия технического замысла изменилась. Платный запуск остановлен — повторите подготовку.",
+    generation_spec_ai_research_binding_hash_invalid: "Контрольная версия технического замысла устарела. Платный запуск остановлен.",
+    generation_spec_ai_research_binding_position_invalid: "Выбранная рекомендация ИИ‑центра больше недоступна. Обновите варианты.",
+    generation_spec_ai_research_binding_scope_mismatch: "Рекомендация ИИ‑центра относится к другому проекту или категории. Платный запуск остановлен.",
+    generation_spec_ai_research_binding_recommendation_missing: "Сохранённая рекомендация ИИ‑центра изменилась. Обновите варианты перед запуском.",
+    generation_spec_ai_research_binding_conflict: "К этой версии уже привязана другая рекомендация ИИ‑центра. Подготовьте новую версию замысла.",
+    generation_spec_ai_research_binding_response_invalid: "Сервер не подтвердил связь замысла с рекомендацией ИИ‑центра. Платный запуск остановлен.",
     generation_spec_response_invalid: "Сервер вернул неполную техническую версию. Платный запрос не выполнялся — повторите запуск.",
     generation_spec_prepare_unavailable: "Заполните замысел и выберите точные исходники товара.",
     generation_spec_patch_required: "Замысел изменился. Портал подготовит новую техническую версию при следующем запуске.",

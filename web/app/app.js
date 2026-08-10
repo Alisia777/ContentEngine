@@ -3,7 +3,7 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260805.os4.22";
+} from "./supabase-api.js?v=20260810.os4.23";
 import {
   generationSpecCardMarkup,
   generationSpecScopesMatch,
@@ -11,8 +11,8 @@ import {
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
 } from "./generation-spec.js?v=20260803.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260805.os4.22";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260805.os4.22";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260810.os4.23";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260810.os4.23";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -75,7 +75,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260805.os4.22";
+} from "./product-research-view.js?v=20260810.os4.23";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -86,7 +86,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260805.os4.22";
+} from "./ai-learning-control-room.js?v=20260810.os4.23";
 import {
   compileContentGenerationPrompt,
   compileSafeGenerationBrief,
@@ -99,7 +99,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260805.os4.22";
+} from "./content-generation-handoff.js?v=20260810.os4.23";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -113,7 +113,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260805.os4.22";
+} from "./generation-form-draft.js?v=20260810.os4.23";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -125,7 +125,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260729.1";
+} from "./generation-autopilot.js?v=20260810.os4.23";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -146,7 +146,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260805.os4.22";
+} from "./content-review-view.js?v=20260810.os4.23";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -175,7 +175,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260805.os4.22";
+} from "./workspace-board-view.js?v=20260810.os4.23";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -204,7 +204,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260805.os4.22";
+} from "./training-journey.js?v=20260810.os4.23";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -223,7 +223,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260805.os4.22";
+} from "./training-practical-review.js?v=20260810.os4.23";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -242,7 +242,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260805.os4.22";
+} from "./my-work-view.js?v=20260810.os4.23";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -545,6 +545,13 @@ const MEMBERSHIP_LOCK_COPY = Object.freeze({
 const WORKSPACE_START_PATH = "/workspace/home";
 const WORKSPACE_ACCESS_REQUIRED_PATH = "/access-required";
 const PROJECT_OPTIONAL_WORKSPACE_SECTIONS = new Set(["home", "team", "feedback", "ai"]);
+const PROJECT_ACCESS_OPERATIONAL_ROLES = new Set([
+  "owner",
+  "admin",
+  "producer",
+  "reviewer",
+  "operator",
+]);
 
 const WORKSPACE_HOME_TAB = Object.freeze(["home", "Сегодня", "⌂"]);
 const FACTORY_FLOW = Object.freeze([
@@ -1101,7 +1108,9 @@ const state = {
     key: "",
     dirty: true,
     saving: false,
+    aiResearchBinding: null,
   },
+  aiResearchRecommendation: null,
   generationRepair: readStoredGenerationRepair(),
   generationPreflight: {
     entries: new Map(),
@@ -1114,6 +1123,15 @@ const state = {
     error: "",
     notice: "",
     requestId: 0,
+  },
+  projectAccess: {
+    status: "idle",
+    data: null,
+    error: "",
+    notice: "",
+    requestId: 0,
+    projectId: "",
+    busyProfileId: "",
   },
   workspaceAccessRequest: {
     status: "idle",
@@ -2277,7 +2295,7 @@ function bindGlobalEvents() {
     const nextActionKey = workspaceActionKey(state.route);
     const actionChanged = previousActionKey !== nextActionKey;
     if (actionChanged) state.workspaceDeepLinkFocusKey = "";
-    if (state.route.path !== "/workspace/generation") stopRealGenerationPolling();
+    scheduleRealGenerationPolling(250);
     if (
       state.route.path === "/workspace/generation"
       && (
@@ -2360,12 +2378,92 @@ function bindGlobalEvents() {
   document.addEventListener("submit", handleSubmit);
   document.addEventListener("input", handleFormActivity);
   document.addEventListener("change", handleChange);
+  document.addEventListener(
+    "contentengine:generation-research-preset-applied",
+    handleGenerationResearchPresetApplied,
+  );
+  document.addEventListener(
+    "contentengine:generation-research-preset-opt-out",
+    handleGenerationResearchPresetOptOut,
+  );
   document.addEventListener("dragstart", handleDragStart);
   document.addEventListener("dragover", handleDragOver);
   document.addEventListener("dragleave", handleDragLeave);
   document.addEventListener("drop", handleDrop);
   document.addEventListener("dragend", handleDragEnd);
   document.addEventListener("keydown", handleKeyDown);
+}
+
+function normalizeGenerationResearchPresetEvent(event) {
+  const form = event?.target?.closest?.("#mock-batch-form");
+  const detail = event?.detail;
+  const selectionId = String(detail?.selection_id || "").trim().toLowerCase();
+  const recommendationPosition = Number(detail?.recommendation_position);
+  if (
+    !form
+    || !contentReviewUuid(selectionId)
+    || ![1, 2, 3].includes(recommendationPosition)
+  ) return null;
+  const allowedFields = new Set([
+    "product_category", "platform", "mode", "duration_seconds", "format", "brief",
+  ]);
+  const appliedFields = [...new Set(
+    (Array.isArray(detail?.applied_fields) ? detail.applied_fields : [])
+      .map((value) => String(value || "").trim())
+      .filter((value) => allowedFields.has(value)),
+  )];
+  const presetSource = detail?.preset
+    && typeof detail.preset === "object"
+    && !Array.isArray(detail.preset)
+    ? detail.preset
+    : {};
+  const preset = Object.fromEntries(
+    Object.entries(presetSource).filter(([field]) => allowedFields.has(field)),
+  );
+  return {
+    form,
+    selection: {
+      projectId: currentWorkspaceProjectId(),
+      productCategory: String(
+        form.elements?.product_category?.value
+          || preset.product_category
+          || "",
+      ).trim().toLowerCase(),
+      selectionId,
+      recommendationPosition,
+      appliedFields,
+      preset,
+      receivedAt: Date.now(),
+    },
+  };
+}
+
+function handleGenerationResearchPresetApplied(event) {
+  const normalized = normalizeGenerationResearchPresetEvent(event);
+  if (!normalized || normalized.selection.appliedFields.length < 1) return;
+  state.aiResearchRecommendation = normalized.selection;
+  state.generationSpec.aiResearchBinding = null;
+  normalized.form.dataset.dirty = "true";
+  invalidateGenerationSpec(
+    normalized.form,
+    "Применена рекомендация ИИ‑центра. Техническая версия будет сохранена заново без списания.",
+  );
+  persistGenerationFormDraft(normalized.form);
+  syncGenerationFormReadiness(normalized.form);
+}
+
+function handleGenerationResearchPresetOptOut(event) {
+  const form = event?.target?.closest?.("#mock-batch-form");
+  if (!form) return;
+  state.aiResearchRecommendation = null;
+  state.generationSpec.aiResearchBinding = null;
+  form.dataset.dirty = "true";
+  invalidateGenerationSpec(
+    form,
+    "Включён ручной режим. Рекомендация ИИ‑центра больше не привязывается к замыслу.",
+  );
+  persistGenerationFormDraft(form, { manual: true });
+  syncGenerationFormReadiness(form);
 }
 
 function managerDashboardIsStale() {
@@ -6975,6 +7073,16 @@ function persistWorkspaceProject(projectId, projectName = "Проект") {
   return true;
 }
 
+function resetProjectAccessState() {
+  state.projectAccess.requestId += 1;
+  state.projectAccess.status = "idle";
+  state.projectAccess.data = null;
+  state.projectAccess.error = "";
+  state.projectAccess.notice = "";
+  state.projectAccess.projectId = "";
+  state.projectAccess.busyProfileId = "";
+}
+
 function activateWorkspaceProject(projectId, projectName = "Проект") {
   const id = String(projectId || "").trim().toLowerCase();
   if (!isWorkspaceProjectId(id)) return false;
@@ -6983,6 +7091,7 @@ function activateWorkspaceProject(projectId, projectName = "Проект") {
   if (projectChanged) cancelGenerationFormDraftSave();
   persistWorkspaceProject(id, projectName);
   if (!projectChanged) return true;
+  resetProjectAccessState();
   invalidateAiLearningMarketProjectContext();
   state.projectFlow.requestId += 1;
   state.projectFlow.status = "idle";
@@ -7025,6 +7134,7 @@ function activateWorkspaceProject(projectId, projectName = "Проект") {
   state.generatedVideoQa.entries.clear();
   state.generatedVideoQa.recoveryJobIds.clear();
   state.generatedVideoQa.restored = false;
+  state.aiResearchRecommendation = null;
   resetGenerationSpecState();
   clearContentGenerationHandoff();
   clearGenerationRepair();
@@ -7044,6 +7154,7 @@ function clearWorkspaceProjectSelection(projectId = "") {
   } catch {
     // A clean URL remains authoritative when storage is unavailable.
   }
+  resetProjectAccessState();
   invalidateAiLearningMarketProjectContext();
   state.projectFlow.requestId += 1;
   state.projectFlow.status = "idle";
@@ -7062,6 +7173,7 @@ function clearWorkspaceProjectSelection(projectId = "") {
     target.data = null;
     target.error = null;
   }
+  state.aiResearchRecommendation = null;
   resetGenerationSpecState();
   clearContentGenerationHandoff();
   clearGenerationRepair();
@@ -8506,6 +8618,7 @@ async function loadSection(section, options = {}) {
           applyRealGenerationResult(routeGenerationJobId, deepLinkResult, {
             source: "deep-link",
             renderNow: false,
+            projectId,
           });
           data = mergeGenerationDeepLinkedBatch(
             data,
@@ -10335,11 +10448,13 @@ function applyContentGenerationHandoffToForm() {
 }
 
 function generationMediaIdentity(item = {}) {
+  const productId = String(item.product_id || item.productId || "").trim().toLowerCase();
   const sku = String(item.sku || "").trim();
   const productName = String(item.product_name || "").trim();
   const verified = item.identity_verified === true && Boolean(sku && productName);
   const rightsConfirmed = item.rights_confirmed === true;
   return {
+    productId: isWorkspaceProjectId(productId) ? productId : "",
     sku,
     productName,
     verified,
@@ -10370,6 +10485,7 @@ function generationMediaOptionMarkup(item, real, selectedMediaId = "") {
           value="${escapeHtml(mediaId)}"
           data-media-identity-verified="${identity.verified ? "true" : "false"}"
           data-media-rights-confirmed="${identity.rightsConfirmed ? "true" : "false"}"
+          data-media-product-id="${escapeHtml(identity.productId)}"
           data-media-sku="${escapeHtml(identity.sku)}"
           data-media-product-name="${escapeHtml(identity.productName)}"
           ${real && !identity.paidReady ? "disabled" : ""}
@@ -11511,7 +11627,9 @@ function generationCostMarkup(details) {
 }
 
 function realGenerationJobsFromBatches(batches = listFrom(state.sections.generation.data || {}, "batches")) {
-  return batches
+  const projectId = currentWorkspaceProjectId();
+  if (!isWorkspaceProjectId(projectId)) return [];
+  const activeJobs = batches
     .map(generationBatchDetails)
     .filter((details) =>
       details.real
@@ -11519,6 +11637,23 @@ function realGenerationJobsFromBatches(batches = listFrom(state.sections.generat
       && !details.reconciliationRequired
       && REAL_GENERATION_ACTIVE_STATUSES.has(details.status)
     );
+  const knownJobIds = new Set(activeJobs.map((details) => details.jobId));
+  for (const [jobId, cached] of state.realGenerationResults.entries()) {
+    const job = cached?.job && typeof cached.job === "object" ? cached.job : null;
+    const cachedProjectId = String(cached?.projectId || job?.project_id || "").trim().toLowerCase();
+    const status = String(job?.status || "").trim().toLowerCase();
+    if (
+      !job
+      || !jobId
+      || knownJobIds.has(jobId)
+      || cachedProjectId !== projectId
+      || normalizeBoolean(job.reconciliation_required)
+      || !REAL_GENERATION_ACTIVE_STATUSES.has(status)
+    ) continue;
+    activeJobs.push({ real: true, jobId, status, reconciliationRequired: false });
+    knownJobIds.add(jobId);
+  }
+  return activeJobs;
 }
 
 function realGenerationReconciliationJobsFromBatches(
@@ -11550,8 +11685,7 @@ function stopRealGenerationPolling() {
 function scheduleRealGenerationPolling(delayMs = REAL_GENERATION_POLL_INTERVAL_MS) {
   stopRealGenerationPolling();
   if (
-    state.route.path !== "/workspace/generation"
-    || document.visibilityState !== "visible"
+    document.visibilityState !== "visible"
     || !state.session
     || state.realGenerationPollInFlight
     || !realGenerationJobsFromBatches().length
@@ -11562,7 +11696,7 @@ function scheduleRealGenerationPolling(delayMs = REAL_GENERATION_POLL_INTERVAL_M
 
 async function runRealGenerationPolling() {
   state.realGenerationPollTimer = null;
-  if (state.route.path !== "/workspace/generation" || document.visibilityState !== "visible") return;
+  if (document.visibilityState !== "visible") return;
   const pollingWindow = boundedRoundRobinWindow(
     realGenerationJobsFromBatches(),
     state.realGenerationPollCursor,
@@ -11589,18 +11723,30 @@ function requestRealGenerationStatus(jobId, source = "manual") {
   if (existing?.promise) return existing.promise;
   const requestEpoch = state.dataEpoch;
   const requestUserId = state.user?.id;
+  const requestProjectId = currentWorkspaceProjectId();
   const promise = state.api.realGenerationStatus(normalizedJobId, {
-    projectId: currentWorkspaceProjectId(),
+    projectId: requestProjectId,
   });
   state.realGenerationStatusRequests.set(normalizedJobId, { promise, source });
   promise.then(
     (result) => {
-      if (requestEpoch === state.dataEpoch && requestUserId === state.user?.id) {
-        applyRealGenerationResult(normalizedJobId, result, { source });
+      if (
+        requestEpoch === state.dataEpoch
+        && requestUserId === state.user?.id
+        && requestProjectId === currentWorkspaceProjectId()
+      ) {
+        applyRealGenerationResult(normalizedJobId, result, {
+          source,
+          projectId: requestProjectId,
+        });
       }
     },
     (error) => {
-      if (requestEpoch === state.dataEpoch && requestUserId === state.user?.id) {
+      if (
+        requestEpoch === state.dataEpoch
+        && requestUserId === state.user?.id
+        && requestProjectId === currentWorkspaceProjectId()
+      ) {
         applyRealGenerationStatusError(normalizedJobId, error);
       }
     },
@@ -11671,6 +11817,35 @@ function withSoftTimeoutResult(operation, timeoutMs) {
   ]).finally(() => window.clearTimeout(timerId));
 }
 
+function invalidateGeneratedMediaWorkspaceCaches() {
+  const sections = ["board", "media", "review"];
+  const visibleSection = sections.find((section) => (
+    state.route.path === `/workspace/${section}`
+  ));
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  const requestProjectId = currentWorkspaceProjectId();
+  const requestPath = state.route.path;
+  for (const section of sections) {
+    const target = state.sections[section];
+    if (!target) continue;
+    target.requestId += 1;
+    target.status = "idle";
+    target.error = null;
+  }
+  if (!visibleSection) return;
+  window.queueMicrotask(() => {
+    if (
+      requestEpoch !== state.dataEpoch
+      || requestUserId !== state.user?.id
+      || requestProjectId !== currentWorkspaceProjectId()
+      || requestPath !== state.route.path
+      || !state.session
+    ) return;
+    void loadSection(visibleSection, { silent: true });
+  });
+}
+
 function applyRealGenerationResult(jobId, result, options = {}) {
   const job = result?.job && typeof result.job === "object" ? result.job : null;
   if (!job || String(job.id || "") !== String(jobId || "")) return;
@@ -11678,8 +11853,15 @@ function applyRealGenerationResult(jobId, result, options = {}) {
   const signedUrl = String(result?.signed_url || "");
   const safeSignedUrl = signedUrl && isTrustedGenerationDownload(signedUrl) ? signedUrl : "";
   const checkedAt = new Date().toISOString();
+  const resultProjectId = String(
+    options.projectId
+      || job.project_id
+      || previous?.projectId
+      || currentWorkspaceProjectId(),
+  ).trim().toLowerCase();
   state.realGenerationResults.set(jobId, {
     job: { ...job },
+    projectId: resultProjectId,
     signedUrl: safeSignedUrl || previous?.signedUrl || "",
     signedUrlIssuedAt: safeSignedUrl ? Date.now() : (previous?.signedUrlIssuedAt || 0),
     checkedAt,
@@ -11689,6 +11871,16 @@ function applyRealGenerationResult(jobId, result, options = {}) {
 
   const previousStatus = String(previous?.job?.status || "").toLowerCase();
   const nextStatus = String(job.status || "").toLowerCase();
+  const previousOutputMediaId = String(previous?.job?.output_media_id || "").trim().toLowerCase();
+  const nextOutputMediaId = String(job.output_media_id || "").trim().toLowerCase();
+  const registeredOutputBecameAvailable = (
+    ["succeeded", "completed"].includes(nextStatus)
+    && contentReviewUuid(nextOutputMediaId)
+    && (
+      !["succeeded", "completed"].includes(previousStatus)
+      || previousOutputMediaId !== nextOutputMediaId
+    )
+  );
   const previousReconciliationRequired = normalizeBoolean(
     previous?.job?.reconciliation_required,
   );
@@ -11699,6 +11891,10 @@ function applyRealGenerationResult(jobId, result, options = {}) {
   ) {
     void loadGenerationSpendOverview({ silent: true, force: true });
   }
+  if (
+    registeredOutputBecameAvailable
+    && resultProjectId === currentWorkspaceProjectId()
+  ) invalidateGeneratedMediaWorkspaceCaches();
   if (options.source === "auto" && previousStatus && previousStatus !== nextStatus) {
     if (["succeeded", "completed"].includes(nextStatus)) {
       toast(
@@ -13664,6 +13860,7 @@ async function loadResearchStageControl({
   try {
     const raw = await withUiTimeout(
       state.api.researchStageControlStatus(normalizedRunId, {
+        project_id: currentWorkspaceProjectId(),
         ...(normalizedBranchId ? { branch_id: normalizedBranchId } : {}),
         history_limit: 30,
       }),
@@ -13738,7 +13935,18 @@ function renderProductResearchSection() {
     window.queueMicrotask(() => loadSection("team", { silent: true, rerenderSection: "research" }));
   }
   const media = listFrom(mediaState.data || {}, "media", "items", "artifacts")
-    .filter((item) => String(item.mime_type || "").startsWith("image/") || ["product_photo", "packshot"].includes(String(item.kind || "")));
+    .filter((item) => {
+      const kind = String(item?.kind || "").trim().toLowerCase();
+      const status = String(item?.status || "").trim().toLowerCase();
+      const mimeType = String(item?.mime_type || item?.mimeType || "").trim().toLowerCase();
+      const artifactClass = String(
+        item?.artifact_class || item?.artifactClass || "",
+      ).trim().toLowerCase();
+      return status === "ready"
+        && ["product_photo", "packshot"].includes(kind)
+        && ["image/jpeg", "image/png", "image/webp"].includes(mimeType)
+        && (!artifactClass || artifactClass === "source");
+    });
   const statusKind = research.record ? productResearchStatusKind(research.record.status) : "";
   const requestedView = String(state.route.query.get("view") || "");
   const researchView = ["evidence", "corrections", "brief", "approve", "handoff"].includes(requestedView)
@@ -15292,6 +15500,352 @@ function renderTeamSectionLegacy(sectionState) {
   `;
 }
 
+function selectedTeamProjectAccessContext() {
+  const flow = normalizeProjectFlow(state.projectFlow?.data || {});
+  const routeProjectId = routeWorkspaceProjectId();
+  const projectId = routeProjectId || String(flow.project_id || "").trim().toLowerCase();
+  if (
+    !isWorkspaceProjectId(projectId)
+    || flow.project_id !== projectId
+    || (routeProjectId && routeProjectId !== projectId)
+  ) return null;
+  const project = [flow.project, ...flow.projects]
+    .filter(Boolean)
+    .find((item) => String(item?.id || "").trim().toLowerCase() === projectId);
+  if (!project) return null;
+  return {
+    id: projectId,
+    name: String(project.name || "Проект").trim() || "Проект",
+  };
+}
+
+function normalizeProjectAccessRoster(raw, expectedProjectId) {
+  const source = raw?.data && typeof raw.data === "object" ? raw.data : raw;
+  const projectId = String(source?.project_id || "").trim().toLowerCase();
+  if (
+    !source
+    || source.ok !== true
+    || projectId !== expectedProjectId
+    || !Array.isArray(source.members)
+    || source.capabilities?.manage_members !== true
+  ) {
+    throw new CreatorApiError(
+      "Сервис доступа вернул неполный список. Обновите проект и повторите проверку.",
+      { code: "project_members_response_invalid" },
+    );
+  }
+  const members = source.members.map((member) => ({
+    profileId: String(member?.profile_id || "").trim().toLowerCase(),
+    displayName: String(member?.display_name || "").trim(),
+    email: String(member?.email || "").trim(),
+    organizationRole: String(member?.organization_role || "").trim().toLowerCase(),
+    accessRole: String(member?.access_role || "member").trim().toLowerCase(),
+    status: String(member?.status || "").trim().toLowerCase(),
+    updatedAt: String(member?.updated_at || ""),
+  }));
+  if (members.some((member) => !isWorkspaceProjectId(member.profileId))) {
+    throw new CreatorApiError(
+      "Сервис доступа вернул неполный список. Обновите проект и повторите проверку.",
+      { code: "project_members_response_invalid" },
+    );
+  }
+  return { projectId, members };
+}
+
+function teamProjectAccessCandidates(members) {
+  const candidates = new Map();
+  (Array.isArray(members) ? members : []).forEach((member) => {
+    const profileId = String(member?.profile_id || member?.user_id || "")
+      .trim()
+      .toLowerCase();
+    if (!isWorkspaceProjectId(profileId) || candidates.has(profileId)) return;
+    candidates.set(profileId, {
+      profileId,
+      displayName: String(member?.display_name || "").trim(),
+      email: String(member?.email || "").trim(),
+      role: String(member?.role || "").trim().toLowerCase(),
+      status: String(member?.status || "active").trim().toLowerCase(),
+      teamCandidate: true,
+    });
+  });
+  return [...candidates.values()];
+}
+
+async function loadProjectMembers({ force = false, silent = false } = {}) {
+  if (!canManageTeam() || !state.api?.projectMembers) return null;
+  const context = selectedTeamProjectAccessContext();
+  if (!context) return null;
+  const target = state.projectAccess;
+  if (
+    !force
+    && ["loading", "refreshing"].includes(target.status)
+    && target.projectId === context.id
+  ) return null;
+  if (
+    !force
+    && target.status === "ready"
+    && target.projectId === context.id
+  ) return target.data;
+
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  const requestId = target.requestId + 1;
+  const projectChanged = target.projectId !== context.id;
+  target.requestId = requestId;
+  target.projectId = context.id;
+  if (projectChanged) {
+    target.data = null;
+    target.notice = "";
+  }
+  target.status = target.data ? "refreshing" : "loading";
+  target.error = "";
+  if (!silent && state.route.path === "/workspace/team") renderWorkspace("team");
+
+  const requestIsCurrent = () => (
+    requestEpoch === state.dataEpoch
+    && requestUserId === state.user?.id
+    && requestId === target.requestId
+    && target.projectId === context.id
+    && selectedTeamProjectAccessContext()?.id === context.id
+  );
+  try {
+    const raw = await withUiTimeout(
+      state.api.projectMembers({ projectId: context.id }),
+      WORKSPACE_REQUEST_TIMEOUT_MS,
+      "project_members_timeout",
+    );
+    if (!requestIsCurrent()) return null;
+    target.data = normalizeProjectAccessRoster(raw, context.id);
+    target.status = "ready";
+    return target.data;
+  } catch (error) {
+    if (!requestIsCurrent()) return null;
+    target.status = "error";
+    target.error = actionErrorMessage(error);
+    return null;
+  } finally {
+    if (requestIsCurrent() && state.route.path === "/workspace/team") {
+      renderWorkspace("team");
+    }
+  }
+}
+
+function projectAccessMemberRows(teamMembers, rosterMembers) {
+  const rosterByProfile = new Map(
+    rosterMembers.map((member) => [member.profileId, member]),
+  );
+  const candidates = teamProjectAccessCandidates(teamMembers);
+  const candidateIds = new Set(candidates.map((member) => member.profileId));
+  rosterMembers.forEach((member) => {
+    if (candidateIds.has(member.profileId)) return;
+    candidates.push({
+      profileId: member.profileId,
+      displayName: member.displayName,
+      email: member.email,
+      role: member.organizationRole,
+      status: "active",
+      teamCandidate: false,
+    });
+  });
+  return candidates
+    .map((candidate) => ({
+      ...candidate,
+      access: rosterByProfile.get(candidate.profileId) || null,
+    }))
+    .sort((left, right) => {
+      const activeDelta = Number(right.access?.status === "active")
+        - Number(left.access?.status === "active");
+      if (activeDelta) return activeDelta;
+      return String(left.displayName || left.email || left.profileId)
+        .localeCompare(String(right.displayName || right.email || right.profileId), "ru");
+    });
+}
+
+function projectAccessMemberTable(teamMembers, rosterMembers, projectId) {
+  const rows = projectAccessMemberRows(teamMembers, rosterMembers);
+  if (!rows.length) {
+    return emptyState(
+      "◎",
+      "Нет участников для проекта",
+      "Сначала пригласите человека в команду. Доступ ко всем проектам автоматически не выдаётся.",
+      { href: "#/workspace/team?view=invite", label: "Пригласить участника" },
+    );
+  }
+  return `<div class="table-wrap"><table class="data-table project-access-table">
+    <thead><tr><th>Участник команды</th><th>Рабочая роль</th><th>Доступ к проекту</th><th>Действие</th></tr></thead>
+    <tbody>${rows.map((member) => {
+      const hasAccess = member.access?.status === "active";
+      const organizationActive = member.status === "active";
+      const operational = PROJECT_ACCESS_OPERATIONAL_ROLES.has(member.role);
+      const protectedRole = ["owner", "admin"].includes(member.role);
+      const busy = state.projectAccess.busyProfileId === member.profileId;
+      let actionMarkup = `<span class="tiny muted">Сначала нужна активная рабочая роль</span>`;
+      if (!member.teamCandidate) {
+        actionMarkup = `<span class="tiny muted">Обновите список команды для изменения</span>`;
+      } else if (organizationActive && operational && protectedRole && hasAccess) {
+        actionMarkup = `<span class="tiny muted">Обязательный доступ защищён</span>`;
+      } else if (organizationActive && operational) {
+        actionMarkup = `<button class="btn ${hasAccess ? "btn-secondary" : ""} btn-small" type="button" data-action="${hasAccess ? "revoke-project-member" : "grant-project-member"}" data-project-id="${escapeHtml(projectId)}" data-profile-id="${escapeHtml(member.profileId)}" ${busy ? "disabled" : ""}>${busy ? "Сохраняем…" : hasAccess ? "Отозвать" : protectedRole ? "Восстановить доступ" : "Выдать доступ"}</button>`;
+      }
+      return `<tr data-project-member-profile-id="${escapeHtml(member.profileId)}">
+        <td><strong>${escapeHtml(member.displayName || member.email || "Участник")}</strong>${member.displayName && member.email ? `<br /><small class="muted">${escapeHtml(member.email)}</small>` : ""}</td>
+        <td>${escapeHtml(humanRole(member.role || "trainee"))}${organizationActive ? "" : `<br />${statusBadge(member.status || "inactive")}`}</td>
+        <td>${hasAccess ? `<span class="badge badge-success">Есть доступ</span>` : `<span class="badge">Нет доступа</span>`}</td>
+        <td>${actionMarkup}</td>
+      </tr>`;
+    }).join("")}</tbody>
+  </table></div>`;
+}
+
+function projectAccessMarkup(teamMembers) {
+  const flow = normalizeProjectFlow(state.projectFlow?.data || {});
+  const projects = flow.projects.filter((project) =>
+    isWorkspaceProjectId(String(project?.id || "").trim().toLowerCase()),
+  );
+  const context = selectedTeamProjectAccessContext();
+  const selectedId = context?.id || routeWorkspaceProjectId();
+  const selector = projects.length
+    ? `<label class="field"><span>Проект *</span><select data-project-access-project aria-label="Проект для управления доступом">${context ? "" : `<option value="">Выберите проект</option>`}${projects.map((project) => {
+      const projectId = String(project.id).trim().toLowerCase();
+      return `<option value="${escapeHtml(projectId)}" ${projectId === selectedId ? "selected" : ""}>${escapeHtml(project.name || "Проект")}</option>`;
+    }).join("")}</select><small class="field-hint">Выбор сохранится в URL; сервер заново подтвердит точный проект перед изменением доступа.</small></label>`
+    : "";
+
+  let body;
+  if (["idle", "loading", "refreshing"].includes(state.projectFlow.status) && !projects.length) {
+    body = `<div class="loading-line" aria-hidden="true"><span></span></div><p class="muted">Загружаем доступные проекты…</p>`;
+  } else if (state.projectFlow.status === "error" && !projects.length) {
+    body = `${alertMarkup("Не удалось загрузить серверный список проектов.", "warning")}<button class="btn btn-secondary btn-small" type="button" data-action="retry-project-flow">Повторить</button>`;
+  } else if (!projects.length) {
+    body = emptyState("◇", "Нет доступных проектов", "Создайте проект на рабочем столе, затем вернитесь к управлению доступом.", { href: "#/workspace/home", label: "Открыть проекты" });
+  } else if (!context) {
+    body = `${selector}${alertMarkup(routeWorkspaceProjectId()
+      ? "Сервер ещё подтверждает выбранный в URL проект. Изменения доступа пока остановлены."
+      : "Выберите один проект. Приглашение в команду само по себе не открывает остальные проекты.", "info")}`;
+  } else {
+    const target = state.projectAccess;
+    const exactState = target.projectId === context.id;
+    if (!exactState || target.status === "idle") {
+      window.queueMicrotask(() => { void loadProjectMembers({ silent: true }); });
+    }
+    let rosterBody = `<div class="loading-line" aria-hidden="true"><span></span></div><p class="muted">Проверяем участников проекта на сервере…</p>`;
+    if (exactState && target.status === "error") {
+      rosterBody = `${alertMarkup(target.error || "Не удалось обновить доступ к проекту.", "warning")}<button class="btn btn-secondary btn-small" type="button" data-action="refresh-project-members">Повторить</button>`;
+    } else if (exactState && target.data) {
+      rosterBody = `${target.notice ? alertMarkup(target.notice, "success") : ""}${target.error ? alertMarkup(target.error, "warning") : ""}${target.status === "refreshing" ? `<p class="tiny muted" role="status">Обновляем серверный список…</p>` : ""}${projectAccessMemberTable(teamMembers, target.data.members, context.id)}`;
+    }
+    body = `${selector}<div class="card-header" style="padding-left:0; padding-right:0"><div><p class="eyebrow">Выбранный проект</p><h3>${escapeHtml(context.name)}</h3></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-project-members" ${["loading", "refreshing"].includes(target.status) ? "disabled" : ""}>Обновить доступ</button></div>${rosterBody}`;
+  }
+
+  return `<section class="card card-pad project-access-panel" data-project-access-project-id="${escapeHtml(context?.id || "")}" style="margin-top:22px">
+    <p class="eyebrow">Проекты · общий результат</p>
+    <h2 style="font:600 1.55rem/1.15 Georgia,serif; margin:0 0 8px">Кто видит файлы выбранного проекта</h2>
+    <p class="muted">Доступ выдаётся явно только к одному проекту. Новый участник команды не получает другие проекты автоматически; владелец, администратор и создатель проекта защищены сервером от отзыва.</p>
+    ${body}
+  </section>`;
+}
+
+async function changeProjectMemberAccess(control, accessAction) {
+  const projectId = String(control?.dataset?.projectId || "").trim().toLowerCase();
+  const profileId = String(control?.dataset?.profileId || "").trim().toLowerCase();
+  const context = selectedTeamProjectAccessContext();
+  const routeProjectId = routeWorkspaceProjectId();
+  if (
+    !canManageTeam()
+    || !context
+    || !isWorkspaceProjectId(profileId)
+    || !routeProjectId
+    || routeProjectId !== projectId
+    || context.id !== projectId
+  ) {
+    toast("Проект или участник изменились. Обновите серверный список доступа.", "error");
+    resetProjectAccessState();
+    if (state.route.path === "/workspace/team") renderWorkspace("team");
+    return;
+  }
+
+  const candidate = teamProjectAccessCandidates(
+    listFrom(state.sections.team.data || {}, "members"),
+  ).find((member) => member.profileId === profileId);
+  if (
+    !candidate
+    || candidate.status !== "active"
+    || !PROJECT_ACCESS_OPERATIONAL_ROLES.has(candidate.role)
+  ) {
+    toast("Доступ можно изменить только для активного участника с рабочей ролью.", "error");
+    return;
+  }
+
+  const target = state.projectAccess;
+  const currentMember = target.projectId === projectId
+    ? target.data?.members?.find((member) => member.profileId === profileId)
+    : null;
+  const hasAccess = currentMember?.status === "active";
+  if (
+    (accessAction === "grant" && hasAccess)
+    || (accessAction === "revoke" && !hasAccess)
+  ) {
+    toast("Состояние доступа уже изменилось. Обновляем список без повторной команды.", "info");
+    await loadProjectMembers({ force: true });
+    return;
+  }
+  if (accessAction === "revoke" && ["owner", "admin"].includes(candidate.role)) {
+    toast("Обязательный доступ владельца или администратора защищён.", "info");
+    return;
+  }
+
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  target.busyProfileId = profileId;
+  target.error = "";
+  target.notice = "";
+  if (state.route.path === "/workspace/team") renderWorkspace("team");
+  try {
+    const raw = accessAction === "grant"
+      ? await state.api.grantProjectMember(profileId, { projectId })
+      : await state.api.revokeProjectMember(profileId, { projectId });
+    if (
+      requestEpoch !== state.dataEpoch
+      || requestUserId !== state.user?.id
+      || selectedTeamProjectAccessContext()?.id !== projectId
+      || routeWorkspaceProjectId() !== projectId
+    ) return;
+    const source = raw?.data && typeof raw.data === "object" ? raw.data : raw;
+    const expectedStatus = accessAction === "grant" ? "active" : "revoked";
+    if (
+      source?.ok !== true
+      || String(source.project_id || "").trim().toLowerCase() !== projectId
+      || String(source.profile_id || "").trim().toLowerCase() !== profileId
+      || String(source.status || "").trim().toLowerCase() !== expectedStatus
+    ) {
+      throw new CreatorApiError(
+        "Сервер не подтвердил изменение доступа. Обновите список перед повтором.",
+        { code: "project_member_mutation_response_invalid" },
+      );
+    }
+    target.notice = accessAction === "grant"
+      ? `Участнику ${candidate.displayName || candidate.email || "команды"} открыт только выбранный проект.`
+      : `Доступ участника ${candidate.displayName || candidate.email || "команды"} к выбранному проекту отозван.`;
+    await loadProjectMembers({ force: true, silent: true });
+  } catch (error) {
+    if (
+      requestEpoch === state.dataEpoch
+      && requestUserId === state.user?.id
+      && selectedTeamProjectAccessContext()?.id === projectId
+    ) {
+      target.error = actionErrorMessage(error);
+      target.status = target.data ? "ready" : "error";
+    }
+  } finally {
+    if (
+      requestEpoch === state.dataEpoch
+      && requestUserId === state.user?.id
+      && target.busyProfileId === profileId
+    ) target.busyProfileId = "";
+    if (state.route.path === "/workspace/team") renderWorkspace("team");
+  }
+}
+
 function renderTeamSection(sectionState) {
   if (!canManageTeam()) {
     return `<div class="page-wrap">${alertMarkup("Управление командой доступно только руководителю.", "danger")}</div>`;
@@ -15382,7 +15936,7 @@ function renderTeamSection(sectionState) {
                 view: teamView === "budget" ? "policy" : teamView,
                 campaignId: requestedCampaignId,
               })}</section>`
-              : membersPanel;
+              : `${membersPanel}${projectAccessMarkup(members)}`;
   return `
     <div class="page-wrap" data-team-view="${teamView}">
       ${pageHeader("Команда", "Пригласите креаторов по рабочей почте. Пароли и секреты в эту форму не вводятся.", `<span class="badge badge-info">До 50 человек</span>`)}
@@ -16339,7 +16893,9 @@ async function handleClick(event) {
     stageControl.notice = "Вручную проверяем сохранённый дочерний запуск. Новый recompute-запрос не создаётся.";
     renderWorkspace("research");
     try {
-      await state.api.resumeResearchStageRecompute(childRunId, requestId);
+      await state.api.resumeResearchStageRecompute(childRunId, requestId, {
+        project_id: currentWorkspaceProjectId(),
+      });
       stageControl.notice = "Сохранённый запуск принят. Проверьте статус; повторный платный запрос не создавался.";
     } catch (error) {
       stageControl.error = `${actionErrorMessage(error)} Запрос ${requestId.slice(0, 8)}… сохранён; не повторяйте его автоматически.`;
@@ -17338,9 +17894,31 @@ async function handleClick(event) {
     return;
   }
 
+  if (["grant-project-member", "revoke-project-member"].includes(action)) {
+    if (state.projectAccess.busyProfileId) {
+      toast("Изменение доступа уже сохраняется.", "info");
+      return;
+    }
+    await changeProjectMemberAccess(
+      control,
+      action === "grant-project-member" ? "grant" : "revoke",
+    );
+    return;
+  }
+
+  if (action === "refresh-project-members") {
+    if (["loading", "refreshing"].includes(state.projectAccess.status)) return;
+    await loadProjectMembers({ force: true });
+    return;
+  }
+
   if (action === "refresh-section") {
     const section = control.dataset.section;
     if (state.sections[section]) {
+      if (section === "team" && state.projectAccess.busyProfileId) {
+        toast("Сначала дождитесь подтверждения изменения доступа.", "info");
+        return;
+      }
       if (section === "generation") {
         state.generationArchive.requestId += 1;
         state.generationArchive.loading = false;
@@ -17353,6 +17931,7 @@ async function handleClick(event) {
         state.generationModelAcceptance.status = "idle";
         state.generationModelAcceptance.error = null;
       }
+      if (section === "team") resetProjectAccessState();
       state.sections[section].requestId += 1;
       state.sections[section].status = "idle";
       render();
@@ -17785,6 +18364,24 @@ async function submitSavedMyWorkView(form) {
 
 function handleChange(event) {
   handleFormActivity(event);
+
+  if (event.target.matches("[data-project-access-project]")) {
+    const projectId = String(event.target.value || "").trim().toLowerCase();
+    const serverProjects = normalizeProjectFlow(state.projectFlow?.data || {}).projects;
+    const selected = serverProjects.find(
+      (project) => String(project?.id || "").trim().toLowerCase() === projectId,
+    );
+    if (!selected || !isWorkspaceProjectId(projectId)) {
+      toast("Выбранный проект больше не доступен. Обновите список.", "error");
+      event.target.value = routeWorkspaceProjectId();
+      return;
+    }
+    const query = new URLSearchParams(state.route.query);
+    query.set("view", "members");
+    query.set("project_id", projectId);
+    navigate(`/workspace/team?${query.toString()}`, false, { scopeProject: false });
+    return;
+  }
 
   if (event.target.id === "ai-knowledge-file") {
     const file = event.target.files?.[0];
@@ -18270,6 +18867,7 @@ function generationMediaSelectionFromForm(form) {
       ),
       paidReady: input.dataset.mediaIdentityVerified === "true"
         && input.dataset.mediaRightsConfirmed === "true",
+      productId: input.dataset.mediaProductId,
       sku: input.dataset.mediaSku,
       productName: input.dataset.mediaProductName,
     })),
@@ -18283,7 +18881,11 @@ function generationMediaSelectionFromForm(form) {
 
 function selectedGenerationProductIdentity(form) {
   const selection = generationMediaSelectionFromForm(form);
-  if (!selection.valid || !selection.primaryMediaId) return null;
+  if (
+    !selection.valid
+    || selection.identityConsistent === false
+    || !selection.primaryMediaId
+  ) return null;
   const mediaIds = [
     selection.primaryMediaId,
     ...selection.mediaIds.filter(
@@ -18293,6 +18895,7 @@ function selectedGenerationProductIdentity(form) {
   return {
     mediaId: selection.primaryMediaId,
     mediaIds,
+    productId: selection.productId,
     sku: selection.sku,
     productName: selection.productName,
   };
@@ -19338,6 +19941,120 @@ function generationSpecRepairProvenance(form, identity = null) {
   };
 }
 
+function generationSpecAiResearchSelection(payload = null) {
+  const selection = state.aiResearchRecommendation;
+  if (
+    !selection
+    || !contentReviewUuid(selection.selectionId)
+    || ![1, 2, 3].includes(Number(selection.recommendationPosition))
+  ) return null;
+  const projectId = String(
+    payload?.project_id || currentWorkspaceProjectId() || "",
+  ).trim().toLowerCase();
+  const productCategory = String(
+    payload?.exact_scope?.product_category
+      || document.querySelector("#mock-batch-form")?.elements
+        ?.product_category?.value
+      || "",
+  ).trim().toLowerCase();
+  if (
+    !isWorkspaceProjectId(projectId)
+    || projectId !== selection.projectId
+    || !productCategory
+    || productCategory !== selection.productCategory
+  ) return null;
+  return {
+    selection_id: selection.selectionId,
+    recommendation_position: Number(selection.recommendationPosition),
+  };
+}
+
+function generationSpecAiResearchBindingMatches(
+  spec,
+  selection = generationSpecAiResearchSelection(),
+) {
+  if (!selection) return true;
+  const binding = state.generationSpec.aiResearchBinding;
+  return Boolean(
+    binding
+    && String(binding.spec_id || "").toLowerCase()
+      === String(spec?.spec_id || "").toLowerCase()
+    && Number(binding.spec_version) === Number(spec?.spec_version)
+    && String(binding.spec_hash || "").toLowerCase()
+      === String(spec?.spec_hash || "").toLowerCase()
+    && String(binding.selection_id || "").toLowerCase()
+      === selection.selection_id
+    && Number(binding.recommendation_position)
+      === selection.recommendation_position
+  );
+}
+
+function normalizeGenerationSpecAiResearchBinding(raw, spec, selection) {
+  const source = raw?.data && typeof raw.data === "object"
+    ? raw.data
+    : raw;
+  const binding = source?.binding;
+  const matches = Boolean(
+    binding
+    && String(binding.spec_id || "").toLowerCase()
+      === String(spec?.spec_id || "").toLowerCase()
+    && Number(binding.spec_version) === Number(spec?.spec_version)
+    && String(binding.spec_hash || "").toLowerCase()
+      === String(spec?.spec_hash || "").toLowerCase()
+    && String(binding.selection_id || "").toLowerCase()
+      === selection.selection_id
+    && Number(binding.recommendation_position)
+      === selection.recommendation_position
+  );
+  if (
+    !binding
+    || !contentReviewUuid(binding.id)
+    || !matches
+  ) {
+    throw new CreatorApiError(
+      "Сервер не подтвердил связь замысла с рекомендацией ИИ‑центра.",
+      { code: "generation_spec_ai_research_binding_response_invalid" },
+    );
+  }
+  return binding;
+}
+
+async function bindGenerationSpecAiResearch(spec, preparedPayload) {
+  const selection = generationSpecAiResearchSelection(preparedPayload);
+  if (!selection) {
+    state.generationSpec.aiResearchBinding = null;
+    return null;
+  }
+  try {
+    const raw = await state.api.bindGenerationSpecAiResearch({
+      project_id: preparedPayload.project_id,
+      spec_id: spec.spec_id,
+      spec_version: spec.spec_version,
+      spec_hash: spec.spec_hash,
+      selection_id: selection.selection_id,
+      recommendation_position: selection.recommendation_position,
+      confirmation: true,
+    });
+    const binding = normalizeGenerationSpecAiResearchBinding(
+      raw,
+      spec,
+      selection,
+    );
+    state.generationSpec.aiResearchBinding = binding;
+    return binding;
+  } catch (error) {
+    state.generationSpec.aiResearchBinding = null;
+    state.generationSpec.dirty = true;
+    state.generationSpec.error = actionErrorMessage(error);
+    if (preparedPayload && document.querySelector("#mock-batch-form")
+      ?.elements?.real_spend_confirmation) {
+      document.querySelector("#mock-batch-form")
+        .elements.real_spend_confirmation.checked = false;
+    }
+    throw error;
+  }
+}
+
 function generationSpecPreparePayload(form) {
   const identity = selectedGenerationProductIdentity(form);
   const projectId = currentWorkspaceProjectId();
@@ -19382,12 +20099,14 @@ function generationSpecPayloadKey(payload) {
     performance_policy_provenance: payload.performance_policy_provenance,
     repair_provenance: payload.repair_provenance,
     outcome_selection_id: payload.outcome_selection_id || null,
+    ai_research_selection: generationSpecAiResearchSelection(payload),
   });
 }
 
 function generationSpecDocumentKey(spec) {
   if (!spec) return "";
   return generationSpecPayloadKey({
+    project_id: currentWorkspaceProjectId(),
     exact_scope: spec.exact_scope,
     editable_intent: spec.editable_intent,
     proposed_prompt: spec.compiled_prompt,
@@ -19403,10 +20122,12 @@ function currentGenerationSpecContext(form) {
   const dirty = state.generationSpec.dirty === true
     || generationSpecPayloadKey(payload) !== state.generationSpec.key;
   const spec = state.generationSpec.data?.generationSpec;
+  const aiResearchSelection = generationSpecAiResearchSelection(payload);
   if (
     dirty
     || !spec
     || spec.status === "rejected"
+    || !generationSpecAiResearchBindingMatches(spec, aiResearchSelection)
     || (
       payload?.exact_scope
       && !generationSpecScopesMatch(spec.exact_scope, payload.exact_scope)
@@ -19457,6 +20178,7 @@ function resetGenerationSpecState() {
   state.generationSpec.key = "";
   state.generationSpec.dirty = true;
   state.generationSpec.saving = false;
+  state.generationSpec.aiResearchBinding = null;
   const form = document.querySelector("#mock-batch-form");
   if (form) delete form.dataset.generationSpecPromptLocked;
 }
@@ -19769,11 +20491,32 @@ async function runGenerationSpecControl(form, action, {
       };
       raw = await state.api.controlGenerationSpec(input);
     }
-    return applyGenerationSpecEnvelope(raw, form, {
+    const envelope = applyGenerationSpecEnvelope(raw, form, {
       preparedPayload,
       adoptServerSpec: true,
       allowScopeChange: action === "revert",
     });
+    if (["prepare", "patch", "recompute"].includes(action)) {
+      await bindGenerationSpecAiResearch(
+        envelope.generationSpec,
+        generationSpecPreparePayload(form) || preparedPayload,
+      );
+      state.generationSpec.key = generationSpecDocumentKey(
+        envelope.generationSpec,
+      );
+      state.generationSpec.dirty = false;
+    } else if (action === "revert" && generationSpecAiResearchSelection(
+      generationSpecPreparePayload(form),
+    )) {
+      state.generationSpec.aiResearchBinding = null;
+      invalidateGenerationSpec(
+        form,
+        "Возвращённая версия ещё не связана с текущей рекомендацией ИИ‑центра. При запуске будет создана новая проверяемая версия.",
+      );
+    }
+    syncGenerationSpecUi(form);
+    syncGenerationFormReadiness(form);
+    return envelope;
   } finally {
     state.generationSpec.saving = false;
     syncGenerationSpecUi(form);
@@ -19886,10 +20629,12 @@ function syncGenerationProductIdentity(form) {
   const note = form.querySelector("#generation-product-identity-note");
   const verified = selected?.dataset.mediaIdentityVerified === "true";
   const rightsConfirmed = selected?.dataset.mediaRightsConfirmed === "true";
+  const productId = String(selected?.dataset.mediaProductId || "").trim().toLowerCase();
   const sku = String(selected?.dataset.mediaSku || "").trim();
   const productName = String(selected?.dataset.mediaProductName || "").trim();
   const identityReady = Boolean(
     selection?.valid
+    && selection.identityConsistent !== false
     && verified
     && rightsConfirmed
     && sku
@@ -19901,6 +20646,7 @@ function syncGenerationProductIdentity(form) {
     if (nameInput) nameInput.readOnly = false;
     delete form.dataset.identityMediaId;
     delete form.dataset.identityMediaIds;
+    delete form.dataset.identityProductId;
     if (note) {
       note.dataset.state = selected ? "warning" : "idle";
       note.textContent = selected || selection?.mediaIds?.length
@@ -19929,6 +20675,11 @@ function syncGenerationProductIdentity(form) {
   applyValue(nameInput, productName);
   form.dataset.identityMediaId = selected.value;
   form.dataset.identityMediaIds = selection.mediaIds.join(",");
+  if (isWorkspaceProjectId(productId) && selection.productId === productId) {
+    form.dataset.identityProductId = productId;
+  } else {
+    delete form.dataset.identityProductId;
+  }
   if (note) {
     note.dataset.state = "verified";
     note.textContent = real
@@ -19938,6 +20689,7 @@ function syncGenerationProductIdentity(form) {
   const identity = {
     mediaId: selection.primaryMediaId,
     mediaIds: selection.mediaIds,
+    productId: isWorkspaceProjectId(selection.productId) ? selection.productId : "",
     sku,
     productName,
   };
@@ -21038,7 +21790,11 @@ async function submitRealGenerationReconciliation(form, submitter) {
       reason,
     });
     if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id) return;
-    applyRealGenerationResult(jobId, result, { renderNow: false, source: "manual" });
+    applyRealGenerationResult(jobId, result, {
+      renderNow: false,
+      source: "manual",
+      projectId,
+    });
     state.sections.generation.status = "idle";
     state.sections.tasks.status = "idle";
     if (resolution === "attach_existing_task") {
@@ -21304,7 +22060,7 @@ async function submitRealGeneration(form, values, mode) {
       : registerGenerationReviewAutostart(jobId);
     state.realGenerationDrafts.set(jobId, draft);
     state.lastRealGenerationJobId = jobId;
-    applyRealGenerationResult(jobId, result, { renderNow: false });
+    applyRealGenerationResult(jobId, result, { renderNow: false, projectId });
     track("real_generation_started", {
       provider: "runway",
       model: generationSku.model,
@@ -21357,7 +22113,10 @@ async function submitRealGeneration(form, values, mode) {
       const jobId = String(error.job.id);
       state.realGenerationDrafts.set(jobId, draft);
       state.lastRealGenerationJobId = jobId;
-      applyRealGenerationResult(jobId, { job: error.job }, { renderNow: false });
+      applyRealGenerationResult(jobId, { job: error.job }, {
+        renderNow: false,
+        projectId,
+      });
     }
     const startErrorMessage = actionErrorMessage(error);
     state.realGenerationStartNotice = providerStartAttempted
@@ -23557,6 +24316,7 @@ async function submitProductResearchStageCancel(form, submitter) {
   let mutationError = "";
   try {
     await state.api.controlResearchStage(research.record.id, {
+      project_id: currentWorkspaceProjectId(),
       branch_id: control.selectedBranch.branchId,
       stage: head.stage,
       action: "cancel",
@@ -23643,6 +24403,7 @@ async function submitProductResearchStageControl(form, submitter) {
     return;
   }
   const options = {
+    project_id: currentWorkspaceProjectId(),
     branch_id: branchId,
     stage,
     action,
@@ -25322,6 +26083,7 @@ function clearAuthenticatedState() {
   state.accessCenter.result = null;
   state.accessCenter.error = "";
   state.accessCenter.notice = "";
+  resetProjectAccessState();
   state.managerRecoveryCooldowns.clear();
   state.managerInviteCooldowns.clear();
   state.productResearch.requestId += 1;

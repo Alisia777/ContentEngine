@@ -174,7 +174,7 @@ begin
 end;
 $final_gate_fixture$;
 
-select plan(68);
+select plan(69);
 
 select has_table(
   'content_factory',
@@ -1399,19 +1399,19 @@ select is(
   true,
   'omitting folder_id returns accessible items from every folder'
 );
-select is(
-  (
-    public.creator_workspace_browser(jsonb_build_object(
-      'organization_id', '94100000-0000-4000-8000-000000000001',
-      'project_id', '94400000-0000-4000-8000-000000000100',
-      'folder_id', null
-    )) -> 'items'
-  ) @> jsonb_build_array(jsonb_build_object(
-    'type', 'task',
-    'id', '94300000-0000-4000-8000-000000000002'
-  )),
-  true,
-  'explicit null folder_id keeps the project-wide Finder scope'
+select ok(
+  not exists (
+    select 1
+    from jsonb_array_elements(
+      public.creator_workspace_browser(jsonb_build_object(
+        'organization_id', '94100000-0000-4000-8000-000000000001',
+        'project_id', '94400000-0000-4000-8000-000000000100',
+        'folder_id', null
+      )) -> 'items'
+    ) item(value)
+    where item.value ->> 'folder_id' is not null
+  ),
+  'explicit null folder_id returns root objects only'
 );
 select ok(
   not exists (
@@ -1427,6 +1427,40 @@ select ok(
       '94400000-0000-4000-8000-000000000100'
   ),
   'explicit null folder_id returns only selected-project objects'
+);
+
+insert into content_factory.media_objects (
+  id, organization_id, project_id, owner_id, bucket_id, object_name,
+  mime_type, size_bytes, sha256, status, metadata, idempotency_key
+) values (
+  '94200000-0000-4000-8000-000000000006',
+  '94100000-0000-4000-8000-000000000001',
+  '94400000-0000-4000-8000-000000000100',
+  '94000000-0000-4000-8000-000000000001',
+  'contentengine-private',
+  '94100000-0000-4000-8000-000000000001/94000000-0000-4000-8000-000000000001/workspace/generated-image.webp',
+  'image/webp',
+  600,
+  repeat('6', 64),
+  'ready',
+  '{"kind":"generated_image","original_filename":"generated-image.webp"}',
+  'workspace-generated-image-0001'
+);
+
+select is(
+  (
+    public.creator_workspace_browser(jsonb_build_object(
+      'organization_id', '94100000-0000-4000-8000-000000000001',
+      'project_id', '94400000-0000-4000-8000-000000000100',
+      'media_kinds', jsonb_build_array('generated_image')
+    )) -> 'items'
+  ) @> jsonb_build_array(jsonb_build_object(
+    'type', 'media',
+    'id', '94200000-0000-4000-8000-000000000006',
+    'kind', 'generated_image'
+  )),
+  true,
+  'workspace browser returns generated images through its active media filter'
 );
 select is(
   (
