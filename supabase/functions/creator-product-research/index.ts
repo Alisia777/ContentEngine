@@ -2697,7 +2697,7 @@ export function sanitizeProviderDiagnosticMessage(
       /\b(bearer|authorization|api[_ -]?key)\b\s*[:=]?\s*[^\s,;]+/giu,
       "$1 [redacted]",
     )
-    .replace(/[\u0000-\u001f\u007f]+/gu, " ")
+    .replace(/\p{Cc}+/gu, " ")
     .replace(/\s+/gu, " ")
     .trim()
     .slice(0, 280);
