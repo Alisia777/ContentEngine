@@ -78,6 +78,20 @@ create table content_factory.generation_job_video_reference_bindings (
     references content_factory.memberships(organization_id, profile_id)
 );
 
+-- Existing paid jobs predate this optional lineage and must never acquire a
+-- reference during an idempotent replay after deployment. A two-step default
+-- gives every existing row the finalized legacy value while every job created
+-- by the preserved start chain below begins undecided. The outer wrapper then
+-- records exactly one immutable choice: no reference or one exact binding.
+alter table content_factory.generation_jobs
+  add column generation_video_reference_decided boolean not null default true;
+alter table content_factory.generation_jobs
+  alter column generation_video_reference_decided set default false;
+
+comment on column
+  content_factory.generation_jobs.generation_video_reference_decided is
+  'True only after the paid-start transaction fixed no reference or one exact generation reference; legacy jobs are backfilled true and cannot gain lineage on replay.';
+
 create index generation_spec_video_reference_project_idx
   on content_factory.generation_spec_video_reference_bindings (
     organization_id, project_id, applied_at desc, id desc
@@ -465,7 +479,6 @@ declare
   binding_id_value uuid;
   binding_hash_value text;
   idempotency_key_value text;
-  replay_job_id_value uuid;
   result_value jsonb;
   job_id_value uuid;
   batch_id_value uuid;
@@ -480,8 +493,29 @@ declare
     'ИИ исходный ролик не просматривал.';
   expected_prompt_fragment_value text;
   prompt_marker_count_value integer := 0;
+  reference_decision_recorded_value boolean := false;
+  recorded_context_value jsonb;
 begin
   p_payload := content_factory_private.require_payload(p_payload);
+  context_value := p_payload -> 'generation_reference_context';
+
+  -- Run the complete preserved validation chain first. The delegated call only
+  -- writes transactional database state; the Edge Function cannot contact the
+  -- provider until this RPC returns. Any reference error below therefore rolls
+  -- back the job and spend reservation while retaining every legacy validation
+  -- order and error contract.
+  result_value := content_factory_private
+    .creator_start_real_generation_pre_video_reference_v54(
+      p_payload - 'generation_reference_context'
+    );
+  begin
+    job_id_value := (result_value #>> '{job,id}')::uuid;
+    batch_id_value := (result_value #>> '{batch,id}')::uuid;
+  exception when invalid_text_representation or null_value_not_allowed then
+    raise exception using errcode = '55000',
+      message = 'generation_video_reference_job_binding_invalid';
+  end;
+
   actor_id_value := content_factory_private.current_profile_id();
   organization_id_value :=
     content_factory_private.resolve_organization(p_payload);
@@ -515,7 +549,6 @@ begin
     ) / char_length(prompt_marker_value);
   end if;
   prompt_has_reference_value := prompt_marker_count_value > 0;
-  context_value := p_payload -> 'generation_reference_context';
   if prompt_marker_count_value not between 0 and 1
      or prompt_has_reference_value <> (context_value is not null) then
     raise exception using errcode = '22023',
@@ -573,60 +606,88 @@ begin
     hashtext(organization_id_value::text),
     hashtext('generation-video-reference:' || idempotency_key_value)
   );
-  select job.id into replay_job_id_value
-  from content_factory.generation_batches batch
-  join content_factory.generation_jobs job
-    on job.organization_id = batch.organization_id
-   and job.batch_id = batch.id
-  where batch.organization_id = organization_id_value
-    and batch.idempotency_key = idempotency_key_value
-    and job.requested_by = actor_id_value
-  limit 1;
-  if replay_job_id_value is not null then
-    select binding.* into job_binding_row
-    from content_factory.generation_job_video_reference_bindings binding
-    where binding.organization_id = organization_id_value
-      and binding.generation_job_id = replay_job_id_value;
-    if (binding_id_value is null) <> (job_binding_row.id is null)
-       or (
-         binding_id_value is not null and (
-           job_binding_row.spec_reference_binding_id <> binding_id_value
-           or job_binding_row.binding_hash <> binding_hash_value
-         )
-       ) then
-      raise exception using errcode = '23505',
-        message = 'idempotency_key_conflict';
-    end if;
-  end if;
-
-  result_value := content_factory_private
-    .creator_start_real_generation_pre_video_reference_v54(
-      p_payload - 'generation_reference_context'
-    );
-  begin
-    job_id_value := (result_value #>> '{job,id}')::uuid;
-    batch_id_value := (result_value #>> '{batch,id}')::uuid;
-  exception when invalid_text_representation or null_value_not_allowed then
-    raise exception using errcode = '55000',
-      message = 'generation_video_reference_job_binding_invalid';
-  end;
-
-  if binding_id_value is null then
-    return result_value;
-  end if;
   select job.* into job_row
   from content_factory.generation_jobs job
   where job.organization_id = organization_id_value
     and job.project_id = project_id_value
     and job.id = job_id_value
     and job.batch_id = batch_id_value
-    and job.generation_spec_id = spec_binding_row.spec_id
-    and job.generation_spec_version = spec_binding_row.spec_version
-    and job.generation_spec_hash = spec_binding_row.spec_hash
+    and job.generation_spec_id = spec_row.spec_id
+    and job.generation_spec_version = spec_row.spec_version
+    and job.generation_spec_hash = spec_row.spec_hash
+    and job.requested_by = actor_id_value
   for update;
   if job_row.id is null then
     raise exception using errcode = '55000',
       message = 'generation_video_reference_job_binding_invalid';
+  end if;
+
+  select binding.* into job_binding_row
+  from content_factory.generation_job_video_reference_bindings binding
+  where binding.organization_id = organization_id_value
+    and binding.generation_job_id = job_id_value;
+  reference_decision_recorded_value :=
+    job_row.generation_video_reference_decided;
+  recorded_context_value :=
+    job_row.input -> 'generation_video_reference_context';
+  if reference_decision_recorded_value then
+    -- A finalized legacy job has no JSON sentinel because it existed before
+    -- this migration. Its only valid replay is the same no-reference choice;
+    -- a later reference must fail instead of being attached post-provider.
+    if not (job_row.input ? 'generation_video_reference_context') then
+      if binding_id_value is null and job_binding_row.id is null then
+        return result_value;
+      end if;
+      raise exception using errcode = '23505',
+        message = 'idempotency_key_conflict';
+    end if;
+    if binding_id_value is null then
+      if recorded_context_value is distinct from 'null'::jsonb
+         or job_binding_row.id is not null then
+        raise exception using errcode = '23505',
+          message = 'idempotency_key_conflict';
+      end if;
+      return result_value;
+    end if;
+    if jsonb_typeof(recorded_context_value) <> 'object'
+       or recorded_context_value ->> 'binding_id'
+            is distinct from binding_id_value::text
+       or recorded_context_value ->> 'binding_hash'
+            is distinct from binding_hash_value
+       or job_binding_row.id is null
+       or job_binding_row.spec_reference_binding_id <> binding_id_value
+       or job_binding_row.binding_hash <> binding_hash_value then
+      raise exception using errcode = '23505',
+        message = 'idempotency_key_conflict';
+    end if;
+    return jsonb_set(
+      result_value,
+      '{job,generation_reference_context}',
+      jsonb_build_object(
+        'binding_id', binding_id_value,
+        'binding_hash', binding_hash_value
+      ),
+      true
+    );
+  end if;
+  if job_binding_row.id is not null then
+    raise exception using errcode = '55000',
+      message = 'generation_video_reference_job_binding_invalid';
+  end if;
+
+  if binding_id_value is null then
+    update content_factory.generation_jobs job
+    set generation_video_reference_decided = true,
+        input = job.input || jsonb_build_object(
+          'generation_video_reference_context', null
+        )
+    where job.organization_id = organization_id_value and job.id = job_id_value;
+    update content_factory.generation_batches batch
+    set input = batch.input || jsonb_build_object(
+      'generation_video_reference_context', null
+    )
+    where batch.organization_id = organization_id_value and batch.id = batch_id_value;
+    return result_value;
   end if;
 
   insert into content_factory.generation_job_video_reference_bindings (
@@ -652,13 +713,14 @@ begin
   end if;
 
   update content_factory.generation_jobs job
-  set input = job.input || jsonb_build_object(
-    'generation_video_reference_context', jsonb_build_object(
-      'binding_id', spec_binding_row.id,
-      'binding_hash', spec_binding_row.binding_hash,
-      'reference_hash', spec_binding_row.reference_hash
-    )
-  )
+  set generation_video_reference_decided = true,
+      input = job.input || jsonb_build_object(
+        'generation_video_reference_context', jsonb_build_object(
+          'binding_id', spec_binding_row.id,
+          'binding_hash', spec_binding_row.binding_hash,
+          'reference_hash', spec_binding_row.reference_hash
+        )
+      )
   where job.organization_id = organization_id_value and job.id = job_id_value;
   update content_factory.generation_batches batch
   set input = batch.input || jsonb_build_object(

@@ -320,6 +320,11 @@ def test_append_only_lineage_and_paid_job_binding_are_server_enforced() -> None:
         "prompt_marker_count_value <> 1",
         "position(prompt_marker_value in mechanics_summary_value) > 0",
         "spec_binding_row.mechanics_summary || '. '",
+        "add column generation_video_reference_decided boolean not null default true",
+        "alter column generation_video_reference_decided set default false",
+        "job_row.generation_video_reference_decided",
+        "if not (job_row.input ? 'generation_video_reference_context') then",
+        "set generation_video_reference_decided = true",
     ):
         assert token in MIGRATION
     assert (
@@ -329,6 +334,28 @@ def test_append_only_lineage_and_paid_job_binding_are_server_enforced() -> None:
     assert "research_source" not in MIGRATION
     assert "research_provenance =" not in MIGRATION
     assert "research_provenance_changed', false" in MIGRATION
+
+
+def test_paid_job_reference_decision_is_replay_safe_across_the_upgrade() -> None:
+    legacy_default = MIGRATION.index(
+        "add column generation_video_reference_decided boolean not null default true"
+    )
+    new_job_default = MIGRATION.index(
+        "alter column generation_video_reference_decided set default false"
+    )
+    delegated_start = MIGRATION.index(
+        ".creator_start_real_generation_pre_video_reference_v54("
+    )
+    decision_read = MIGRATION.index("job_row.generation_video_reference_decided")
+    no_reference_decision = MIGRATION.index(
+        "'generation_video_reference_context', null"
+    )
+
+    assert legacy_default < new_job_default < delegated_start < decision_read
+    assert decision_read < no_reference_decision
+    assert "if binding_id_value is null and job_binding_row.id is null then" in MIGRATION
+    assert "message = 'idempotency_key_conflict'" in MIGRATION
+    assert MIGRATION.count("set generation_video_reference_decided = true") == 2
 
 
 def test_sql_binding_contract_rejects_split_a_b_adversarial_spec() -> None:

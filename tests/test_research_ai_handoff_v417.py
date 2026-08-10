@@ -295,7 +295,10 @@ def test_unknown_paid_provider_outcome_has_one_safe_primary_and_an_explicit_new_
           failureMessage: "Формат ответа повреждён.",
           providerControl: {
             runControl: { attempt: { attemptId: "attempt-2" } },
-            responseState: { bindingState: "bound" },
+            responseState: {
+              bindingState: "bound",
+              providerStatus: "completed",
+            },
           },
         });
         return {
