@@ -8,6 +8,7 @@
  */
 
 import { writeExactYoutubeMediaHandoff } from "./exact-youtube-media-handoff.js?v=20260810.exact-video.2";
+import { writeExactYoutubeResearchDraft } from "./exact-youtube-research-draft.js?v=20260810.exact-research-draft.1";
 
 const ROUTE = "/workspace/research";
 const FORM_ID = "product-research-start-form";
@@ -261,6 +262,35 @@ function fieldText(form, names, limit) {
   return "";
 }
 
+function checkedFieldValues(form, name) {
+  const selector = `input[name="${name}"]:checked`;
+  return [...(form.querySelectorAll?.(selector) || [])]
+    .map((field) => String(field?.value || "").trim())
+    .filter(Boolean);
+}
+
+export function exactYoutubeResearchDraftInput(form) {
+  return {
+    product_category: fieldText(form, ["product_category"], 60),
+    category_name: stripExactYoutubeReferences(
+      fieldText(form, ["category_name"], 160),
+    ),
+    research_focus: stripExactYoutubeReferences(
+      fieldText(form, ["research_focus"], 200),
+    ),
+    marketplace_url: fieldText(form, ["marketplace_url"], 1_000),
+    competitor_references: stripExactYoutubeReferences(
+      fieldText(form, ["competitor_references"], 650),
+    ),
+    objective: fieldText(form, ["objective"], 40),
+    known_facts: stripExactYoutubeReferences(
+      fieldText(form, ["known_facts"], 500),
+    ),
+    platforms: checkedFieldValues(form, "platforms"),
+    source_media_ids: checkedFieldValues(form, "source_media_ids"),
+  };
+}
+
 export function prepareResearchVideoMediaHandoff({
   storage,
   context = {},
@@ -419,16 +449,25 @@ export async function openResearchVideoMediaUpload(
     const source = await registerExactSource(form, canonical);
     const sourceId = String(source.id || "").trim().toLowerCase();
     rememberPendingSource(canonical, sourceId);
+    const handoffContext = window.ContentEngineWorkspaceRuntime
+      ?.getExactYoutubeHandoffContext?.() || {};
     const prepared = prepareResearchVideoMediaHandoff({
       storage: window.sessionStorage,
-      context: window.ContentEngineWorkspaceRuntime
-        ?.getExactYoutubeHandoffContext?.() || {},
+      context: handoffContext,
       source,
       canonicalUrl: canonical,
       productName,
       productSku,
     });
     if (!prepared.ok) throw new Error(prepared.code);
+    if (!writeExactYoutubeResearchDraft(window.sessionStorage, {
+      ...handoffContext,
+      project_id: String(source.project_id || projectId()).trim().toLowerCase(),
+      source_id: sourceId,
+      ...exactYoutubeResearchDraftInput(form),
+    })) {
+      throw new Error("exact_youtube_research_draft_storage_invalid");
+    }
     panel.dataset.sourceId = prepared.sourceId;
     panel.dataset.sourceMode = "awaiting-media";
     upload.href = prepared.href;
