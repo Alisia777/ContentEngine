@@ -7,7 +7,10 @@
  * (or a separately approved media provider) before any paid analysis starts.
  */
 
-import { writeExactYoutubeMediaHandoff } from "./exact-youtube-media-handoff.js?v=20260810.exact-video.2";
+import {
+  exactYoutubeResearchEvidenceRoute,
+  writeExactYoutubeMediaHandoff,
+} from "./exact-youtube-media-handoff.js?v=20260810.exact-video.2";
 import { writeExactYoutubeResearchDraft } from "./exact-youtube-research-draft.js?v=20260810.exact-research-draft.2";
 
 const ROUTE = "/workspace/research";
@@ -693,22 +696,187 @@ function zeroCitationProviderFailure() {
   const text = String(document.body?.innerText || "")
     .replace(/\s+/gu, " ")
     .toLocaleLowerCase("ru-RU");
-  return text.includes("результат нельзя использовать")
-    && text.includes("0 цитат")
+  return text.includes("0 цитат")
+    && text.includes("результат нельзя использовать")
     && (
       text.includes("провайдер отклонил запрос")
       || text.includes("завершил фоновый запрос без результата")
     );
 }
 
+export function exactVideoFailureEvidence(value = {}) {
+  const source = value && typeof value === "object" && !Array.isArray(value)
+    ? value
+    : {};
+  const uuid = (candidate) => {
+    const normalized = String(candidate || "").trim().toLowerCase();
+    return UUID_PATTERN.test(normalized) ? normalized : "";
+  };
+  const boundedText = (candidate, limit) => {
+    const normalized = String(candidate || "").replace(/\s+/gu, " ").trim();
+    return normalized.length <= limit ? normalized : "";
+  };
+  const normalized = {
+    verified: source.verified === true || source.verified === "verified",
+    markerSource: String(
+      source.markerSource || source.marker_source || "",
+    ).trim(),
+    sourceId: uuid(source.sourceId || source.source_id),
+    attachmentId: uuid(source.attachmentId || source.attachment_id),
+    mediaId: uuid(source.mediaId || source.media_id),
+    evidenceId: uuid(source.evidenceId || source.evidence_id),
+    frameCount: Number(source.frameCount ?? source.frame_count),
+    analysisScope: String(
+      source.analysisScope || source.analysis_scope || "",
+    ).trim().toLowerCase(),
+    productName: boundedText(
+      source.productName || source.product_name,
+      180,
+    ),
+    productSku: boundedText(source.productSku || source.product_sku, 120),
+  };
+  return normalized.verified
+      && normalized.markerSource === "server_exact_video_binding"
+      && normalized.sourceId
+      && normalized.attachmentId
+      && normalized.mediaId
+      && normalized.evidenceId
+      && normalized.frameCount === 5
+      && normalized.analysisScope === "sampled_frames_only"
+    ? normalized
+    : null;
+}
+
+export function exactVideoTerminalFailure({ evidence, terminalStatus } = {}) {
+  const normalizedEvidence = exactVideoFailureEvidence(evidence);
+  const normalizedStatus = String(terminalStatus || "").trim().toLowerCase();
+  return normalizedEvidence
+      && ["failed", "cancelled", "incomplete"].includes(normalizedStatus)
+    ? { evidence: normalizedEvidence, terminalStatus: normalizedStatus }
+    : null;
+}
+
+function exactVideoFailureEvidenceFromPage(root) {
+  const marker = root.querySelector(
+    '[data-research-exact-video-evidence="verified"]',
+  );
+  if (!(marker instanceof HTMLElement)) return null;
+  return exactVideoFailureEvidence({
+    verified: marker.dataset.researchExactVideoEvidence,
+    markerSource: marker.dataset.exactVideoMarkerSource,
+    sourceId: marker.dataset.exactVideoSourceId,
+    attachmentId: marker.dataset.exactVideoAttachmentId,
+    mediaId: marker.dataset.exactVideoMediaId,
+    evidenceId: marker.dataset.exactVideoEvidenceId,
+    frameCount: marker.dataset.exactVideoFrameCount,
+    analysisScope: marker.dataset.exactVideoAnalysisScope,
+    productName: marker.dataset.exactVideoProductName,
+    productSku: marker.dataset.exactVideoProductSku,
+  });
+}
+
 function guardRejectedZeroCitationRun() {
-  if (!zeroCitationProviderFailure()) return;
   const root = document.querySelector("main") || document.body;
   if (!root || root.querySelector(`[${FAILURE_GUARD_ATTRIBUTE}]`)) return;
+  const exactEvidence = exactVideoFailureEvidenceFromPage(root);
+  const terminalReceipt = root.querySelector(
+    '[data-provider-terminal-status="failed"], [data-provider-terminal-status="cancelled"], [data-provider-terminal-status="incomplete"]',
+  );
+  const exactTerminalFailure = exactVideoTerminalFailure({
+    evidence: exactEvidence,
+    terminalStatus: terminalReceipt instanceof HTMLElement
+      ? terminalReceipt.dataset.providerTerminalStatus
+      : "",
+  });
+  if (!exactTerminalFailure && !zeroCitationProviderFailure()) return;
 
   const retry = [...root.querySelectorAll("button, a")].find((node) =>
     /подготовить новый платный анализ/iu.test(String(node.textContent || ""))
   );
+  if (exactTerminalFailure) {
+    if (retry instanceof HTMLButtonElement) {
+      retry.disabled = true;
+      retry.textContent = "Новый запуск — только с новым evidence";
+      retry.title = "Сначала создайте новый одноразовый набор из пяти кадров из уже сохранённого MP4.";
+    } else if (retry instanceof HTMLAnchorElement) {
+      retry.removeAttribute("href");
+      retry.setAttribute("aria-disabled", "true");
+      retry.textContent = "Новый запуск — только с новым evidence";
+    }
+
+    const guard = el(
+      "section",
+      "research-youtube-failure-guard card card-pad",
+    );
+    guard.setAttribute(FAILURE_GUARD_ATTRIBUTE, "true");
+    guard.dataset.failureMode = "exact-video-provider-terminal";
+    guard.setAttribute("role", "alert");
+    guard.append(
+      el("p", "eyebrow", "ТОЧНАЯ ПРИЧИНА ЗАФИКСИРОВАНА"),
+      el(
+        "h2",
+        "",
+        "Пять кадров проверены и переданы; провайдер завершил запрос с ошибкой",
+      ),
+      el(
+        "p",
+        "",
+        "Сервер подтвердил привязку исходного MP4 и одноразового evidence-набора из 5 JPEG, затем провайдер принял запрос. Подтверждённые цитаты не были сохранены из-за terminal-ошибки, а не потому, что кадры не передавались. Автоматического повтора и нового списания не было.",
+      ),
+      el(
+        "p",
+        "",
+        "Повторно загружать MP4 не нужно. Для нового анализа портал заново проверит сохранённые source/attachment/media, создаст новый набор из 5 кадров и только после отдельных подтверждений обработки ИИ и оплаты разрешит новый POST.",
+      ),
+    );
+    const actions = el("div", "research-video-intake__actions");
+    const route = exactYoutubeResearchEvidenceRoute({
+      projectId: projectId(),
+      sourceId: exactTerminalFailure.evidence.sourceId,
+      attachmentId: exactTerminalFailure.evidence.attachmentId,
+      mediaId: exactTerminalFailure.evidence.mediaId,
+      productName: exactTerminalFailure.evidence.productName,
+      productSku: exactTerminalFailure.evidence.productSku,
+    });
+    if (route) {
+      const prepare = el(
+        "a",
+        "btn btn-primary",
+        "Создать новый набор из 5 кадров из сохранённого MP4",
+      );
+      prepare.href = `#${route}`;
+      prepare.dataset.researchExactEvidenceRecovery = "true";
+      actions.append(prepare);
+    }
+    const refresh = [...root.querySelectorAll("button, a")].find((node) =>
+      /проверить сохранённый статус/iu.test(String(node.textContent || ""))
+    );
+    if (refresh instanceof HTMLElement) {
+      const focusStatus = el(
+        "button",
+        "btn btn-secondary",
+        "Оставить квитанцию и не повторять",
+      );
+      focusStatus.type = "button";
+      focusStatus.addEventListener("click", () =>
+        refresh.focus({ preventScroll: true })
+      );
+      actions.append(focusStatus);
+    }
+    guard.append(actions);
+    const providerControl = [...root.querySelectorAll("section")].find(
+      (section) => /контроль платного провайдера/iu.test(
+        String(section.textContent || ""),
+      ),
+    );
+    if (providerControl?.parentNode) {
+      providerControl.parentNode.insertBefore(guard, providerControl);
+    } else {
+      root.prepend(guard);
+    }
+    return;
+  }
+
   if (retry instanceof HTMLButtonElement) {
     retry.disabled = true;
     retry.textContent = "Не повторять: источник не прочитан";

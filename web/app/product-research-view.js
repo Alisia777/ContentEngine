@@ -62,6 +62,10 @@ const RESEARCH_PROVIDER_RESPONSE_STATUSES = new Set([
   "cancelled",
   "incomplete",
 ]);
+const RESEARCH_UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+const RESEARCH_PROVIDER_DIAGNOSTIC_TOKEN =
+  /^[a-z0-9][a-z0-9._:-]{0,79}$/u;
 const RESEARCH_YOUTUBE_TRANSPORT_FAILURE_CODES = new Set([
   "provider_configuration_error",
   "provider_authentication_failed",
@@ -360,6 +364,52 @@ function researchInputContextFromObjective(value) {
   };
 }
 
+function normalizeExactVideoEvidence(value) {
+  const source = objectValue(value) || {};
+  const oneUuid = (snakeKey, camelKey) => {
+    const candidate = String(source[snakeKey] || source[camelKey] || "")
+      .trim()
+      .toLowerCase();
+    return RESEARCH_UUID_PATTERN.test(candidate) ? candidate : "";
+  };
+  const frameCount = Number(source.frame_count ?? source.frameCount);
+  const normalized = {
+    verified: source.verified === true,
+    markerSource: String(
+      source.marker_source || source.markerSource || "",
+    ).trim(),
+    bindingId: oneUuid("binding_id", "bindingId"),
+    sourceId: oneUuid("source_id", "sourceId"),
+    attachmentId: oneUuid("attachment_id", "attachmentId"),
+    mediaId: oneUuid("media_id", "mediaId"),
+    evidenceId: oneUuid("evidence_id", "evidenceId"),
+    frameCount: Number.isSafeInteger(frameCount) ? frameCount : 0,
+    analysisScope: String(
+      source.analysis_scope || source.analysisScope || "",
+    ).trim().toLowerCase(),
+    fullStreamAccess: source.full_stream_access === true
+      || source.fullStreamAccess === true,
+    transcriptAvailable: source.transcript_available === true
+      || source.transcriptAvailable === true,
+    mediaMatchesRegisteredSource:
+      source.media_matches_registered_source === true
+      || source.mediaMatchesRegisteredSource === true,
+  };
+  const valid = normalized.verified
+    && normalized.markerSource === "server_exact_video_binding"
+    && normalized.bindingId
+    && normalized.sourceId
+    && normalized.attachmentId
+    && normalized.mediaId
+    && normalized.evidenceId
+    && normalized.frameCount === 5
+    && normalized.analysisScope === "sampled_frames_only"
+    && !normalized.fullStreamAccess
+    && !normalized.transcriptAvailable
+    && normalized.mediaMatchesRegisteredSource;
+  return valid ? normalized : null;
+}
+
 export function normalizeProductResearch(raw, previous = null) {
   const root = objectValue(raw?.data) || objectValue(raw) || {};
   const run = objectValue(root.run) || objectValue(root.research) || root;
@@ -408,6 +458,9 @@ export function normalizeProductResearch(raw, previous = null) {
         || recoveredResearchInput.knownFacts,
     ).trim().slice(0, 500),
   };
+  const exactVideo = normalizeExactVideoEvidence(
+    run.exact_video || root.exact_video,
+  );
   const forecast = objectValue(arrayValue(root.forecasts)[0]) || objectValue(root.forecast) || {};
   const prediction = objectValue(analysis.prediction)
     || objectValue(analysis.forecast)
@@ -642,6 +695,7 @@ export function normalizeProductResearch(raw, previous = null) {
     outcomeLearning,
     youtubeResearch,
     researchInput,
+    exactVideo,
     humanResearchDecision,
     stageCorrections: normalizeStageCorrections(
       latestBrief.human_stage_corrections
@@ -3221,17 +3275,50 @@ export function productResearchProgressMarkup(record, error = "") {
   const paidProviderResultFailed = failed
     && providerResponseBound
     && !providerOutcomeUnknown;
+  const providerStatus = String(
+    record?.providerControl?.responseState?.providerStatus || "",
+  ).trim().toLowerCase();
+  const terminalDiagnosticStatus = String(
+    record?.providerControl?.responseState?.terminalDiagnostic?.terminalStatus
+      || "",
+  ).trim().toLowerCase();
   const responseValidationFailed = paidProviderResultFailed
-    && failureCode === "provider_response_invalid";
+    && failureCode === "provider_response_invalid"
+    && providerStatus === "completed"
+    && !["failed", "cancelled", "incomplete"].includes(
+      terminalDiagnosticStatus,
+    );
+  const exactVideo = record?.exactVideo?.verified === true
+    ? record.exactVideo
+    : null;
+  const exactVideoProviderFailure = paidProviderResultFailed
+    && exactVideo !== null;
+  const exactProductName = String(record?.productName || "")
+    .replace(/\s+/gu, " ").trim().slice(0, 180);
+  const exactProductSku = String(record?.sku || "")
+    .replace(/\s+/gu, " ").trim().slice(0, 120);
+  const exactVideoAttributes = exactVideo
+    ? ` data-research-exact-video-evidence="verified" data-exact-video-marker-source="${escapeHtml(exactVideo.markerSource)}" data-exact-video-source-id="${escapeHtml(exactVideo.sourceId)}" data-exact-video-attachment-id="${escapeHtml(exactVideo.attachmentId)}" data-exact-video-media-id="${escapeHtml(exactVideo.mediaId)}" data-exact-video-evidence-id="${escapeHtml(exactVideo.evidenceId)}" data-exact-video-frame-count="${exactVideo.frameCount}" data-exact-video-analysis-scope="${escapeHtml(exactVideo.analysisScope)}" data-exact-video-product-name="${escapeHtml(exactProductName)}" data-exact-video-product-sku="${escapeHtml(exactProductSku)}"`
+    : "";
+  const providerTerminalStatus = ["failed", "cancelled", "incomplete"]
+      .includes(terminalDiagnosticStatus)
+    ? terminalDiagnosticStatus
+    : providerStatus;
+  const providerTerminalAttribute = ["failed", "cancelled", "incomplete"]
+    .includes(providerTerminalStatus)
+    ? ` data-provider-terminal-status="${escapeHtml(providerTerminalStatus)}"`
+    : "";
   const failureMessage = providerOutcomeUnknown
     ? "Платный запрос мог быть принят провайдером, но итог не удалось подтвердить в доступное время. Портал не повторяет такой запрос автоматически. Скопируйте ID запуска для поддержки; новый платный анализ запускайте только отдельным осознанным действием."
     : responseValidationFailed
       ? `${record?.failureMessage || "Ответ провайдера получен, но локальная проверка не приняла его структуру или источники."} Можно повторно проверить тот же сохранённый response_id без нового платного запроса.`
+    : exactVideoProviderFailure
+      ? `${record?.failureMessage || "Провайдер принял запрос с пятью проверенными sampled-кадрами, но завершил его без пригодного результата."} Отсутствие подтверждённых цитат не означает, что кадры не передавались.`
     : paidProviderResultFailed
       ? `${record?.failureMessage || "Провайдер завершил платный запуск, но пригодный результат не сохранён."} Повторный анализ будет отдельным новым платным запросом.`
     : record?.failureMessage;
   const progress = `
-    <section class="card card-pad product-research-progress" ${failed || error ? 'role="alert"' : 'role="status"'} aria-live="polite">
+    <section class="card card-pad product-research-progress"${exactVideoAttributes}${providerTerminalAttribute} ${failed || error ? 'role="alert"' : 'role="status"'} aria-live="polite">
       <div class="product-research-orbit" aria-hidden="true"><span></span><b>A</b></div>
       <p class="eyebrow">${providerOutcomeUnknown ? "Оплата требует сверки" : responseValidationFailed ? "Платный ответ сохранён" : paidProviderResultFailed ? "Платный запуск завершён" : failed || error ? "Нужна проверка" : waitingForProviderSlot ? "Анализ в очереди" : "Исследование запущено"}</p>
       <h2>${failed
@@ -3239,6 +3326,8 @@ export function productResearchProgressMarkup(record, error = "") {
           ? "Ответ провайдера пока не подтверждён"
           : responseValidationFailed
             ? "Ответ получен — нужна повторная проверка"
+          : exactVideoProviderFailure
+            ? "Пять кадров переданы, но провайдер завершил запрос с ошибкой"
           : paidProviderResultFailed
             ? "Результат нельзя использовать"
           : "Анализ не завершился"
@@ -3256,7 +3345,7 @@ export function productResearchProgressMarkup(record, error = "") {
         : responseValidationFailed
           ? `<div class="inline-actions"><button class="btn" type="button" data-primary-action="true" data-action="revalidate-product-research-response">Повторно проверить ответ — без оплаты</button><button class="btn btn-ghost" type="button" data-action="new-product-research">Подготовить отдельный новый анализ</button></div><small class="product-research-paid-retry-warning">Повторная проверка читает только уже привязанный response_id и не отправляет новый POST провайдеру. Если срок хранения ответа истёк, портал остановится и сообщит об этом до нового платного действия.</small>`
         : paidProviderResultFailed
-          ? `<div class="inline-actions"><button class="btn" type="button" data-primary-action="true" data-action="new-product-research">Подготовить новый платный анализ</button><button class="btn btn-ghost" type="button" data-action="refresh-product-research">Проверить сохранённый статус</button></div><small class="product-research-paid-retry-warning">Предыдущий платный запуск уже был принят провайдером. Новый анализ создаст отдельный запрос и потребует нового подтверждения оплаты.</small>`
+          ? `<div class="inline-actions"><button class="btn" type="button" data-primary-action="true" data-action="new-product-research">Подготовить новый платный анализ</button><button class="btn btn-ghost" type="button" data-action="refresh-product-research">Проверить сохранённый статус</button></div><small class="product-research-paid-retry-warning">${exactVideoProviderFailure ? "Пять кадров предыдущего запуска уже были проверены и отправлены, а одноразовый evidence-набор потреблён. Для нового запуска портал должен создать новый набор из 5 кадров; затем вы отдельно подтвердите обработку ИИ и новую оплату. Автоматического POST нет." : "Предыдущий платный запуск уже был принят провайдером. Новый анализ создаст отдельный запрос и потребует нового подтверждения оплаты."}</small>`
         : failed
         ? `<div class="inline-actions"><button class="btn btn-secondary" type="button" data-action="refresh-product-research">Проверить статус</button><button class="btn btn-ghost" type="button" data-action="new-product-research">Начать заново</button></div>`
         : error
@@ -4009,6 +4098,9 @@ export function normalizeResearchProviderControl(value) {
   const responseSource = objectValue(
     source.response_state || source.responseState,
   ) || {};
+  const terminalDiagnosticSource = objectValue(
+    responseSource.terminal_diagnostic || responseSource.terminalDiagnostic,
+  ) || {};
   const authorizationSource = objectValue(runSource.authorization) || {};
   const attemptSource = objectValue(runSource.attempt) || {};
   const providers = arrayValue(source.providers).slice(0, 12).map((item) => {
@@ -4065,6 +4157,31 @@ export function normalizeResearchProviderControl(value) {
   const responseBound = responseBindingState === "bound"
     && RESEARCH_PROVIDER_RESPONSE_STATUSES.has(responseStatusCandidate)
     && /^[A-Za-z0-9_-]{1,8}$/u.test(responseSuffixCandidate);
+  const terminalStatus = String(
+    terminalDiagnosticSource.terminal_status
+      || terminalDiagnosticSource.terminalStatus
+      || "",
+  ).trim().toLowerCase();
+  const diagnosticCode = String(
+    terminalDiagnosticSource.diagnostic_code
+      || terminalDiagnosticSource.diagnosticCode
+      || "",
+  ).trim().toLowerCase();
+  const diagnosticType = String(
+    terminalDiagnosticSource.diagnostic_type
+      || terminalDiagnosticSource.diagnosticType
+      || "",
+  ).trim().toLowerCase();
+  const diagnosticMessage = String(
+    terminalDiagnosticSource.diagnostic_message
+      || terminalDiagnosticSource.diagnosticMessage
+      || "",
+  ).replace(/\s+/gu, " ").trim().slice(0, 280);
+  const terminalDiagnosticValid = ["failed", "cancelled", "incomplete"]
+    .includes(terminalStatus)
+    && RESEARCH_PROVIDER_DIAGNOSTIC_TOKEN.test(diagnosticCode)
+    && RESEARCH_PROVIDER_DIAGNOSTIC_TOKEN.test(diagnosticType)
+    && diagnosticMessage.length >= 10;
   return {
     available: contractValid,
     version: String(source.version || ""),
@@ -4111,6 +4228,25 @@ export function normalizeResearchProviderControl(value) {
           responseSource.last_checked_at || responseSource.lastCheckedAt || "",
         ).trim()
         : "",
+      terminalDiagnostic: terminalDiagnosticValid ? {
+        terminalStatus,
+        failureCode: String(
+          terminalDiagnosticSource.failure_code
+            || terminalDiagnosticSource.failureCode
+            || "",
+        ).trim().toLowerCase(),
+        diagnosticCode,
+        diagnosticType,
+        diagnosticMessage,
+        providerMessagePresent:
+          terminalDiagnosticSource.provider_message_present === true
+          || terminalDiagnosticSource.providerMessagePresent === true,
+        checkedAt: String(
+          terminalDiagnosticSource.checked_at
+            || terminalDiagnosticSource.checkedAt
+            || "",
+        ).trim(),
+      } : null,
     },
     controls: {
       explicitPaidAnalysisRequired: controlsSource.explicit_paid_analysis_required === true
@@ -7174,6 +7310,10 @@ export function researchProviderControlMarkup(value, { compact = false } = {}) {
     : runControl.attempt
       ? "Попытка создана, но сохранённый response_id пока не подтверждён. Новый POST не запускайте."
       : "Платный запрос ещё не создавался.";
+  const terminalDiagnostic = responseState.terminalDiagnostic;
+  const terminalDiagnosticDetail = terminalDiagnostic
+    ? `Terminal status ${terminalDiagnostic.terminalStatus}; диагностический код ${terminalDiagnostic.diagnosticCode}; тип ${terminalDiagnostic.diagnosticType}. ${terminalDiagnostic.diagnosticMessage}`
+    : "";
   return `
     <section class="card product-research-control-plane${compact ? " is-compact" : ""}" aria-labelledby="product-research-provider-title" data-provider-health="${escapeHtml(control.available ? healthStatus : "unavailable")}">
       <div class="card-header">
@@ -7187,6 +7327,7 @@ export function researchProviderControlMarkup(value, { compact = false } = {}) {
         <div><small>Привязка попытки</small><strong>${escapeHtml(attemptLabel)}</strong><span>${escapeHtml(runControl.attempt?.model || "без модели")}</span></div>
         <div><small>Последняя квитанция провайдера в команде</small><strong>${escapeHtml(healthLabels[healthStatus] || "нет данных")}</strong><span>${escapeHtml(healthDetail)}</span></div>
         <div><small>Сохранённый ответ этого запуска</small><strong>${escapeHtml(responseStateTitle)}</strong><span>${escapeHtml(responseStateDetail)}</span></div>
+        ${terminalDiagnostic ? `<div><small>Безопасная terminal-диагностика</small><strong>${escapeHtml(terminalDiagnostic.diagnosticCode)}</strong><span>${escapeHtml(terminalDiagnosticDetail)}</span></div>` : ""}
       </div>
       ${compact || !control.available ? "" : `<div class="product-research-control-note"><strong>Автоматические canary и fallback выключены.</strong><span>Новый платный POST возможен только как отдельное явно подтверждённое действие. Проверка сохранённого response_id выполняет только GET и не создаёт повторной попытки или списания.</span></div>`}
     </section>`;

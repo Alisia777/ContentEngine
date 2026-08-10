@@ -1,7 +1,9 @@
 import {
   applyResearchStageRecompute,
   promptForRun,
+  providerTerminalFailure,
   readExactVideoResearchEvidence,
+  readProviderResponseIdentity,
   readResearchResult,
   readResearchStageRecomputeContext,
   type ResearchRun,
@@ -462,6 +464,196 @@ Deno.test("exact-video claim accepts only one hash-bound five-frame bundle", () 
   assertNull(
     readExactVideoResearchEvidence(wrongIdentity),
     "an unattested MP4 must never enter exact-source research",
+  );
+});
+
+Deno.test("terminal provider failure keeps bounded diagnostics after five-frame lineage", () => {
+  const exactVideo = readExactVideoResearchEvidence(
+    exactVideoEvidenceFixture(),
+  );
+  assert(
+    exactVideo?.frames.length === 5,
+    "the terminal receipt test must start from the exact five-frame lineage",
+  );
+  const identity = readProviderResponseIdentity({
+    id: "resp_paid_exact_failure_1",
+    status: "failed",
+    error: {
+      code: "server_error",
+      type: "provider_internal_error",
+      message:
+        "Failed while reading https://private.example/source; Authorization: Bearer sk-secret-value and resp_private_identifier.",
+    },
+  });
+  assert(identity !== null, "a valid failed Responses receipt must parse");
+  const terminal = providerTerminalFailure(identity);
+  assert(terminal !== null, "failed is a terminal provider state");
+  assert(
+    terminal.failureCode === "provider_unavailable",
+    "server_error must not be mislabeled as a rejected user request",
+  );
+  assert(
+    terminal.diagnostic.status === "failed" &&
+      terminal.diagnostic.code === "server_error" &&
+      terminal.diagnostic.type === "provider_internal_error" &&
+      terminal.diagnostic.providerMessagePresent,
+    "bounded provider code, type and terminal status must survive",
+  );
+  assert(
+    terminal.diagnostic.message.length <= 280 &&
+      !/https?:\/\//iu.test(terminal.diagnostic.message) &&
+      !/sk-secret|resp_private|bearer\s+sk-/iu.test(
+        terminal.diagnostic.message,
+      ) &&
+      !terminal.diagnostic.message.includes("Failed while reading"),
+    "diagnostics must never persist the provider's arbitrary raw message",
+  );
+  assert(
+    terminal.message.includes("статусом failed") &&
+      terminal.message.includes("server_error") &&
+      terminal.message.includes("Автоматического повтора не было"),
+    "the stored run failure must state the honest terminal status and code",
+  );
+});
+
+Deno.test("incomplete and cancelled Responses states never authorize a retry", () => {
+  const incomplete = readProviderResponseIdentity({
+    id: "resp_incomplete_1",
+    status: "incomplete",
+    incomplete_details: { reason: "max_output_tokens" },
+  });
+  const cancelled = readProviderResponseIdentity({
+    id: "resp_cancelled_1",
+    status: "cancelled",
+  });
+  assert(incomplete !== null && cancelled !== null, "terminal receipts parse");
+  const incompleteFailure = providerTerminalFailure(incomplete);
+  const cancelledFailure = providerTerminalFailure(cancelled);
+  assert(
+    incompleteFailure?.failureCode === "provider_response_invalid" &&
+      incompleteFailure.diagnostic.code ===
+        "responses_incomplete.max_output_tokens",
+    "incomplete reason must be explicit and classified as an unusable response",
+  );
+  assert(
+    cancelledFailure?.failureCode === "provider_unavailable" &&
+      cancelledFailure.diagnostic.status === "cancelled",
+    "provider cancellation must not be blamed on the request without evidence",
+  );
+  for (const failure of [incompleteFailure, cancelledFailure]) {
+    assert(
+      failure?.message.includes("Автоматического повтора не было"),
+      "terminal classification is diagnostic only and never requests a POST",
+    );
+  }
+});
+
+Deno.test("terminal diagnostics reject opaque ids, secrets and unbounded incomplete reasons", () => {
+  const unsafeTokens = [
+    "resp_private_response_identifier",
+    "sess_private_session_identifier",
+    "sk-private-provider-secret",
+    "550e8400-e29b-41d4-a716-446655440000",
+    "a".repeat(64),
+  ];
+  for (const token of unsafeTokens) {
+    const identity = readProviderResponseIdentity({
+      id: "resp_paid_exact_failure_allowlist",
+      status: "failed",
+      error: { code: token, type: token },
+    });
+    assert(identity !== null, "the terminal envelope itself remains valid");
+    assert(
+      identity.terminalDiagnostic?.code ===
+          "responses_failed.unclassified" &&
+        identity.terminalDiagnostic?.type === "responses_terminal.failed",
+      "untrusted diagnostic tokens must collapse to app-owned values",
+    );
+    assert(
+      !identity.terminalDiagnostic?.message.includes(token),
+      "opaque diagnostic values must never appear in the stored message",
+    );
+  }
+
+  const longIncomplete = readProviderResponseIdentity({
+    id: "resp_paid_exact_incomplete_allowlist",
+    status: "incomplete",
+    incomplete_details: { reason: "z".repeat(80) },
+  });
+  assert(
+    longIncomplete?.terminalDiagnostic?.code ===
+        "responses_incomplete.unspecified" &&
+      longIncomplete.terminalDiagnostic.message ===
+        "Provider ended processing with status incomplete (unspecified)." &&
+      longIncomplete.terminalDiagnostic.message.length <= 280,
+    "unknown or long incomplete reasons must use a bounded app-owned fallback",
+  );
+});
+
+Deno.test("terminal diagnostic classification uses exact allowlisted mappings", () => {
+  const timeout = readProviderResponseIdentity({
+    id: "resp_request_timeout_mapping",
+    status: "failed",
+    error: { code: "request_timeout" },
+  });
+  const contextLength = readProviderResponseIdentity({
+    id: "resp_context_length_mapping",
+    status: "failed",
+    error: { code: "context_length_exceeded" },
+  });
+  assert(timeout !== null && contextLength !== null, "terminal receipts parse");
+  const timeoutFailure = providerTerminalFailure(timeout);
+  const contextFailure = providerTerminalFailure(contextLength);
+  assert(
+    timeoutFailure?.failureCode === "provider_unavailable" &&
+      timeoutFailure.healthStatus === "degraded",
+    "request_timeout is an availability failure, not a rejected request",
+  );
+  assert(
+    contextFailure?.failureCode === "provider_request_rejected" &&
+      contextFailure.healthStatus === "blocked",
+    "context length is a deterministic request rejection",
+  );
+
+  for (
+    const imageCode of [
+      "invalid_image_url",
+      "image_too_large",
+      "image_content_policy_violation",
+    ]
+  ) {
+    const imageIdentity = readProviderResponseIdentity({
+      id: `resp_${imageCode}`,
+      status: "failed",
+      error: { code: imageCode },
+    });
+    assert(
+      imageIdentity?.terminalDiagnostic?.code === imageCode,
+      "official image diagnostics must survive the finite allowlist",
+    );
+    const imageFailure = imageIdentity
+      ? providerTerminalFailure(imageIdentity)
+      : null;
+    assert(
+      imageFailure?.failureCode === "provider_request_rejected" &&
+        imageFailure.healthStatus === "blocked",
+      "invalid exact-vision inputs are deterministic request rejections",
+    );
+  }
+
+  const vectorTimeout = readProviderResponseIdentity({
+    id: "resp_vector_store_timeout",
+    status: "failed",
+    error: { code: "vector_store_timeout" },
+  });
+  const vectorFailure = vectorTimeout
+    ? providerTerminalFailure(vectorTimeout)
+    : null;
+  assert(
+    vectorTimeout?.terminalDiagnostic?.code === "vector_store_timeout" &&
+      vectorFailure?.failureCode === "provider_unavailable" &&
+      vectorFailure.healthStatus === "degraded",
+    "vector_store_timeout is a provider availability failure",
   );
 });
 

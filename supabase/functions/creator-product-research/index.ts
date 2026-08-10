@@ -211,6 +211,32 @@ type ProviderResponseStatus =
   | "cancelled"
   | "incomplete";
 
+type ProviderTerminalStatus = Extract<
+  ProviderResponseStatus,
+  "failed" | "cancelled" | "incomplete"
+>;
+
+export type ProviderTerminalDiagnostic = {
+  status: ProviderTerminalStatus;
+  code: string;
+  type: string;
+  message: string;
+  providerMessagePresent: boolean;
+};
+
+type ProviderResponseIdentity = {
+  id: string;
+  status: ProviderResponseStatus;
+  terminalDiagnostic: ProviderTerminalDiagnostic | null;
+};
+
+export type ProviderTerminalFailure = {
+  failureCode: string;
+  healthStatus: "degraded" | "blocked";
+  message: string;
+  diagnostic: ProviderTerminalDiagnostic;
+};
+
 type ProviderContinuation = {
   attemptId: string;
   model: string;
@@ -2545,10 +2571,196 @@ const PROVIDER_RESPONSE_STATUSES = new Set<ProviderResponseStatus>([
   "incomplete",
 ]);
 
-function readProviderResponseIdentity(
+const PROVIDER_TERMINAL_STATUSES = new Set<ProviderTerminalStatus>([
+  "failed",
+  "cancelled",
+  "incomplete",
+]);
+
+// Provider diagnostics cross a trust boundary. Keep only a deliberately small
+// vocabulary that is useful for classification. A syntactically valid token is
+// not sufficient: a provider can put response ids, session ids, object names or
+// other user-derived opaque values in code/type fields.
+const SAFE_PROVIDER_ERROR_CODES = new Set([
+  "authentication_error",
+  "content_filter",
+  "context_length_exceeded",
+  "empty_image_file",
+  "failed_to_download_image",
+  "image_content_policy_violation",
+  "image_file_not_found",
+  "image_file_too_large",
+  "image_parse_error",
+  "image_too_large",
+  "image_too_small",
+  "insufficient_quota",
+  "invalid_base64_image",
+  "invalid_image",
+  "invalid_image_format",
+  "invalid_image_mode",
+  "invalid_image_url",
+  "internal_server_error",
+  "invalid_prompt",
+  "invalid_request_error",
+  "model_not_found",
+  "overloaded_error",
+  "permission_error",
+  "rate_limit_exceeded",
+  "request_timeout",
+  "safety_violation",
+  "server_error",
+  "service_unavailable",
+  "timeout",
+  "unsupported_image_media_type",
+  "vector_store_timeout",
+]);
+const SAFE_PROVIDER_ERROR_TYPES = new Set([
+  "api_error",
+  "authentication_error",
+  "content_filter_error",
+  "invalid_request_error",
+  "permission_error",
+  "provider_internal_error",
+  "rate_limit_error",
+  "safety_error",
+  "server_error",
+  "service_unavailable_error",
+  "timeout_error",
+]);
+const SAFE_PROVIDER_INCOMPLETE_REASONS = new Set([
+  "content_filter",
+  "max_output_tokens",
+  "max_tool_calls",
+]);
+const PROVIDER_AUTH_DIAGNOSTIC_CODES = new Set([
+  "authentication_error",
+  "permission_error",
+]);
+const PROVIDER_AUTH_DIAGNOSTIC_TYPES = new Set([
+  "authentication_error",
+  "permission_error",
+]);
+const PROVIDER_RATE_DIAGNOSTIC_CODES = new Set([
+  "insufficient_quota",
+  "rate_limit_exceeded",
+]);
+const PROVIDER_RATE_DIAGNOSTIC_TYPES = new Set(["rate_limit_error"]);
+const PROVIDER_REJECTED_DIAGNOSTIC_CODES = new Set([
+  "content_filter",
+  "context_length_exceeded",
+  "empty_image_file",
+  "failed_to_download_image",
+  "image_content_policy_violation",
+  "image_file_not_found",
+  "image_file_too_large",
+  "image_parse_error",
+  "image_too_large",
+  "image_too_small",
+  "invalid_base64_image",
+  "invalid_image",
+  "invalid_image_format",
+  "invalid_image_mode",
+  "invalid_image_url",
+  "invalid_prompt",
+  "invalid_request_error",
+  "model_not_found",
+  "safety_violation",
+  "unsupported_image_media_type",
+]);
+const PROVIDER_REJECTED_DIAGNOSTIC_TYPES = new Set([
+  "content_filter_error",
+  "invalid_request_error",
+  "safety_error",
+]);
+
+function providerDiagnosticToken(
+  value: unknown,
+  allowed: ReadonlySet<string>,
+  fallback: string,
+): string {
+  const normalized = typeof value === "string"
+    ? value.trim().toLowerCase()
+    : "";
+  return allowed.has(normalized) ? normalized : fallback;
+}
+
+export function sanitizeProviderDiagnosticMessage(
+  value: unknown,
+  fallback: string,
+): string {
+  const raw = typeof value === "string" ? value : fallback;
+  const sanitized = raw
+    .replace(/https?:\/\/[^\s<>'"]+/giu, "[redacted-url]")
+    .replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/gu, "[redacted-email]")
+    .replace(/\b(?:sk|sess|resp)_[A-Za-z0-9_-]{8,}\b/gu, "[redacted-id]")
+    .replace(
+      /\b(bearer|authorization|api[_ -]?key)\b\s*[:=]?\s*[^\s,;]+/giu,
+      "$1 [redacted]",
+    )
+    .replace(/[\u0000-\u001f\u007f]+/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .slice(0, 280);
+  return sanitized || fallback.slice(0, 280);
+}
+
+function readProviderTerminalDiagnostic(
+  value: Record<string, unknown>,
+  status: ProviderResponseStatus,
+): ProviderTerminalDiagnostic | null {
+  if (!PROVIDER_TERMINAL_STATUSES.has(status as ProviderTerminalStatus)) {
+    return null;
+  }
+  const terminalStatus = status as ProviderTerminalStatus;
+  const error = isRecord(value.error) ? value.error : {};
+  const providerMessage = error["message"];
+  const incompleteDetails = isRecord(value.incomplete_details)
+    ? value.incomplete_details
+    : {};
+  const incompleteReason = providerDiagnosticToken(
+    incompleteDetails.reason,
+    SAFE_PROVIDER_INCOMPLETE_REASONS,
+    "unspecified",
+  );
+  const defaultCode = terminalStatus === "incomplete"
+    ? `responses_incomplete.${incompleteReason}`
+    : `responses_${terminalStatus}.unclassified`;
+  const code = providerDiagnosticToken(
+    error.code,
+    SAFE_PROVIDER_ERROR_CODES,
+    defaultCode,
+  );
+  const type = providerDiagnosticToken(
+    error.type,
+    SAFE_PROVIDER_ERROR_TYPES,
+    `responses_terminal.${terminalStatus}`,
+  );
+  // Never retain the provider's raw message. It may echo prompt text, private
+  // object names, URLs or other user content that regex redaction cannot prove
+  // safe. The receipt stores only allowlisted code/type plus this app-owned
+  // bounded description and a boolean that says whether a message existed.
+  const appOwnedMessage = terminalStatus === "failed"
+    ? "Provider accepted the response and ended processing with status failed."
+    : terminalStatus === "cancelled"
+    ? "Provider accepted the response and ended processing with status cancelled."
+    : `Provider ended processing with status incomplete (${incompleteReason}).`;
+  return {
+    status: terminalStatus,
+    code,
+    type,
+    message: sanitizeProviderDiagnosticMessage(
+      appOwnedMessage,
+      appOwnedMessage,
+    ),
+    providerMessagePresent: typeof providerMessage === "string" &&
+      providerMessage.trim().length > 0,
+  };
+}
+
+export function readProviderResponseIdentity(
   value: unknown,
   expectedId: string | null = null,
-): { id: string; status: ProviderResponseStatus } | null {
+): ProviderResponseIdentity | null {
   if (!isRecord(value)) return null;
   const id = typeof value.id === "string" ? value.id : "";
   const status = typeof value.status === "string"
@@ -2559,7 +2771,49 @@ function readProviderResponseIdentity(
     status === null || !PROVIDER_RESPONSE_STATUSES.has(status) ||
     (expectedId !== null && id !== expectedId)
   ) return null;
-  return { id, status };
+  return {
+    id,
+    status,
+    terminalDiagnostic: readProviderTerminalDiagnostic(value, status),
+  };
+}
+
+export function providerTerminalFailure(
+  identity: ProviderResponseIdentity,
+): ProviderTerminalFailure | null {
+  const diagnostic = identity.terminalDiagnostic;
+  if (diagnostic === null) return null;
+  let failureCode = "provider_unavailable";
+  let healthStatus: "degraded" | "blocked" = "degraded";
+  if (
+    PROVIDER_AUTH_DIAGNOSTIC_CODES.has(diagnostic.code) ||
+    PROVIDER_AUTH_DIAGNOSTIC_TYPES.has(diagnostic.type)
+  ) {
+    failureCode = "provider_authentication_failed";
+    healthStatus = "blocked";
+  } else if (
+    PROVIDER_RATE_DIAGNOSTIC_CODES.has(diagnostic.code) ||
+    PROVIDER_RATE_DIAGNOSTIC_TYPES.has(diagnostic.type)
+  ) {
+    failureCode = "provider_rate_limited";
+  } else if (
+    PROVIDER_REJECTED_DIAGNOSTIC_CODES.has(diagnostic.code) ||
+    PROVIDER_REJECTED_DIAGNOSTIC_TYPES.has(diagnostic.type)
+  ) {
+    failureCode = "provider_request_rejected";
+    healthStatus = "blocked";
+  } else if (diagnostic.status === "incomplete") {
+    failureCode = "provider_response_invalid";
+  }
+  const statusLabel = diagnostic.status;
+  return {
+    failureCode,
+    healthStatus,
+    message:
+      `Провайдер принял запрос, но завершил обработку со статусом ${statusLabel}. ` +
+      `Диагностический код: ${diagnostic.code}. Автоматического повтора не было.`,
+    diagnostic,
+  };
 }
 
 function providerResponsePending(status: ProviderResponseStatus): boolean {
@@ -3158,6 +3412,7 @@ async function handleCreatorProductResearch(
     status: "ready" | "degraded" | "blocked" | "unknown",
     failureCode?: string,
     citationCount?: number,
+    providerDiagnostic?: ProviderTerminalDiagnostic,
   ): Promise<void> => {
     const healthPayload: Record<string, Json> = {
       attempt_id: attemptId,
@@ -3167,6 +3422,14 @@ async function handleCreatorProductResearch(
     if (failureCode) healthPayload.failure_code = failureCode;
     if (Number.isSafeInteger(citationCount) && Number(citationCount) >= 0) {
       healthPayload.citation_count = Number(citationCount);
+    }
+    if (providerDiagnostic) {
+      healthPayload.provider_terminal_status = providerDiagnostic.status;
+      healthPayload.provider_error_code = providerDiagnostic.code;
+      healthPayload.provider_error_type = providerDiagnostic.type;
+      healthPayload.provider_error_message = providerDiagnostic.message;
+      healthPayload.provider_message_present =
+        providerDiagnostic.providerMessagePresent;
     }
     try {
       const { error } = await supabaseAdmin.rpc(
@@ -3455,14 +3718,23 @@ async function handleCreatorProductResearch(
     );
     if (providerResponsePending(identity.status)) return await pending();
     if (identity.status !== "completed") {
+      const terminalFailure = providerTerminalFailure(identity);
+      if (terminalFailure === null) {
+        return await fail(
+          "provider_response_invalid",
+          "Провайдер вернул неподдерживаемый terminal-статус ответа.",
+        );
+      }
       await recordProviderHealth(
         providerAttemptId,
-        "degraded",
-        "provider_request_rejected",
+        terminalFailure.healthStatus,
+        terminalFailure.failureCode,
+        undefined,
+        terminalFailure.diagnostic,
       );
       return await fail(
-        "provider_request_rejected",
-        "Сервис анализа завершил фоновый запрос без результата.",
+        terminalFailure.failureCode,
+        terminalFailure.message,
       );
     }
   } else {
@@ -3670,14 +3942,23 @@ async function handleCreatorProductResearch(
     );
     if (providerResponsePending(identity.status)) return await pending();
     if (identity.status !== "completed") {
+      const terminalFailure = providerTerminalFailure(identity);
+      if (terminalFailure === null) {
+        return await fail(
+          "provider_response_invalid",
+          "Провайдер вернул неподдерживаемый terminal-статус ответа.",
+        );
+      }
       await recordProviderHealth(
         providerAttemptId,
-        "degraded",
-        "provider_request_rejected",
+        terminalFailure.healthStatus,
+        terminalFailure.failureCode,
+        undefined,
+        terminalFailure.diagnostic,
       );
       return await fail(
-        "provider_request_rejected",
-        "Сервис анализа завершил фоновый запрос без результата.",
+        terminalFailure.failureCode,
+        terminalFailure.message,
       );
     }
   }

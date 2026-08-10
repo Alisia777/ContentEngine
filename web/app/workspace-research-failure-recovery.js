@@ -488,6 +488,12 @@ function repairFailureGuard() {
     return;
   }
   guard.dataset.recoveryPatched = "true";
+  if (guard.dataset.failureMode === "exact-video-provider-terminal") {
+    // The server-derived exact binding already points at the saved MP4.
+    // Keep the intake adapter's fresh five-frame route intact: this branch
+    // must never rewrite recovery into another upload or generic paid form.
+    return;
+  }
 
   const pending = readPendingSource();
   const upload = findAction(guard, /загрузить\s+mp4/iu);
