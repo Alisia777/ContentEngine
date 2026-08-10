@@ -679,7 +679,7 @@ def test_archiving_a_project_uses_its_dedicated_path_and_clears_stale_scope() ->
 
 
 def test_v47_assets_share_one_release_key() -> None:
-    build = "20260810.os4.23"
+    build = "20260810.os4.24"
     assert f'const BUILD = "{build}"' in LOADER
     assert f'const BUILD = "{build}"' in CORE
     for asset in (

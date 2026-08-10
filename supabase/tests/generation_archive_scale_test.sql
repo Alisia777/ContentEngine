@@ -237,6 +237,22 @@ values
     'a8100000-0000-4000-8000-000000000003'
   );
 
+-- Organization role alone must not bypass the project ACL.  This operator is
+-- deliberately enrolled in only the main archive project before self-scoped
+-- archive behaviour is asserted below.
+insert into content_factory.workspace_project_memberships (
+  organization_id, project_id, profile_id, access_role, status,
+  granted_by, updated_by
+)
+values (
+  'a8200000-0000-4000-8000-000000000001',
+  'a8300000-0000-4000-8000-000000000001',
+  'a8100000-0000-4000-8000-000000000002',
+  'member', 'active',
+  'a8100000-0000-4000-8000-000000000001',
+  'a8100000-0000-4000-8000-000000000001'
+);
+
 select lives_ok(
   $$select pg_temp.grant_generation_archive_training_gate(
     'a8200000-0000-4000-8000-000000000001',

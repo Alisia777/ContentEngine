@@ -1,6 +1,7 @@
 import {
   applyResearchStageRecompute,
   promptForRun,
+  readExactVideoResearchEvidence,
   readResearchResult,
   readResearchStageRecomputeContext,
   type ResearchRun,
@@ -365,8 +366,187 @@ function recomputeRunFixture(): ResearchRun {
     platforms: ["instagram"],
     photos: [],
     recomputeContext,
+    exactVideo: null,
   };
 }
+
+function exactVideoEvidenceFixture() {
+  const mediaSha = "c".repeat(64);
+  const sourceHash = "d".repeat(64);
+  const organizationId = fixtureUuid(300);
+  const mediaId = fixtureUuid(301);
+  const frames = [1, 2, 3, 4, 5].map((ordinal) => ({
+    ordinal,
+    bucket_id: "contentengine-private",
+    object_name: `${organizationId}/${fixtureUuid(302)}/review-evidence/${
+      fixtureUuid(303)
+    }/frame-${String(ordinal).padStart(2, "0")}.jpg`,
+    mime_type: "image/jpeg",
+    size_bytes: 128,
+    sha256: String(ordinal).repeat(64),
+    timecode_seconds: ordinal * 2.5,
+  }));
+  return {
+    version: "exact-youtube-research-evidence-v1",
+    organization_id: organizationId,
+    project_id: fixtureUuid(304),
+    binding_id: fixtureUuid(305),
+    product_id: fixtureUuid(306),
+    product_category: "household",
+    source: {
+      id: fixtureUuid(307),
+      video_id: "ABCDEFGHIJK",
+      canonical_url: "https://youtube.com/watch?v=ABCDEFGHIJK",
+      source_hash: sourceHash,
+    },
+    attachment: {
+      id: fixtureUuid(308),
+      attachment_hash: "e".repeat(64),
+      source_hash_snapshot: sourceHash,
+      media_sha256_snapshot: mediaSha,
+      rights_confirmed: true,
+      media_matches_registered_source: true,
+      attached_by: fixtureUuid(309),
+      attached_at: "2026-08-10T12:00:00.000Z",
+    },
+    media: {
+      id: mediaId,
+      mime_type: "video/mp4",
+      size_bytes: 10_000,
+      sha256: mediaSha,
+    },
+    evidence: {
+      id: fixtureUuid(303),
+      status: "consumed",
+      source_media_id: mediaId,
+      source_media_sha256: mediaSha,
+      manifest_hash: "f".repeat(64),
+      frame_count: 5,
+      total_size_bytes: 640,
+      technical_metrics: { duration_seconds: 17.381 },
+      frames,
+    },
+    provenance: {
+      analysis_scope: "sampled_frames_only",
+      sampled_evidence_only: true,
+      full_stream_access: false,
+      transcript_available: false,
+      exact_source_identity_attested: true,
+      source_match_basis:
+        "operator_compared_uploaded_media_to_registered_source",
+      source_match_attested_by: fixtureUuid(309),
+      source_match_attested_at: "2026-08-10T12:00:00.000Z",
+      client_authored_conclusions: false,
+      content_review_provider_used: false,
+    },
+  };
+}
+
+Deno.test("exact-video claim accepts only one hash-bound five-frame bundle", () => {
+  const parsed = readExactVideoResearchEvidence(exactVideoEvidenceFixture());
+  assert(parsed !== null, "the canonical exact-video envelope must pass");
+  assert(
+    parsed.frames.length === 5 && parsed.frames[4].timecodeSeconds === 12.5,
+    "all ordered sampled frames must survive parsing",
+  );
+
+  const wrongOrdinal = exactVideoEvidenceFixture();
+  wrongOrdinal.evidence.frames[4].ordinal = 4;
+  assertNull(
+    readExactVideoResearchEvidence(wrongOrdinal),
+    "duplicate or missing ordinals must fail closed",
+  );
+
+  const wrongIdentity = exactVideoEvidenceFixture();
+  wrongIdentity.attachment.media_matches_registered_source = false;
+  assertNull(
+    readExactVideoResearchEvidence(wrongIdentity),
+    "an unattested MP4 must never enter exact-source research",
+  );
+});
+
+Deno.test("exact-video research requires its canonical social source and fact", () => {
+  const parsed = readExactVideoResearchEvidence(exactVideoEvidenceFixture());
+  assert(parsed !== null, "expected exact-video fixture");
+  const fixture = validFixture();
+  fixture.sources.push({
+    id: "social:exact",
+    title: "Exact registered social video",
+    url: parsed.canonicalUrl,
+    publisher: "YouTube",
+    published_at: null,
+    accessed_at: new Date().toISOString(),
+    source_type: "social",
+  });
+  fixture.facts.push({
+    statement: "The sampled frames use a visible product-first payoff",
+    evidence: "This is limited to five sampled visual frames",
+    source_ids: ["social:exact"],
+    confidence: "low",
+  });
+  const sources = providerSources(fixture);
+  assert(
+    readResearchResult(
+      fixture,
+      sources,
+      0,
+      ["instagram"],
+      utcDay(),
+      parsed,
+    ) !== null,
+    "provider-cited canonical source with a sampled-frame fact must pass",
+  );
+  assert(
+    fixture.sources[2].url === parsed.canonicalUrl,
+    "the registered server canonical URL must be retained",
+  );
+
+  const missingFact = validFixture();
+  missingFact.sources.push({ ...fixture.sources[2] });
+  assertNull(
+    readResearchResult(
+      missingFact,
+      providerSources(missingFact),
+      0,
+      ["instagram"],
+      utcDay(),
+      parsed,
+    ),
+    "an unused exact-video citation must not pretend frames influenced research",
+  );
+
+  const missingProviderCitation = providerSources(fixture);
+  missingProviderCitation.delete(parsed.canonicalUrl);
+  assert(
+    readResearchResult(
+      fixture,
+      missingProviderCitation,
+      0,
+      ["instagram"],
+      utcDay(),
+      parsed,
+    ) !== null,
+    "server-bound exact frames must not depend on brittle YouTube web_search",
+  );
+
+  const wrongUrl = validFixture();
+  wrongUrl.sources.push({
+    ...fixture.sources[2],
+    url: "https://youtube.com/watch?v=LMNOPQRSTUV",
+  });
+  wrongUrl.facts.push({ ...fixture.facts[2] });
+  assertNull(
+    readResearchResult(
+      wrongUrl,
+      providerSources(wrongUrl),
+      0,
+      ["instagram"],
+      utcDay(),
+      parsed,
+    ),
+    "a different YouTube video must not inherit the exact frame lineage",
+  );
+});
 
 Deno.test("readResearchResult accepts a complete corroborated v2 result", () => {
   const fixture = validFixture();

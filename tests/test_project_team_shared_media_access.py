@@ -12,6 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS = ROOT / "supabase/migrations"
 PREVIOUS = MIGRATIONS / "202608100002_workspace_media_classification_and_folders.sql"
 MIGRATION = MIGRATIONS / "202608100003_project_team_shared_media_access.sql"
+GRANT_CONFLICT_FIX = (
+    MIGRATIONS / "202608100012_project_member_grant_conflict_fix.sql"
+)
 WORKSPACE_PGTAP = ROOT / "supabase/tests/workspace_folders_test.sql"
 
 
@@ -167,6 +170,26 @@ def test_membership_management_is_owner_admin_only_and_audited() -> None:
     assert "target_role in ('owner', 'admin')" in revoke
     assert "target_profile_id = project_creator_id" in revoke
     assert "workspace_project_member_revoked" in revoke
+
+
+def test_project_member_grant_names_the_primary_key_conflict_arbiter() -> None:
+    source = _read(GRANT_CONFLICT_FIX)
+    normalized = _normalized(source)
+
+    parse_sql(source)
+    assert normalized.startswith("begin;")
+    assert normalized.endswith("commit;")
+    grant = _function(source, "public", "creator_grant_project_member")
+    assert (
+        "on conflict on constraint workspace_project_memberships_pkey "
+        "do update"
+    ) in grant
+    assert "on conflict (organization_id, project_id, profile_id)" not in grant
+    assert "#variable_conflict use_variable" in grant
+    assert (
+        "grant execute on function public.creator_grant_project_member(jsonb) "
+        "to authenticated"
+    ) in normalized
 
 
 def test_project_catalog_and_readers_require_explicit_project_access() -> None:

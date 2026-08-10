@@ -368,14 +368,14 @@ select ok(
   ) is not null,
   'the previous audited workspace reader is preserved privately'
 );
-select like(
-  pg_get_functiondef('public.creator_workspace_browser(jsonb)'::regprocedure),
-  '%workspace_folder_scope_matches%',
+select ok(
+  pg_get_functiondef('public.creator_workspace_browser(jsonb)'::regprocedure)
+    like '%workspace_folder_scope_matches%',
   'the public workspace RPC actively applies omitted-versus-root scope'
 );
-select like(
-  pg_get_functiondef('public.creator_workspace_browser(jsonb)'::regprocedure),
-  '%workspace_media_kind_supported%',
+select ok(
+  pg_get_functiondef('public.creator_workspace_browser(jsonb)'::regprocedure)
+    like '%workspace_media_kind_supported%',
   'the public workspace RPC actively validates the generated-image kind'
 );
 

@@ -55,6 +55,8 @@ export const RPC = Object.freeze({
   transitionTask: "creator_transition_task",
   createFeedback: "creator_create_feedback",
   registerMedia: "creator_register_media",
+  attachExactYoutubeMedia: "contentengine_attach_exact_youtube_media",
+  exactYoutubeSourceQueue: "contentengine_exact_youtube_source_queue",
   captureEvent: "creator_capture_event",
   inviteAttempts: "creator_invite_delivery_attempts",
   managerDashboard: "creator_manager_dashboard",
@@ -2066,12 +2068,47 @@ export class CreatorApi {
     const normalizedProjectId = requiredProjectId(
       projectIdSnake || projectId || input?.project_id || input?.projectId,
     );
+    const exactBundleKeys = [
+      "exact_youtube_source_id",
+      "exact_youtube_attachment_id",
+      "exact_youtube_media_id",
+      "exact_video_evidence_id",
+      "media_matches_registered_source",
+      "source_match_basis",
+    ];
+    const exactBundleRequested = exactBundleKeys.some((key) => (
+      input?.[key] !== undefined && input?.[key] !== null
+    ));
+    if (exactBundleRequested) {
+      const exactIds = [
+        input?.product_id,
+        input?.exact_youtube_source_id,
+        input?.exact_youtube_attachment_id,
+        input?.exact_youtube_media_id,
+        input?.exact_video_evidence_id,
+      ].map((value) => String(value || "").trim().toLowerCase());
+      if (
+        exactIds.some((value) => !isUuid(value))
+        || input?.media_matches_registered_source !== true
+        || input?.source_match_basis
+          !== "operator_compared_uploaded_media_to_registered_source"
+      ) {
+        throw new CreatorApiError(
+          "Подготовка точного видеоисточника заполнена не полностью. Платный анализ не запущен — вернитесь в ИИ-центр и повторите подготовку кадров.",
+          { code: "exact_video_research_binding_payload_invalid" },
+        );
+      }
+    }
     const payload = {
       ...input,
       product_category: productCategory,
       project_id: normalizedProjectId,
     };
     delete payload.projectId;
+    // The media id is a client-side expected receipt value. The SQL binding
+    // derives its authoritative media from the append-only attachment and
+    // deliberately does not accept a caller-selected media id.
+    delete payload.exact_youtube_media_id;
     const created = await this.mutate(RPC.startProductResearch, payload);
     const source = created?.data && typeof created.data === "object" ? created.data : created;
     const run = source?.run || source?.research || {};
@@ -2080,6 +2117,39 @@ export class CreatorApi {
       throw new CreatorApiError("Сервер не вернул номер исследования. Обновите раздел и повторите.", {
         code: "product_research_run_missing",
       });
+    }
+    if (exactBundleRequested) {
+      const exactVideo = source?.exact_video;
+      const exactVideoValid = exactVideo
+        && typeof exactVideo === "object"
+        && !Array.isArray(exactVideo)
+        && String(source?.project_id || "").trim().toLowerCase()
+          === normalizedProjectId
+        && isUuid(String(exactVideo.binding_id || "").trim().toLowerCase())
+        && String(exactVideo.source_id || "").trim().toLowerCase()
+          === String(input.exact_youtube_source_id).trim().toLowerCase()
+        && String(exactVideo.attachment_id || "").trim().toLowerCase()
+          === String(input.exact_youtube_attachment_id).trim().toLowerCase()
+        && String(exactVideo.media_id || "").trim().toLowerCase()
+          === String(input.exact_youtube_media_id).trim().toLowerCase()
+        && String(exactVideo.evidence_id || "").trim().toLowerCase()
+          === String(input.exact_video_evidence_id).trim().toLowerCase()
+        && /^https:\/\/youtube[.]com\/watch[?]v=[A-Za-z0-9_-]{11}$/u
+          .test(String(exactVideo.canonical_url || "").trim())
+        && exactVideo.analysis_scope === "sampled_frames_only"
+        && exactVideo.full_stream_access === false
+        && exactVideo.transcript_available === false
+        && exactVideo.content_review_provider_started === false
+        && exactVideo.product_research_provider_started === false
+        && isUuid(runId);
+      if (!exactVideoValid) {
+        const error = new CreatorApiError(
+          "Исследование сохранено, но сервер не подтвердил связь с точным MP4 и пятью кадрами. Платный анализ не запущен; обновите статус этого исследования.",
+          { code: "exact_video_research_binding_response_invalid" },
+        );
+        error.job = { id: runId, status: String(run?.status || "queued") };
+        throw error;
+      }
     }
     if (typeof onRunCreated === "function") {
       try {
@@ -4642,6 +4712,221 @@ export class CreatorApi {
     return this.mutate(RPC.registerMedia, payload);
   }
 
+  async exactYoutubeSourceQueue({
+    projectId = "",
+    project_id: projectIdSnake = "",
+    limit = 50,
+  } = {}) {
+    const normalizedProjectId = requiredProjectId(projectIdSnake || projectId);
+    const normalizedLimit = Number(limit);
+    if (
+      !Number.isInteger(normalizedLimit)
+      || normalizedLimit < 1
+      || normalizedLimit > 50
+    ) {
+      throw new CreatorApiError("Лимит источников имеет неверный формат.", {
+        code: "exact_youtube_source_queue_limit_invalid",
+      });
+    }
+    const response = await this.call(
+      RPC.exactYoutubeSourceQueue,
+      this.withOrganization({
+        project_id: normalizedProjectId,
+        limit: normalizedLimit,
+      }),
+    );
+    const source = response?.data && typeof response.data === "object"
+      && !Array.isArray(response.data)
+      ? response.data
+      : response;
+    const attachedItemInvalid = (item) => {
+      if (source?.version !== "exact-youtube-source-queue-v2") return false;
+      if (item?.status === "awaiting_media") {
+        return item?.media_required !== true
+          || item?.attachment !== null
+          || item?.media !== null
+          || item?.analysis_ready !== false
+          || item?.next_action !== "upload_lawful_mp4";
+      }
+      const sourceId = String(item?.id || "").trim().toLowerCase();
+      const attachmentMediaId = String(item?.attachment?.media_id || "")
+        .trim()
+        .toLowerCase();
+      const mediaId = String(item?.media?.id || "").trim().toLowerCase();
+      const sourceHash = String(item?.source_hash || "").trim().toLowerCase();
+      const mediaSha256 = String(item?.media?.sha256 || "").trim().toLowerCase();
+      const attachmentInvalid = item?.status !== "media_attached"
+        || item?.media_required !== false
+        || !isUuid(String(item?.attachment?.id || "").trim().toLowerCase())
+        || item?.attachment?.status !== "attached"
+        || String(item?.attachment?.source_id || "").trim().toLowerCase()
+          !== sourceId
+        || !isUuid(attachmentMediaId)
+        || item?.attachment?.rights_confirmed !== true
+        || item?.attachment?.media_matches_registered_source !== true
+        || !PROVIDER_READINESS_SHA256_PATTERN.test(sourceHash)
+        || String(item?.attachment?.source_hash_snapshot || "")
+          .trim().toLowerCase() !== sourceHash;
+      if (attachmentInvalid) return true;
+      if (item?.analysis_ready !== true) {
+        return item?.analysis_ready !== false
+          || item?.next_action !== "restore_attached_media"
+          || (item?.media !== null && (
+            mediaId !== attachmentMediaId
+            || String(item?.media?.project_id || "").trim().toLowerCase()
+              !== normalizedProjectId
+          ));
+      }
+      return item?.next_action !== "start_exact_media_analysis"
+        || attachmentMediaId !== mediaId
+        || !PROVIDER_READINESS_SHA256_PATTERN.test(mediaSha256)
+        || String(item?.attachment?.media_sha256_snapshot || "")
+          .trim().toLowerCase() !== mediaSha256
+        || String(item?.media?.project_id || "").trim().toLowerCase()
+          !== normalizedProjectId
+        || item?.media?.status !== "ready"
+        || item?.media?.mime_type !== "video/mp4"
+        || item?.media?.kind !== "source_video"
+        || item?.media?.artifact_class !== "source"
+        || item?.media?.lifecycle_stage !== "sources";
+    };
+    if (
+      source?.ok !== true
+      || !new Set([
+        "exact-youtube-source-queue-v1",
+        "exact-youtube-source-queue-v2",
+      ]).has(source?.version)
+      || String(source?.project_id || "").trim().toLowerCase()
+        !== normalizedProjectId
+      || !Array.isArray(source?.sources)
+      || source.sources.some((item) => (
+        !item
+        || typeof item !== "object"
+        || Array.isArray(item)
+        || !isUuid(String(item.id || "").trim().toLowerCase())
+        || String(item.project_id || "").trim().toLowerCase()
+          !== normalizedProjectId
+        || attachedItemInvalid(item)
+      ))
+      || source?.contract?.url_is_video_evidence !== false
+      || source?.contract?.requires_lawful_mp4 !== true
+      || source?.contract?.unattached_source_affects_learning !== false
+      || source?.contract?.unattached_source_affects_generation !== false
+      || source?.contract?.external_call_started !== false
+      || source?.contract?.paid_call_started !== false
+      || (source?.version === "exact-youtube-source-queue-v2" && (
+        source?.contract?.attachment_is_append_only !== true
+        || source?.contract?.attached_source_affects_learning !== false
+        || source?.contract?.attached_source_affects_generation !== false
+        || source?.contract?.attachment_starts_analysis !== false
+        || source?.contract?.source_row_mutated !== false
+      ))
+    ) {
+      throw new CreatorApiError(
+        "Сервер не подтвердил актуальную очередь точных YouTube-источников.",
+        { code: "exact_youtube_source_queue_response_invalid" },
+      );
+    }
+    return source;
+  }
+
+  async attachExactYoutubeMedia({
+    projectId = "",
+    project_id: projectIdSnake = "",
+    sourceId = "",
+    source_id: sourceIdSnake = "",
+    mediaId = "",
+    media_id: mediaIdSnake = "",
+    rightsConfirmed = false,
+    rights_confirmed: rightsConfirmedSnake = false,
+    mediaMatchesRegisteredSource = false,
+    media_matches_registered_source: mediaMatchesRegisteredSourceSnake = false,
+  } = {}) {
+    const normalizedProjectId = requiredProjectId(projectIdSnake || projectId);
+    const normalizedSourceId = String(sourceIdSnake || sourceId || "")
+      .trim()
+      .toLowerCase();
+    const normalizedMediaId = String(mediaIdSnake || mediaId || "")
+      .trim()
+      .toLowerCase();
+    if (!isUuid(normalizedSourceId)) {
+      throw new CreatorApiError(
+        "Не удалось определить точный YouTube-источник. Вернитесь в ИИ-центр и откройте загрузку заново.",
+        { code: "exact_youtube_media_attachment_source_required" },
+      );
+    }
+    if (!isUuid(normalizedMediaId)) {
+      throw new CreatorApiError(
+        "MP4 сохранён, но сервер не вернул его идентификатор. Обновите Файлы перед повтором.",
+        { code: "exact_youtube_media_attachment_media_required" },
+      );
+    }
+    if (rightsConfirmed !== true && rightsConfirmedSnake !== true) {
+      throw new CreatorApiError(
+        "Подтвердите право команды использовать MP4 для разбора.",
+        { code: "exact_youtube_media_attachment_rights_required" },
+      );
+    }
+    if (
+      mediaMatchesRegisteredSource !== true
+      && mediaMatchesRegisteredSourceSnake !== true
+    ) {
+      throw new CreatorApiError(
+        "Подтвердите, что MP4 является именно зарегистрированным YouTube-роликом, а не другим видео по теме.",
+        { code: "exact_youtube_media_attachment_source_match_required" },
+      );
+    }
+    const response = await this.mutate(RPC.attachExactYoutubeMedia, {
+      project_id: normalizedProjectId,
+      source_id: normalizedSourceId,
+      media_id: normalizedMediaId,
+      rights_confirmed: true,
+      media_matches_registered_source: true,
+    });
+    const source = response?.data && typeof response.data === "object"
+      && !Array.isArray(response.data)
+      ? response.data
+      : response;
+    if (
+      source?.ok !== true
+      || source?.version !== "exact-youtube-media-attachment-v1"
+      || String(source?.project_id || "").trim().toLowerCase()
+        !== normalizedProjectId
+      || String(source?.source?.id || "").trim().toLowerCase()
+        !== normalizedSourceId
+      || source?.source?.derived_status !== "media_attached"
+      || String(source?.attachment?.source_id || "").trim().toLowerCase()
+        !== normalizedSourceId
+      || String(source?.attachment?.media_id || "").trim().toLowerCase()
+        !== normalizedMediaId
+      || !isUuid(String(source?.attachment?.id || "").trim().toLowerCase())
+      || source?.attachment?.status !== "attached"
+      || source?.attachment?.rights_confirmed !== true
+      || source?.attachment?.media_matches_registered_source !== true
+      || String(source?.media?.id || "").trim().toLowerCase()
+        !== normalizedMediaId
+      || String(source?.media?.project_id || "").trim().toLowerCase()
+        !== normalizedProjectId
+      || source?.media?.mime_type !== "video/mp4"
+      || source?.media?.kind !== "source_video"
+      || source?.contract?.append_only !== true
+      || source?.contract?.exact_project_scope !== true
+      || source?.contract?.registered_media_reused !== true
+      || source?.contract?.identity_attestation_recorded !== true
+      || source?.contract?.source_row_mutated !== false
+      || source?.contract?.analysis_ready !== true
+      || source?.contract?.analysis_started !== false
+      || source?.contract?.external_call_started !== false
+      || source?.contract?.paid_call_started !== false
+    ) {
+      throw new CreatorApiError(
+        "MP4 сохранён, но сервер не подтвердил точную привязку к исследованию. Повторите только привязку — файл загружать заново не нужно.",
+        { code: "exact_youtube_media_attachment_response_invalid" },
+      );
+    }
+    return source;
+  }
+
   captureEvent(event) {
     return this.mutate(RPC.captureEvent, event, { retainOnError: false });
   }
@@ -6276,6 +6561,35 @@ function toFriendlyMessage(error) {
     generation_unavailable: "Сервис платной генерации временно недоступен. Повторите попытку позже.",
     product_research_input_invalid: "Проверьте название товара и артикул.",
     research_youtube_source_requires_media: "YouTube-ссылка относится к отдельному видеоисточнику. Сначала добавьте разрешённый MP4 в исследование или исключите YouTube-ссылку из рыночного запроса.",
+    exact_youtube_media_attachment_payload_invalid: "Контекст загрузки MP4 устарел. Вернитесь в ИИ-центр и откройте точный источник заново.",
+    exact_youtube_media_attachment_rights_required: "Подтвердите право команды использовать MP4 для разбора.",
+    exact_youtube_media_attachment_source_match_required: "Подтвердите, что MP4 является именно зарегистрированным YouTube-роликом. Другое видео нужно добавить как отдельный источник.",
+    exact_youtube_media_attachment_identity_required: "Подтвердите, что MP4 является именно зарегистрированным YouTube-роликом. Другое видео нужно добавить как отдельный источник.",
+    exact_youtube_media_attachment_source_scope_mismatch: "YouTube-источник относится к другому проекту или больше недоступен. Обновите ИИ-центр.",
+    exact_youtube_media_attachment_media_invalid: "Для этого источника нужен сохранённый исходный MP4 с подтверждёнными правами. Сгенерированные ролики и другие типы файлов не подходят.",
+    exact_youtube_media_attachment_conflict: "Источник или MP4 уже связан с другой записью. Обновите ИИ-центр перед продолжением.",
+    exact_youtube_media_attachment_project_access_required: "Доступ к проекту изменился. Откройте проект заново перед привязкой MP4.",
+    exact_youtube_media_attachment_hash_invalid: "Не удалось подтвердить целостность привязки MP4. Обновите ИИ-центр и повторите только привязку.",
+    exact_video_research_binding_payload_invalid: "Подготовка точного видеоисточника заполнена не полностью. Платный анализ не запущен — повторите подготовку пяти кадров.",
+    exact_video_research_binding_response_invalid: "Исследование сохранено, но связь с точным MP4 и пятью кадрами не подтверждена. Новый платный запуск не создавайте; обновите статус сохранённого исследования.",
+    exact_video_research_evidence_not_ready: "Пять контрольных кадров ещё не получили серверный статус ready. Платный анализ не запущен.",
+    exact_video_research_binding_conflict: "Этот attachment уже связан с другим исследованием. Обновите ИИ-центр и откройте сохранённый результат.",
+    exact_video_research_source_scope_mismatch: "Видеоисточник, attachment, evidence или товар относятся к другому проекту. Платный анализ не запущен.",
+    exact_youtube_source_queue_payload_invalid: "Не удалось определить проект очереди видеоисточников. Вернитесь в ИИ-центр.",
+    exact_youtube_source_queue_limit_invalid: "Не удалось безопасно прочитать очередь видеоисточников. Обновите ИИ-центр.",
+    exact_youtube_source_queue_response_invalid: "Сервер не подтвердил актуальную очередь точных YouTube-источников. Платный анализ не запущен.",
+    exact_youtube_research_payload_invalid: "Данные точного видеоисточника заполнены не полностью. Платный анализ не запущен.",
+    exact_youtube_research_source_scope_mismatch: "Точный YouTube-источник относится к другому проекту или изменился. Платный анализ не запущен.",
+    exact_youtube_research_product_identity_mismatch: "Товар у фото не совпадает с названием или SKU зарегистрированного видеоисточника. Платный анализ не запущен.",
+    exact_youtube_research_attachment_scope_mismatch: "Связь YouTube-источника с MP4 изменилась. Обновите ИИ-центр; платный анализ не запущен.",
+    exact_youtube_research_media_invalid: "Привязанный MP4 больше не проходит проверку исходного файла. Платный анализ не запущен.",
+    exact_youtube_research_evidence_invalid: "Пять контрольных JPEG не прошли серверную проверку. Платный анализ не запущен.",
+    exact_youtube_research_start_result_invalid: "Сервер не подтвердил созданное исследование. Новый платный запуск не создавайте; обновите историю.",
+    exact_youtube_research_binding_conflict: "Этот точный источник уже связан с другим исследованием. Обновите ИИ-центр и историю.",
+    exact_youtube_research_evidence_not_ready: "Пять контрольных JPEG ещё не готовы или уже использованы другим запуском. Платный анализ не запущен.",
+    exact_youtube_research_evidence_consume_conflict: "Набор контрольных кадров уже использован. Обновите историю; новый платный запуск не создавайте.",
+    exact_youtube_research_project_access_required: "Доступ к проекту изменился. Платный анализ не запущен.",
+    exact_youtube_research_binding_hash_invalid: "Не удалось подтвердить целостность связи источника и исследования. Платный анализ не запущен.",
     product_research_paid_confirmation_required: "Подтвердите платный ИИ-анализ перед запуском.",
     paid_analysis_ack_required: "Подтвердите платный ИИ-анализ перед запуском.",
     research_execution_authorization_required: "Сервер не получил подтверждение платного анализа. Начните новый запуск и подтвердите расход ещё раз.",

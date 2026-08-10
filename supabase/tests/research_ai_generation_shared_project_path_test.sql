@@ -168,6 +168,16 @@ select ok(
   'owner grants the second user only the exact project'
 );
 
+select ok(
+  (public.creator_grant_project_member(jsonb_build_object(
+    'organization_id', 'ca100000-0000-4000-8000-000000000001',
+    'project_id', 'ca200000-0000-4000-8000-000000000001',
+    'profile_id', 'ca000000-0000-4000-8000-000000000002',
+    'idempotency_key', 'shared-path-reactivate-member-0001'
+  )) ->> 'ok')::boolean,
+  'a repeated grant reactivates the same primary-key membership'
+);
+
 select is(
   (
     select count(*)::integer
