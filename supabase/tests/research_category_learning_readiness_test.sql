@@ -2096,6 +2096,7 @@ set cross_run_recompute_result = control.result
 from (
   select public.creator_control_research_stage(jsonb_build_object(
     'organization_id', 'c0100000-0000-4000-8000-000000000002',
+    'project_id', 'c0100000-0000-4000-8000-000000000007',
     'run_id', 'c0100000-0000-4000-8000-000000000030',
     'branch_id', branch.id,
     'stage', 'category',

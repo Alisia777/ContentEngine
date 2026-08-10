@@ -55,6 +55,7 @@ export function resolveGenerationMediaSelection(items, {
     .filter((item) => item?.selected === true && item?.disabled !== true)
     .map((item) => ({
       id: String(item?.id || item?.public_id || "").trim(),
+      productId: String(item?.productId || item?.product_id || "").trim().toLowerCase(),
       sku: String(item?.sku || "").trim(),
       productName: String(item?.productName || item?.product_name || "").trim(),
       paidReady: item?.paidReady === true || (
@@ -68,13 +69,28 @@ export function resolveGenerationMediaSelection(items, {
     Number(maxReferences) || MAX_REAL_GENERATION_REFERENCES,
   ));
   if (!real) {
+    const [first] = selected;
+    const identityConsistent = Boolean(first) && !selected.some((item) => (
+      item.sku !== first.sku
+      || item.productName !== first.productName
+      || (
+        first.productId
+        && item.productId
+        && item.productId !== first.productId
+      )
+    ));
     return {
       valid: selected.length > 0,
       code: selected.length ? "" : "media_required",
       mediaIds: selected.map((item) => item.id),
-      primaryMediaId: selected[0]?.id || "",
-      sku: selected[0]?.sku || "",
-      productName: selected[0]?.productName || "",
+      primaryMediaId: first?.id || "",
+      identityConsistent,
+      productId: identityConsistent
+        && selected.every((item) => item.productId === first.productId)
+        ? first.productId
+        : "",
+      sku: identityConsistent ? first.sku : "",
+      productName: identityConsistent ? first.productName : "",
     };
   }
   if (!selected.length) {
@@ -83,6 +99,8 @@ export function resolveGenerationMediaSelection(items, {
       code: "media_required",
       mediaIds: [],
       primaryMediaId: "",
+      identityConsistent: false,
+      productId: "",
       sku: "",
       productName: "",
     };
@@ -93,6 +111,8 @@ export function resolveGenerationMediaSelection(items, {
       code: "too_many_references",
       mediaIds: selected.map((item) => item.id),
       primaryMediaId: "",
+      identityConsistent: false,
+      productId: "",
       sku: "",
       productName: "",
     };
@@ -105,19 +125,25 @@ export function resolveGenerationMediaSelection(items, {
       code: "media_not_paid_ready",
       mediaIds: selected.map((item) => item.id),
       primaryMediaId: "",
+      identityConsistent: false,
+      productId: "",
       sku: "",
       productName: "",
     };
   }
-  const [{ sku, productName }] = selected;
+  const [{ productId, sku, productName }] = selected;
   if (selected.some((item) =>
-    item.sku !== sku || item.productName !== productName
+    item.sku !== sku
+    || item.productName !== productName
+    || (productId && item.productId && item.productId !== productId)
   )) {
     return {
       valid: false,
       code: "mixed_product_references",
       mediaIds: selected.map((item) => item.id),
       primaryMediaId: "",
+      identityConsistent: false,
+      productId: "",
       sku: "",
       productName: "",
     };
@@ -134,6 +160,10 @@ export function resolveGenerationMediaSelection(items, {
         .map((item) => item.id),
     ],
     primaryMediaId: primary.id,
+    identityConsistent: true,
+    productId: selected.every((item) => item.productId === productId)
+      ? productId
+      : "",
     sku,
     productName,
   };

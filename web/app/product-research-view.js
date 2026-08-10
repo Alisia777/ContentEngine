@@ -3018,6 +3018,109 @@ export function normalizeProductResearchAiCategory(value, fallback = "") {
     : "";
 }
 
+const PRODUCT_RESEARCH_SOURCE_MEDIA_KINDS = new Set([
+  "product_photo",
+  "packshot",
+]);
+const PRODUCT_RESEARCH_SOURCE_MEDIA_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
+function productResearchMediaCanonicalRank(item, id) {
+  const createdAt = String(item.created_at || item.createdAt || "").trim();
+  return `${createdAt || "9999-12-31T23:59:59.999Z"}:${id}`;
+}
+
+function productResearchMediaDuplicateCount(value, fallback = 1) {
+  const count = Number(value);
+  return Number.isFinite(count) && count > 0
+    ? Math.floor(count)
+    : Math.max(1, Number(fallback) || 1);
+}
+
+export function normalizeProductResearchMediaSources(media = []) {
+  const sourcesByContent = new Map();
+  for (const candidate of Array.isArray(media) ? media : []) {
+    const source = objectValue(candidate);
+    if (!source) continue;
+    const sourceId = String(source.id || source.media_id || "").trim();
+    const id = String(
+      source.canonical_id || source.canonicalId || sourceId,
+    ).trim();
+    const kind = String(source.kind || "").trim().toLowerCase();
+    const status = String(source.status || "").trim().toLowerCase();
+    const mimeType = String(source.mime_type || source.mimeType || "").trim().toLowerCase();
+    const artifactClass = String(
+      source.artifact_class || source.artifactClass || "",
+    ).trim().toLowerCase();
+    if (
+      !id
+      || status !== "ready"
+      || !PRODUCT_RESEARCH_SOURCE_MEDIA_KINDS.has(kind)
+      || !PRODUCT_RESEARCH_SOURCE_MEDIA_MIME_TYPES.has(mimeType)
+      || (artifactClass && artifactClass !== "source")
+    ) continue;
+
+    const contentHash = String(
+      source.sha256 || source.content_hash || source.contentHash || "",
+    ).trim().toLowerCase();
+    const contentKey = contentHash ? `hash:${contentHash}` : `media:${id}`;
+    const duplicateMediaIds = [...new Set([
+      ...(Array.isArray(source.duplicate_media_ids) ? source.duplicate_media_ids : []),
+      ...(Array.isArray(source.duplicateMediaIds) ? source.duplicateMediaIds : []),
+      sourceId,
+      id,
+    ].map(String).filter(Boolean))];
+    const duplicateCount = Math.max(
+      1,
+      duplicateMediaIds.length,
+      productResearchMediaDuplicateCount(
+        source.duplicate_count || source.duplicateCount,
+      ),
+    );
+    const normalized = {
+      ...source,
+      id,
+      canonical_id: id,
+      kind,
+      status,
+      mime_type: mimeType,
+      artifact_class: artifactClass || "source",
+      duplicate_count: duplicateCount,
+      duplicate_media_ids: duplicateMediaIds,
+    };
+    const current = sourcesByContent.get(contentKey);
+    if (!current) {
+      sourcesByContent.set(contentKey, normalized);
+      continue;
+    }
+
+    const duplicateIds = [...new Set([
+      ...(current.duplicate_media_ids || []),
+      ...(Array.isArray(source.duplicate_media_ids) ? source.duplicate_media_ids : []),
+      id,
+    ].map(String).filter(Boolean))];
+    const totalDuplicateCount = productResearchMediaDuplicateCount(
+      current.duplicate_count,
+    ) + duplicateCount;
+    const replaceCanonical = productResearchMediaCanonicalRank(normalized, id)
+      < productResearchMediaCanonicalRank(current, current.id);
+    const canonical = replaceCanonical ? normalized : current;
+    sourcesByContent.set(contentKey, {
+      ...canonical,
+      canonical_id: canonical.id,
+      duplicate_count: totalDuplicateCount,
+      duplicate_media_ids: duplicateIds,
+    });
+  }
+  return [...sourcesByContent.values()].sort((left, right) => (
+    productResearchMediaCanonicalRank(left, left.id)
+      .localeCompare(productResearchMediaCanonicalRank(right, right.id))
+  ));
+}
+
 export function productResearchInputMarkup({
   media = [],
   mediaLoading = false,
@@ -3038,11 +3141,12 @@ export function productResearchInputMarkup({
     `<option value="${category.value}" ${selectedAiCategory === category.value ? "selected" : ""}>${escapeHtml(category.label)}</option>`
   )).join("");
   const previousResearchId = String(initial.previousResearchId || "").trim();
-  const mediaMarkup = media.length
-    ? `<div class="product-research-media-grid">${media.map((item) => researchMediaMarkup(item, selectedMediaIds)).join("")}</div>`
+  const researchMedia = normalizeProductResearchMediaSources(media);
+  const mediaMarkup = researchMedia.length
+    ? `<div class="product-research-media-grid">${researchMedia.map((item) => researchMediaMarkup(item, selectedMediaIds)).join("")}</div>`
     : `<div class="product-research-media-empty">
         <span aria-hidden="true">▧</span>
-        <div><strong>${mediaLoading ? "Загружаем медиатеку…" : "В медиатеке пока нет фотографий"}</strong><p>${mediaLoading ? "Подождите несколько секунд." : "Сначала добавьте точные фото упаковки и этикетки."}</p></div>
+        <div><strong>${mediaLoading ? "Загружаем исходники…" : "Нет подходящих фото-исходников"}</strong><p>${mediaLoading ? "Подождите несколько секунд." : "Добавьте готовые к использованию product photo или packshot. Сгенерированные результаты сюда не попадают."}</p></div>
         ${mediaLoading ? "" : `<a class="btn btn-secondary btn-small" href="#/workspace/media">Открыть материалы</a>`}
       </div>`;
   return `
@@ -3076,7 +3180,7 @@ export function productResearchInputMarkup({
         <label class="field"><span>Главная цель</span><select name="objective"><option value="conversion" ${objective === "conversion" ? "selected" : ""}>Заказы и переходы</option><option value="awareness" ${objective === "awareness" ? "selected" : ""}>Узнаваемость товара</option><option value="ugc" ${objective === "ugc" ? "selected" : ""}>Нативный UGC-обзор</option><option value="education" ${objective === "education" ? "selected" : ""}>Объяснить применение</option></select></label>
         <label class="field"><span>Подтверждённые вводные</span><textarea name="known_facts" maxlength="500" placeholder="Состав, объём, комплектация, способ применения — только то, что подтверждено упаковкой или документами.">${escapeHtml(initial.knownFacts || "")}</textarea><small class="field-hint">Каждый факт будет отделён от найденных источников и гипотез ИИ.</small></label>
         <div class="product-research-media-field">
-          <div><strong>Фото из «Материалов»</strong><small>Выберите упаковку, этикетку и товар целиком. Лучше 3–5 точных кадров.</small></div>
+          <div><strong>Фото-исходники из «Материалов»</strong><small>Только готовые product photo и packshot. Сгенерированный контент скрыт; одинаковые файлы объединены. Выберите 3–5 точных кадров.</small></div>
           ${mediaMarkup}
         </div>
         <div class="alert alert-warning" role="note"><strong aria-hidden="true">₽</strong><span><strong>Это платный ИИ-анализ.</strong> Используется поиск в интернете и модель анализа; итоговая стоимость определяется подключённым тарифом сервиса.</span></div>
@@ -6656,10 +6760,24 @@ function researchMediaMarkup(item, selectedMediaIds = new Set()) {
   const id = String(item.id || item.media_id || "");
   const label = String(item.title || item.filename || item.name || item.sku || "Фото товара");
   const preview = safeHttpsUrl(item.signed_url || item.preview_url || item.url);
+  const duplicateIds = Array.isArray(item.duplicate_media_ids)
+    ? item.duplicate_media_ids.map(String)
+    : [];
+  const selected = id && (
+    selectedMediaIds.has(id)
+    || duplicateIds.some((duplicateId) => selectedMediaIds.has(duplicateId))
+  );
+  const duplicateCount = productResearchMediaDuplicateCount(
+    item.duplicate_count,
+  );
+  const kindLabel = String(item.kind || "Фото-исходник");
+  const duplicateLabel = duplicateCount > 1
+    ? ` · ${duplicateCount} одинаковых файлов объединены`
+    : "";
   return `<label class="product-research-media-option">
-    <input type="checkbox" name="source_media_ids" value="${escapeHtml(id)}" ${id && selectedMediaIds.has(id) ? "checked" : ""} ${id ? "" : "disabled"} />
+    <input type="checkbox" name="source_media_ids" value="${escapeHtml(id)}" ${selected ? "checked" : ""} ${id ? "" : "disabled"} />
     <span class="product-research-media-thumb">${preview ? `<img src="${escapeHtml(preview)}" alt="" loading="lazy" />` : `<i aria-hidden="true">▧</i>`}</span>
-    <span><strong>${escapeHtml(label)}</strong><small>${escapeHtml(String(item.sku || item.kind || "Материал"))}</small></span>
+    <span><strong>${escapeHtml(label)}</strong><small>${escapeHtml(String(item.sku || kindLabel))}${escapeHtml(duplicateLabel)}</small></span>
   </label>`;
 }
 

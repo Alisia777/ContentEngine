@@ -3,7 +3,15 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260805.os4.22";
+} from "./supabase-api.js?v=20260810.os4.24";
+import {
+  clearExactYoutubeMediaHandoff,
+  exactYoutubeRegisteredMediaId,
+  exactYoutubeResearchEvidenceRoute,
+  isExactYoutubeMp4,
+  readExactYoutubeMediaHandoff,
+  updateExactYoutubeMediaHandoffProgress,
+} from "./exact-youtube-media-handoff.js?v=20260810.exact-video.2";
 import {
   generationSpecCardMarkup,
   generationSpecScopesMatch,
@@ -11,8 +19,8 @@ import {
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
 } from "./generation-spec.js?v=20260803.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260805.os4.22";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260805.os4.22";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260810.os4.24";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260810.os4.24";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -75,7 +83,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260805.os4.22";
+} from "./product-research-view.js?v=20260810.os4.24";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -86,7 +94,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260805.os4.22";
+} from "./ai-learning-control-room.js?v=20260810.os4.24";
 import {
   compileContentGenerationPrompt,
   compileSafeGenerationBrief,
@@ -99,7 +107,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260805.os4.22";
+} from "./content-generation-handoff.js?v=20260810.os4.24";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -113,7 +121,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260805.os4.22";
+} from "./generation-form-draft.js?v=20260810.os4.24";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -125,7 +133,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260729.1";
+} from "./generation-autopilot.js?v=20260810.os4.24";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -146,7 +154,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260805.os4.22";
+} from "./content-review-view.js?v=20260810.os4.24";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -175,7 +183,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260805.os4.22";
+} from "./workspace-board-view.js?v=20260810.os4.24";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -204,7 +212,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260805.os4.22";
+} from "./training-journey.js?v=20260810.os4.24";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -223,7 +231,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260805.os4.22";
+} from "./training-practical-review.js?v=20260810.os4.24";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -242,7 +250,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260805.os4.22";
+} from "./my-work-view.js?v=20260810.os4.24";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -545,6 +553,13 @@ const MEMBERSHIP_LOCK_COPY = Object.freeze({
 const WORKSPACE_START_PATH = "/workspace/home";
 const WORKSPACE_ACCESS_REQUIRED_PATH = "/access-required";
 const PROJECT_OPTIONAL_WORKSPACE_SECTIONS = new Set(["home", "team", "feedback", "ai"]);
+const PROJECT_ACCESS_OPERATIONAL_ROLES = new Set([
+  "owner",
+  "admin",
+  "producer",
+  "reviewer",
+  "operator",
+]);
 
 const WORKSPACE_HOME_TAB = Object.freeze(["home", "Сегодня", "⌂"]);
 const FACTORY_FLOW = Object.freeze([
@@ -1101,7 +1116,9 @@ const state = {
     key: "",
     dirty: true,
     saving: false,
+    aiResearchBinding: null,
   },
+  aiResearchRecommendation: null,
   generationRepair: readStoredGenerationRepair(),
   generationPreflight: {
     entries: new Map(),
@@ -1114,6 +1131,15 @@ const state = {
     error: "",
     notice: "",
     requestId: 0,
+  },
+  projectAccess: {
+    status: "idle",
+    data: null,
+    error: "",
+    notice: "",
+    requestId: 0,
+    projectId: "",
+    busyProfileId: "",
   },
   workspaceAccessRequest: {
     status: "idle",
@@ -2154,6 +2180,16 @@ async function initialize() {
   window.ContentEngineWorkspaceRuntime = Object.freeze({
     getApi: () => state.api,
     isAuthenticated: () => Boolean(state.session),
+    getExactYoutubeHandoffContext: () => Object.freeze({
+      organization_id: String(
+        state.api?.organizationId || state.bootstrap?.organization?.id || "",
+      )
+        .trim()
+        .toLowerCase(),
+      user_id: String(state.user?.id || "").trim().toLowerCase(),
+      session_id: String(state.sessionId || "").trim().toLowerCase(),
+      project_id: routeWorkspaceProjectId(),
+    }),
   });
   void restorePublicRecoveryReceipt();
 
@@ -2277,7 +2313,7 @@ function bindGlobalEvents() {
     const nextActionKey = workspaceActionKey(state.route);
     const actionChanged = previousActionKey !== nextActionKey;
     if (actionChanged) state.workspaceDeepLinkFocusKey = "";
-    if (state.route.path !== "/workspace/generation") stopRealGenerationPolling();
+    scheduleRealGenerationPolling(250);
     if (
       state.route.path === "/workspace/generation"
       && (
@@ -2360,12 +2396,92 @@ function bindGlobalEvents() {
   document.addEventListener("submit", handleSubmit);
   document.addEventListener("input", handleFormActivity);
   document.addEventListener("change", handleChange);
+  document.addEventListener(
+    "contentengine:generation-research-preset-applied",
+    handleGenerationResearchPresetApplied,
+  );
+  document.addEventListener(
+    "contentengine:generation-research-preset-opt-out",
+    handleGenerationResearchPresetOptOut,
+  );
   document.addEventListener("dragstart", handleDragStart);
   document.addEventListener("dragover", handleDragOver);
   document.addEventListener("dragleave", handleDragLeave);
   document.addEventListener("drop", handleDrop);
   document.addEventListener("dragend", handleDragEnd);
   document.addEventListener("keydown", handleKeyDown);
+}
+
+function normalizeGenerationResearchPresetEvent(event) {
+  const form = event?.target?.closest?.("#mock-batch-form");
+  const detail = event?.detail;
+  const selectionId = String(detail?.selection_id || "").trim().toLowerCase();
+  const recommendationPosition = Number(detail?.recommendation_position);
+  if (
+    !form
+    || !contentReviewUuid(selectionId)
+    || ![1, 2, 3].includes(recommendationPosition)
+  ) return null;
+  const allowedFields = new Set([
+    "product_category", "platform", "mode", "duration_seconds", "format", "brief",
+  ]);
+  const appliedFields = [...new Set(
+    (Array.isArray(detail?.applied_fields) ? detail.applied_fields : [])
+      .map((value) => String(value || "").trim())
+      .filter((value) => allowedFields.has(value)),
+  )];
+  const presetSource = detail?.preset
+    && typeof detail.preset === "object"
+    && !Array.isArray(detail.preset)
+    ? detail.preset
+    : {};
+  const preset = Object.fromEntries(
+    Object.entries(presetSource).filter(([field]) => allowedFields.has(field)),
+  );
+  return {
+    form,
+    selection: {
+      projectId: currentWorkspaceProjectId(),
+      productCategory: String(
+        form.elements?.product_category?.value
+          || preset.product_category
+          || "",
+      ).trim().toLowerCase(),
+      selectionId,
+      recommendationPosition,
+      appliedFields,
+      preset,
+      receivedAt: Date.now(),
+    },
+  };
+}
+
+function handleGenerationResearchPresetApplied(event) {
+  const normalized = normalizeGenerationResearchPresetEvent(event);
+  if (!normalized || normalized.selection.appliedFields.length < 1) return;
+  state.aiResearchRecommendation = normalized.selection;
+  state.generationSpec.aiResearchBinding = null;
+  normalized.form.dataset.dirty = "true";
+  invalidateGenerationSpec(
+    normalized.form,
+    "Применена рекомендация ИИ‑центра. Техническая версия будет сохранена заново без списания.",
+  );
+  persistGenerationFormDraft(normalized.form);
+  syncGenerationFormReadiness(normalized.form);
+}
+
+function handleGenerationResearchPresetOptOut(event) {
+  const form = event?.target?.closest?.("#mock-batch-form");
+  if (!form) return;
+  state.aiResearchRecommendation = null;
+  state.generationSpec.aiResearchBinding = null;
+  form.dataset.dirty = "true";
+  invalidateGenerationSpec(
+    form,
+    "Включён ручной режим. Рекомендация ИИ‑центра больше не привязывается к замыслу.",
+  );
+  persistGenerationFormDraft(form, { manual: true });
+  syncGenerationFormReadiness(form);
 }
 
 function managerDashboardIsStale() {
@@ -6975,6 +7091,16 @@ function persistWorkspaceProject(projectId, projectName = "Проект") {
   return true;
 }
 
+function resetProjectAccessState() {
+  state.projectAccess.requestId += 1;
+  state.projectAccess.status = "idle";
+  state.projectAccess.data = null;
+  state.projectAccess.error = "";
+  state.projectAccess.notice = "";
+  state.projectAccess.projectId = "";
+  state.projectAccess.busyProfileId = "";
+}
+
 function activateWorkspaceProject(projectId, projectName = "Проект") {
   const id = String(projectId || "").trim().toLowerCase();
   if (!isWorkspaceProjectId(id)) return false;
@@ -6983,6 +7109,7 @@ function activateWorkspaceProject(projectId, projectName = "Проект") {
   if (projectChanged) cancelGenerationFormDraftSave();
   persistWorkspaceProject(id, projectName);
   if (!projectChanged) return true;
+  resetProjectAccessState();
   invalidateAiLearningMarketProjectContext();
   state.projectFlow.requestId += 1;
   state.projectFlow.status = "idle";
@@ -7025,6 +7152,7 @@ function activateWorkspaceProject(projectId, projectName = "Проект") {
   state.generatedVideoQa.entries.clear();
   state.generatedVideoQa.recoveryJobIds.clear();
   state.generatedVideoQa.restored = false;
+  state.aiResearchRecommendation = null;
   resetGenerationSpecState();
   clearContentGenerationHandoff();
   clearGenerationRepair();
@@ -7044,6 +7172,7 @@ function clearWorkspaceProjectSelection(projectId = "") {
   } catch {
     // A clean URL remains authoritative when storage is unavailable.
   }
+  resetProjectAccessState();
   invalidateAiLearningMarketProjectContext();
   state.projectFlow.requestId += 1;
   state.projectFlow.status = "idle";
@@ -7062,6 +7191,7 @@ function clearWorkspaceProjectSelection(projectId = "") {
     target.data = null;
     target.error = null;
   }
+  state.aiResearchRecommendation = null;
   resetGenerationSpecState();
   clearContentGenerationHandoff();
   clearGenerationRepair();
@@ -8506,6 +8636,7 @@ async function loadSection(section, options = {}) {
           applyRealGenerationResult(routeGenerationJobId, deepLinkResult, {
             source: "deep-link",
             renderNow: false,
+            projectId,
           });
           data = mergeGenerationDeepLinkedBatch(
             data,
@@ -10335,11 +10466,13 @@ function applyContentGenerationHandoffToForm() {
 }
 
 function generationMediaIdentity(item = {}) {
+  const productId = String(item.product_id || item.productId || "").trim().toLowerCase();
   const sku = String(item.sku || "").trim();
   const productName = String(item.product_name || "").trim();
   const verified = item.identity_verified === true && Boolean(sku && productName);
   const rightsConfirmed = item.rights_confirmed === true;
   return {
+    productId: isWorkspaceProjectId(productId) ? productId : "",
     sku,
     productName,
     verified,
@@ -10370,6 +10503,7 @@ function generationMediaOptionMarkup(item, real, selectedMediaId = "") {
           value="${escapeHtml(mediaId)}"
           data-media-identity-verified="${identity.verified ? "true" : "false"}"
           data-media-rights-confirmed="${identity.rightsConfirmed ? "true" : "false"}"
+          data-media-product-id="${escapeHtml(identity.productId)}"
           data-media-sku="${escapeHtml(identity.sku)}"
           data-media-product-name="${escapeHtml(identity.productName)}"
           ${real && !identity.paidReady ? "disabled" : ""}
@@ -11511,7 +11645,9 @@ function generationCostMarkup(details) {
 }
 
 function realGenerationJobsFromBatches(batches = listFrom(state.sections.generation.data || {}, "batches")) {
-  return batches
+  const projectId = currentWorkspaceProjectId();
+  if (!isWorkspaceProjectId(projectId)) return [];
+  const activeJobs = batches
     .map(generationBatchDetails)
     .filter((details) =>
       details.real
@@ -11519,6 +11655,23 @@ function realGenerationJobsFromBatches(batches = listFrom(state.sections.generat
       && !details.reconciliationRequired
       && REAL_GENERATION_ACTIVE_STATUSES.has(details.status)
     );
+  const knownJobIds = new Set(activeJobs.map((details) => details.jobId));
+  for (const [jobId, cached] of state.realGenerationResults.entries()) {
+    const job = cached?.job && typeof cached.job === "object" ? cached.job : null;
+    const cachedProjectId = String(cached?.projectId || job?.project_id || "").trim().toLowerCase();
+    const status = String(job?.status || "").trim().toLowerCase();
+    if (
+      !job
+      || !jobId
+      || knownJobIds.has(jobId)
+      || cachedProjectId !== projectId
+      || normalizeBoolean(job.reconciliation_required)
+      || !REAL_GENERATION_ACTIVE_STATUSES.has(status)
+    ) continue;
+    activeJobs.push({ real: true, jobId, status, reconciliationRequired: false });
+    knownJobIds.add(jobId);
+  }
+  return activeJobs;
 }
 
 function realGenerationReconciliationJobsFromBatches(
@@ -11550,8 +11703,7 @@ function stopRealGenerationPolling() {
 function scheduleRealGenerationPolling(delayMs = REAL_GENERATION_POLL_INTERVAL_MS) {
   stopRealGenerationPolling();
   if (
-    state.route.path !== "/workspace/generation"
-    || document.visibilityState !== "visible"
+    document.visibilityState !== "visible"
     || !state.session
     || state.realGenerationPollInFlight
     || !realGenerationJobsFromBatches().length
@@ -11562,7 +11714,7 @@ function scheduleRealGenerationPolling(delayMs = REAL_GENERATION_POLL_INTERVAL_M
 
 async function runRealGenerationPolling() {
   state.realGenerationPollTimer = null;
-  if (state.route.path !== "/workspace/generation" || document.visibilityState !== "visible") return;
+  if (document.visibilityState !== "visible") return;
   const pollingWindow = boundedRoundRobinWindow(
     realGenerationJobsFromBatches(),
     state.realGenerationPollCursor,
@@ -11589,18 +11741,30 @@ function requestRealGenerationStatus(jobId, source = "manual") {
   if (existing?.promise) return existing.promise;
   const requestEpoch = state.dataEpoch;
   const requestUserId = state.user?.id;
+  const requestProjectId = currentWorkspaceProjectId();
   const promise = state.api.realGenerationStatus(normalizedJobId, {
-    projectId: currentWorkspaceProjectId(),
+    projectId: requestProjectId,
   });
   state.realGenerationStatusRequests.set(normalizedJobId, { promise, source });
   promise.then(
     (result) => {
-      if (requestEpoch === state.dataEpoch && requestUserId === state.user?.id) {
-        applyRealGenerationResult(normalizedJobId, result, { source });
+      if (
+        requestEpoch === state.dataEpoch
+        && requestUserId === state.user?.id
+        && requestProjectId === currentWorkspaceProjectId()
+      ) {
+        applyRealGenerationResult(normalizedJobId, result, {
+          source,
+          projectId: requestProjectId,
+        });
       }
     },
     (error) => {
-      if (requestEpoch === state.dataEpoch && requestUserId === state.user?.id) {
+      if (
+        requestEpoch === state.dataEpoch
+        && requestUserId === state.user?.id
+        && requestProjectId === currentWorkspaceProjectId()
+      ) {
         applyRealGenerationStatusError(normalizedJobId, error);
       }
     },
@@ -11671,6 +11835,35 @@ function withSoftTimeoutResult(operation, timeoutMs) {
   ]).finally(() => window.clearTimeout(timerId));
 }
 
+function invalidateGeneratedMediaWorkspaceCaches() {
+  const sections = ["board", "media", "review"];
+  const visibleSection = sections.find((section) => (
+    state.route.path === `/workspace/${section}`
+  ));
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  const requestProjectId = currentWorkspaceProjectId();
+  const requestPath = state.route.path;
+  for (const section of sections) {
+    const target = state.sections[section];
+    if (!target) continue;
+    target.requestId += 1;
+    target.status = "idle";
+    target.error = null;
+  }
+  if (!visibleSection) return;
+  window.queueMicrotask(() => {
+    if (
+      requestEpoch !== state.dataEpoch
+      || requestUserId !== state.user?.id
+      || requestProjectId !== currentWorkspaceProjectId()
+      || requestPath !== state.route.path
+      || !state.session
+    ) return;
+    void loadSection(visibleSection, { silent: true });
+  });
+}
+
 function applyRealGenerationResult(jobId, result, options = {}) {
   const job = result?.job && typeof result.job === "object" ? result.job : null;
   if (!job || String(job.id || "") !== String(jobId || "")) return;
@@ -11678,8 +11871,15 @@ function applyRealGenerationResult(jobId, result, options = {}) {
   const signedUrl = String(result?.signed_url || "");
   const safeSignedUrl = signedUrl && isTrustedGenerationDownload(signedUrl) ? signedUrl : "";
   const checkedAt = new Date().toISOString();
+  const resultProjectId = String(
+    options.projectId
+      || job.project_id
+      || previous?.projectId
+      || currentWorkspaceProjectId(),
+  ).trim().toLowerCase();
   state.realGenerationResults.set(jobId, {
     job: { ...job },
+    projectId: resultProjectId,
     signedUrl: safeSignedUrl || previous?.signedUrl || "",
     signedUrlIssuedAt: safeSignedUrl ? Date.now() : (previous?.signedUrlIssuedAt || 0),
     checkedAt,
@@ -11689,6 +11889,16 @@ function applyRealGenerationResult(jobId, result, options = {}) {
 
   const previousStatus = String(previous?.job?.status || "").toLowerCase();
   const nextStatus = String(job.status || "").toLowerCase();
+  const previousOutputMediaId = String(previous?.job?.output_media_id || "").trim().toLowerCase();
+  const nextOutputMediaId = String(job.output_media_id || "").trim().toLowerCase();
+  const registeredOutputBecameAvailable = (
+    ["succeeded", "completed"].includes(nextStatus)
+    && contentReviewUuid(nextOutputMediaId)
+    && (
+      !["succeeded", "completed"].includes(previousStatus)
+      || previousOutputMediaId !== nextOutputMediaId
+    )
+  );
   const previousReconciliationRequired = normalizeBoolean(
     previous?.job?.reconciliation_required,
   );
@@ -11699,6 +11909,10 @@ function applyRealGenerationResult(jobId, result, options = {}) {
   ) {
     void loadGenerationSpendOverview({ silent: true, force: true });
   }
+  if (
+    registeredOutputBecameAvailable
+    && resultProjectId === currentWorkspaceProjectId()
+  ) invalidateGeneratedMediaWorkspaceCaches();
   if (options.source === "auto" && previousStatus && previousStatus !== nextStatus) {
     if (["succeeded", "completed"].includes(nextStatus)) {
       toast(
@@ -12568,8 +12782,224 @@ function contentReviewUuid(value) {
   );
 }
 
+function exactYoutubeResearchEvidenceRouteContext() {
+  if (state.route.query.get("purpose") !== "exact_youtube_research") {
+    return null;
+  }
+  const oneUuid = (key) => {
+    const values = state.route.query.getAll(key);
+    const value = values.length === 1
+      ? String(values[0] || "").trim().toLowerCase()
+      : "";
+    return contentReviewUuid(value) ? value : "";
+  };
+  const oneText = (key, limit) => {
+    const values = state.route.query.getAll(key);
+    if (values.length !== 1) return "";
+    const value = String(values[0] || "").replace(/\s+/gu, " ").trim();
+    return value.length <= limit ? value : "";
+  };
+  const projectId = routeWorkspaceProjectId();
+  const context = {
+    projectId,
+    sourceId: oneUuid("youtube_source"),
+    attachmentId: oneUuid("attachment"),
+    mediaId: oneUuid("media"),
+    productName: oneText("product_name", 180),
+    productSku: oneText("product_sku", 120),
+  };
+  return {
+    ...context,
+    valid: Boolean(
+      projectId
+      && context.sourceId
+      && context.attachmentId
+      && context.mediaId
+      && projectId === currentWorkspaceProjectId()
+    ),
+  };
+}
+
+function exactYoutubeResearchEvidenceKey(context) {
+  const organizationId = String(state.bootstrap?.organization?.id || "")
+    .trim()
+    .toLowerCase();
+  const userId = String(state.user?.id || "").trim().toLowerCase();
+  if (
+    !contentReviewUuid(organizationId)
+    || !contentReviewUuid(userId)
+    || !context?.valid
+  ) return "";
+  return [
+    "contentengine.exact-youtube-research-evidence.v1",
+    organizationId,
+    userId,
+    context.projectId,
+    context.sourceId,
+    context.attachmentId,
+    context.mediaId,
+  ].join(":");
+}
+
+function readExactYoutubeResearchEvidence(context, media) {
+  const key = exactYoutubeResearchEvidenceKey(context);
+  if (!key) return null;
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(key) || "null");
+    if (
+      stored?.version !== 1
+      || stored?.project_id !== context.projectId
+      || stored?.source_id !== context.sourceId
+      || stored?.attachment_id !== context.attachmentId
+      || stored?.media_id !== context.mediaId
+    ) return null;
+    return usableContentReviewEvidence(stored.evidence, {
+      mediaId: media.id,
+      mediaSha256: media.sha256,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function saveExactYoutubeResearchEvidence(context, evidence) {
+  const key = exactYoutubeResearchEvidenceKey(context);
+  if (!key) return false;
+  try {
+    window.localStorage.setItem(key, JSON.stringify({
+      version: 1,
+      project_id: context.projectId,
+      source_id: context.sourceId,
+      attachment_id: context.attachmentId,
+      media_id: context.mediaId,
+      updated_at: new Date().toISOString(),
+      evidence,
+    }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function clearExactYoutubeResearchEvidence(context) {
+  const key = exactYoutubeResearchEvidenceKey(context);
+  if (!key) return;
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // A durable research run must not be retried because local cleanup failed.
+  }
+}
+
+function exactYoutubeResearchEvidenceMarkup(context, catalog) {
+  if (!context?.valid) {
+    return `<div class="page-wrap">${emptyState(
+      "?",
+      "Связь исследования устарела",
+      "Портал не получил один точный проект, источник, attachment и MP4. Обновите ИИ-центр и откройте подготовку кадров заново.",
+      {
+        href: workspaceProjectHref("#/workspace/ai"),
+        label: "Вернуться в ИИ-центр",
+      },
+    )}</div>`;
+  }
+  const video = catalog.media.find((item) => (
+    item.id === context.mediaId
+    && item.isVideo
+    && item.kind === "source_video"
+    && item.mimeType === "video/mp4"
+  ));
+  if (!video) {
+    return `<div class="page-wrap">${emptyState(
+      "?",
+      "Привязанный MP4 не найден",
+      "Портал не подменяет его другим видео. Проверьте сохранённый файл или обновите ИИ-центр.",
+      {
+        href: workspaceProjectHref("#/workspace/board"),
+        label: "Открыть файлы проекта",
+      },
+    )}</div>`;
+  }
+  const productPhotos = catalog.media.filter((item) => (
+    item.isImage
+    && ["product_photo", "packshot"].includes(item.kind)
+    && contentReviewUuid(item.productId)
+    && item.status === "ready"
+  ));
+  const categoryOptions = AI_PRODUCT_CATEGORIES.map((category) => (
+    `<option value="${escapeHtml(category.key)}">${escapeHtml(category.label)}</option>`
+  )).join("");
+  const photoOptions = productPhotos.length
+    ? productPhotos.map((item) => `
+        <label class="acknowledgement">
+          <input type="radio" name="source_media_id" value="${escapeHtml(item.id)}" data-product-id="${escapeHtml(item.productId)}" required />
+          <span><strong>${escapeHtml(item.name)}</strong><small>Точное фото товара · ${formatBytes(item.sizeBytes || 0)}</small></span>
+        </label>`).join("")
+    : `<div class="alert alert-warning"><strong aria-hidden="true">!</strong><span>Для исследования нужно хотя бы одно точное фото товара с product_id. Добавьте фото в Материалах и вернитесь к источнику через ИИ-центр.</span></div>`;
+  const sourceProductIdentityReady = Boolean(
+    context.productName && context.productSku,
+  );
+  return `
+    <div class="page-wrap exact-youtube-research-evidence-page">
+      ${pageHeader(
+        "Подготовка кадров для исследования",
+        "Браузер извлечёт пять JPEG из привязанного MP4. Исходный поток и транскрипт внешнему ИИ не передаются.",
+        `<span class="badge badge-info">Один платный анализ после подтверждения</span>`,
+      )}
+      <section class="card card-pad">
+        <p class="eyebrow">ТОЧНЫЙ ВИДЕОИСТОЧНИК</p>
+        <h2>${escapeHtml(video.name)}</h2>
+        <p class="muted">Источник, attachment и MP4 уже связаны сервером. Ниже выбирается отдельное точное фото товара: сам MP4 не попадёт в source_media_ids и не смешается с файлами продукта.</p>
+      </section>
+      <form id="exact-youtube-research-evidence-form" class="card card-pad form-stack" novalidate
+            data-project-id="${escapeHtml(context.projectId)}"
+            data-source-id="${escapeHtml(context.sourceId)}"
+            data-attachment-id="${escapeHtml(context.attachmentId)}"
+            data-media-id="${escapeHtml(context.mediaId)}">
+        <div>
+          <p class="eyebrow">ТОВАР И КАТЕГОРИЯ</p>
+          <h2>Что анализируем вместе с механикой ролика</h2>
+        </div>
+        <div class="form-grid-2">
+          <label class="field"><span>Точное название товара *</span><input name="product_name" required minlength="2" maxlength="180" autocomplete="off" value="${escapeHtml(context.productName)}" ${context.productName ? "readonly" : ""} placeholder="Например: аэрогриль MILIO A425D-Black" /><small class="field-hint">${context.productName ? "Получено из зарегистрированного видеоисточника; сервер повторно сверит с товаром выбранного фото." : "В старом источнике название не сохранено — укажите товар выбранного фото; сервер сверит его product_id."}</small></label>
+          <label class="field"><span>Артикул / SKU *</span><input name="sku" required maxlength="120" autocomplete="off" value="${escapeHtml(context.productSku)}" ${context.productSku ? "readonly" : ""} placeholder="Например: WB-518413561" /><small class="field-hint">${context.productSku ? "Получен из зарегистрированного видеоисточника и не используется как доверенный клиентский идентификатор." : "В старом источнике SKU не сохранён — укажите артикул выбранного фото; сервер проверит product_id."}</small></label>
+          <label class="field"><span>Категория ИИ-центра *</span><select name="product_category" required>${categoryOptions}</select></label>
+          <label class="field"><span>Карточка товара</span><input name="marketplace_url" type="url" maxlength="1000" placeholder="https://www.wildberries.ru/catalog/..." /></label>
+        </div>
+        <fieldset class="content-review-fieldset">
+          <legend>Точное фото этого товара *</legend>
+          <div class="form-stack">${photoOptions}</div>
+        </fieldset>
+        <label class="field"><span>Задача исследования *</span><textarea name="objective" required minlength="20" maxlength="1200" rows="5">Разобрать структуру референсного короткого ролика: последовательность кадров, темп, демонстрацию продукта, визуальный хук и финальный payoff. Адаптировать механику под наш товар без копирования чужого бренда, водяных знаков, музыки, голоса и непроверенных обещаний.</textarea><small class="field-hint">Анализ видит только пять контрольных JPEG; выводы о речи, звуке и полном монтаже запрещены.</small></label>
+        <fieldset class="product-research-platforms">
+          <legend>Для каких площадок готовим выводы *</legend>
+          <label><input type="checkbox" name="platforms" value="youtube" checked /> <span>YouTube Shorts</span></label>
+          <label><input type="checkbox" name="platforms" value="instagram" /> <span>Instagram Reels</span></label>
+          <label><input type="checkbox" name="platforms" value="vk" /> <span>VK Клипы</span></label>
+          <label><input type="checkbox" name="platforms" value="wildberries" checked /> <span>Wildberries</span></label>
+          <label><input type="checkbox" name="platforms" value="ozon" /> <span>Ozon</span></label>
+        </fieldset>
+        <div class="form-stack">
+          <label class="acknowledgement"><input name="media_matches_registered_source" type="checkbox" required /><span>Повторно подтверждаю: этот MP4 — тот же ролик, что зарегистрированная YouTube-ссылка, а не другое видео по теме.</span></label>
+          <label class="acknowledgement"><input name="external_ai_processing_ack" type="checkbox" required /><span>Разрешаю передать внешнему ИИ только пять контрольных JPEG и текст этой формы; исходный MP4, аудио и транскрипт не передаются.</span></label>
+          <label class="acknowledgement"><input name="paid_analysis_ack" type="checkbox" required /><span>Подтверждаю один платный продуктовый ИИ-анализ после бесплатной подготовки кадров.</span></label>
+          <label class="acknowledgement"><input name="human_review_ack" type="checkbox" required /><span>Проверю выводы в Исследованиях и ИИ-центре до применения в генерации.</span></label>
+        </div>
+        <div class="inline-actions">
+          <button class="btn" type="submit" ${productPhotos.length ? "" : "disabled"}>Подготовить 5 кадров и запустить исследование</button>
+          <a class="btn btn-secondary" href="${workspaceProjectHref("#/workspace/ai")}">Вернуться без запуска</a>
+        </div>
+        <small data-exact-youtube-research-status role="status" aria-live="polite">${sourceProductIdentityReady ? "Название и SKU предзаполнены из точного источника; перед кадрами портал сверит свежую серверную очередь." : "Источник создан без полной подписи товара; перед кадрами портал сверит выбранный product_id на сервере."} Платный вызов не начнётся до всех подтверждений.</small>
+      </form>
+    </div>`;
+}
+
 function renderContentReviewSection(sectionState) {
   const catalog = normalizeContentReviewCatalog(sectionState.data || {});
+  const exactYoutubeContext = exactYoutubeResearchEvidenceRouteContext();
+  if (exactYoutubeContext) {
+    return exactYoutubeResearchEvidenceMarkup(exactYoutubeContext, catalog);
+  }
   const routeMediaId = safeWorkspaceRouteEntityId("media");
   const routeMediaKey = routeMediaId ? `${currentWorkspaceProjectId()}:${routeMediaId}` : "";
   if (routeMediaKey && state.contentReview.routeMediaKey !== routeMediaKey) {
@@ -13664,6 +14094,7 @@ async function loadResearchStageControl({
   try {
     const raw = await withUiTimeout(
       state.api.researchStageControlStatus(normalizedRunId, {
+        project_id: currentWorkspaceProjectId(),
         ...(normalizedBranchId ? { branch_id: normalizedBranchId } : {}),
         history_limit: 30,
       }),
@@ -13738,7 +14169,18 @@ function renderProductResearchSection() {
     window.queueMicrotask(() => loadSection("team", { silent: true, rerenderSection: "research" }));
   }
   const media = listFrom(mediaState.data || {}, "media", "items", "artifacts")
-    .filter((item) => String(item.mime_type || "").startsWith("image/") || ["product_photo", "packshot"].includes(String(item.kind || "")));
+    .filter((item) => {
+      const kind = String(item?.kind || "").trim().toLowerCase();
+      const status = String(item?.status || "").trim().toLowerCase();
+      const mimeType = String(item?.mime_type || item?.mimeType || "").trim().toLowerCase();
+      const artifactClass = String(
+        item?.artifact_class || item?.artifactClass || "",
+      ).trim().toLowerCase();
+      return status === "ready"
+        && ["product_photo", "packshot"].includes(kind)
+        && ["image/jpeg", "image/png", "image/webp"].includes(mimeType)
+        && (!artifactClass || artifactClass === "source");
+    });
   const statusKind = research.record ? productResearchStatusKind(research.record.status) : "";
   const requestedView = String(state.route.query.get("view") || "");
   const researchView = ["evidence", "corrections", "brief", "approve", "handoff"].includes(requestedView)
@@ -15292,6 +15734,352 @@ function renderTeamSectionLegacy(sectionState) {
   `;
 }
 
+function selectedTeamProjectAccessContext() {
+  const flow = normalizeProjectFlow(state.projectFlow?.data || {});
+  const routeProjectId = routeWorkspaceProjectId();
+  const projectId = routeProjectId || String(flow.project_id || "").trim().toLowerCase();
+  if (
+    !isWorkspaceProjectId(projectId)
+    || flow.project_id !== projectId
+    || (routeProjectId && routeProjectId !== projectId)
+  ) return null;
+  const project = [flow.project, ...flow.projects]
+    .filter(Boolean)
+    .find((item) => String(item?.id || "").trim().toLowerCase() === projectId);
+  if (!project) return null;
+  return {
+    id: projectId,
+    name: String(project.name || "Проект").trim() || "Проект",
+  };
+}
+
+function normalizeProjectAccessRoster(raw, expectedProjectId) {
+  const source = raw?.data && typeof raw.data === "object" ? raw.data : raw;
+  const projectId = String(source?.project_id || "").trim().toLowerCase();
+  if (
+    !source
+    || source.ok !== true
+    || projectId !== expectedProjectId
+    || !Array.isArray(source.members)
+    || source.capabilities?.manage_members !== true
+  ) {
+    throw new CreatorApiError(
+      "Сервис доступа вернул неполный список. Обновите проект и повторите проверку.",
+      { code: "project_members_response_invalid" },
+    );
+  }
+  const members = source.members.map((member) => ({
+    profileId: String(member?.profile_id || "").trim().toLowerCase(),
+    displayName: String(member?.display_name || "").trim(),
+    email: String(member?.email || "").trim(),
+    organizationRole: String(member?.organization_role || "").trim().toLowerCase(),
+    accessRole: String(member?.access_role || "member").trim().toLowerCase(),
+    status: String(member?.status || "").trim().toLowerCase(),
+    updatedAt: String(member?.updated_at || ""),
+  }));
+  if (members.some((member) => !isWorkspaceProjectId(member.profileId))) {
+    throw new CreatorApiError(
+      "Сервис доступа вернул неполный список. Обновите проект и повторите проверку.",
+      { code: "project_members_response_invalid" },
+    );
+  }
+  return { projectId, members };
+}
+
+function teamProjectAccessCandidates(members) {
+  const candidates = new Map();
+  (Array.isArray(members) ? members : []).forEach((member) => {
+    const profileId = String(member?.profile_id || member?.user_id || "")
+      .trim()
+      .toLowerCase();
+    if (!isWorkspaceProjectId(profileId) || candidates.has(profileId)) return;
+    candidates.set(profileId, {
+      profileId,
+      displayName: String(member?.display_name || "").trim(),
+      email: String(member?.email || "").trim(),
+      role: String(member?.role || "").trim().toLowerCase(),
+      status: String(member?.status || "active").trim().toLowerCase(),
+      teamCandidate: true,
+    });
+  });
+  return [...candidates.values()];
+}
+
+async function loadProjectMembers({ force = false, silent = false } = {}) {
+  if (!canManageTeam() || !state.api?.projectMembers) return null;
+  const context = selectedTeamProjectAccessContext();
+  if (!context) return null;
+  const target = state.projectAccess;
+  if (
+    !force
+    && ["loading", "refreshing"].includes(target.status)
+    && target.projectId === context.id
+  ) return null;
+  if (
+    !force
+    && target.status === "ready"
+    && target.projectId === context.id
+  ) return target.data;
+
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  const requestId = target.requestId + 1;
+  const projectChanged = target.projectId !== context.id;
+  target.requestId = requestId;
+  target.projectId = context.id;
+  if (projectChanged) {
+    target.data = null;
+    target.notice = "";
+  }
+  target.status = target.data ? "refreshing" : "loading";
+  target.error = "";
+  if (!silent && state.route.path === "/workspace/team") renderWorkspace("team");
+
+  const requestIsCurrent = () => (
+    requestEpoch === state.dataEpoch
+    && requestUserId === state.user?.id
+    && requestId === target.requestId
+    && target.projectId === context.id
+    && selectedTeamProjectAccessContext()?.id === context.id
+  );
+  try {
+    const raw = await withUiTimeout(
+      state.api.projectMembers({ projectId: context.id }),
+      WORKSPACE_REQUEST_TIMEOUT_MS,
+      "project_members_timeout",
+    );
+    if (!requestIsCurrent()) return null;
+    target.data = normalizeProjectAccessRoster(raw, context.id);
+    target.status = "ready";
+    return target.data;
+  } catch (error) {
+    if (!requestIsCurrent()) return null;
+    target.status = "error";
+    target.error = actionErrorMessage(error);
+    return null;
+  } finally {
+    if (requestIsCurrent() && state.route.path === "/workspace/team") {
+      renderWorkspace("team");
+    }
+  }
+}
+
+function projectAccessMemberRows(teamMembers, rosterMembers) {
+  const rosterByProfile = new Map(
+    rosterMembers.map((member) => [member.profileId, member]),
+  );
+  const candidates = teamProjectAccessCandidates(teamMembers);
+  const candidateIds = new Set(candidates.map((member) => member.profileId));
+  rosterMembers.forEach((member) => {
+    if (candidateIds.has(member.profileId)) return;
+    candidates.push({
+      profileId: member.profileId,
+      displayName: member.displayName,
+      email: member.email,
+      role: member.organizationRole,
+      status: "active",
+      teamCandidate: false,
+    });
+  });
+  return candidates
+    .map((candidate) => ({
+      ...candidate,
+      access: rosterByProfile.get(candidate.profileId) || null,
+    }))
+    .sort((left, right) => {
+      const activeDelta = Number(right.access?.status === "active")
+        - Number(left.access?.status === "active");
+      if (activeDelta) return activeDelta;
+      return String(left.displayName || left.email || left.profileId)
+        .localeCompare(String(right.displayName || right.email || right.profileId), "ru");
+    });
+}
+
+function projectAccessMemberTable(teamMembers, rosterMembers, projectId) {
+  const rows = projectAccessMemberRows(teamMembers, rosterMembers);
+  if (!rows.length) {
+    return emptyState(
+      "◎",
+      "Нет участников для проекта",
+      "Сначала пригласите человека в команду. Доступ ко всем проектам автоматически не выдаётся.",
+      { href: "#/workspace/team?view=invite", label: "Пригласить участника" },
+    );
+  }
+  return `<div class="table-wrap"><table class="data-table project-access-table">
+    <thead><tr><th>Участник команды</th><th>Рабочая роль</th><th>Доступ к проекту</th><th>Действие</th></tr></thead>
+    <tbody>${rows.map((member) => {
+      const hasAccess = member.access?.status === "active";
+      const organizationActive = member.status === "active";
+      const operational = PROJECT_ACCESS_OPERATIONAL_ROLES.has(member.role);
+      const protectedRole = ["owner", "admin"].includes(member.role);
+      const busy = state.projectAccess.busyProfileId === member.profileId;
+      let actionMarkup = `<span class="tiny muted">Сначала нужна активная рабочая роль</span>`;
+      if (!member.teamCandidate) {
+        actionMarkup = `<span class="tiny muted">Обновите список команды для изменения</span>`;
+      } else if (organizationActive && operational && protectedRole && hasAccess) {
+        actionMarkup = `<span class="tiny muted">Обязательный доступ защищён</span>`;
+      } else if (organizationActive && operational) {
+        actionMarkup = `<button class="btn ${hasAccess ? "btn-secondary" : ""} btn-small" type="button" data-action="${hasAccess ? "revoke-project-member" : "grant-project-member"}" data-project-id="${escapeHtml(projectId)}" data-profile-id="${escapeHtml(member.profileId)}" ${busy ? "disabled" : ""}>${busy ? "Сохраняем…" : hasAccess ? "Отозвать" : protectedRole ? "Восстановить доступ" : "Выдать доступ"}</button>`;
+      }
+      return `<tr data-project-member-profile-id="${escapeHtml(member.profileId)}">
+        <td><strong>${escapeHtml(member.displayName || member.email || "Участник")}</strong>${member.displayName && member.email ? `<br /><small class="muted">${escapeHtml(member.email)}</small>` : ""}</td>
+        <td>${escapeHtml(humanRole(member.role || "trainee"))}${organizationActive ? "" : `<br />${statusBadge(member.status || "inactive")}`}</td>
+        <td>${hasAccess ? `<span class="badge badge-success">Есть доступ</span>` : `<span class="badge">Нет доступа</span>`}</td>
+        <td>${actionMarkup}</td>
+      </tr>`;
+    }).join("")}</tbody>
+  </table></div>`;
+}
+
+function projectAccessMarkup(teamMembers) {
+  const flow = normalizeProjectFlow(state.projectFlow?.data || {});
+  const projects = flow.projects.filter((project) =>
+    isWorkspaceProjectId(String(project?.id || "").trim().toLowerCase()),
+  );
+  const context = selectedTeamProjectAccessContext();
+  const selectedId = context?.id || routeWorkspaceProjectId();
+  const selector = projects.length
+    ? `<label class="field"><span>Проект *</span><select data-project-access-project aria-label="Проект для управления доступом">${context ? "" : `<option value="">Выберите проект</option>`}${projects.map((project) => {
+      const projectId = String(project.id).trim().toLowerCase();
+      return `<option value="${escapeHtml(projectId)}" ${projectId === selectedId ? "selected" : ""}>${escapeHtml(project.name || "Проект")}</option>`;
+    }).join("")}</select><small class="field-hint">Выбор сохранится в URL; сервер заново подтвердит точный проект перед изменением доступа.</small></label>`
+    : "";
+
+  let body;
+  if (["idle", "loading", "refreshing"].includes(state.projectFlow.status) && !projects.length) {
+    body = `<div class="loading-line" aria-hidden="true"><span></span></div><p class="muted">Загружаем доступные проекты…</p>`;
+  } else if (state.projectFlow.status === "error" && !projects.length) {
+    body = `${alertMarkup("Не удалось загрузить серверный список проектов.", "warning")}<button class="btn btn-secondary btn-small" type="button" data-action="retry-project-flow">Повторить</button>`;
+  } else if (!projects.length) {
+    body = emptyState("◇", "Нет доступных проектов", "Создайте проект на рабочем столе, затем вернитесь к управлению доступом.", { href: "#/workspace/home", label: "Открыть проекты" });
+  } else if (!context) {
+    body = `${selector}${alertMarkup(routeWorkspaceProjectId()
+      ? "Сервер ещё подтверждает выбранный в URL проект. Изменения доступа пока остановлены."
+      : "Выберите один проект. Приглашение в команду само по себе не открывает остальные проекты.", "info")}`;
+  } else {
+    const target = state.projectAccess;
+    const exactState = target.projectId === context.id;
+    if (!exactState || target.status === "idle") {
+      window.queueMicrotask(() => { void loadProjectMembers({ silent: true }); });
+    }
+    let rosterBody = `<div class="loading-line" aria-hidden="true"><span></span></div><p class="muted">Проверяем участников проекта на сервере…</p>`;
+    if (exactState && target.status === "error") {
+      rosterBody = `${alertMarkup(target.error || "Не удалось обновить доступ к проекту.", "warning")}<button class="btn btn-secondary btn-small" type="button" data-action="refresh-project-members">Повторить</button>`;
+    } else if (exactState && target.data) {
+      rosterBody = `${target.notice ? alertMarkup(target.notice, "success") : ""}${target.error ? alertMarkup(target.error, "warning") : ""}${target.status === "refreshing" ? `<p class="tiny muted" role="status">Обновляем серверный список…</p>` : ""}${projectAccessMemberTable(teamMembers, target.data.members, context.id)}`;
+    }
+    body = `${selector}<div class="card-header" style="padding-left:0; padding-right:0"><div><p class="eyebrow">Выбранный проект</p><h3>${escapeHtml(context.name)}</h3></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-project-members" ${["loading", "refreshing"].includes(target.status) ? "disabled" : ""}>Обновить доступ</button></div>${rosterBody}`;
+  }
+
+  return `<section class="card card-pad project-access-panel" data-project-access-project-id="${escapeHtml(context?.id || "")}" style="margin-top:22px">
+    <p class="eyebrow">Проекты · общий результат</p>
+    <h2 style="font:600 1.55rem/1.15 Georgia,serif; margin:0 0 8px">Кто видит файлы выбранного проекта</h2>
+    <p class="muted">Доступ выдаётся явно только к одному проекту. Новый участник команды не получает другие проекты автоматически; владелец, администратор и создатель проекта защищены сервером от отзыва.</p>
+    ${body}
+  </section>`;
+}
+
+async function changeProjectMemberAccess(control, accessAction) {
+  const projectId = String(control?.dataset?.projectId || "").trim().toLowerCase();
+  const profileId = String(control?.dataset?.profileId || "").trim().toLowerCase();
+  const context = selectedTeamProjectAccessContext();
+  const routeProjectId = routeWorkspaceProjectId();
+  if (
+    !canManageTeam()
+    || !context
+    || !isWorkspaceProjectId(profileId)
+    || !routeProjectId
+    || routeProjectId !== projectId
+    || context.id !== projectId
+  ) {
+    toast("Проект или участник изменились. Обновите серверный список доступа.", "error");
+    resetProjectAccessState();
+    if (state.route.path === "/workspace/team") renderWorkspace("team");
+    return;
+  }
+
+  const candidate = teamProjectAccessCandidates(
+    listFrom(state.sections.team.data || {}, "members"),
+  ).find((member) => member.profileId === profileId);
+  if (
+    !candidate
+    || candidate.status !== "active"
+    || !PROJECT_ACCESS_OPERATIONAL_ROLES.has(candidate.role)
+  ) {
+    toast("Доступ можно изменить только для активного участника с рабочей ролью.", "error");
+    return;
+  }
+
+  const target = state.projectAccess;
+  const currentMember = target.projectId === projectId
+    ? target.data?.members?.find((member) => member.profileId === profileId)
+    : null;
+  const hasAccess = currentMember?.status === "active";
+  if (
+    (accessAction === "grant" && hasAccess)
+    || (accessAction === "revoke" && !hasAccess)
+  ) {
+    toast("Состояние доступа уже изменилось. Обновляем список без повторной команды.", "info");
+    await loadProjectMembers({ force: true });
+    return;
+  }
+  if (accessAction === "revoke" && ["owner", "admin"].includes(candidate.role)) {
+    toast("Обязательный доступ владельца или администратора защищён.", "info");
+    return;
+  }
+
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  target.busyProfileId = profileId;
+  target.error = "";
+  target.notice = "";
+  if (state.route.path === "/workspace/team") renderWorkspace("team");
+  try {
+    const raw = accessAction === "grant"
+      ? await state.api.grantProjectMember(profileId, { projectId })
+      : await state.api.revokeProjectMember(profileId, { projectId });
+    if (
+      requestEpoch !== state.dataEpoch
+      || requestUserId !== state.user?.id
+      || selectedTeamProjectAccessContext()?.id !== projectId
+      || routeWorkspaceProjectId() !== projectId
+    ) return;
+    const source = raw?.data && typeof raw.data === "object" ? raw.data : raw;
+    const expectedStatus = accessAction === "grant" ? "active" : "revoked";
+    if (
+      source?.ok !== true
+      || String(source.project_id || "").trim().toLowerCase() !== projectId
+      || String(source.profile_id || "").trim().toLowerCase() !== profileId
+      || String(source.status || "").trim().toLowerCase() !== expectedStatus
+    ) {
+      throw new CreatorApiError(
+        "Сервер не подтвердил изменение доступа. Обновите список перед повтором.",
+        { code: "project_member_mutation_response_invalid" },
+      );
+    }
+    target.notice = accessAction === "grant"
+      ? `Участнику ${candidate.displayName || candidate.email || "команды"} открыт только выбранный проект.`
+      : `Доступ участника ${candidate.displayName || candidate.email || "команды"} к выбранному проекту отозван.`;
+    await loadProjectMembers({ force: true, silent: true });
+  } catch (error) {
+    if (
+      requestEpoch === state.dataEpoch
+      && requestUserId === state.user?.id
+      && selectedTeamProjectAccessContext()?.id === projectId
+    ) {
+      target.error = actionErrorMessage(error);
+      target.status = target.data ? "ready" : "error";
+    }
+  } finally {
+    if (
+      requestEpoch === state.dataEpoch
+      && requestUserId === state.user?.id
+      && target.busyProfileId === profileId
+    ) target.busyProfileId = "";
+    if (state.route.path === "/workspace/team") renderWorkspace("team");
+  }
+}
+
 function renderTeamSection(sectionState) {
   if (!canManageTeam()) {
     return `<div class="page-wrap">${alertMarkup("Управление командой доступно только руководителю.", "danger")}</div>`;
@@ -15382,7 +16170,7 @@ function renderTeamSection(sectionState) {
                 view: teamView === "budget" ? "policy" : teamView,
                 campaignId: requestedCampaignId,
               })}</section>`
-              : membersPanel;
+              : `${membersPanel}${projectAccessMarkup(members)}`;
   return `
     <div class="page-wrap" data-team-view="${teamView}">
       ${pageHeader("Команда", "Пригласите креаторов по рабочей почте. Пароли и секреты в эту форму не вводятся.", `<span class="badge badge-info">До 50 человек</span>`)}
@@ -16339,7 +17127,9 @@ async function handleClick(event) {
     stageControl.notice = "Вручную проверяем сохранённый дочерний запуск. Новый recompute-запрос не создаётся.";
     renderWorkspace("research");
     try {
-      await state.api.resumeResearchStageRecompute(childRunId, requestId);
+      await state.api.resumeResearchStageRecompute(childRunId, requestId, {
+        project_id: currentWorkspaceProjectId(),
+      });
       stageControl.notice = "Сохранённый запуск принят. Проверьте статус; повторный платный запрос не создавался.";
     } catch (error) {
       stageControl.error = `${actionErrorMessage(error)} Запрос ${requestId.slice(0, 8)}… сохранён; не повторяйте его автоматически.`;
@@ -17338,9 +18128,31 @@ async function handleClick(event) {
     return;
   }
 
+  if (["grant-project-member", "revoke-project-member"].includes(action)) {
+    if (state.projectAccess.busyProfileId) {
+      toast("Изменение доступа уже сохраняется.", "info");
+      return;
+    }
+    await changeProjectMemberAccess(
+      control,
+      action === "grant-project-member" ? "grant" : "revoke",
+    );
+    return;
+  }
+
+  if (action === "refresh-project-members") {
+    if (["loading", "refreshing"].includes(state.projectAccess.status)) return;
+    await loadProjectMembers({ force: true });
+    return;
+  }
+
   if (action === "refresh-section") {
     const section = control.dataset.section;
     if (state.sections[section]) {
+      if (section === "team" && state.projectAccess.busyProfileId) {
+        toast("Сначала дождитесь подтверждения изменения доступа.", "info");
+        return;
+      }
       if (section === "generation") {
         state.generationArchive.requestId += 1;
         state.generationArchive.loading = false;
@@ -17353,6 +18165,7 @@ async function handleClick(event) {
         state.generationModelAcceptance.status = "idle";
         state.generationModelAcceptance.error = null;
       }
+      if (section === "team") resetProjectAccessState();
       state.sections[section].requestId += 1;
       state.sections[section].status = "idle";
       render();
@@ -17525,6 +18338,7 @@ async function handleSubmit(event) {
   else if (form.classList.contains("product-research-stage-cancel-form")) await submitProductResearchStageCancel(form, event.submitter);
   else if (form.classList.contains("product-research-stage-control-form")) await submitProductResearchStageControl(form, event.submitter);
   else if (form.id === "product-research-brief-form") await submitProductResearchBrief(form, event.submitter);
+  else if (form.id === "exact-youtube-research-evidence-form") await submitExactYoutubeResearchEvidence(form);
   else if (form.id === "content-review-form") await submitContentReview(form);
   else if (form.classList.contains("content-review-decision-form")) await submitContentReviewDecision(form, event.submitter);
   else if (form.classList.contains("generation-reconciliation-form")) await submitRealGenerationReconciliation(form, event.submitter);
@@ -17785,6 +18599,24 @@ async function submitSavedMyWorkView(form) {
 
 function handleChange(event) {
   handleFormActivity(event);
+
+  if (event.target.matches("[data-project-access-project]")) {
+    const projectId = String(event.target.value || "").trim().toLowerCase();
+    const serverProjects = normalizeProjectFlow(state.projectFlow?.data || {}).projects;
+    const selected = serverProjects.find(
+      (project) => String(project?.id || "").trim().toLowerCase() === projectId,
+    );
+    if (!selected || !isWorkspaceProjectId(projectId)) {
+      toast("Выбранный проект больше не доступен. Обновите список.", "error");
+      event.target.value = routeWorkspaceProjectId();
+      return;
+    }
+    const query = new URLSearchParams(state.route.query);
+    query.set("view", "members");
+    query.set("project_id", projectId);
+    navigate(`/workspace/team?${query.toString()}`, false, { scopeProject: false });
+    return;
+  }
 
   if (event.target.id === "ai-knowledge-file") {
     const file = event.target.files?.[0];
@@ -18270,6 +19102,7 @@ function generationMediaSelectionFromForm(form) {
       ),
       paidReady: input.dataset.mediaIdentityVerified === "true"
         && input.dataset.mediaRightsConfirmed === "true",
+      productId: input.dataset.mediaProductId,
       sku: input.dataset.mediaSku,
       productName: input.dataset.mediaProductName,
     })),
@@ -18283,7 +19116,11 @@ function generationMediaSelectionFromForm(form) {
 
 function selectedGenerationProductIdentity(form) {
   const selection = generationMediaSelectionFromForm(form);
-  if (!selection.valid || !selection.primaryMediaId) return null;
+  if (
+    !selection.valid
+    || selection.identityConsistent === false
+    || !selection.primaryMediaId
+  ) return null;
   const mediaIds = [
     selection.primaryMediaId,
     ...selection.mediaIds.filter(
@@ -18293,6 +19130,7 @@ function selectedGenerationProductIdentity(form) {
   return {
     mediaId: selection.primaryMediaId,
     mediaIds,
+    productId: selection.productId,
     sku: selection.sku,
     productName: selection.productName,
   };
@@ -19338,6 +20176,120 @@ function generationSpecRepairProvenance(form, identity = null) {
   };
 }
 
+function generationSpecAiResearchSelection(payload = null) {
+  const selection = state.aiResearchRecommendation;
+  if (
+    !selection
+    || !contentReviewUuid(selection.selectionId)
+    || ![1, 2, 3].includes(Number(selection.recommendationPosition))
+  ) return null;
+  const projectId = String(
+    payload?.project_id || currentWorkspaceProjectId() || "",
+  ).trim().toLowerCase();
+  const productCategory = String(
+    payload?.exact_scope?.product_category
+      || document.querySelector("#mock-batch-form")?.elements
+        ?.product_category?.value
+      || "",
+  ).trim().toLowerCase();
+  if (
+    !isWorkspaceProjectId(projectId)
+    || projectId !== selection.projectId
+    || !productCategory
+    || productCategory !== selection.productCategory
+  ) return null;
+  return {
+    selection_id: selection.selectionId,
+    recommendation_position: Number(selection.recommendationPosition),
+  };
+}
+
+function generationSpecAiResearchBindingMatches(
+  spec,
+  selection = generationSpecAiResearchSelection(),
+) {
+  if (!selection) return true;
+  const binding = state.generationSpec.aiResearchBinding;
+  return Boolean(
+    binding
+    && String(binding.spec_id || "").toLowerCase()
+      === String(spec?.spec_id || "").toLowerCase()
+    && Number(binding.spec_version) === Number(spec?.spec_version)
+    && String(binding.spec_hash || "").toLowerCase()
+      === String(spec?.spec_hash || "").toLowerCase()
+    && String(binding.selection_id || "").toLowerCase()
+      === selection.selection_id
+    && Number(binding.recommendation_position)
+      === selection.recommendation_position
+  );
+}
+
+function normalizeGenerationSpecAiResearchBinding(raw, spec, selection) {
+  const source = raw?.data && typeof raw.data === "object"
+    ? raw.data
+    : raw;
+  const binding = source?.binding;
+  const matches = Boolean(
+    binding
+    && String(binding.spec_id || "").toLowerCase()
+      === String(spec?.spec_id || "").toLowerCase()
+    && Number(binding.spec_version) === Number(spec?.spec_version)
+    && String(binding.spec_hash || "").toLowerCase()
+      === String(spec?.spec_hash || "").toLowerCase()
+    && String(binding.selection_id || "").toLowerCase()
+      === selection.selection_id
+    && Number(binding.recommendation_position)
+      === selection.recommendation_position
+  );
+  if (
+    !binding
+    || !contentReviewUuid(binding.id)
+    || !matches
+  ) {
+    throw new CreatorApiError(
+      "Сервер не подтвердил связь замысла с рекомендацией ИИ‑центра.",
+      { code: "generation_spec_ai_research_binding_response_invalid" },
+    );
+  }
+  return binding;
+}
+
+async function bindGenerationSpecAiResearch(spec, preparedPayload) {
+  const selection = generationSpecAiResearchSelection(preparedPayload);
+  if (!selection) {
+    state.generationSpec.aiResearchBinding = null;
+    return null;
+  }
+  try {
+    const raw = await state.api.bindGenerationSpecAiResearch({
+      project_id: preparedPayload.project_id,
+      spec_id: spec.spec_id,
+      spec_version: spec.spec_version,
+      spec_hash: spec.spec_hash,
+      selection_id: selection.selection_id,
+      recommendation_position: selection.recommendation_position,
+      confirmation: true,
+    });
+    const binding = normalizeGenerationSpecAiResearchBinding(
+      raw,
+      spec,
+      selection,
+    );
+    state.generationSpec.aiResearchBinding = binding;
+    return binding;
+  } catch (error) {
+    state.generationSpec.aiResearchBinding = null;
+    state.generationSpec.dirty = true;
+    state.generationSpec.error = actionErrorMessage(error);
+    if (preparedPayload && document.querySelector("#mock-batch-form")
+      ?.elements?.real_spend_confirmation) {
+      document.querySelector("#mock-batch-form")
+        .elements.real_spend_confirmation.checked = false;
+    }
+    throw error;
+  }
+}
+
 function generationSpecPreparePayload(form) {
   const identity = selectedGenerationProductIdentity(form);
   const projectId = currentWorkspaceProjectId();
@@ -19382,12 +20334,14 @@ function generationSpecPayloadKey(payload) {
     performance_policy_provenance: payload.performance_policy_provenance,
     repair_provenance: payload.repair_provenance,
     outcome_selection_id: payload.outcome_selection_id || null,
+    ai_research_selection: generationSpecAiResearchSelection(payload),
   });
 }
 
 function generationSpecDocumentKey(spec) {
   if (!spec) return "";
   return generationSpecPayloadKey({
+    project_id: currentWorkspaceProjectId(),
     exact_scope: spec.exact_scope,
     editable_intent: spec.editable_intent,
     proposed_prompt: spec.compiled_prompt,
@@ -19403,10 +20357,12 @@ function currentGenerationSpecContext(form) {
   const dirty = state.generationSpec.dirty === true
     || generationSpecPayloadKey(payload) !== state.generationSpec.key;
   const spec = state.generationSpec.data?.generationSpec;
+  const aiResearchSelection = generationSpecAiResearchSelection(payload);
   if (
     dirty
     || !spec
     || spec.status === "rejected"
+    || !generationSpecAiResearchBindingMatches(spec, aiResearchSelection)
     || (
       payload?.exact_scope
       && !generationSpecScopesMatch(spec.exact_scope, payload.exact_scope)
@@ -19457,6 +20413,7 @@ function resetGenerationSpecState() {
   state.generationSpec.key = "";
   state.generationSpec.dirty = true;
   state.generationSpec.saving = false;
+  state.generationSpec.aiResearchBinding = null;
   const form = document.querySelector("#mock-batch-form");
   if (form) delete form.dataset.generationSpecPromptLocked;
 }
@@ -19769,11 +20726,32 @@ async function runGenerationSpecControl(form, action, {
       };
       raw = await state.api.controlGenerationSpec(input);
     }
-    return applyGenerationSpecEnvelope(raw, form, {
+    const envelope = applyGenerationSpecEnvelope(raw, form, {
       preparedPayload,
       adoptServerSpec: true,
       allowScopeChange: action === "revert",
     });
+    if (["prepare", "patch", "recompute"].includes(action)) {
+      await bindGenerationSpecAiResearch(
+        envelope.generationSpec,
+        generationSpecPreparePayload(form) || preparedPayload,
+      );
+      state.generationSpec.key = generationSpecDocumentKey(
+        envelope.generationSpec,
+      );
+      state.generationSpec.dirty = false;
+    } else if (action === "revert" && generationSpecAiResearchSelection(
+      generationSpecPreparePayload(form),
+    )) {
+      state.generationSpec.aiResearchBinding = null;
+      invalidateGenerationSpec(
+        form,
+        "Возвращённая версия ещё не связана с текущей рекомендацией ИИ‑центра. При запуске будет создана новая проверяемая версия.",
+      );
+    }
+    syncGenerationSpecUi(form);
+    syncGenerationFormReadiness(form);
+    return envelope;
   } finally {
     state.generationSpec.saving = false;
     syncGenerationSpecUi(form);
@@ -19886,10 +20864,12 @@ function syncGenerationProductIdentity(form) {
   const note = form.querySelector("#generation-product-identity-note");
   const verified = selected?.dataset.mediaIdentityVerified === "true";
   const rightsConfirmed = selected?.dataset.mediaRightsConfirmed === "true";
+  const productId = String(selected?.dataset.mediaProductId || "").trim().toLowerCase();
   const sku = String(selected?.dataset.mediaSku || "").trim();
   const productName = String(selected?.dataset.mediaProductName || "").trim();
   const identityReady = Boolean(
     selection?.valid
+    && selection.identityConsistent !== false
     && verified
     && rightsConfirmed
     && sku
@@ -19901,6 +20881,7 @@ function syncGenerationProductIdentity(form) {
     if (nameInput) nameInput.readOnly = false;
     delete form.dataset.identityMediaId;
     delete form.dataset.identityMediaIds;
+    delete form.dataset.identityProductId;
     if (note) {
       note.dataset.state = selected ? "warning" : "idle";
       note.textContent = selected || selection?.mediaIds?.length
@@ -19929,6 +20910,11 @@ function syncGenerationProductIdentity(form) {
   applyValue(nameInput, productName);
   form.dataset.identityMediaId = selected.value;
   form.dataset.identityMediaIds = selection.mediaIds.join(",");
+  if (isWorkspaceProjectId(productId) && selection.productId === productId) {
+    form.dataset.identityProductId = productId;
+  } else {
+    delete form.dataset.identityProductId;
+  }
   if (note) {
     note.dataset.state = "verified";
     note.textContent = real
@@ -19938,6 +20924,7 @@ function syncGenerationProductIdentity(form) {
   const identity = {
     mediaId: selection.primaryMediaId,
     mediaIds: selection.mediaIds,
+    productId: isWorkspaceProjectId(selection.productId) ? selection.productId : "",
     sku,
     productName,
   };
@@ -21038,7 +22025,11 @@ async function submitRealGenerationReconciliation(form, submitter) {
       reason,
     });
     if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id) return;
-    applyRealGenerationResult(jobId, result, { renderNow: false, source: "manual" });
+    applyRealGenerationResult(jobId, result, {
+      renderNow: false,
+      source: "manual",
+      projectId,
+    });
     state.sections.generation.status = "idle";
     state.sections.tasks.status = "idle";
     if (resolution === "attach_existing_task") {
@@ -21304,7 +22295,7 @@ async function submitRealGeneration(form, values, mode) {
       : registerGenerationReviewAutostart(jobId);
     state.realGenerationDrafts.set(jobId, draft);
     state.lastRealGenerationJobId = jobId;
-    applyRealGenerationResult(jobId, result, { renderNow: false });
+    applyRealGenerationResult(jobId, result, { renderNow: false, projectId });
     track("real_generation_started", {
       provider: "runway",
       model: generationSku.model,
@@ -21357,7 +22348,10 @@ async function submitRealGeneration(form, values, mode) {
       const jobId = String(error.job.id);
       state.realGenerationDrafts.set(jobId, draft);
       state.lastRealGenerationJobId = jobId;
-      applyRealGenerationResult(jobId, { job: error.job }, { renderNow: false });
+      applyRealGenerationResult(jobId, { job: error.job }, {
+        renderNow: false,
+        projectId,
+      });
     }
     const startErrorMessage = actionErrorMessage(error);
     state.realGenerationStartNotice = providerStartAttempted
@@ -23557,6 +24551,7 @@ async function submitProductResearchStageCancel(form, submitter) {
   let mutationError = "";
   try {
     await state.api.controlResearchStage(research.record.id, {
+      project_id: currentWorkspaceProjectId(),
       branch_id: control.selectedBranch.branchId,
       stage: head.stage,
       action: "cancel",
@@ -23643,6 +24638,7 @@ async function submitProductResearchStageControl(form, submitter) {
     return;
   }
   const options = {
+    project_id: currentWorkspaceProjectId(),
     branch_id: branchId,
     stage,
     action,
@@ -24353,6 +25349,338 @@ async function submitContentReviewImageBatch(form, input, catalog, mediaItems) {
   scheduleContentReviewPolling(800);
 }
 
+function exactYoutubeSourceIdentityText(value, limit) {
+  const normalized = String(value || "").replace(/\s+/gu, " ").trim();
+  return normalized.length <= limit ? normalized : "";
+}
+
+async function requireFreshExactYoutubeResearchSource(
+  context,
+  { productName, sku },
+) {
+  const queue = await state.api.exactYoutubeSourceQueue({
+    projectId: context.projectId,
+    limit: 50,
+  });
+  const source = queue.version === "exact-youtube-source-queue-v2"
+    ? queue.sources.find((item) => (
+        String(item?.id || "").trim().toLowerCase() === context.sourceId
+      ))
+    : null;
+  const serverProductName = exactYoutubeSourceIdentityText(
+    source?.product_name,
+    180,
+  );
+  const serverProductSku = exactYoutubeSourceIdentityText(
+    source?.product_sku,
+    120,
+  );
+  const sameText = (left, right) => (
+    left.localeCompare(right, undefined, { sensitivity: "accent" }) === 0
+  );
+  const sourceHash = String(source?.source_hash || "").trim().toLowerCase();
+  const mediaSha256 = String(source?.media?.sha256 || "").trim().toLowerCase();
+  if (
+    !source
+    || source.status !== "media_attached"
+    || source.analysis_ready !== true
+    || source.next_action !== "start_exact_media_analysis"
+    || String(source?.attachment?.id || "").trim().toLowerCase()
+      !== context.attachmentId
+    || source?.attachment?.status !== "attached"
+    || String(source?.attachment?.source_id || "").trim().toLowerCase()
+      !== context.sourceId
+    || String(source?.attachment?.media_id || "").trim().toLowerCase()
+      !== context.mediaId
+    || source?.attachment?.rights_confirmed !== true
+    || source?.attachment?.media_matches_registered_source !== true
+    || !/^[0-9a-f]{64}$/u.test(sourceHash)
+    || String(source?.attachment?.source_hash_snapshot || "")
+      .trim().toLowerCase() !== sourceHash
+    || String(source?.media?.id || "").trim().toLowerCase() !== context.mediaId
+    || String(source?.media?.project_id || "").trim().toLowerCase()
+      !== context.projectId
+    || source?.media?.status !== "ready"
+    || source?.media?.mime_type !== "video/mp4"
+    || source?.media?.kind !== "source_video"
+    || source?.media?.artifact_class !== "source"
+    || source?.media?.lifecycle_stage !== "sources"
+    || !/^[0-9a-f]{64}$/u.test(mediaSha256)
+    || String(source?.attachment?.media_sha256_snapshot || "")
+      .trim().toLowerCase() !== mediaSha256
+  ) {
+    throw new CreatorApiError(
+      "Точный источник, attachment или MP4 изменился. Платный анализ не запущен — обновите ИИ-центр.",
+      { code: "exact_youtube_research_source_scope_mismatch" },
+    );
+  }
+  if (
+    (serverProductName && !sameText(serverProductName, productName))
+    || (serverProductSku && !sameText(serverProductSku, sku))
+    || (context.productName && !sameText(context.productName, serverProductName))
+    || (context.productSku && !sameText(context.productSku, serverProductSku))
+  ) {
+    throw new CreatorApiError(
+      "Название или SKU в открытой вкладке больше не совпадает с зарегистрированным видеоисточником. Платный анализ не запущен — откройте источник заново из ИИ-центра.",
+      { code: "exact_youtube_research_product_identity_mismatch" },
+    );
+  }
+  return source;
+}
+
+async function submitExactYoutubeResearchEvidence(form) {
+  const context = exactYoutubeResearchEvidenceRouteContext();
+  const projectId = requireWorkspaceProjectId();
+  if (!context?.valid || !projectId || context.projectId !== projectId) {
+    toast(
+      "Связь с точным видеоисточником устарела. Вернитесь в ИИ-центр и откройте подготовку кадров заново.",
+      "error",
+    );
+    return;
+  }
+  if (
+    form.dataset.projectId !== context.projectId
+    || form.dataset.sourceId !== context.sourceId
+    || form.dataset.attachmentId !== context.attachmentId
+    || form.dataset.mediaId !== context.mediaId
+  ) {
+    toast("Контекст формы изменился. Обновите ИИ-центр перед запуском.", "error");
+    return;
+  }
+  const values = new FormData(form);
+  const catalog = normalizeContentReviewCatalog(state.sections.review.data || {});
+  const video = catalog.media.find((item) => (
+    item.id === context.mediaId
+    && item.isVideo
+    && item.kind === "source_video"
+    && item.mimeType === "video/mp4"
+  ));
+  const selectedPhotoId = String(values.get("source_media_id") || "")
+    .trim()
+    .toLowerCase();
+  const productPhoto = catalog.media.find((item) => (
+    item.id === selectedPhotoId
+    && item.isImage
+    && ["product_photo", "packshot"].includes(item.kind)
+    && contentReviewUuid(item.productId)
+    && item.status === "ready"
+  ));
+  if (!video || !productPhoto) {
+    toast(
+      "Выберите одно готовое точное фото товара из этого проекта. MP4 не используется как фото продукта.",
+      "error",
+    );
+    return;
+  }
+  const productName = String(values.get("product_name") || "").trim();
+  const sku = String(values.get("sku") || "").trim();
+  const productCategory = String(values.get("product_category") || "")
+    .trim()
+    .toLowerCase();
+  const marketplaceUrl = String(values.get("marketplace_url") || "").trim();
+  const objectiveInput = String(values.get("objective") || "").trim();
+  const platforms = values.getAll("platforms").map(String).filter((item) => (
+    PRODUCT_RESEARCH_PLATFORM_SET.has(item)
+  ));
+  if (
+    productName.length < 2
+    || productName.length > 180
+    || !sku
+    || sku.length > 120
+  ) {
+    toast("Проверьте точное название товара и артикул.", "error");
+    return;
+  }
+  if (!AI_PRODUCT_CATEGORIES.some((category) => category.key === productCategory)) {
+    toast("Выберите одну категорию ИИ-центра.", "error");
+    return;
+  }
+  if (!platforms.length) {
+    toast("Выберите хотя бы одну площадку для будущего контента.", "error");
+    return;
+  }
+  if (marketplaceUrl && !isHttpsUrl(marketplaceUrl)) {
+    toast("Ссылка на товар должна начинаться с https://", "error");
+    return;
+  }
+  if (objectiveInput.length < 20 || objectiveInput.length > 1_200) {
+    toast("Опишите задачу исследования длиной от 20 до 1200 символов.", "error");
+    return;
+  }
+  if (values.get("media_matches_registered_source") !== "on") {
+    toast(
+      "Подтвердите, что MP4 является тем же роликом, что зарегистрированная YouTube-ссылка.",
+      "error",
+    );
+    return;
+  }
+  if (values.get("external_ai_processing_ack") !== "on") {
+    toast("Подтвердите передачу внешнему ИИ только пяти контрольных JPEG.", "error");
+    return;
+  }
+  if (values.get("paid_analysis_ack") !== "on") {
+    toast("Подтвердите один платный продуктовый ИИ-анализ.", "error");
+    return;
+  }
+  if (values.get("human_review_ack") !== "on") {
+    toast("Подтвердите ручную проверку выводов до генерации.", "error");
+    return;
+  }
+  const objective = [
+    objectiveInput,
+    "Evidence exact-video: пять контрольных JPEG в хронологическом порядке. Не утверждать, что доступен полный видеопоток, звук или транскрипт.",
+    "Выделить переносимую механику, темп и композицию, но не копировать чужой бренд, водяные знаки, музыку, голос или неподтверждённые обещания.",
+  ].join("\n");
+  const status = form.querySelector("[data-exact-youtube-research-status]");
+  const setStatus = (text) => {
+    if (status) status.textContent = text;
+  };
+  setFormBusy(form, true, "Подготавливаем кадры…");
+  let durableEvidence = readExactYoutubeResearchEvidence(context, video);
+  try {
+    setStatus("Сверяем точный источник, attachment, MP4 и подпись товара с актуальной серверной очередью. Платный анализ ещё не начат…");
+    await requireFreshExactYoutubeResearchSource(context, {
+      productName,
+      sku,
+    });
+    let capturedEvidence = durableEvidence
+      ? { frames: [], technical_metrics: durableEvidence.technicalMetrics }
+      : null;
+    if (!capturedEvidence) {
+      setStatus("Бесплатно извлекаем пять контрольных JPEG в браузере. Платный анализ ещё не начат…");
+      capturedEvidence = await captureContentReviewEvidence(video);
+    }
+    if (durableEvidence?.status !== "ready") {
+      setStatus("Сохраняем пять кадров в защищённом evidence-контуре. Платный анализ ещё не начат…");
+      durableEvidence = await persistContentReviewVideoEvidence(
+        video,
+        capturedEvidence,
+        null,
+        {
+          existingEvidence: durableEvidence,
+          persistEvidence: (evidence) => (
+            saveExactYoutubeResearchEvidence(context, evidence)
+          ),
+          clearEvidence: () => clearExactYoutubeResearchEvidence(context),
+        },
+      );
+    }
+    if (!durableEvidence || durableEvidence.status !== "ready") {
+      throw new CreatorApiError(
+        "Пять кадров не получили серверный статус ready. Платный анализ не запущен.",
+        { code: "exact_video_research_evidence_not_ready" },
+      );
+    }
+    setStatus("Пять кадров подтверждены. Запускаем один продуктовый ИИ-анализ sampled-only: без MP4, речи, аудио и транскрипта…");
+    const previous = {
+      ...normalizeProductResearch({ run: { status: "queued" } }, {
+        productName,
+        sku,
+        status: "queued",
+      }),
+      researchInput: {
+        objective,
+        productCategory,
+        marketplaceUrl,
+        sourceMediaIds: [productPhoto.id],
+        platforms,
+        exactYoutubeSourceId: context.sourceId,
+        exactVideoEvidenceId: durableEvidence.evidenceId,
+      },
+    };
+    stopProductResearchPolling();
+    resetResearchStageControl();
+    state.productResearch.requestId += 1;
+    state.productResearch.phase = "starting";
+    state.productResearch.record = previous;
+    state.productResearch.error = "";
+    state.productResearch.notice = "";
+    const raw = await state.api.startProductResearch(
+      {
+        product_id: productPhoto.productId,
+        sku,
+        product_name: productName,
+        product_category: productCategory,
+        objective,
+        marketplace_url: marketplaceUrl || null,
+        source_media_ids: [productPhoto.id],
+        platforms,
+        paid_analysis_ack: true,
+        exact_youtube_source_id: context.sourceId,
+        exact_youtube_attachment_id: context.attachmentId,
+        exact_youtube_media_id: context.mediaId,
+        exact_video_evidence_id: durableEvidence.evidenceId,
+        media_matches_registered_source: true,
+        source_match_basis:
+          "operator_compared_uploaded_media_to_registered_source",
+      },
+      {
+        projectId,
+        onRunCreated: (run) => {
+          persistProductResearchRunId(run?.id);
+          state.productResearch.record = normalizeProductResearch(
+            { run },
+            previous,
+          );
+        },
+      },
+    );
+    state.productResearch.record = normalizeProductResearch(raw, previous);
+    persistProductResearchRunId(state.productResearch.record.id);
+    state.productResearch.phase = productResearchStatusKind(
+      state.productResearch.record.status,
+    ) === "ready" ? "ready" : "processing";
+    clearExactYoutubeResearchEvidence(context);
+    await track("exact_youtube_product_research_started", {
+      run_id: state.productResearch.record.id,
+      source_id: context.sourceId,
+      attachment_id: context.attachmentId,
+      media_id: context.mediaId,
+      evidence_id: durableEvidence.evidenceId,
+      source_media_count: 1,
+      sampled_frame_count: 5,
+      raw_video_sent: false,
+      transcript_available: false,
+      analysis_scope: "sampled_frames_only",
+    });
+    const query = new URLSearchParams({
+      project_id: projectId,
+      research_id: state.productResearch.record.id,
+    });
+    navigate(`/workspace/research?${query.toString()}`);
+    scheduleProductResearchPolling(800);
+  } catch (error) {
+    const recoverableRun = error?.job?.id
+      ? normalizeProductResearch({ run: error.job }, {
+          productName,
+          sku,
+          status: "queued",
+        })
+      : null;
+    if (recoverableRun) {
+      state.productResearch.record = {
+        ...recoverableRun,
+        statusNotice: `${actionErrorMessage(error)} Исследование сохранено; новый платный запуск не создавайте.`,
+      };
+      state.productResearch.phase = "processing";
+      persistProductResearchRunId(recoverableRun.id);
+      clearExactYoutubeResearchEvidence(context);
+      const query = new URLSearchParams({
+        project_id: projectId,
+        research_id: recoverableRun.id,
+      });
+      navigate(`/workspace/research?${query.toString()}`);
+      scheduleProductResearchPolling(800);
+    } else {
+      const message = actionErrorMessage(error);
+      setStatus(`Запуск остановлен: ${message} Подтверждённые кадры сохранены для безопасного повтора.`);
+      toast(message, "error");
+    }
+  } finally {
+    if (document.contains(form)) setFormBusy(form, false);
+  }
+}
+
 async function submitContentReview(form) {
   const projectId = requireWorkspaceProjectId();
   if (!projectId) return;
@@ -24862,12 +26190,216 @@ async function submitContentReviewDecision(form, submitter) {
   if (state.route.path === "/workspace/review") renderWorkspace("review");
 }
 
+function exactYoutubeMediaRouteIntent(projectId) {
+  if (state.route.path !== "/workspace/media") return { active: false };
+  const sourceValues = state.route.query.getAll("youtube_source");
+  if (!sourceValues.length) return { active: false };
+  const routeProjectId = routeWorkspaceProjectId();
+  const sourceId = sourceValues.length === 1
+    ? String(sourceValues[0] || "").trim().toLowerCase()
+    : "";
+  if (
+    sourceValues.length !== 1
+    || !isWorkspaceProjectId(sourceId)
+    || !routeProjectId
+    || routeProjectId !== projectId
+  ) {
+    return {
+      active: true,
+      error: "Ссылка загрузки устарела или относится к другому проекту. Вернитесь в ИИ-центр и откройте точный видеоисточник заново.",
+    };
+  }
+  return { active: true, projectId: routeProjectId, sourceId };
+}
+
+function exactYoutubeMediaHandoffExpected(intent) {
+  return {
+    organization_id: String(
+      state.api?.organizationId || state.bootstrap?.organization?.id || "",
+    )
+      .trim()
+      .toLowerCase(),
+    user_id: String(state.user?.id || "").trim().toLowerCase(),
+    session_id: String(state.sessionId || "").trim().toLowerCase(),
+    project_id: intent.projectId,
+    source_id: intent.sourceId,
+  };
+}
+
+function exactYoutubeMediaHandoff(intent) {
+  if (!intent?.active || intent.error) return null;
+  return readExactYoutubeMediaHandoff(
+    window.sessionStorage,
+    exactYoutubeMediaHandoffExpected(intent),
+  );
+}
+
+function exactYoutubeHandoffError(result) {
+  if (result?.code === "handoff_expired") {
+    return "Контекст загрузки истёк. Вернитесь в ИИ-центр и снова нажмите «Загрузить MP4» у нужного источника.";
+  }
+  if (result?.code === "handoff_scope_mismatch") {
+    return "Эта вкладка загрузки открыта для другого пользователя, проекта или видеоисточника. Вернитесь в ИИ-центр и откройте источник заново.";
+  }
+  return "Не удалось подтвердить источник этой загрузки. Вернитесь в ИИ-центр и снова откройте точный видеоисточник.";
+}
+
+function exactYoutubeReviewRoute(
+  projectId,
+  sourceId,
+  mediaId,
+  attachmentId,
+  {
+    productName = "",
+    productSku = "",
+  } = {},
+) {
+  return exactYoutubeResearchEvidenceRoute({
+    projectId,
+    sourceId,
+    mediaId,
+    attachmentId,
+    productName,
+    productSku,
+  });
+}
+
+async function attachRegisteredExactYoutubeMedia({
+  intent,
+  mediaId,
+  form,
+  mediaMatchesRegisteredSource = false,
+  successToast = true,
+  navigateAfter = true,
+}) {
+  if (mediaMatchesRegisteredSource !== true) {
+    throw new CreatorApiError(
+      "Подтвердите, что MP4 является именно зарегистрированным YouTube-роликом, а не другим видео по теме.",
+      { code: "exact_youtube_media_attachment_source_match_required" },
+    );
+  }
+  const sourceSnapshot = exactYoutubeMediaHandoff(intent)?.handoff || {};
+  const attachmentReceipt = await state.api.attachExactYoutubeMedia({
+    projectId: intent.projectId,
+    sourceId: intent.sourceId,
+    mediaId,
+    rightsConfirmed: true,
+    mediaMatchesRegisteredSource: true,
+  });
+  clearExactYoutubeMediaHandoff(
+    window.sessionStorage,
+    exactYoutubeMediaHandoffExpected(intent),
+  );
+  state.sections.media.status = "idle";
+  state.sections.review.status = "idle";
+  track("exact_youtube_media_attached", {
+    project_id: intent.projectId,
+    source_id: intent.sourceId,
+    media_id: mediaId,
+  });
+  if (successToast) {
+    toast(
+      "MP4 сохранён и привязан к точному YouTube-источнику. Открываем подготовку пяти кадров для исследования.",
+      "success",
+    );
+  }
+  if (form) delete form.dataset.dirty;
+  if (navigateAfter) {
+    navigate(exactYoutubeReviewRoute(
+      intent.projectId,
+      intent.sourceId,
+      mediaId,
+      String(attachmentReceipt?.attachment?.id || "").trim().toLowerCase(),
+      {
+        productName: sourceSnapshot.product_name,
+        productSku: sourceSnapshot.product_sku,
+      },
+    ));
+  }
+  return {
+    ...attachmentReceipt,
+    source_snapshot: {
+      product_name: String(sourceSnapshot.product_name || ""),
+      product_sku: String(sourceSnapshot.product_sku || ""),
+    },
+  };
+}
+
+async function retryExactYoutubeMediaAttachment(
+  form,
+  intent,
+  handoff,
+  mediaMatchesRegisteredSource,
+) {
+  const mediaId = String(handoff?.handoff?.progress?.media_id || "")
+    .trim()
+    .toLowerCase();
+  if (!isWorkspaceProjectId(mediaId)) return false;
+  state.mediaUploadInFlight = true;
+  setFormBusy(form, true, "Повторяем только привязку…");
+  try {
+    await attachRegisteredExactYoutubeMedia({
+      intent,
+      mediaId,
+      form,
+      mediaMatchesRegisteredSource,
+    });
+  } catch (error) {
+    const message = actionErrorMessage(error);
+    form.dataset.dirty = "true";
+    toast(
+      `MP4 уже сохранён и не удалён. Привязка пока не завершена: ${message} Повторите эту же кнопку — новой загрузки не будет.`,
+      "warning",
+    );
+  } finally {
+    state.mediaUploadInFlight = false;
+    if (document.contains(form)) setFormBusy(form, false);
+  }
+  return true;
+}
+
 async function submitMedia(form) {
   const projectId = requireWorkspaceProjectId();
   if (!projectId) return;
   const values = new FormData(form);
   const files = Array.from(form.elements.file?.files || []);
+  const exactIntent = exactYoutubeMediaRouteIntent(projectId);
+  if (exactIntent.error) {
+    toast(exactIntent.error, "error");
+    return;
+  }
+  const exactHandoff = exactIntent.active
+    ? exactYoutubeMediaHandoff(exactIntent)
+    : null;
+  if (exactIntent.active && !exactHandoff?.ok) {
+    toast(exactYoutubeHandoffError(exactHandoff), "error");
+    return;
+  }
+  const exactSourceMatchConfirmed =
+    values.get("media_matches_registered_source") === "on";
+  if (exactIntent.active && values.get("rights_confirmed") !== "on") {
+    toast("Подтвердите право команды использовать выбранный MP4.", "error");
+    form.elements.rights_confirmed?.focus();
+    return;
+  }
+  if (exactIntent.active && !exactSourceMatchConfirmed) {
+    toast(
+      "Подтвердите, что MP4 является именно зарегистрированным YouTube-роликом. Другой ролик нужно зарегистрировать отдельно.",
+      "error",
+    );
+    form.elements.namedItem("media_matches_registered_source")?.focus?.();
+    return;
+  }
   if (!files.length) {
+    if (
+      exactIntent.active
+      && await retryExactYoutubeMediaAttachment(
+        form,
+        exactIntent,
+        exactHandoff,
+        exactSourceMatchConfirmed,
+      )
+    ) return;
     toast("Выберите хотя бы один файл.", "error");
     return;
   }
@@ -24882,6 +26414,20 @@ async function submitMedia(form) {
   }
 
   const kind = String(values.get("kind") || "product_photo").trim();
+  if (
+    exactIntent.active
+    && (
+      files.length !== 1
+      || kind !== "source_video"
+      || !isExactYoutubeMp4(files[0])
+    )
+  ) {
+    toast(
+      "Для точного YouTube-источника выберите один MP4 и тип «Исходное видео».",
+      "error",
+    );
+    return;
+  }
   const productIdentity = {};
   if (mediaKindRequiresProduct(kind)) {
     const sku = String(values.get("sku") || "").trim();
@@ -24928,28 +26474,132 @@ async function submitMedia(form) {
       const file = files[index];
       let objectKey = "";
       let objectUploaded = false;
+      let mediaRegistered = false;
+      let exactObjectDurable = false;
       setMediaUploadItemStatus(form, index, "checking", "Проверяем…");
       try {
-        objectKey = privateObjectKey(file.name);
         const sha256 = await fileSha256(file);
-        setMediaUploadItemStatus(form, index, "uploading", "Загружаем…");
-        await state.api.uploadPrivateObject(objectKey, file);
-        objectUploaded = true;
+        let exactProgress = exactIntent.active
+          ? exactYoutubeMediaHandoff(exactIntent)?.handoff?.progress || null
+          : null;
+        const progressMatchesFile = exactProgress
+          && exactProgress.sha256 === sha256
+          && exactProgress.original_filename === file.name
+          && exactProgress.mime_type === file.type
+          && exactProgress.size_bytes === file.size;
+        if (exactProgress?.media_id && !progressMatchesFile) {
+          throw new CreatorApiError(
+            "Другой MP4 уже сохранён для этой привязки. Уберите выбранный файл и повторите только привязку либо заново откройте источник в ИИ-центре.",
+            { code: "exact_youtube_media_retry_file_mismatch" },
+          );
+        }
+        if (progressMatchesFile) {
+          objectKey = exactProgress.object_key;
+          exactObjectDurable = true;
+        } else {
+          objectKey = privateObjectKey(file.name);
+          setMediaUploadItemStatus(form, index, "uploading", "Загружаем…");
+          await state.api.uploadPrivateObject(objectKey, file);
+          objectUploaded = true;
+          exactObjectDurable = exactIntent.active;
+          if (exactIntent.active) {
+            const savedProgress = updateExactYoutubeMediaHandoffProgress(
+              window.sessionStorage,
+              exactYoutubeMediaHandoffExpected(exactIntent),
+              {
+                object_key: objectKey,
+                original_filename: file.name,
+                mime_type: file.type,
+                size_bytes: file.size,
+                sha256,
+              },
+            );
+            if (!savedProgress.ok) {
+              throw new CreatorApiError(
+                "MP4 загружен, но вкладка не сохранила безопасный контекст повтора. Вернитесь в ИИ-центр и откройте источник заново.",
+                { code: "exact_youtube_media_handoff_storage_failed" },
+              );
+            }
+            exactProgress = savedProgress.handoff.progress;
+          }
+        }
         setMediaUploadItemStatus(form, index, "registering", "Сохраняем…");
-        await state.api.registerMedia({
-          project_id: projectId,
-          bucket: state.bootstrap.storage.bucket,
-          object_key: objectKey,
-          original_filename: file.name,
-          mime_type: file.type,
-          size_bytes: file.size,
-          sha256,
-          kind,
-          ...productIdentity,
-          rights_confirmed: true,
-        });
-        results[index] = { ok: true, file };
-        setMediaUploadItemStatus(form, index, "success", "Готово");
+        let mediaId = String(exactProgress?.media_id || "").trim().toLowerCase();
+        if (!mediaId) {
+          const registration = await state.api.registerMedia({
+            project_id: projectId,
+            bucket: state.bootstrap.storage.bucket,
+            object_key: objectKey,
+            original_filename: file.name,
+            mime_type: file.type,
+            size_bytes: file.size,
+            sha256,
+            kind,
+            ...productIdentity,
+            rights_confirmed: true,
+          });
+          mediaRegistered = true;
+          if (exactIntent.active) {
+            mediaId = exactYoutubeRegisteredMediaId(registration);
+            if (!mediaId) {
+              throw new CreatorApiError(
+                "MP4 сохранён, но сервер не вернул его идентификатор. Повторите эту же операцию — файл не будет удалён или загружен заново.",
+                { code: "exact_youtube_media_registration_response_invalid" },
+              );
+            }
+            const savedRegistration = updateExactYoutubeMediaHandoffProgress(
+              window.sessionStorage,
+              exactYoutubeMediaHandoffExpected(exactIntent),
+              {
+                object_key: objectKey,
+                original_filename: file.name,
+                mime_type: file.type,
+                size_bytes: file.size,
+                sha256,
+                media_id: mediaId,
+              },
+            );
+            if (!savedRegistration.ok) {
+              throw new CreatorApiError(
+                "MP4 сохранён, но вкладка не смогла сохранить идентификатор для безопасного повтора привязки. Обновите ИИ-центр.",
+                { code: "exact_youtube_media_handoff_storage_failed" },
+              );
+            }
+          }
+        } else {
+          mediaRegistered = true;
+        }
+        if (exactIntent.active) {
+          setMediaUploadItemStatus(form, index, "registering", "Привязываем к исследованию…");
+          const attachmentReceipt = await attachRegisteredExactYoutubeMedia({
+            intent: exactIntent,
+            mediaId,
+            form,
+            mediaMatchesRegisteredSource: exactSourceMatchConfirmed,
+            successToast: false,
+            navigateAfter: false,
+          });
+          results[index] = {
+            ok: true,
+            file,
+            exactYoutubeAttached: true,
+            mediaId,
+            sourceId: exactIntent.sourceId,
+            attachmentId: String(attachmentReceipt?.attachment?.id || "")
+              .trim()
+              .toLowerCase(),
+            productName: String(
+              attachmentReceipt?.source_snapshot?.product_name || "",
+            ),
+            productSku: String(
+              attachmentReceipt?.source_snapshot?.product_sku || "",
+            ),
+          };
+          setMediaUploadItemStatus(form, index, "success", "Привязано");
+        } else {
+          results[index] = { ok: true, file };
+          setMediaUploadItemStatus(form, index, "success", "Готово");
+        }
         track("media_uploaded", {
           kind,
           mime_type: file.type,
@@ -24957,12 +26607,19 @@ async function submitMedia(form) {
           batch_size: files.length,
         });
       } catch (error) {
-        if (objectUploaded && objectKey) {
+        if (objectUploaded && objectKey && !exactIntent.active) {
           await state.api.removePrivateObject(objectKey).catch(() => {});
         }
         const message = actionErrorMessage(error);
-        results[index] = { ok: false, error: message, file };
+        const durableMessage = exactIntent.active
+          && (mediaRegistered || objectUploaded || exactObjectDurable)
+          ? `MP4 уже сохранён и не удалён. Привязка не завершена: ${message} Повторите эту же кнопку.`
+          : message;
+        results[index] = { ok: false, error: durableMessage, file };
         setMediaUploadItemStatus(form, index, "error", message);
+        if (durableMessage !== message) {
+          setMediaUploadItemStatus(form, index, "error", durableMessage);
+        }
       } finally {
         completedUploads += 1;
         const submit = form.querySelector('button[type="submit"]');
@@ -24993,6 +26650,29 @@ async function submitMedia(form) {
 
   const successful = results.filter((item) => item?.ok);
   const failed = results.filter((item) => item && !item.ok);
+  const exactAttached = successful.find((item) => item.exactYoutubeAttached);
+  if (exactAttached) {
+    form.reset();
+    showSelectedFiles(form);
+    syncMediaProductFields(form);
+    toast(
+      "MP4 сохранён и привязан к точному YouTube-источнику. Открываем подготовку пяти кадров для исследования.",
+      "success",
+    );
+    navigate(
+      exactYoutubeReviewRoute(
+        projectId,
+        exactAttached.sourceId,
+        exactAttached.mediaId,
+        exactAttached.attachmentId,
+        {
+          productName: exactAttached.productName,
+          productSku: exactAttached.productSku,
+        },
+      ),
+    );
+    return;
+  }
   if (!failed.length) {
     delete form.dataset.dirty;
     form.reset();
@@ -25011,6 +26691,15 @@ async function submitMedia(form) {
         { state: "error", label: item.error },
       ])),
     );
+  }
+
+  if (exactIntent.active) {
+    toast(
+      failed[0]?.error
+        || "Привязка MP4 не завершена. Повторите эту же кнопку.",
+      "warning",
+    );
+    return;
   }
 
   if (successful.length) {
@@ -25322,6 +27011,7 @@ function clearAuthenticatedState() {
   state.accessCenter.result = null;
   state.accessCenter.error = "";
   state.accessCenter.notice = "";
+  resetProjectAccessState();
   state.managerRecoveryCooldowns.clear();
   state.managerInviteCooldowns.clear();
   state.productResearch.requestId += 1;

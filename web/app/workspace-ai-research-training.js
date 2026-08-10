@@ -8,10 +8,11 @@
  */
 
 const ROUTE = "/workspace/ai";
-const RPC_QUEUE = "creator_ai_research_training_queue";
-const RPC_DECIDE = "creator_decide_ai_research_training";
+const RPC_QUEUE = "contentengine_ai_research_training_queue";
+const RPC_DECIDE = "contentengine_decide_ai_research_training";
 const ROOT_ATTRIBUTE = "data-ai-research-training-root";
 const CATEGORY_KEY = "contentengine.ai-research-training.category";
+const PROJECT_CONTEXT_KEY = "contentengine.desktop-v4.project";
 const CATEGORIES = Object.freeze([
   ["cosmetics", "Косметика и уход"],
   ["baa", "БАД"],
@@ -23,11 +24,14 @@ const CATEGORIES = Object.freeze([
   ["other", "Другая категория"],
 ]);
 const CATEGORY_SET = new Set(CATEGORIES.map(([value]) => value));
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 const runtime = {
   root: null,
   category: "other",
+  projectId: "",
   loading: false,
+  loadToken: 0,
   mutating: false,
   requestKey: "",
   mountQueued: false,
@@ -93,32 +97,229 @@ function unwrap(value) {
   return object(value?.data || value);
 }
 
-function currentCategory() {
-  const params = routeParams();
-  const routeValue = clean(
-    params.get("product_category") || params.get("category") || "",
-    40,
-  ).toLowerCase();
-  if (CATEGORY_SET.has(routeValue)) return routeValue;
+function normalizedCategory(value) {
+  const category = clean(value, 40).toLowerCase();
+  return CATEGORY_SET.has(category) ? category : "";
+}
+
+function normalizedProjectId(value) {
+  const projectId = clean(value, 80).toLowerCase();
+  return UUID_PATTERN.test(projectId) ? projectId : "";
+}
+
+export function resolveTrainingProjectId({
+  routeValues = [],
+  storedValue = "",
+} = {}) {
+  const explicitValues = Array.isArray(routeValues) ? routeValues : [];
+  if (explicitValues.length) {
+    return explicitValues.length === 1
+      ? normalizedProjectId(explicitValues[0])
+      : "";
+  }
+  return normalizedProjectId(storedValue);
+}
+
+function storedTrainingProjectId() {
   try {
-    const stored = window.sessionStorage.getItem(CATEGORY_KEY) || "";
-    if (CATEGORY_SET.has(stored)) return stored;
+    const stored = JSON.parse(
+      window.sessionStorage.getItem(PROJECT_CONTEXT_KEY) || "null",
+    );
+    return normalizedProjectId(stored?.id || stored?.project_id);
+  } catch {
+    return "";
+  }
+}
+
+function currentTrainingProjectId() {
+  return resolveTrainingProjectId({
+    routeValues: routeParams().getAll("project_id"),
+    storedValue: storedTrainingProjectId(),
+  });
+}
+
+export function projectScopedTrainingPayload(payload, projectId) {
+  const normalized = normalizedProjectId(projectId);
+  if (!normalized) throw new Error("project_id_required");
+  return { ...object(payload), project_id: normalized };
+}
+
+export function projectScopedTrainingSnapshot(value, expectedProjectId) {
+  const projectId = normalizedProjectId(expectedProjectId);
+  const source = unwrap(value);
+  if (!projectId || normalizedProjectId(source.project_id) !== projectId) {
+    return null;
+  }
+  const exactProjectItems = (items) => (Array.isArray(items) ? items : [])
+    .filter((item) => normalizedProjectId(item?.project_id) === projectId);
+  return {
+    ...source,
+    project_id: projectId,
+    queue: exactProjectItems(source.queue),
+    learned: exactProjectItems(source.learned),
+  };
+}
+
+function categoryLabel(value) {
+  const category = normalizedCategory(value) || "other";
+  return CATEGORIES.find(([key]) => key === category)?.[1] || "Другая категория";
+}
+
+function routeCategory() {
+  const params = routeParams();
+  return normalizedCategory(
+    params.get("category") || params.get("product_category") || "",
+  );
+}
+
+function legacyCategoryControlVisible(control) {
+  if (!control || control.hidden || control.closest?.("[hidden]")) return false;
+  if (control.getAttribute?.("aria-hidden") === "true") return false;
+  const style = globalThis.window?.getComputedStyle?.(control);
+  return !style || (style.display !== "none" && style.visibility !== "hidden");
+}
+
+function selectedLegacyCategory() {
+  if (typeof document === "undefined") return "";
+  const controls = document.querySelectorAll(
+    '.ai-learning-category[aria-pressed="true"][data-category-key]',
+  );
+  for (const control of controls) {
+    if (!legacyCategoryControlVisible(control)) continue;
+    const category = normalizedCategory(control.dataset?.categoryKey);
+    if (category) return category;
+  }
+  return "";
+}
+
+export function resolveTrainingCategory({
+  routeValue = "",
+  legacyValue = "",
+  selectValue = "",
+  storedValue = "",
+} = {}) {
+  return normalizedCategory(routeValue)
+    || normalizedCategory(legacyValue)
+    || normalizedCategory(selectValue)
+    || normalizedCategory(storedValue)
+    || "other";
+}
+
+function currentCategory() {
+  const explicitRouteCategory = routeCategory();
+  const visibleLegacyCategory = selectedLegacyCategory();
+  const existing = typeof document === "undefined"
+    ? null
+    : document.querySelector('[data-ai-category-select]');
+  const existingValue = normalizedCategory(existing?.value);
+  let storedValue = "";
+  try {
+    storedValue = window.sessionStorage.getItem(CATEGORY_KEY) || "";
   } catch {
     // Optional route memory.
   }
-  const existing = document.querySelector(
-    'select[name="product_category"], [data-ai-category-select]',
-  );
-  const existingValue = clean(existing?.value, 40).toLowerCase();
-  return CATEGORY_SET.has(existingValue) ? existingValue : "other";
+  return resolveTrainingCategory({
+    routeValue: explicitRouteCategory,
+    legacyValue: visibleLegacyCategory,
+    selectValue: existingValue,
+    storedValue,
+  });
 }
 
 function rememberCategory(category) {
+  const normalized = normalizedCategory(category);
+  if (!normalized) return;
   try {
-    window.sessionStorage.setItem(CATEGORY_KEY, category);
+    window.sessionStorage.setItem(CATEGORY_KEY, normalized);
   } catch {
     // Optional route memory.
   }
+}
+
+export function trainingCategoryHash(category, rawHash = "#/workspace/ai") {
+  const normalized = normalizedCategory(category) || "other";
+  const raw = String(rawHash || "#/workspace/ai").replace(/^#/, "");
+  const separator = raw.indexOf("?");
+  const rawPath = separator >= 0 ? raw.slice(0, separator) : raw;
+  const rawQuery = separator >= 0 ? raw.slice(separator + 1) : "";
+  const path = (`/${rawPath || "workspace/ai"}`)
+    .replace(/\/{2,}/gu, "/")
+    .replace(/\/$/u, "") || ROUTE;
+  const params = new URLSearchParams(rawQuery);
+  params.set("category", normalized);
+  return `#${path}?${params.toString()}`;
+}
+
+export function trainingProjectHash(projectId, rawHash = "#/workspace/ai") {
+  const normalized = normalizedProjectId(projectId);
+  if (!normalized) throw new Error("project_id_required");
+  const raw = String(rawHash || "#/workspace/ai").replace(/^#/, "");
+  const separator = raw.indexOf("?");
+  const rawPath = separator >= 0 ? raw.slice(0, separator) : raw;
+  const rawQuery = separator >= 0 ? raw.slice(separator + 1) : "";
+  const path = (`/${rawPath || "workspace/ai"}`)
+    .replace(/\/{2,}/gu, "/")
+    .replace(/\/$/u, "") || ROUTE;
+  const params = new URLSearchParams(rawQuery);
+  params.delete("project_id");
+  params.set("project_id", normalized);
+  return `#${path}?${params.toString()}`;
+}
+
+function canonicalizeTrainingRoute(category, projectId) {
+  if (typeof window === "undefined") return false;
+  const routeProjectValues = routeParams().getAll("project_id");
+  if (
+    routeProjectValues.length === 1
+    && normalizedProjectId(routeProjectValues[0]) === projectId
+  ) return false;
+  if (routeProjectValues.length) return false;
+  const categoryHash = trainingCategoryHash(category, window.location.hash);
+  const nextHash = trainingProjectHash(projectId, categoryHash);
+  window.history?.replaceState?.(window.history.state, "", nextHash);
+  return true;
+}
+
+function syncLegacyCategoryButtons(category) {
+  if (typeof document === "undefined") return;
+  document.querySelectorAll(
+    ".ai-learning-category[data-category-key]",
+  ).forEach((control) => {
+    const selected = normalizedCategory(control.dataset?.categoryKey) === category;
+    control.setAttribute("aria-pressed", selected ? "true" : "false");
+    control.classList?.toggle("is-active", selected);
+  });
+}
+
+function syncTrainingCategorySelect(category) {
+  const select = runtime.root?.querySelector("[data-training-category]");
+  if (select instanceof HTMLSelectElement && select.value !== category) {
+    select.value = category;
+  }
+}
+
+function updateCategoryRoute(category) {
+  const nextHash = trainingCategoryHash(category, window.location.hash);
+  if (nextHash === window.location.hash) return false;
+  window.location.hash = nextHash;
+  return true;
+}
+
+function restoreProjectScopeAfterLegacyNavigation(category, projectId) {
+  if (!projectId || typeof window === "undefined") return;
+  const params = routeParams();
+  if (params.get("project_id") === projectId && routeCategory() === category) {
+    return;
+  }
+  const nextHash = trainingCategoryHash(category, window.location.hash);
+  const separator = nextHash.indexOf("?");
+  const path = separator >= 0 ? nextHash.slice(0, separator) : nextHash;
+  const nextParams = new URLSearchParams(
+    separator >= 0 ? nextHash.slice(separator + 1) : "",
+  );
+  nextParams.set("project_id", projectId);
+  const restoredHash = `${path}?${nextParams.toString()}`;
+  window.history?.replaceState?.(window.history.state, "", restoredHash);
 }
 
 function payloadWithOrganization(api, payload) {
@@ -357,17 +558,28 @@ function scenarioCard(scenario, position) {
 function sourceCard(source) {
   const item = object(source);
   const card = el("article", "ai-research-training__source");
-  const url = safeUrl(item.source_url);
+  const externalUrl = safeUrl(
+    item.source_url || item.preview_url || item.media_url || item.download_url,
+  );
+  const projectId = clean(item.project_id, 80).toLowerCase();
+  const mediaId = clean(item.media_object_id, 80).toLowerCase();
+  const projectFileUrl = UUID_PATTERN.test(projectId) && UUID_PATTERN.test(mediaId)
+    ? `#/workspace/board?project_id=${encodeURIComponent(projectId)}&folder=all`
+    : "";
+  const url = externalUrl || projectFileUrl;
   const title = clean(item.title, 300) || "Источник исследования";
   const heading = url ? el("a", "", title) : el("strong", "", title);
   if (url) {
     heading.href = url;
-    heading.target = "_blank";
-    heading.rel = "noopener noreferrer";
+    if (externalUrl) {
+      heading.target = "_blank";
+      heading.rel = "noopener noreferrer";
+    }
   }
   const meta = el("small", "", [
     clean(item.source_type, 80),
     clean(item.trust_level, 80),
+    item.media_object_id ? "файл проекта" : "",
   ].filter(Boolean).join(" · "));
   card.append(heading, meta);
   const analysis = object(item.analysis);
@@ -375,7 +587,7 @@ function sourceCard(source) {
   if (summary) card.append(el("p", "", summary));
   const signals = list(analysis.structural_signal_keys, 8);
   if (signals.length) card.append(el("small", "", `Сигналы: ${signals.join(" · ")}`));
-  if (!summary && url) {
+  if (!summary && externalUrl) {
     card.append(el(
       "p",
       "ai-research-training__source-limit",
@@ -385,12 +597,307 @@ function sourceCard(source) {
   return card;
 }
 
+function normalizeLearnedSource(value) {
+  const source = object(value);
+  const media = object(source.media);
+  return {
+    ...source,
+    title: firstText(
+      source.title,
+      media.filename,
+      source.filename,
+      "Источник исследования",
+    ),
+    media_object_id: firstText(
+      source.media_object_id,
+      media.media_object_id,
+    ),
+    project_id: firstText(source.project_id, media.project_id),
+    mime_type: firstText(source.mime_type, media.mime_type),
+    status: firstText(source.status, media.status),
+  };
+}
+
+function mergeLearnedSources(source) {
+  const candidates = [
+    source.source_snapshot,
+    source.material_snapshot,
+    source.sources,
+    source.materials,
+    source.material,
+  ].flatMap((value) => (Array.isArray(value) ? value : []));
+  const merged = new Map();
+  candidates.forEach((value, index) => {
+    const normalized = normalizeLearnedSource(value);
+    const key = firstText(
+      normalized.source_id,
+      normalized.media_object_id,
+      normalized.source_url,
+      `${normalized.title}:${index}`,
+    );
+    const existing = merged.get(key);
+    merged.set(key, existing
+      ? {
+          ...existing,
+          ...normalized,
+          analysis: {
+            ...object(existing.analysis),
+            ...object(normalized.analysis),
+          },
+        }
+      : normalized);
+  });
+  return [...merged.values()].slice(0, 24);
+}
+
+function firstText(...values) {
+  for (const value of values) {
+    if (typeof value === "string" || typeof value === "number") {
+      const result = clean(value, 2000);
+      if (result) return result;
+    }
+  }
+  return "";
+}
+
+function normalizeResearchSummary(value) {
+  if (typeof value === "string") {
+    return { headline: clean(value, 2000), conclusions: [], limitations: [] };
+  }
+  const source = object(value);
+  return {
+    headline: firstText(
+      source.executive_summary,
+      source.summary,
+      source.overview,
+      source.result,
+      source.conclusion,
+    ),
+    conclusions: list(
+      source.conclusions || source.key_findings || source.findings
+        || source.results || source.takeaways,
+      12,
+    ),
+    limitations: list(source.limitations || source.caveats, 8),
+  };
+}
+
+function normalizeResearchForecast(value) {
+  const initial = Array.isArray(value)
+    ? value.find((item) => item && typeof item === "object" && !Array.isArray(item))
+    : value;
+  const source = object(initial);
+  const nestedForecast = object(source.forecast);
+  const nested = Object.keys(source).length === 1
+    && Object.keys(nestedForecast).length
+    ? object(source.forecast)
+    : source;
+  const factors = object(nested.factors);
+  const scoreNumber = Number(nested.score);
+  const confidenceNumber = Number(nested.confidence);
+  const forecast = {
+    score: Number.isFinite(scoreNumber) ? scoreNumber : null,
+    confidence: Number.isFinite(confidenceNumber) ? confidenceNumber : null,
+    summary: firstText(
+      nested.summary,
+      nested.forecast_summary,
+      nested.explanation,
+      nested.reason,
+    ),
+    strengths: list(factors.strengths || nested.strengths, 8),
+    risks: list(factors.risks || nested.risks, 8),
+    limitations: list(nested.limitations, 8),
+  };
+  return forecast.score !== null
+    || forecast.confidence !== null
+    || forecast.summary
+    || forecast.strengths.length
+    || forecast.risks.length
+    || forecast.limitations.length
+    ? forecast
+    : null;
+}
+
+function normalizeLearnedRecommendation(value, index) {
+  const source = object(value);
+  return {
+    position: Number(source.position) || index + 1,
+    title: firstText(source.title, `Рекомендация ${index + 1}`),
+    platform: clean(source.platform, 80),
+    generationMode: clean(
+      source.recommended_generation_mode || source.generation_mode,
+      80,
+    ),
+    hook: firstText(source.hook),
+    keyMessage: firstText(source.key_message, source.goal, source.angle),
+    spokenScript: firstText(source.spoken_script, source.script),
+    shotList: shotListText(source.shot_list || source.shots),
+    visualDirection: firstText(source.visual_direction, source.angle),
+    cta: firstText(source.cta),
+    proofPoints: list(source.proof_points, 8),
+    avoidClaims: list(source.avoid_claims || source.risks, 8),
+  };
+}
+
+function safeWorkspaceDeepLink(value) {
+  const href = String(value || "").trim();
+  return /^#\/workspace\/[a-z0-9/_-]+(?:\?[^\s#]*)?$/iu.test(href)
+    ? href
+    : "";
+}
+
+export function normalizeLearnedResearch(item) {
+  const source = object(item);
+  const rawSources = mergeLearnedSources(source);
+  const rawRecommendations = Array.isArray(source.recommendations)
+    ? source.recommendations
+    : [];
+  const summaryValue = source.research_summary
+    ?? source.summary
+    ?? object(source.run).summary;
+  const forecastValue = source.research_forecast
+    ?? source.forecast
+    ?? source.forecasts;
+  return {
+    selectionId: clean(source.selection_id, 80),
+    title: clean(source.product_name, 300)
+      || clean(source.research_title, 300)
+      || "Исследование",
+    productSku: clean(source.product_sku, 120),
+    category: normalizedCategory(source.product_category),
+    decision: source.decision === "approve" ? "approve" : "reject",
+    selectedAt: clean(source.selected_at, 80),
+    selectedInsights: (Array.isArray(source.selected_insight_keys)
+      ? source.selected_insight_keys
+      : [])
+      .map((value) => clean(value, 80).toLowerCase())
+      .filter(Boolean),
+    selectedScenarioPositions: (Array.isArray(source.selected_scenario_positions)
+      ? source.selected_scenario_positions
+      : [])
+      .map(Number)
+      .filter((value) => Number.isInteger(value) && value >= 1 && value <= 3),
+    sources: rawSources,
+    analysis: object(source.analysis_snapshot || source.analysis),
+    summary: normalizeResearchSummary(summaryValue),
+    forecast: normalizeResearchForecast(forecastValue),
+    recommendations: rawRecommendations
+      .slice(0, 3)
+      .map(normalizeLearnedRecommendation),
+    operatorNotes: clean(source.operator_notes, 1200),
+    deepLink: safeWorkspaceDeepLink(source.deep_link),
+  };
+}
+
+function learnedSection(title, className = "") {
+  const section = el(
+    "section",
+    `ai-research-training__learned-section${className ? ` ${className}` : ""}`,
+  );
+  section.append(el("h5", "", title));
+  return section;
+}
+
+function analysisSnapshotCard(title, value, { summaryKeys = [], listKeys = [] } = {}) {
+  const source = object(value);
+  const card = el("article", "ai-research-training__snapshot-card");
+  card.append(el("strong", "", title));
+  const summary = firstText(...summaryKeys.map((key) => source[key]));
+  if (summary) card.append(el("p", "", summary));
+  const items = [];
+  listKeys.forEach(([key, label]) => {
+    list(source[key], 6).forEach((item) => items.push(`${label}: ${item}`));
+  });
+  if (items.length) addTextList(card, items);
+  if (!summary && !items.length) {
+    card.append(el("p", "ai-research-training__empty-copy", "Сервер не вернул содержимое этого блока."));
+  }
+  return card;
+}
+
+function learnedAnalysisSection(analysis) {
+  const section = learnedSection("Выводы ИИ", "ai-research-training__learned-analysis");
+  const grid = el("div", "ai-research-training__snapshot-grid");
+  grid.append(
+    analysisSnapshotCard("Категория и покупатель", analysis.category_analysis, {
+      summaryKeys: ["definition", "summary", "category_name"],
+      listKeys: [["buyer_jobs", "Задачи"], ["jobs", "Задачи"]],
+    }),
+    analysisSnapshotCard("Конкуренты", analysis.competitor_analysis, {
+      summaryKeys: ["summary", "conclusion"],
+      listKeys: [
+        ["reusable_structures", "Можно использовать"],
+        ["content_gaps", "Пробелы"],
+        ["saturated_patterns", "Не копировать"],
+      ],
+    }),
+    analysisSnapshotCard("Тренды", analysis.trend_analysis, {
+      summaryKeys: ["summary", "conclusion"],
+      listKeys: [["signals", "Сигнал"], ["limitations", "Ограничение"]],
+    }),
+    analysisSnapshotCard("Итоговая рамка", analysis.creative_brief, {
+      summaryKeys: ["summary", "key_message"],
+      listKeys: [
+        ["audience", "Аудитория"],
+        ["pains", "Боли"],
+        ["objections", "Возражения"],
+        ["facts", "Факты"],
+        ["claims", "Ограничения обещаний"],
+      ],
+    }),
+    analysisSnapshotCard("Рекомендованный следующий шаг", analysis.guidance, {
+      summaryKeys: ["reason", "recommended_next_step", "summary"],
+      listKeys: [["questions", "Проверить"], ["actions", "Действие"]],
+    }),
+  );
+  section.append(grid);
+  return section;
+}
+
+function learnedRecommendationCard(recommendation) {
+  const card = el("article", "ai-research-training__learned-recommendation");
+  const head = el("header", "");
+  head.append(
+    el("strong", "", recommendation.title),
+    el(
+      "small",
+      "",
+      [recommendation.platform, recommendation.generationMode]
+        .filter(Boolean)
+        .join(" · ") || `Вариант ${recommendation.position}`,
+    ),
+  );
+  card.append(head);
+  [
+    ["Хук", recommendation.hook],
+    ["Ключевое сообщение", recommendation.keyMessage],
+    ["Реплика / сюжет", recommendation.spokenScript],
+    ["Кадры", recommendation.shotList],
+    ["Визуальное направление", recommendation.visualDirection],
+    ["CTA", recommendation.cta],
+    ["Доказательства", recommendation.proofPoints.join(" · ")],
+    ["Не обещать / учесть", recommendation.avoidClaims.join(" · ")],
+  ].forEach(([label, value]) => {
+    if (!value) return;
+    const line = el("p", "");
+    line.append(el("b", "", `${label}: `), document.createTextNode(value));
+    card.append(line);
+  });
+  card.append(el(
+    "small",
+    "ai-research-training__editable-note",
+    "Это сохранённая редактируемая рекомендация: в «Создании» её можно применить и изменить.",
+  ));
+  return card;
+}
+
 function receiptCard(item, canDecide) {
   const source = object(item);
   const card = el("details", "ai-research-training__receipt");
   card.open = true;
   card.dataset.receiptId = clean(source.receipt_id, 80);
   card.dataset.receiptHash = clean(source.receipt_hash, 80);
+  card.dataset.projectId = normalizedProjectId(source.project_id);
 
   const summary = el("summary", "ai-research-training__receipt-summary");
   const titleBox = el("span");
@@ -479,23 +986,149 @@ function receiptCard(item, canDecide) {
 }
 
 function learnedCard(item) {
-  const source = object(item);
-  const card = el("article", "ai-research-training__learned-card");
-  const head = el("div");
+  const learned = normalizeLearnedResearch(item);
+  const card = el("details", "ai-research-training__learned-card");
+  card.dataset.selectionId = learned.selectionId;
+
+  const summary = el("summary", "ai-research-training__learned-summary");
+  const head = el("span");
   head.append(
-    el("strong", "", clean(source.product_name, 300) || "Исследование"),
-    el("small", "", source.decision === "approve" ? "Используется в рекомендациях" : "Отклонено"),
+    el("strong", "", learned.title),
+    el("small", "", [
+      learned.productSku,
+      learned.category ? categoryLabel(learned.category) : "",
+      learned.selectedAt,
+    ].filter(Boolean).join(" · ")),
   );
-  const count = Array.isArray(source.recommendations) ? source.recommendations.length : 0;
-  card.append(head, el("span", "", `${count} рекомендац.`));
+  const state = el(
+    "span",
+    "ai-research-training__learned-state",
+    learned.decision === "approve"
+      ? `Используется · ${learned.recommendations.length} рекомендац.`
+      : "Отклонено",
+  );
+  summary.append(head, state);
+
+  const body = el("div", "ai-research-training__learned-body");
+
+  const material = learnedSection("Материал и источники");
+  const sourcesGrid = el("div", "ai-research-training__sources");
+  if (learned.sources.length) {
+    learned.sources.forEach((source) => sourcesGrid.append(sourceCard(source)));
+  } else {
+    sourcesGrid.append(el(
+      "p",
+      "ai-research-training__empty-copy",
+      "Снимок материалов отсутствует в ответе сервера.",
+    ));
+  }
+  material.append(sourcesGrid);
+
+  const results = learnedSection("Итоги исследования");
+  if (learned.summary.headline) results.append(el("p", "", learned.summary.headline));
+  if (learned.summary.conclusions.length) {
+    results.append(el("strong", "", "Итоговые выводы"));
+    addTextList(results, learned.summary.conclusions);
+  }
+  if (learned.summary.limitations.length) {
+    results.append(el("strong", "", "Ограничения"));
+    addTextList(results, learned.summary.limitations);
+  }
+  if (
+    !learned.summary.headline
+    && !learned.summary.conclusions.length
+    && !learned.summary.limitations.length
+  ) {
+    results.append(el(
+      "p",
+      "ai-research-training__empty-copy",
+      "Общий итог исследования отсутствует в ответе сервера; сохранённые блоки анализа показаны ниже.",
+    ));
+  }
+
+  if (learned.forecast) {
+    const forecast = learnedSection("Прогноз и уверенность");
+    const forecastMeta = [
+      learned.forecast.score !== null ? `оценка ${learned.forecast.score}` : "",
+      learned.forecast.confidence !== null
+        ? `уверенность ${Math.round(
+          learned.forecast.confidence <= 1
+            ? learned.forecast.confidence * 100
+            : learned.forecast.confidence,
+        )}%`
+        : "",
+    ].filter(Boolean).join(" · ");
+    if (forecastMeta) forecast.append(el("strong", "", forecastMeta));
+    if (learned.forecast.summary) forecast.append(el("p", "", learned.forecast.summary));
+    if (learned.forecast.strengths.length) {
+      forecast.append(el("small", "", `Сильные стороны: ${learned.forecast.strengths.join(" · ")}`));
+    }
+    if (learned.forecast.risks.length) {
+      forecast.append(el("small", "", `Риски: ${learned.forecast.risks.join(" · ")}`));
+    }
+    if (learned.forecast.limitations.length) {
+      forecast.append(el("small", "", `Ограничения: ${learned.forecast.limitations.join(" · ")}`));
+    }
+    results.append(forecast);
+  }
+
+  const selection = learnedSection("Что выбрано для обучения");
+  const insightLabels = {
+    category: "Категория и покупатель",
+    competitors: "Конкуренты",
+    trends: "Тренды",
+    brief: "Коммуникационная рамка",
+  };
+  const chips = el("div", "ai-research-training__learned-chips");
+  learned.selectedInsights.forEach((key) => {
+    chips.append(el("span", "", insightLabels[key] || key));
+  });
+  learned.selectedScenarioPositions.forEach((position) => {
+    chips.append(el("span", "", `Сценарий ${position}`));
+  });
+  if (chips.childNodes.length) selection.append(chips);
+  else selection.append(el("p", "ai-research-training__empty-copy", "Состав отбора не указан."));
+  if (learned.operatorNotes) {
+    selection.append(el("p", "", `Комментарий: ${learned.operatorNotes}`));
+  }
+
+  const recommendations = learnedSection("Сохранённые редактируемые рекомендации");
+  const recommendationGrid = el("div", "ai-research-training__learned-recommendations");
+  if (learned.recommendations.length) {
+    learned.recommendations.forEach((recommendation) => {
+      recommendationGrid.append(learnedRecommendationCard(recommendation));
+    });
+  } else {
+    recommendationGrid.append(el(
+      "p",
+      "ai-research-training__empty-copy",
+      learned.decision === "approve"
+        ? "Сервер не вернул сохранённые рекомендации."
+        : "Отклонённое исследование не влияет на рекомендации.",
+    ));
+  }
+  recommendations.append(recommendationGrid);
+
+  body.append(material, results, learnedAnalysisSection(learned.analysis), selection, recommendations);
+  if (learned.deepLink) {
+    const link = el("a", "btn btn-secondary btn-small", "Открыть исходное исследование");
+    link.href = learned.deepLink;
+    body.append(link);
+  }
+  card.append(summary, body);
   return card;
 }
 
-function renderSnapshot(root, snapshot) {
-  const source = unwrap(snapshot);
+function renderSnapshot(root, snapshot, expectedProjectId = runtime.projectId) {
+  const source = projectScopedTrainingSnapshot(snapshot, expectedProjectId);
+  if (!source) return false;
   const queue = Array.isArray(source.queue) ? source.queue : [];
   const learned = Array.isArray(source.learned) ? source.learned : [];
   const capabilities = object(source.capabilities);
+  const selectedCategory = normalizedCategory(source.product_category)
+    || normalizedCategory(runtime.category)
+    || "other";
+  const selectedCategoryLabel = categoryLabel(selectedCategory);
   const queueHost = root.querySelector("[data-ai-research-training-queue]");
   const historyHost = root.querySelector("[data-ai-research-training-history]");
   if (!queueHost || !historyHost) return;
@@ -505,11 +1138,11 @@ function renderSnapshot(root, snapshot) {
   if (!queue.length) {
     const empty = el("div", "ai-research-training__empty");
     empty.append(
-      el("strong", "", "В этой категории нет исследований для отбора"),
+      el("strong", "", `В категории «${selectedCategoryLabel}» нет исследований для отбора`),
       el("p", "", "Сначала завершите анализ ролика в «Исследованиях». После этого здесь появятся источники, разбор и варианты рекомендаций."),
     );
     const link = el("a", "btn btn-secondary btn-small", "Открыть Исследования");
-    link.href = "#/workspace/research";
+    link.href = `#/workspace/research?project_id=${encodeURIComponent(source.project_id)}`;
     empty.append(link);
     queueHost.append(empty);
   } else {
@@ -517,7 +1150,11 @@ function renderSnapshot(root, snapshot) {
   }
 
   if (!learned.length) {
-    historyHost.append(el("p", "ai-research-training__empty-copy", "Пока нет сохранённых отборов."));
+    historyHost.append(el(
+      "p",
+      "ai-research-training__empty-copy",
+      `В категории «${selectedCategoryLabel}» пока нет сохранённых отборов.`,
+    ));
   } else {
     learned.slice(0, 12).forEach((item) => historyHost.append(learnedCard(item)));
   }
@@ -530,10 +1167,11 @@ function renderSnapshot(root, snapshot) {
   setStatus(
     root,
     queue.length
-      ? `Найдено исследований для отбора: ${queue.length}`
-      : "Очередь пуста — ждём завершённое исследование.",
+      ? `Категория «${selectedCategoryLabel}»: исследований для отбора — ${queue.length}.`
+      : `Категория «${selectedCategoryLabel}»: очередь пуста — ждём завершённое исследование.`,
     queue.length ? "ready" : "neutral",
   );
+  return true;
 }
 
 function buildRoot() {
@@ -600,32 +1238,89 @@ function ensureRoot() {
   return root;
 }
 
-async function load(root, category = runtime.category) {
-  if (runtime.loading || routePath() !== ROUTE) return;
+function suspendProjectTraining(root) {
+  runtime.loadToken += 1;
+  runtime.loading = false;
+  if (root) {
+    root.hidden = false;
+    root.dataset.loading = "false";
+    root.dataset.projectRequired = "true";
+    const queue = root.querySelector("[data-ai-research-training-queue]");
+    const history = root.querySelector("[data-ai-research-training-history]");
+    queue?.replaceChildren();
+    history?.replaceChildren();
+    if (queue) {
+      const empty = el("div", "ai-research-training__empty");
+      empty.append(
+        el("strong", "", "Выберите проект для обучения на исследованиях"),
+        el("p", "", "Глобальные знания ИИ-центра доступны ниже. Очередь исследований и решения открываются только в контексте выбранного проекта."),
+      );
+      queue.append(empty);
+    }
+    setStatus(root, "Проект не выбран — данные исследований не загружаются.", "neutral");
+  }
+  const oldInbox = document.querySelector(".ai-learning-research-inbox");
+  if (oldInbox instanceof HTMLElement) {
+    oldInbox.hidden = true;
+    oldInbox.dataset.replacedByResearchTraining = "true";
+  }
+}
+
+async function load(
+  root,
+  category = runtime.category,
+  projectId = runtime.projectId || currentTrainingProjectId(),
+) {
+  const selectedCategory = normalizedCategory(category) || "other";
+  const selectedProjectId = normalizedProjectId(projectId);
+  if (!root || routePath() !== ROUTE) return;
+  if (!selectedProjectId) return;
+  root.hidden = false;
+  delete root.dataset.projectRequired;
+  const loadToken = ++runtime.loadToken;
   runtime.loading = true;
   root.dataset.loading = "true";
-  setStatus(root, "Загружаем разборы исследований…");
+  setStatus(
+    root,
+    `Загружаем разборы категории «${categoryLabel(selectedCategory)}»…`,
+  );
   try {
     const api = await getApi();
     const response = await api.call(
       RPC_QUEUE,
-      payloadWithOrganization(api, {
-        product_category: category,
+      payloadWithOrganization(api, projectScopedTrainingPayload({
+        product_category: selectedCategory,
         limit: 30,
-      }),
+      }, selectedProjectId)),
     );
-    if (routePath() !== ROUTE || runtime.category !== category) return;
-    renderSnapshot(root, response);
+    if (
+      loadToken !== runtime.loadToken
+      || routePath() !== ROUTE
+      || runtime.category !== selectedCategory
+      || runtime.projectId !== selectedProjectId
+      || currentTrainingProjectId() !== selectedProjectId
+    ) return;
+    if (!renderSnapshot(root, response, selectedProjectId)) {
+      throw new Error("ai_research_training_project_scope_mismatch");
+    }
   } catch (error) {
+    if (
+      loadToken !== runtime.loadToken
+      || runtime.category !== selectedCategory
+      || runtime.projectId !== selectedProjectId
+      || currentTrainingProjectId() !== selectedProjectId
+    ) return;
     console.warn("Research training queue unavailable", error);
     setStatus(
       root,
-      "Не удалось загрузить очередь. Миграция/RPC должны быть развёрнуты вместе с интерфейсом.",
+      `Категория «${categoryLabel(selectedCategory)}»: не удалось загрузить очередь. Миграция/RPC должны быть развёрнуты вместе с интерфейсом.`,
       "danger",
     );
   } finally {
-    runtime.loading = false;
-    root.dataset.loading = "false";
+    if (loadToken === runtime.loadToken) {
+      runtime.loading = false;
+      root.dataset.loading = "false";
+    }
   }
 }
 
@@ -660,6 +1355,16 @@ function scenarioEdits(card, positions) {
 
 async function decide(card, decision) {
   if (runtime.mutating) return;
+  const mutationRoot = runtime.root;
+  const projectId = currentTrainingProjectId()
+    || normalizedProjectId(routeParams().get("project_id"));
+  const category = runtime.category;
+  if (
+    !mutationRoot
+    || !projectId
+    || runtime.projectId !== projectId
+    || normalizedProjectId(card.dataset.projectId) !== projectId
+  ) return;
   const confirmation = card.querySelector("[data-training-confirmation]");
   if (!(confirmation instanceof HTMLInputElement) || !confirmation.checked) {
     confirmation?.focus();
@@ -674,7 +1379,7 @@ async function decide(card, decision) {
   }
   const notes = String(card.querySelector('[name="operator_notes"]')?.value || "").trim();
   runtime.mutating = true;
-  runtime.root.dataset.mutating = "true";
+  mutationRoot.dataset.mutating = "true";
   setStatus(
     runtime.root,
     decision === "approve" ? "Сохраняем выбранное обучение…" : "Отклоняем исследование…",
@@ -683,8 +1388,8 @@ async function decide(card, decision) {
     const api = await getApi();
     const response = await api.call(
       RPC_DECIDE,
-      payloadWithOrganization(api, {
-        product_category: runtime.category,
+      payloadWithOrganization(api, projectScopedTrainingPayload({
+        product_category: category,
         receipt_id: card.dataset.receiptId,
         receipt_hash: card.dataset.receiptHash,
         decision,
@@ -694,9 +1399,18 @@ async function decide(card, decision) {
         ...(notes ? { operator_notes: notes } : {}),
         confirmation: true,
         idempotency_key: idempotencyKey("research-training"),
-      }),
+      }, projectId)),
     );
-    renderSnapshot(runtime.root, unwrap(response).snapshot || response);
+    if (
+      routePath() !== ROUTE
+      || runtime.root !== mutationRoot
+      || runtime.category !== category
+      || runtime.projectId !== projectId
+      || currentTrainingProjectId() !== projectId
+    ) return;
+    if (!renderSnapshot(mutationRoot, unwrap(response).snapshot || response, projectId)) {
+      throw new Error("ai_research_training_project_scope_mismatch");
+    }
     setStatus(
       runtime.root,
       decision === "approve"
@@ -705,6 +1419,11 @@ async function decide(card, decision) {
       "ready",
     );
   } catch (error) {
+    if (
+      runtime.root !== mutationRoot
+      || runtime.projectId !== projectId
+      || currentTrainingProjectId() !== projectId
+    ) return;
     console.warn("Research training decision failed", error);
     setStatus(
       runtime.root,
@@ -713,18 +1432,48 @@ async function decide(card, decision) {
     );
   } finally {
     runtime.mutating = false;
-    runtime.root.dataset.mutating = "false";
+    if (mutationRoot?.isConnected) mutationRoot.dataset.mutating = "false";
   }
 }
 
 function handleChange(event) {
   const select = event.target.closest?.("[data-training-category]");
   if (!select) return;
-  const category = clean(select.value, 40).toLowerCase();
-  if (!CATEGORY_SET.has(category) || category === runtime.category) return;
+  const category = normalizedCategory(select.value);
+  if (!category) return;
+  const changed = category !== runtime.category;
   runtime.category = category;
   rememberCategory(category);
-  void load(runtime.root, category);
+  syncLegacyCategoryButtons(category);
+  updateCategoryRoute(category);
+  const projectId = currentTrainingProjectId();
+  const requestKey = `${projectId}:${category}:${runtime.root?.isConnected}`;
+  if (changed || runtime.requestKey !== requestKey) {
+    runtime.requestKey = requestKey;
+    void load(runtime.root, category, projectId);
+  }
+}
+
+function handleLegacyCategoryClick(event) {
+  const control = event.target.closest?.(
+    ".ai-learning-category[data-category-key]",
+  );
+  if (!control || !legacyCategoryControlVisible(control)) return;
+  const category = normalizedCategory(control.dataset?.categoryKey);
+  if (!category) return;
+  const projectId = currentTrainingProjectId();
+  const changed = category !== runtime.category;
+  runtime.category = category;
+  rememberCategory(category);
+  syncLegacyCategoryButtons(category);
+  syncTrainingCategorySelect(category);
+  if (changed && runtime.root?.isConnected) {
+    runtime.requestKey = `${projectId}:${category}:${runtime.root.isConnected}`;
+    void load(runtime.root, category, projectId);
+  }
+  window.queueMicrotask(() => {
+    restoreProjectScopeAfterLegacyNavigation(category, projectId);
+  });
 }
 
 function handleClick(event) {
@@ -740,21 +1489,33 @@ function handleClick(event) {
 
 function mount() {
   if (routePath() !== ROUTE) {
+    runtime.loadToken += 1;
     runtime.root = null;
+    runtime.projectId = "";
     return;
   }
   const root = ensureRoot();
   if (!root) return;
   runtime.root = root;
   const category = currentCategory();
-  const select = root.querySelector("[data-training-category]");
-  if (select instanceof HTMLSelectElement) select.value = category;
-  const requestKey = `${category}:${root.isConnected}`;
+  const projectId = currentTrainingProjectId();
+  if (projectId) canonicalizeTrainingRoute(category, projectId);
+  const requestKey = `${projectId}:${category}:${root.isConnected}`;
   runtime.category = category;
+  runtime.projectId = projectId;
+  rememberCategory(category);
+  syncLegacyCategoryButtons(category);
+  syncTrainingCategorySelect(category);
+  if (!projectId) {
+    runtime.requestKey = requestKey;
+    suspendProjectTraining(root);
+    return;
+  }
+  root.hidden = false;
   if (runtime.requestKey !== requestKey || !root.dataset.loaded) {
     runtime.requestKey = requestKey;
     root.dataset.loaded = "true";
-    void load(root, category);
+    void load(root, category, projectId);
   }
 }
 
@@ -777,6 +1538,7 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
   }
   window.addEventListener("contentengine:v4-route-ready", scheduleMount);
   window.addEventListener("hashchange", scheduleMount);
+  document.addEventListener("click", handleLegacyCategoryClick, true);
   window.queueMicrotask(scheduleMount);
 }
 

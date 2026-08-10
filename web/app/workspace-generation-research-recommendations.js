@@ -2,16 +2,81 @@
  * ContentEngine · AI-first, human-editable research recommendations.
  *
  * Only human-approved research selections are read. The best exact-product
- * recommendation can fill an empty brief automatically; after the first human
- * edit the adapter never overwrites the field. Category-level examples remain
- * visible but require an explicit apply action.
+ * recommendation can prepare editable form defaults automatically; after a
+ * human edits a field the adapter never overwrites that field automatically.
+ * Category-level examples remain visible but require an explicit apply action.
  */
 
 const ROUTE = "/workspace/generation";
-const RPC_RECOMMENDATIONS = "creator_generation_research_recommendations";
+const RPC_RECOMMENDATIONS = "contentengine_generation_research_recommendations";
 const ROOT_ATTRIBUTE = "data-generation-research-recommendations";
-const STATE_PREFIX = "contentengine.generation.research-recommendation.v1";
+const STATE_PREFIX = "contentengine.generation.research-recommendation.v3";
 const MAX_BRIEF_LENGTH = 1180;
+const PRESET_EVENT = "contentengine:generation-research-preset-applied";
+const PRESET_OPT_OUT_EVENT = "contentengine:generation-research-preset-opt-out";
+const PRESET_FIELDS = Object.freeze([
+  "product_category",
+  "platform",
+  "mode",
+  "duration_seconds",
+  "format",
+  "brief",
+]);
+const PRESET_FORM_FIELDS = Object.freeze({
+  product_category: "product_category",
+  platform: "platform",
+  mode: "generation_mode",
+  duration_seconds: "duration_seconds",
+  format: "format",
+  brief: "brief",
+});
+const PRESET_FIELD_LABELS = Object.freeze({
+  product_category: "категория",
+  platform: "площадка",
+  mode: "режим",
+  duration_seconds: "длительность",
+  format: "формат",
+  brief: "замысел",
+});
+const PRODUCT_CATEGORIES = new Set([
+  "cosmetics",
+  "baa",
+  "sports_food",
+  "food",
+  "household",
+  "apparel",
+  "electronics",
+  "other",
+]);
+const GENERATION_PLATFORMS = new Set([
+  "instagram",
+  "tiktok",
+  "youtube",
+  "vk",
+  "telegram",
+  "wildberries",
+]);
+const GENERATION_FORMATS = new Set(["9:16", "1:1", "16:9"]);
+const GENERATION_MODE_DURATIONS = Object.freeze({
+  real_gen4: new Set([2, 5, 8, 10]),
+  real_seedance: new Set([4, 8, 12, 15]),
+});
+const GENERATION_MODE_ALIASES = Object.freeze({
+  mock: "mock",
+  real_photo: "real_photo",
+  photo: "real_photo",
+  image: "real_photo",
+  seedream: "real_photo",
+  seedream5_lite: "real_photo",
+  real_gen4: "real_gen4",
+  gen4: "real_gen4",
+  gen4_turbo: "real_gen4",
+  product_animation: "real_gen4",
+  real_seedance: "real_seedance",
+  seedance: "real_seedance",
+  seedance2_fast: "real_seedance",
+  ugc_video: "real_seedance",
+});
 
 const runtime = {
   form: null,
@@ -43,6 +108,13 @@ function routeParams() {
 
 function clean(value, limit = 4000) {
   return String(value ?? "").replace(/\s+/gu, " ").trim().slice(0, limit);
+}
+
+function normalizedUuid(value) {
+  const candidate = clean(value, 80).toLowerCase();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(candidate)
+    ? candidate
+    : "";
 }
 
 function object(value) {
@@ -119,6 +191,374 @@ export function formatResearchRecommendation(item, context = {}) {
   );
 }
 
+function firstClean(values, limit = 4000) {
+  for (const value of values) {
+    const normalized = clean(value, limit);
+    if (normalized) return normalized;
+  }
+  return "";
+}
+
+function firstBrief(values) {
+  for (const value of values) {
+    const normalized = String(value ?? "")
+      .replace(/\r\n?/gu, "\n")
+      .trim();
+    if (normalized) return truncateBrief(normalized);
+  }
+  return "";
+}
+
+function normalizedMode(value) {
+  return GENERATION_MODE_ALIASES[clean(value, 80).toLowerCase()] || "";
+}
+
+function normalizedPlatform(value) {
+  const platform = clean(value, 80).toLowerCase();
+  return {
+    instagram_reels: "instagram",
+    reels: "instagram",
+    youtube_shorts: "youtube",
+    shorts: "youtube",
+    vk_clips: "vk",
+    "vk clips": "vk",
+  }[platform] || platform;
+}
+
+function normalizedDuration(value, mode) {
+  const duration = Number(value);
+  const allowed = GENERATION_MODE_DURATIONS[mode];
+  if (allowed && Number.isInteger(duration) && allowed.has(duration)) {
+    return duration;
+  }
+  if (mode === "real_gen4") return 5;
+  if (mode === "real_seedance") return 8;
+  return null;
+}
+
+function normalizedFormat(value, mode) {
+  if (mode === "real_seedance") return "9:16";
+  if (mode === "real_photo") return "1:1";
+  const format = clean(value, 40).toLowerCase().replace(/\s+/gu, "");
+  const normalized = {
+    "9x16": "9:16",
+    "9/16": "9:16",
+    vertical: "9:16",
+    portrait: "9:16",
+    "1x1": "1:1",
+    "1/1": "1:1",
+    square: "1:1",
+    "16x9": "16:9",
+    "16/9": "16:9",
+    horizontal: "16:9",
+    landscape: "16:9",
+  }[format] || format;
+  return GENERATION_FORMATS.has(normalized) ? normalized : "";
+}
+
+function withValue(target, key, value) {
+  if (value !== "" && value !== null && value !== undefined) target[key] = value;
+}
+
+/**
+ * Convert either the new envelope.preset contract or the historical
+ * recommendation object into the small, editable subset owned by this bridge.
+ * Financial authority, media and placement controls are intentionally absent.
+ */
+export function normalizeResearchRecommendationPreset(item, context = {}) {
+  const envelope = object(item);
+  const recommendation = object(envelope.recommendation || envelope);
+  const declaredPreset = object(envelope.preset);
+  const source = { ...recommendation, ...declaredPreset };
+  const category = firstClean([
+    source.product_category,
+    source.category,
+    envelope.product_category,
+  ], 40).toLowerCase();
+  const platform = normalizedPlatform(firstClean([
+    source.platform,
+    envelope.platform,
+  ], 40));
+  const mode = normalizedMode(firstClean([
+    source.mode,
+    source.generation_mode,
+    source.recommended_generation_mode,
+    source.model,
+  ], 80));
+  const duration = normalizedDuration(
+    source.duration_seconds ?? source.duration,
+    mode,
+  );
+  const format = normalizedFormat(firstClean([
+    source.format,
+    source.aspect_ratio,
+    source.aspectRatio,
+  ], 40), mode);
+  const declaredBrief = firstBrief([
+    source.brief,
+    source.editable_brief,
+  ]);
+  const brief = declaredBrief || formatResearchRecommendation(envelope, context);
+  const preset = {};
+  if (PRODUCT_CATEGORIES.has(category)) withValue(preset, "product_category", category);
+  if (GENERATION_PLATFORMS.has(platform)) withValue(preset, "platform", platform);
+  withValue(preset, "mode", mode);
+  withValue(preset, "duration_seconds", duration);
+  withValue(preset, "format", format);
+  withValue(preset, "brief", brief);
+  return preset;
+}
+
+export function isExactResearchRecommendation(item) {
+  const envelope = object(item);
+  return ["exact_sku", "exact_product"].includes(
+    clean(envelope.scope_match, 40).toLowerCase(),
+  );
+}
+
+function recommendationSelectionId(item) {
+  const envelope = object(item);
+  return firstClean([
+    envelope.selection_id,
+    envelope.selectionId,
+  ], 80);
+}
+
+function recommendationPosition(item) {
+  const envelope = object(item);
+  const recommendation = object(envelope.recommendation);
+  const preset = object(envelope.preset);
+  const value = Number(
+    envelope.recommendation_position
+      ?? preset.position
+      ?? recommendation.position
+      ?? envelope.position,
+  );
+  return Number.isInteger(value) && value >= 1 && value <= 3 ? value : null;
+}
+
+function normalizedTouchedFields(state = {}) {
+  const values = Array.isArray(state.touchedFields) ? state.touchedFields : [];
+  const touched = new Set(values.filter((field) => PRESET_FIELDS.includes(field)));
+  if (state.touched === true) touched.add("brief");
+  return touched;
+}
+
+export function resolveResearchPresetAppliedFields({
+  preset = {},
+  touchedFields = [],
+  exact = false,
+  explicit = false,
+  optedOut = false,
+} = {}) {
+  if ((!explicit && optedOut) || (!explicit && exact !== true)) return [];
+  const touched = new Set(
+    Array.from(touchedFields || []).filter((field) => PRESET_FIELDS.includes(field)),
+  );
+  return PRESET_FIELDS.filter((field) => (
+    Object.hasOwn(object(preset), field)
+    && (explicit || !touched.has(field))
+  ));
+}
+
+function formControl(form, presetField) {
+  const name = PRESET_FORM_FIELDS[presetField];
+  return name ? form?.elements?.[name] || form?.querySelector?.(`[name="${name}"]`) : null;
+}
+
+function controlValue(control) {
+  return String(control?.value ?? "");
+}
+
+function controlAcceptsValue(control, value) {
+  if (!control) return false;
+  const options = Array.from(control.options || []);
+  return !options.length || options.some((option) => String(option.value) === String(value));
+}
+
+function browserEvent(type) {
+  if (typeof globalThis.Event === "function") {
+    return new globalThis.Event(type, { bubbles: true });
+  }
+  return { type, bubbles: true };
+}
+
+function browserCustomEvent(type, detail) {
+  if (typeof globalThis.CustomEvent === "function") {
+    return new globalThis.CustomEvent(type, { bubbles: true, detail });
+  }
+  const event = browserEvent(type);
+  try {
+    Object.defineProperty(event, "detail", { configurable: true, value: detail });
+  } catch {
+    event.detail = detail;
+  }
+  return event;
+}
+
+function dispatchPresetProvenance(form, type, detail) {
+  if (typeof form?.dispatchEvent !== "function") return;
+  form.dispatchEvent(browserCustomEvent(type, detail));
+}
+
+/**
+ * Apply only the governed editable preset fields. This function deliberately
+ * has no references to campaign, media, destination, quantity or spend fields.
+ */
+export function applyResearchRecommendationPresetToForm(
+  form,
+  item,
+  {
+    context = {},
+    touchedFields = [],
+    exact = isExactResearchRecommendation(item),
+    explicit = false,
+    optedOut = false,
+    dispatch = true,
+  } = {},
+) {
+  const preset = normalizeResearchRecommendationPreset(item, context);
+  const candidateFields = resolveResearchPresetAppliedFields({
+    preset,
+    touchedFields,
+    exact,
+    explicit,
+    optedOut,
+  });
+  const selectionId = recommendationSelectionId(item);
+  const position = recommendationPosition(item);
+  const appliedFields = [];
+
+  for (const field of candidateFields) {
+    const control = formControl(form, field);
+    const value = preset[field];
+    if (!control || !controlAcceptsValue(control, value)) continue;
+    const previous = controlValue(control);
+    control.value = String(value);
+    if (control.dataset) {
+      control.dataset.researchRecommendationApplied = selectionId || "approved-research";
+      control.dataset.researchRecommendationField = field;
+      delete control.dataset.researchRecommendationEdited;
+    }
+    appliedFields.push(field);
+    if (dispatch && previous !== String(value) && typeof control.dispatchEvent === "function") {
+      if (field === "brief") control.dispatchEvent(browserEvent("input"));
+      control.dispatchEvent(browserEvent("change"));
+    }
+  }
+
+  const detail = {
+    selection_id: selectionId || null,
+    recommendation_position: position,
+    preset,
+    applied_fields: [...appliedFields],
+  };
+  if (form?.dataset && appliedFields.length) {
+    form.dataset.researchRecommendationLineage = "active";
+    form.dataset.researchRecommendationSelectionId = selectionId;
+    form.dataset.researchRecommendationPosition = position === null ? "" : String(position);
+    form.dataset.researchRecommendationAppliedFields = appliedFields.join(",");
+  }
+  if (dispatch && appliedFields.length) {
+    dispatchPresetProvenance(form, PRESET_EVENT, detail);
+  }
+  return { preset, appliedFields, selectionId, recommendationPosition: position, detail };
+}
+
+/** Restore lineage on a freshly rendered form without writing any form value. */
+export function restoreResearchRecommendationPresetLineage(
+  form,
+  item,
+  state = {},
+  { context = {}, dispatch = true } = {},
+) {
+  if (state.optedOut === true) return { restored: false, detail: null };
+  const preset = normalizeResearchRecommendationPreset(item, context);
+  const envelopeSelectionId = recommendationSelectionId(item);
+  const stateSelectionId = clean(state.selectionId, 80);
+  const envelopePosition = recommendationPosition(item);
+  const statePosition = Number(state.recommendationPosition);
+  if (
+    !stateSelectionId
+    || stateSelectionId !== envelopeSelectionId
+    || !Number.isInteger(statePosition)
+    || statePosition < 1
+    || statePosition > 3
+    || envelopePosition !== statePosition
+  ) {
+    return { restored: false, detail: null };
+  }
+  const appliedFields = (Array.isArray(state.appliedFields) ? state.appliedFields : [])
+    .filter((field) => (
+      PRESET_FIELDS.includes(field)
+      && Object.hasOwn(preset, field)
+      && Boolean(formControl(form, field))
+    ));
+  if (!appliedFields.length) return { restored: false, detail: null };
+  const touched = normalizedTouchedFields(state);
+  appliedFields.forEach((field) => {
+    const control = formControl(form, field);
+    if (!control?.dataset) return;
+    control.dataset.researchRecommendationApplied = stateSelectionId;
+    control.dataset.researchRecommendationField = field;
+    if (touched.has(field)) control.dataset.researchRecommendationEdited = "true";
+  });
+  const signature = appliedFields.join(",");
+  const alreadyRestored = Boolean(
+    form?.dataset?.researchRecommendationLineage === "active"
+    && form.dataset.researchRecommendationSelectionId === stateSelectionId
+    && form.dataset.researchRecommendationPosition === String(statePosition)
+    && form.dataset.researchRecommendationAppliedFields === signature,
+  );
+  if (form?.dataset) {
+    form.dataset.researchRecommendationLineage = "active";
+    form.dataset.researchRecommendationSelectionId = stateSelectionId;
+    form.dataset.researchRecommendationPosition = String(statePosition);
+    form.dataset.researchRecommendationAppliedFields = signature;
+  }
+  const detail = {
+    selection_id: stateSelectionId,
+    recommendation_position: statePosition,
+    preset,
+    applied_fields: [...appliedFields],
+  };
+  if (dispatch && !alreadyRestored) {
+    dispatchPresetProvenance(form, PRESET_EVENT, detail);
+  }
+  return { restored: true, dispatched: dispatch && !alreadyRestored, detail };
+}
+
+export function optOutResearchRecommendationForForm(
+  form,
+  item,
+  { context = {}, dispatch = true } = {},
+) {
+  const preset = normalizeResearchRecommendationPreset(item, context);
+  const selectionId = recommendationSelectionId(item);
+  const position = recommendationPosition(item);
+  PRESET_FIELDS.forEach((field) => {
+    const control = formControl(form, field);
+    if (!control?.dataset) return;
+    delete control.dataset.researchRecommendationApplied;
+    delete control.dataset.researchRecommendationField;
+  });
+  if (form?.dataset) {
+    delete form.dataset.researchRecommendationLineage;
+    delete form.dataset.researchRecommendationSelectionId;
+    delete form.dataset.researchRecommendationPosition;
+    delete form.dataset.researchRecommendationAppliedFields;
+  }
+  const detail = {
+    selection_id: selectionId || null,
+    recommendation_position: position,
+    preset,
+    applied_fields: [],
+    opted_out: true,
+  };
+  if (dispatch) dispatchPresetProvenance(form, PRESET_OPT_OUT_EVENT, detail);
+  return detail;
+}
+
 export function shouldAutoApplyResearchRecommendation({
   brief,
   touched,
@@ -146,6 +586,7 @@ function formContext(form) {
   const read = (name) => String(form.elements?.[name]?.value || "").trim();
   return {
     projectId: projectId(),
+    productId: normalizedUuid(form?.dataset?.identityProductId),
     category: clean(read("product_category"), 40).toLowerCase(),
     productName: read("product_name"),
     sku: read("sku"),
@@ -157,8 +598,9 @@ function stateKey(context) {
   return [
     STATE_PREFIX,
     context.projectId || "no-project",
-    context.category || "no-category",
-    clean(context.sku || context.productName, 120).toLowerCase() || "no-product",
+    context.productId
+      || clean(context.sku || context.productName, 120).toLowerCase()
+      || "no-product",
   ].join(":");
 }
 
@@ -233,44 +675,97 @@ function recommendationWhy(envelope) {
 }
 
 function applyRecommendation(envelope, { explicit = false } = {}) {
-  const control = briefControl();
-  if (!(control instanceof HTMLTextAreaElement || control instanceof HTMLInputElement)) return false;
+  if (!runtime.form || !envelope) return false;
   const context = formContext(runtime.form);
-  const text = formatResearchRecommendation(envelope, context);
-  if (!text) return false;
+  const state = readState(context);
+  const touched = normalizedTouchedFields(state);
   runtime.applying = true;
-  control.value = text;
-  control.dispatchEvent(new Event("input", { bubbles: true }));
-  control.dispatchEvent(new Event("change", { bubbles: true }));
-  runtime.applying = false;
-  control.dataset.researchRecommendationApplied = clean(envelope.selection_id, 80);
-  writeState(context, {
-    touched: false,
-    lastAppliedText: text,
-    selectionId: clean(envelope.selection_id, 80),
+  const result = applyResearchRecommendationPresetToForm(runtime.form, envelope, {
+    context,
+    touchedFields: touched,
     explicit,
+    optedOut: state.optedOut === true,
   });
+  runtime.applying = false;
+  if (!result.appliedFields.length) return false;
+  const nextTouched = new Set(touched);
+  if (explicit) result.appliedFields.forEach((field) => nextTouched.delete(field));
+  const lastAppliedValues = {
+    ...object(state.lastAppliedValues),
+    ...Object.fromEntries(
+      result.appliedFields.map((field) => [field, String(result.preset[field] ?? "")]),
+    ),
+  };
+  writeState(context, {
+    touched: nextTouched.has("brief"),
+    touchedFields: [...nextTouched],
+    appliedFields: result.appliedFields,
+    lastAppliedText: String(result.preset.brief || state.lastAppliedText || ""),
+    lastAppliedValues,
+    selectionId: result.selectionId,
+    recommendationPosition: result.recommendationPosition,
+    explicit,
+    optedOut: false,
+  });
+  runtime.root?.removeAttribute("data-manual-mode");
+  runtime.root?.setAttribute("data-ai-ready", "true");
   renderRecommendationPanel();
+  const labels = result.appliedFields.map((field) => PRESET_FIELD_LABELS[field]).join(" · ");
   setStatus(
     explicit
-      ? "Рекомендация подставлена. Теперь можно изменить любую строку."
-      : "ИИ заполнил замысел из одобренного исследования. Любую строку можно изменить.",
+      ? `Готово ИИ: ${labels}. Все поля можно изменить.`
+      : `Готово ИИ: ${labels}. Проверьте настройки — все поля можно изменить.`,
     "ready",
   );
   return true;
 }
 
-function markHumanEdit() {
+function markHumanEdit(field) {
   if (runtime.applying || !runtime.form) return;
-  const control = briefControl();
+  if (!PRESET_FIELDS.includes(field)) return;
+  const control = formControl(runtime.form, field);
   const context = formContext(runtime.form);
+  const state = readState(context);
+  const touched = normalizedTouchedFields(state);
+  touched.add(field);
+  if (control?.dataset) control.dataset.researchRecommendationEdited = "true";
   writeState(context, {
-    touched: true,
-    lastHumanText: String(control?.value || ""),
+    touched: touched.has("brief"),
+    touchedFields: [...touched],
+    lastHumanValues: {
+      ...object(state.lastHumanValues),
+      [field]: controlValue(control),
+    },
+    ...(field === "brief" ? { lastHumanText: controlValue(control) } : {}),
   });
   runtime.root?.setAttribute("data-human-edited", "true");
-  setStatus("Правки человека сохранены. ИИ больше не перезапишет этот текст автоматически.", "edited");
+  setStatus(
+    `Поле «${PRESET_FIELD_LABELS[field]}» изменено вручную. ИИ больше не перезапишет его автоматически.`,
+    "edited",
+  );
   renderRecommendationPanel();
+}
+
+function optOutResearchRecommendation() {
+  if (!runtime.form) return;
+  const envelope = selectedEnvelope();
+  const context = formContext(runtime.form);
+  optOutResearchRecommendationForForm(runtime.form, envelope, {
+    context,
+  });
+  writeState(context, {
+    optedOut: true,
+    appliedFields: [],
+    selectionId: "",
+    recommendationPosition: null,
+  });
+  runtime.root?.removeAttribute("data-ai-ready");
+  runtime.root?.setAttribute("data-manual-mode", "true");
+  renderRecommendationPanel();
+  setStatus(
+    "Ручной режим включён. Рекомендации не блокируют запуск и больше не подставляются автоматически.",
+    "manual",
+  );
 }
 
 function optionButton(envelope, index, total) {
@@ -292,6 +787,54 @@ function optionButton(envelope, index, total) {
   return button;
 }
 
+function presetDisplayValue(field, value) {
+  if (field === "mode") {
+    return {
+      mock: "Dry-run",
+      real_photo: "Фото · Seedream",
+      real_gen4: "Видео без речи · Gen4",
+      real_seedance: "Видео с речью · Seedance",
+    }[value] || value;
+  }
+  if (field === "duration_seconds") return `${value} сек.`;
+  if (field === "format") {
+    return {
+      "9:16": "9:16 · вертикальный",
+      "1:1": "1:1 · квадрат",
+      "16:9": "16:9 · горизонтальный",
+    }[value] || value;
+  }
+  if (field === "brief") return "готовый замысел";
+  return String(value || "");
+}
+
+function presetSummary(preset, state) {
+  const applied = new Set(Array.isArray(state.appliedFields) ? state.appliedFields : []);
+  const touched = normalizedTouchedFields(state);
+  const list = el("ul", "generation-research-recommendations__preset");
+  PRESET_FIELDS.filter((field) => Object.hasOwn(preset, field)).forEach((field) => {
+    const item = el("li");
+    item.dataset.field = field;
+    if (applied.has(field)) item.dataset.applied = "true";
+    if (touched.has(field)) item.dataset.edited = "true";
+    item.append(
+      el("span", "generation-research-recommendations__preset-label", PRESET_FIELD_LABELS[field]),
+      el("strong", "", presetDisplayValue(field, preset[field])),
+      el(
+        "small",
+        "generation-research-recommendations__preset-state",
+        touched.has(field)
+          ? "изменено вами"
+          : applied.has(field)
+            ? "Готово ИИ"
+            : "рекомендация",
+      ),
+    );
+    list.append(item);
+  });
+  return list;
+}
+
 function renderRecommendationPanel() {
   const root = runtime.root;
   if (!root) return;
@@ -307,6 +850,11 @@ function renderRecommendationPanel() {
     ? runtime.response.recommendations
     : [];
   if (!recommendations.length) {
+    const headerBadge = root.querySelector("[data-research-recommendation-badge]");
+    if (headerBadge) {
+      headerBadge.textContent = "Рекомендация · не обязательна";
+      headerBadge.dataset.state = "empty";
+    }
     preview.append(
       el("strong", "", "Пока нет одобренных рекомендаций"),
       el("p", "", "Завершите исследование ролика и выберите полезные выводы в ИИ-центре. После этого здесь появится готовый замысел."),
@@ -314,7 +862,7 @@ function renderRecommendationPanel() {
     const research = el("a", "btn btn-secondary btn-small", "Открыть Исследования");
     research.href = `#/workspace/research?project_id=${encodeURIComponent(projectId())}`;
     const ai = el("a", "btn btn-secondary btn-small", "Открыть ИИ-центр");
-    ai.href = "#/workspace/ai";
+    ai.href = `#/workspace/ai?project_id=${encodeURIComponent(projectId())}`;
     actions.append(research, ai);
     return;
   }
@@ -322,38 +870,79 @@ function renderRecommendationPanel() {
   recommendations.forEach((item, index) => options.append(optionButton(item, index, recommendations.length)));
   const envelope = selectedEnvelope();
   const recommendation = object(envelope?.recommendation);
+  const context = formContext(runtime.form);
+  const state = readState(context);
+  const preset = normalizeResearchRecommendationPreset(envelope, context);
+  const selectedId = recommendationSelectionId(envelope);
+  const selectedPosition = recommendationPosition(envelope);
+  const appliedToSelected = state.optedOut !== true
+    && Boolean(state.selectionId)
+    && state.selectionId === selectedId
+    && Number(state.recommendationPosition) === selectedPosition
+    && Array.isArray(state.appliedFields)
+    && state.appliedFields.length > 0;
+  const headerBadge = root.querySelector("[data-research-recommendation-badge]");
+  if (headerBadge) {
+    headerBadge.textContent = state.optedOut
+      ? "Ручной режим"
+      : appliedToSelected
+        ? "Готово ИИ · можно изменить"
+        : "Рекомендация · не обязательна";
+    headerBadge.dataset.state = state.optedOut
+      ? "manual"
+      : appliedToSelected
+        ? "ready"
+        : "suggested";
+  }
   const previewTitle = el("div", "generation-research-recommendations__preview-title");
   previewTitle.append(
     el("strong", "", clean(recommendation.title, 260) || "Рекомендация"),
-    el("span", "generation-research-recommendations__scope", envelope?.can_auto_apply ? "можно автозаполнить" : "нужна адаптация к товару"),
+    el(
+      "span",
+      "generation-research-recommendations__scope",
+      isExactResearchRecommendation(envelope)
+        ? "точный товар · можно подготовить"
+        : "категория · только по кнопке",
+    ),
   );
   const hook = clean(recommendation.hook, 700);
   const script = clean(recommendation.spoken_script, 1200);
   preview.append(previewTitle);
   if (hook) preview.append(el("p", "", `Хук: ${hook}`));
   if (script) preview.append(el("p", "muted", `Сюжет: ${script}`));
+  preview.append(presetSummary(preset, state));
   preview.append(el("small", "", recommendationWhy(envelope)));
+  preview.append(el("small", "", "Все подготовленные ИИ поля остаются редактируемыми. Бюджет, исходники, место размещения, количество и подтверждение оплаты ИИ не меняет."));
 
-  const context = formContext(runtime.form);
-  const state = readState(context);
-  const control = briefControl();
-  const touched = state.touched === true
-    || (String(control?.value || "").trim()
-      && String(control?.value || "") !== String(state.lastAppliedText || ""));
+  const touched = normalizedTouchedFields(state).size > 0;
   const apply = el(
     "button",
     "btn",
-    touched ? "Применить этот вариант вместо моих правок" : "Применить вариант",
+    state.optedOut
+      ? "Использовать этот вариант"
+      : touched
+        ? "Применить этот вариант вместо моих правок"
+        : appliedToSelected
+          ? "Применить вариант заново"
+          : "Применить вариант",
   );
   apply.type = "button";
   apply.dataset.applyResearchRecommendation = "true";
   const restore = el("button", "btn btn-secondary", "Вернуть рекомендацию ИИ");
   restore.type = "button";
   restore.dataset.restoreResearchRecommendation = "true";
-  restore.hidden = !touched;
+  restore.hidden = !touched || state.optedOut === true;
+  const manual = el(
+    "button",
+    "btn btn-secondary",
+    state.optedOut ? "Ручной режим включён" : "Начать вручную",
+  );
+  manual.type = "button";
+  manual.dataset.startResearchRecommendationManually = "true";
+  manual.disabled = state.optedOut === true;
   const ai = el("a", "btn btn-secondary", "Изменить обучение в ИИ-центре");
-  ai.href = `#/workspace/ai?category=${encodeURIComponent(context.category || "other")}`;
-  actions.append(apply, restore, ai);
+  ai.href = `#/workspace/ai?project_id=${encodeURIComponent(context.projectId)}&category=${encodeURIComponent(context.category || "other")}`;
+  actions.append(apply, restore, manual, ai);
 }
 
 function buildRoot() {
@@ -364,9 +953,10 @@ function buildRoot() {
   copy.append(
     el("p", "eyebrow", "РЕКОМЕНДАЦИИ ИИ ИЗ ИССЛЕДОВАНИЙ"),
     el("h4", "", "ИИ предлагает замысел — человек остаётся редактором"),
-    el("p", "muted", "Берём только выводы, которые были разобраны и выбраны в ИИ-центре. Пустой замысел заполняется автоматически только для точного товара; после вашей правки текст не перезаписывается."),
+    el("p", "muted", "Берём только выводы, которые были разобраны и выбраны в ИИ-центре. Для точного товара ИИ может подготовить ещё не изменённые поля; каждую вашу правку он сохраняет."),
   );
-  const badge = el("span", "generation-research-recommendations__badge", "AI-first · editable");
+  const badge = el("span", "generation-research-recommendations__badge", "Рекомендация · не обязательна");
+  badge.dataset.researchRecommendationBadge = "true";
   header.append(copy, badge);
   const options = el("div", "generation-research-recommendations__options");
   options.dataset.researchRecommendationOptions = "true";
@@ -410,7 +1000,14 @@ function updateGuidedHint(form) {
 }
 
 function recommendationKey(context) {
-  return [context.projectId, context.category, context.sku, context.productName, context.platform]
+  return [
+    context.projectId,
+    context.productId,
+    context.category,
+    context.sku,
+    context.productName,
+    context.platform,
+  ]
     .map((value) => clean(value, 180).toLowerCase())
     .join("|");
 }
@@ -433,9 +1030,12 @@ async function loadRecommendations(form, context) {
       RPC_RECOMMENDATIONS,
       payloadWithOrganization(api, {
         project_id: context.projectId,
+        ...(context.productId ? { product_id: context.productId } : {}),
         product_category: context.category,
         product_name: context.productName,
         sku: context.sku,
+        // The RPC uses this only as a ranking preference. It deliberately
+        // keeps cross-platform recommendations in the response.
         platform: context.platform,
         limit: 3,
       }),
@@ -443,30 +1043,59 @@ async function loadRecommendations(form, context) {
     if (routePath() !== ROUTE || recommendationKey(formContext(form)) !== key) return;
     const source = object(response?.data || response);
     runtime.response = source;
-    runtime.activeIndex = 0;
+    const recommendations = Array.isArray(source.recommendations)
+      ? source.recommendations
+      : [];
+    const state = readState(context);
+    const restoredIndex = recommendations.findIndex((item) => (
+      state.selectionId
+      && state.selectionId === recommendationSelectionId(item)
+      && Number(state.recommendationPosition) === recommendationPosition(item)
+    ));
+    runtime.activeIndex = restoredIndex >= 0 ? restoredIndex : 0;
     renderRecommendationPanel();
 
-    const first = Array.isArray(source.recommendations) ? source.recommendations[0] : null;
-    const control = briefControl(form);
-    const state = readState(context);
-    const touched = state.touched === true
-      || (String(control?.value || "").trim()
-        && String(control?.value || "") !== String(state.lastAppliedText || ""));
-    if (shouldAutoApplyResearchRecommendation({
-      brief: control?.value,
-      touched,
-      canAutoApply: first?.can_auto_apply === true,
-      recommendation: first,
-    })) {
+    const first = recommendations[0] || null;
+    const selected = restoredIndex >= 0 ? recommendations[restoredIndex] : first;
+    const touched = normalizedTouchedFields(state);
+    const selectedPosition = recommendationPosition(selected);
+    const alreadyApplied = Boolean(
+      state.selectionId
+      && state.selectionId === recommendationSelectionId(selected)
+      && Number(state.recommendationPosition) === selectedPosition
+      && Array.isArray(state.appliedFields)
+      && state.appliedFields.length,
+    );
+    if (alreadyApplied) {
+      restoreResearchRecommendationPresetLineage(form, selected, state, { context });
+    }
+    if (
+      first
+      && restoredIndex < 0
+      && isExactResearchRecommendation(first)
+      && first.can_auto_apply !== false
+      && state.optedOut !== true
+      && !alreadyApplied
+      && resolveResearchPresetAppliedFields({
+        preset: normalizeResearchRecommendationPreset(first, context),
+        touchedFields: touched,
+        exact: true,
+      }).length > 0
+    ) {
       applyRecommendation(first, { explicit: false });
     } else if (first) {
       setStatus(
-        touched
-          ? "Рекомендации обновлены, но ваши правки сохранены без изменений."
-          : first.can_auto_apply
-            ? "Рекомендация готова. Примените её или продолжайте со своим текстом."
-            : "Есть обученные идеи категории. Выберите вариант и адаптируйте его к товару.",
-        touched ? "edited" : "ready",
+        alreadyApplied
+          ? "Готово ИИ восстановлено. Все подготовленные поля можно изменить."
+          : state.optedOut
+            ? "Ручной режим включён. Рекомендации доступны только по вашему явному выбору."
+            : touched.size
+              ? "Рекомендации обновлены, но ваши правки сохранены без изменений."
+              : isExactResearchRecommendation(first)
+                && first.can_auto_apply !== false
+                ? "Рекомендация готова. Примените её или продолжайте со своим текстом."
+                : "Есть обученные идеи категории. Выберите вариант и адаптируйте его к товару.",
+        alreadyApplied ? "ready" : state.optedOut ? "manual" : touched.size ? "edited" : "ready",
       );
     } else {
       setStatus("Нет одобренных рекомендаций для этого проекта и категории.");
@@ -513,24 +1142,70 @@ function handleRootClick(event) {
   if (event.target.closest?.("[data-restore-research-recommendation]")) {
     event.preventDefault();
     applyRecommendation(selectedEnvelope(), { explicit: true });
+    return;
   }
+  if (event.target.closest?.("[data-start-research-recommendation-manually]")) {
+    event.preventDefault();
+    optOutResearchRecommendation();
+  }
+}
+
+function presetFieldForControl(control) {
+  const name = String(control?.name || "");
+  return PRESET_FIELDS.find((field) => PRESET_FORM_FIELDS[field] === name) || "";
 }
 
 function bindForm(form) {
   if (form.dataset.researchRecommendationsBound === "true") return;
   form.dataset.researchRecommendationsBound = "true";
   form.addEventListener("input", (event) => {
-    if (event.target === briefControl(form)) {
-      markHumanEdit();
+    const field = presetFieldForControl(event.target);
+    if (field) {
+      markHumanEdit(field);
+    }
+    if (field === "brief") {
       return;
     }
-    if (["product_name", "sku"].includes(event.target?.name)) scheduleLoad();
+    if (["product_name", "sku", "media_id", "primary_media_id"].includes(event.target?.name)) scheduleLoad();
   });
   form.addEventListener("change", (event) => {
-    if (["product_category", "platform", "product_name", "sku"].includes(event.target?.name)) {
+    const field = presetFieldForControl(event.target);
+    if (field) markHumanEdit(field);
+    if ([
+      "product_category",
+      "platform",
+      "product_name",
+      "sku",
+      "media_id",
+      "primary_media_id",
+    ].includes(event.target?.name)) {
       scheduleLoad();
     }
   });
+}
+
+function defaultControlValue(control) {
+  const options = Array.from(control?.options || []);
+  if (options.length) {
+    return String(options.find((option) => option.defaultSelected)?.value ?? options[0]?.value ?? "");
+  }
+  return String(control?.defaultValue ?? "");
+}
+
+function inferTouchedFields(form, state) {
+  const touched = normalizedTouchedFields(state);
+  const lastApplied = object(state.lastAppliedValues);
+  PRESET_FIELDS.forEach((field) => {
+    const control = formControl(form, field);
+    if (!control) return;
+    const value = controlValue(control);
+    if (Object.hasOwn(lastApplied, field)) {
+      if (value !== String(lastApplied[field])) touched.add(field);
+      return;
+    }
+    if (value && value !== defaultControlValue(control)) touched.add(field);
+  });
+  return touched;
 }
 
 function mount() {
@@ -541,18 +1216,43 @@ function mount() {
   }
   const form = document.querySelector("#mock-batch-form");
   if (!(form instanceof HTMLFormElement)) return;
+  const formChanged = runtime.form !== form;
   runtime.form = form;
   runtime.root = ensureRoot(form);
   bindForm(form);
   updateGuidedHint(form);
   const context = formContext(form);
   const state = readState(context);
-  const control = briefControl(form);
+  const touched = inferTouchedFields(form, state);
+  if (touched.size) {
+    writeState(context, {
+      touched: touched.has("brief"),
+      touchedFields: [...touched],
+    });
+  }
   if (
-    String(control?.value || "").trim()
-    && String(control?.value || "") !== String(state.lastAppliedText || "")
+    formChanged
+    && runtime.response
+    && runtime.key === recommendationKey(context)
   ) {
-    writeState(context, { touched: true });
+    const recommendations = Array.isArray(runtime.response.recommendations)
+      ? runtime.response.recommendations
+      : [];
+    const restoredIndex = recommendations.findIndex((item) => (
+      state.selectionId
+      && state.selectionId === recommendationSelectionId(item)
+      && Number(state.recommendationPosition) === recommendationPosition(item)
+    ));
+    if (restoredIndex >= 0) runtime.activeIndex = restoredIndex;
+    renderRecommendationPanel();
+    if (restoredIndex >= 0) {
+      restoreResearchRecommendationPresetLineage(
+        form,
+        recommendations[restoredIndex],
+        state,
+        { context },
+      );
+    }
   }
   scheduleLoad();
 }
@@ -582,5 +1282,12 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
 export const GenerationResearchRecommendations = Object.freeze({
   mount,
   format: formatResearchRecommendation,
+  normalizePreset: normalizeResearchRecommendationPreset,
+  resolveAppliedFields: resolveResearchPresetAppliedFields,
+  applyPresetToForm: applyResearchRecommendationPresetToForm,
+  restoreLineage: restoreResearchRecommendationPresetLineage,
+  optOutForForm: optOutResearchRecommendationForForm,
   shouldAutoApply: shouldAutoApplyResearchRecommendation,
+  presetEvent: PRESET_EVENT,
+  optOutEvent: PRESET_OPT_OUT_EVENT,
 });

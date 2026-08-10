@@ -18,6 +18,15 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
 const PENDING_SOURCE_PREFIX = "contentengine.research.youtube.pending.v1";
+const YOUTUBE_URL_TOKEN = /https?:\/\/[^\s<>"']+/giu;
+const UNATTACHED_YOUTUBE_URL_PATTERN =
+  /https?:\/\/(?:[a-z0-9-]+\.)*(?:youtube(?:-nocookie)?\.com|youtu\.be)(?:[/?#:]|$)/iu;
+const MARKET_ONLY_TEXT_FIELDS = Object.freeze([
+  "category_name",
+  "research_focus",
+  "competitor_references",
+  "known_facts",
+]);
 
 export function canonicalResearchVideoUrl(value) {
   const raw = String(value || "").trim();
@@ -70,6 +79,53 @@ export function mergeResearchVideoReference(existing, videoUrl) {
   );
   if (!canonicalLines.has(canonical)) lines.unshift(canonical);
   return lines.join("\n");
+}
+
+export function containsUnattachedYoutubeUrl(value) {
+  return UNATTACHED_YOUTUBE_URL_PATTERN.test(String(value || ""));
+}
+
+/*
+ * A market-only paid run may keep the creator/channel name as an orientation,
+ * but it must not send an unattached YouTube page to web-search as if the
+ * provider received frames or audio.  This helper removes YouTube URLs even
+ * when they are embedded in a descriptive line and preserves the rest of the
+ * human-authored context.
+ */
+export function stripExactYoutubeReferences(value) {
+  return String(value || "")
+    .split(/\r?\n/gu)
+    .map((line) => line
+      .replace(YOUTUBE_URL_TOKEN, (token) => {
+        return containsUnattachedYoutubeUrl(token) ? "" : token;
+      })
+      .replace(/[ \t]{2,}/gu, " ")
+      .trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
+function sanitizeMarketOnlyPaidResearch(form) {
+  const changed = [];
+  MARKET_ONLY_TEXT_FIELDS.forEach((name) => {
+    const field = form.elements?.namedItem?.(name);
+    if (!field || typeof field.value !== "string") return;
+    const sanitized = stripExactYoutubeReferences(field.value);
+    if (sanitized === field.value) return;
+    field.value = sanitized;
+    changed.push(name);
+  });
+  const marketplace = form.elements?.namedItem?.("marketplace_url");
+  if (
+    marketplace
+    && typeof marketplace.value === "string"
+    && containsUnattachedYoutubeUrl(marketplace.value)
+  ) {
+    marketplace.value = "";
+    changed.push("marketplace_url");
+  }
+  form.dataset.researchVideoMarketOnlySanitized = "true";
+  return changed;
 }
 
 function routePath() {
@@ -252,9 +308,12 @@ function createActions(form, panel, input, status) {
     input.value = "";
     input.setCustomValidity("");
     panel.dataset.sourceMode = "market-only";
+    const sanitizedFields = sanitizeMarketOnlyPaidResearch(form);
     withoutVideo.hidden = true;
     status.textContent =
-      "Ролик исключён из этого запуска. Платный анализ исследует только товар и рынок.";
+      sanitizedFields.length
+        ? "Ролик и его YouTube-ссылки исключены из платного запроса. Анализ исследует только товар и рынок."
+        : "Ролик исключён из этого запуска. Платный анализ исследует только товар и рынок.";
     status.dataset.tone = "neutral";
     form.requestSubmit();
   });
@@ -407,6 +466,9 @@ function bind(form, panel) {
   input.addEventListener("input", () => validateInput(input, status));
   input.addEventListener("blur", () => validateInput(input, status));
   form.addEventListener("submit", (event) => {
+    if (panel.dataset.sourceMode === "market-only") {
+      sanitizeMarketOnlyPaidResearch(form);
+    }
     const canonical = validateInput(input, status);
     if (input.value.trim() && !canonical) {
       event.preventDefault();

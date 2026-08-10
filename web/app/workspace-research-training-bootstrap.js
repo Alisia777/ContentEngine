@@ -10,7 +10,7 @@
 (() => {
   "use strict";
 
-  const BUILD = "20260806.research.24";
+  const BUILD = "20260810.research.26";
   const SCRIPT_URL = document.currentScript?.src || window.location.href;
   const BASE_URL = new URL(".", SCRIPT_URL);
   const loadedStyles = new Map();

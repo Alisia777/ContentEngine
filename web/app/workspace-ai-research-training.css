@@ -186,17 +186,88 @@
 
 .ai-research-training__history { border-top: 1px solid color-mix(in srgb, var(--line, #34291f) 70%, transparent); padding-top: 12px; }
 .ai-research-training__history > summary { cursor: pointer; color: var(--muted, #a99c90); }
-.ai-research-training__history-grid { display: grid; gap: 8px; margin-top: 10px; }
+.ai-research-training__history-grid { display: grid; gap: 10px; margin-top: 10px; }
 .ai-research-training__learned-card {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
+  overflow: clip;
+  border: 1px solid color-mix(in srgb, #71c58d 22%, var(--line, #34291f));
   border-radius: 10px;
   background: color-mix(in srgb, #71c58d 8%, transparent);
 }
-.ai-research-training__learned-card > div { display: grid; gap: 2px; }
+.ai-research-training__learned-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  list-style: none;
+}
+.ai-research-training__learned-summary::-webkit-details-marker { display: none; }
+.ai-research-training__learned-summary > span:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
 .ai-research-training__learned-card small { color: var(--muted, #a99c90); }
+.ai-research-training__learned-state {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #71c58d 16%, transparent);
+  color: #9fddb0;
+  font-size: 12px;
+}
+.ai-research-training__learned-body {
+  display: grid;
+  gap: 16px;
+  padding: 0 14px 14px;
+}
+.ai-research-training__learned-section {
+  display: grid;
+  gap: 9px;
+  padding-top: 14px;
+  border-top: 1px solid color-mix(in srgb, var(--line, #34291f) 68%, transparent);
+}
+.ai-research-training__learned-section h5,
+.ai-research-training__learned-section p { margin: 0; }
+.ai-research-training__snapshot-grid,
+.ai-research-training__learned-recommendations {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+.ai-research-training__snapshot-card,
+.ai-research-training__learned-recommendation {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid color-mix(in srgb, var(--line, #34291f) 72%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface, #15110e) 82%, transparent);
+}
+.ai-research-training__learned-recommendation header {
+  display: grid;
+  gap: 3px;
+}
+.ai-research-training__learned-recommendation p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ai-research-training__editable-note { font-style: italic; }
+.ai-research-training__learned-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.ai-research-training__learned-chips span {
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent, #ed9a51) 12%, transparent);
+  color: var(--accent, #ed9a51);
+  font-size: 12px;
+}
 
 .ai-research-training__empty {
   display: grid;
@@ -213,7 +284,9 @@
   .ai-research-training__header,
   .ai-research-training__sources,
   .ai-research-training__insights,
-  .ai-research-training__scenario-grid {
+  .ai-research-training__scenario-grid,
+  .ai-research-training__snapshot-grid,
+  .ai-research-training__learned-recommendations {
     grid-template-columns: 1fr;
   }
   .ai-research-training__scenario-grid .ai-research-training__edit-field:nth-child(3),
@@ -224,7 +297,8 @@
 
 @media (max-width: 620px) {
   .ai-research-training__receipt-summary,
-  .ai-research-training__scenario-header {
+  .ai-research-training__scenario-header,
+  .ai-research-training__learned-summary {
     align-items: flex-start;
     flex-direction: column;
   }

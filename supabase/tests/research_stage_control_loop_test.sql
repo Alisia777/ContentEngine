@@ -253,6 +253,37 @@ insert into content_factory.memberships (
   'fa000000-0000-4000-8000-000000000001',
   'f9000000-0000-4000-8000-000000000002', 'reviewer', 'active'
 );
+
+insert into content_factory.workspace_folders (
+  id, organization_id, parent_id, name, color_token, kind, system_role,
+  status, position, created_by, updated_by
+) values (
+  'fa500000-0000-4000-8000-000000000001',
+  'fa000000-0000-4000-8000-000000000001', null,
+  'Stage Control project', 'blue', 'project', null,
+  'active', 1024,
+  'f9000000-0000-4000-8000-000000000001',
+  'f9000000-0000-4000-8000-000000000001'
+), (
+  'fa500000-0000-4000-8000-000000000002',
+  'fa000000-0000-4000-8000-000000000001', null,
+  'Unrelated stage control project', 'violet', 'project', null,
+  'active', 2048,
+  'f9000000-0000-4000-8000-000000000001',
+  'f9000000-0000-4000-8000-000000000001'
+);
+
+insert into content_factory.workspace_project_memberships (
+  organization_id, project_id, profile_id, access_role, status,
+  granted_by, updated_by
+) values (
+  'fa000000-0000-4000-8000-000000000001',
+  'fa500000-0000-4000-8000-000000000001',
+  'f9000000-0000-4000-8000-000000000002',
+  'member', 'active',
+  'f9000000-0000-4000-8000-000000000001',
+  'f9000000-0000-4000-8000-000000000001'
+);
 -- This test exercises stage concurrency and correction semantics, not course
 -- grading. Use the same explicit, attributable owner waiver supported by the
 -- production selected-waiver workflow instead of fabricating training proof.
@@ -275,11 +306,12 @@ insert into content_factory.products (
   'f9000000-0000-4000-8000-000000000001'
 );
 insert into content_factory.product_research_runs (
-  id, organization_id, product_id, created_by, status, input, summary,
+  id, organization_id, project_id, product_id, created_by, status, input, summary,
   request_hash, completion_hash, idempotency_key, finished_at
 ) values (
   'fc000000-0000-4000-8000-000000000001',
   'fa000000-0000-4000-8000-000000000001',
+  'fa500000-0000-4000-8000-000000000001',
   'fb000000-0000-4000-8000-000000000001',
   'f9000000-0000-4000-8000-000000000001',
   'completed',
@@ -390,10 +422,29 @@ select is(
   'all baseline artifacts bind canonical input snapshots and hashes'
 );
 
+select throws_ok(
+  $$select public.creator_research_stage_control_status(jsonb_build_object(
+    'organization_id', 'fa000000-0000-4000-8000-000000000001',
+    'run_id', 'fc000000-0000-4000-8000-000000000001'
+  ))$$,
+  '22023', 'project_id_invalid',
+  'status requires the exact project identifier in every browser request'
+);
+select throws_ok(
+  $$select public.creator_research_stage_control_status(jsonb_build_object(
+    'organization_id', 'fa000000-0000-4000-8000-000000000001',
+    'project_id', 'fa500000-0000-4000-8000-000000000002',
+    'run_id', 'fc000000-0000-4000-8000-000000000001'
+  ))$$,
+  '42501', 'research_run_project_scope_mismatch',
+  'status rejects a run from another accessible project'
+);
+
 select is(
   jsonb_array_length(public.creator_research_stage_control_status(
     jsonb_build_object(
       'organization_id', 'fa000000-0000-4000-8000-000000000001',
+      'project_id', 'fa500000-0000-4000-8000-000000000001',
       'run_id', 'fc000000-0000-4000-8000-000000000001',
       'history_limit', 3
     )
@@ -404,6 +455,7 @@ select is(
 select matches(
   public.creator_research_stage_control_status(jsonb_build_object(
     'organization_id', 'fa000000-0000-4000-8000-000000000001',
+    'project_id', 'fa500000-0000-4000-8000-000000000001',
     'run_id', 'fc000000-0000-4000-8000-000000000001'
   )) #>> '{selected_branch,branch_revision_hash}',
   '^[0-9a-f]{64}$',
@@ -413,6 +465,7 @@ select is(
   jsonb_array_length(public.creator_research_stage_control_status(
     jsonb_build_object(
       'organization_id', 'fa000000-0000-4000-8000-000000000001',
+      'project_id', 'fa500000-0000-4000-8000-000000000001',
       'run_id', 'fc000000-0000-4000-8000-000000000001',
       'history_limit', 3
     )
@@ -423,6 +476,7 @@ select is(
 select throws_ok(
   $$select public.creator_research_stage_control_status(jsonb_build_object(
     'organization_id', 'fa000000-0000-4000-8000-000000000001',
+    'project_id', 'fa500000-0000-4000-8000-000000000001',
     'run_id', 'fc000000-0000-4000-8000-000000000001',
     'history_limit', 101
   ))$$,
@@ -439,6 +493,7 @@ end $$;
 select lives_ok(
   $$select public.creator_research_stage_control_status(jsonb_build_object(
     'organization_id', 'fa000000-0000-4000-8000-000000000001',
+    'project_id', 'fa500000-0000-4000-8000-000000000001',
     'run_id', 'fc000000-0000-4000-8000-000000000001'
   ))$$,
   'reviewer can inspect the exact stage-control graph'
@@ -446,6 +501,7 @@ select lives_ok(
 select throws_ok(
   $$select public.creator_control_research_stage(jsonb_build_object(
     'organization_id', 'fa000000-0000-4000-8000-000000000001',
+    'project_id', 'fa500000-0000-4000-8000-000000000001',
     'run_id', 'fc000000-0000-4000-8000-000000000001',
     'branch_id', (select branch_id from stage_control_context),
     'stage', 'category', 'action', 'reject',
@@ -477,6 +533,7 @@ end $$;
 select throws_ok(
   $$select public.creator_control_research_stage(jsonb_build_object(
     'organization_id', 'fa000000-0000-4000-8000-000000000001',
+    'project_id', 'fa500000-0000-4000-8000-000000000001',
     'run_id', 'fc000000-0000-4000-8000-000000000001',
     'branch_id', (select branch_id from stage_control_context),
     'stage', 'category', 'action', 'patch',
@@ -503,6 +560,7 @@ select throws_ok(
 select throws_ok(
   $$select public.creator_control_research_stage(jsonb_build_object(
     'organization_id', 'fa000000-0000-4000-8000-000000000001',
+    'project_id', 'fa500000-0000-4000-8000-000000000001',
     'run_id', 'fc000000-0000-4000-8000-000000000001',
     'branch_id', (select branch_id from stage_control_context),
     'stage', 'category', 'action', 'patch',
@@ -530,6 +588,7 @@ select throws_ok(
 select throws_ok(
   $$select public.creator_control_research_stage(jsonb_build_object(
     'organization_id', 'fa000000-0000-4000-8000-000000000001',
+    'project_id', 'fa500000-0000-4000-8000-000000000001',
     'run_id', 'fc000000-0000-4000-8000-000000000001',
     'branch_id', (select branch_id from stage_control_context),
     'stage', 'category', 'action', 'patch',
@@ -553,6 +612,7 @@ select throws_ok(
 update stage_control_context context
 set patch_result = public.creator_control_research_stage(jsonb_build_object(
   'organization_id', 'fa000000-0000-4000-8000-000000000001',
+  'project_id', 'fa500000-0000-4000-8000-000000000001',
   'run_id', 'fc000000-0000-4000-8000-000000000001',
   'branch_id', context.branch_id,
   'stage', 'category', 'action', 'patch',
@@ -675,6 +735,7 @@ begin
 
   perform public.creator_control_research_stage(jsonb_build_object(
     'organization_id', 'fa000000-0000-4000-8000-000000000001',
+    'project_id', 'fa500000-0000-4000-8000-000000000001',
     'run_id', 'fc000000-0000-4000-8000-000000000001',
     'branch_id', branch_id_value,
     'stage', 'brief', 'action', 'patch',
@@ -754,6 +815,7 @@ select throws_ok(
 update stage_control_context context
 set fork_result = public.creator_control_research_stage(jsonb_build_object(
   'organization_id', 'fa000000-0000-4000-8000-000000000001',
+  'project_id', 'fa500000-0000-4000-8000-000000000001',
   'run_id', 'fc000000-0000-4000-8000-000000000001',
   'branch_id', context.branch_id,
   'stage', 'category', 'action', 'fork',
@@ -807,6 +869,7 @@ select is(
 select ok(
   public.creator_research_stage_control_status(jsonb_build_object(
     'organization_id', 'fa000000-0000-4000-8000-000000000001',
+    'project_id', 'fa500000-0000-4000-8000-000000000001',
     'run_id', 'fc000000-0000-4000-8000-000000000001',
     'branch_id', (
       select fork_result ->> 'branch_id' from stage_control_context
@@ -817,6 +880,7 @@ select ok(
     from jsonb_array_elements(
       public.creator_research_stage_control_status(jsonb_build_object(
         'organization_id', 'fa000000-0000-4000-8000-000000000001',
+        'project_id', 'fa500000-0000-4000-8000-000000000001',
         'run_id', 'fc000000-0000-4000-8000-000000000001',
         'branch_id', (
           select fork_result ->> 'branch_id' from stage_control_context
@@ -831,6 +895,7 @@ select ok(
 select throws_ok(
   $$select public.creator_control_research_stage(jsonb_build_object(
     'organization_id', 'fa000000-0000-4000-8000-000000000001',
+    'project_id', 'fa500000-0000-4000-8000-000000000001',
     'run_id', 'fc000000-0000-4000-8000-000000000001',
     'branch_id', (select fork_result ->> 'branch_id'
                   from stage_control_context),
@@ -862,6 +927,7 @@ select throws_ok(
 update stage_control_context context
 set reject_result = public.creator_control_research_stage(jsonb_build_object(
   'organization_id', 'fa000000-0000-4000-8000-000000000001',
+  'project_id', 'fa500000-0000-4000-8000-000000000001',
   'run_id', 'fc000000-0000-4000-8000-000000000001',
   'branch_id', context.branch_id,
   'stage', 'category', 'action', 'reject',
@@ -904,6 +970,7 @@ update stage_control_context context
 set recompute_result = public.creator_control_research_stage(
   jsonb_build_object(
     'organization_id', 'fa000000-0000-4000-8000-000000000001',
+    'project_id', 'fa500000-0000-4000-8000-000000000001',
     'run_id', 'fc000000-0000-4000-8000-000000000001',
     'branch_id', context.branch_id,
     'stage', 'category', 'action', 'recompute',
@@ -963,11 +1030,13 @@ select ok(
   (
     public.creator_research_stage_control_status(jsonb_build_object(
       'organization_id', 'fa000000-0000-4000-8000-000000000001',
+      'project_id', 'fa500000-0000-4000-8000-000000000001',
       'run_id', 'fc000000-0000-4000-8000-000000000001'
     )) #>> '{active_recompute,can_cancel}'
   )::boolean
   and public.creator_research_stage_control_status(jsonb_build_object(
     'organization_id', 'fa000000-0000-4000-8000-000000000001',
+    'project_id', 'fa500000-0000-4000-8000-000000000001',
     'run_id', 'fc000000-0000-4000-8000-000000000001'
   )) #>> '{guidance,recommended_next_action}'
     = 'invoke_saved_recompute_or_cancel',
@@ -1003,6 +1072,7 @@ begin
   status_value := public.creator_research_stage_control_status(
     jsonb_build_object(
       'organization_id', 'fa000000-0000-4000-8000-000000000001',
+      'project_id', 'fa500000-0000-4000-8000-000000000001',
       'run_id', 'fc000000-0000-4000-8000-000000000001'
     )
   );
@@ -1028,6 +1098,7 @@ update stage_control_context context
 set cancel_result = public.creator_control_research_stage(
   jsonb_build_object(
     'organization_id', 'fa000000-0000-4000-8000-000000000001',
+    'project_id', 'fa500000-0000-4000-8000-000000000001',
     'run_id', 'fc000000-0000-4000-8000-000000000001',
     'branch_id', context.branch_id,
     'stage', 'category', 'action', 'cancel',
@@ -1071,6 +1142,7 @@ select ok(
   )
   and public.creator_research_stage_control_status(jsonb_build_object(
     'organization_id', 'fa000000-0000-4000-8000-000000000001',
+    'project_id', 'fa500000-0000-4000-8000-000000000001',
     'run_id', 'fc000000-0000-4000-8000-000000000001'
   )) -> 'active_recompute' = 'null'::jsonb,
   'cancel releases the active branch slot and never consumes an attempt'
@@ -1104,6 +1176,7 @@ select ok(
 update stage_control_context context
 set revert_result = public.creator_control_research_stage(jsonb_build_object(
   'organization_id', 'fa000000-0000-4000-8000-000000000001',
+  'project_id', 'fa500000-0000-4000-8000-000000000001',
   'run_id', 'fc000000-0000-4000-8000-000000000001',
   'branch_id', context.branch_id,
   'stage', 'category', 'action', 'revert',
@@ -1151,6 +1224,7 @@ select ok(
 select throws_ok(
   $$select public.creator_control_research_stage(jsonb_build_object(
     'organization_id', 'fa000000-0000-4000-8000-000000000001',
+    'project_id', 'fa500000-0000-4000-8000-000000000001',
     'run_id', 'fc000000-0000-4000-8000-000000000001',
     'branch_id', (select branch_id from stage_control_context),
     'stage', 'sources', 'action', 'recompute',

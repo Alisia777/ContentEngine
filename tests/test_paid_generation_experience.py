@@ -1,4 +1,7 @@
+import json
 from pathlib import Path
+import shutil
+import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,16 +16,140 @@ def _function(name: str, next_name: str) -> str:
     return APP[start:end]
 
 
-def test_active_paid_jobs_poll_every_seven_seconds_only_in_visible_generation_view() -> None:
+def test_active_paid_jobs_poll_every_seven_seconds_across_visible_workspace_routes() -> None:
     assert "const REAL_GENERATION_POLL_INTERVAL_MS = 7_000" in APP
-    assert 'document.visibilityState !== "visible"' in APP
-    assert 'state.route.path !== "/workspace/generation"' in APP
     assert "REAL_GENERATION_ACTIVE_STATUSES.has(details.status)" in APP
 
+    events = _function("bindGlobalEvents", "normalizeGenerationResearchPresetEvent")
+    jobs = _function("realGenerationJobsFromBatches", "realGenerationReconciliationJobsFromBatches")
+    schedule = _function("scheduleRealGenerationPolling", "runRealGenerationPolling")
     polling = _function("runRealGenerationPolling", "requestRealGenerationStatus")
+    assert events.count("scheduleRealGenerationPolling(250)") >= 2
+    assert "details.real" in jobs
+    assert "state.realGenerationResults.entries()" in jobs
+    assert "cachedProjectId !== projectId" in jobs
+    assert "normalizeBoolean(job.reconciliation_required)" in jobs
+    assert "REAL_GENERATION_ACTIVE_STATUSES.has(status)" in jobs
+    assert 'document.visibilityState !== "visible"' in schedule
+    assert 'state.route.path !== "/workspace/generation"' not in schedule
+    assert 'state.route.path !== "/workspace/generation"' not in polling
+    assert 'if (state.route.path !== "/workspace/generation") stopRealGenerationPolling();' not in APP
     assert "waitForRealGenerationStatus" in polling
     assert "startRealGeneration" not in polling
     assert "Promise.allSettled" in polling
+
+
+def test_cached_files_reread_registered_output_after_background_real_generation_success() -> None:
+    node = shutil.which("node")
+    assert node is not None, "Node.js is required for the paid-generation UI contract"
+    invalidate = _function(
+        "invalidateGeneratedMediaWorkspaceCaches",
+        "applyRealGenerationResult",
+    )
+    apply_result = _function(
+        "applyRealGenerationResult",
+        "applyRealGenerationStatusError",
+    )
+    script = f"{invalidate}\n{apply_result}\n" + r"""
+const projectId = "11111111-1111-4111-8111-111111111111";
+const jobId = "22222222-2222-4222-8222-222222222222";
+const outputMediaId = "33333333-3333-4333-8333-333333333333";
+const state = {
+  route: { path: "/workspace/board" },
+  dataEpoch: 7,
+  user: { id: "user-1" },
+  session: { access_token: "test" },
+  sections: {
+    board: { requestId: 4, status: "ready", data: { media: [] }, error: null },
+    media: { requestId: 2, status: "ready", data: { media: [] }, error: null },
+    review: { requestId: 3, status: "ready", data: { runs: [] }, error: null },
+    generation: {
+      data: {
+        batches: [{
+          mode: "real",
+          status: "queued",
+          parameters: { mode: "real", job_id: jobId, job_status: "queued" },
+        }],
+      },
+    },
+  },
+  realGenerationResults: new Map([[
+    jobId,
+    { projectId, job: { id: jobId, status: "queued", model: "seedream5_lite" } },
+  ]]),
+};
+const window = { queueMicrotask };
+let filesRereads = 0;
+let spendRefreshes = 0;
+
+function currentWorkspaceProjectId() { return projectId; }
+function isTrustedGenerationDownload() { return false; }
+function normalizeBoolean(value) { return value === true; }
+function contentReviewUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(String(value || ""));
+}
+function patchGenerationBatch(id, job) {
+  const batch = state.sections.generation.data.batches.find(
+    (item) => item.parameters.job_id === id,
+  );
+  batch.status = job.status;
+  batch.parameters.job_status = job.status;
+  batch.parameters.output_media_id = job.output_media_id;
+}
+function loadGenerationSpendOverview() { spendRefreshes += 1; return Promise.resolve(); }
+function toast() {}
+function generationFailureMessage() { return "failed"; }
+function scheduleGeneratedVideoTechnicalQa() {}
+function render() {}
+async function loadSection(section, options) {
+  if (section !== "board" || options?.silent !== true) throw new Error("unexpected reread");
+  filesRereads += 1;
+  const target = state.sections[section];
+  const requestId = target.requestId + 1;
+  target.requestId = requestId;
+  target.status = target.data ? "refreshing" : "loading";
+  await Promise.resolve();
+  if (requestId !== target.requestId) return;
+  target.data = { media: [{ id: outputMediaId }] };
+  target.status = "ready";
+}
+
+const succeededResult = {
+  job: {
+    id: jobId,
+    project_id: projectId,
+    status: "succeeded",
+    model: "seedream5_lite",
+    output_media_id: outputMediaId,
+  },
+};
+applyRealGenerationResult(jobId, succeededResult, { source: "auto", projectId });
+applyRealGenerationResult(jobId, succeededResult, { source: "auto", projectId });
+
+await new Promise((resolve) => setTimeout(resolve, 0));
+console.log(JSON.stringify({
+  filesRereads,
+  spendRefreshes,
+  boardStatus: state.sections.board.status,
+  mediaStatus: state.sections.media.status,
+  reviewStatus: state.sections.review.status,
+  outputVisible: state.sections.board.data.media.some((item) => item.id === outputMediaId),
+}));
+"""
+    completed = subprocess.run(
+        [node, "--input-type=module", "--eval", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert json.loads(completed.stdout) == {
+        "filesRereads": 1,
+        "spendRefreshes": 1,
+        "boardStatus": "ready",
+        "mediaStatus": "idle",
+        "reviewStatus": "idle",
+        "outputVisible": True,
+    }
 
 
 def test_status_requests_have_a_soft_timeout_and_are_reused_while_still_running() -> None:

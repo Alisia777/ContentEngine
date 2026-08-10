@@ -15,6 +15,7 @@ MIGRATION = ROOT / "supabase" / "migrations" / (
 RESEARCH = APP / "workspace-research-video-intake.js"
 AI_CENTER = APP / "workspace-ai-exact-youtube-sources.js"
 BOOTSTRAP = APP / "workspace-research-training-bootstrap.js"
+SUPABASE_API = APP / "supabase-api.js"
 
 
 def read(path: Path) -> str:
@@ -83,7 +84,7 @@ def test_research_submit_registers_source_before_any_paid_analysis() -> None:
 def test_ai_center_surfaces_url_only_source_without_calling_it_learning() -> None:
     source = read(AI_CENTER)
     for marker in (
-        "contentengine_exact_youtube_source_queue",
+        "exactYoutubeSourceQueue",
         "Видео до обучения",
         "Ждёт MP4",
         "Кадры, монтаж и речь ещё не анализировались",
@@ -93,6 +94,10 @@ def test_ai_center_surfaces_url_only_source_without_calling_it_learning() -> Non
         "Загрузить MP4 и продолжить",
     ):
         assert marker in source
+    assert (
+        'exactYoutubeSourceQueue: "contentengine_exact_youtube_source_queue"'
+        in read(SUPABASE_API)
+    )
     assert "workspace-ai-exact-youtube-sources.css" in read(BOOTSTRAP)
     assert "workspace-ai-exact-youtube-sources.js" in read(BOOTSTRAP)
 

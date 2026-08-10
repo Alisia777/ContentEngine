@@ -6,8 +6,9 @@
  * separate analysis receipt exists.
  */
 
+import { writeExactYoutubeMediaHandoff } from "./exact-youtube-media-handoff.js?v=20260810.exact-video.2";
+
 const ROUTE = "/workspace/ai";
-const RPC_QUEUE = "contentengine_exact_youtube_source_queue";
 const ROOT_ATTRIBUTE = "data-ai-exact-youtube-sources-root";
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
@@ -49,16 +50,6 @@ function el(tag, className = "", text = "") {
 
 function clean(value, limit = 500) {
   return String(value ?? "").replace(/\s+/gu, " ").trim().slice(0, limit);
-}
-
-function payloadWithOrganization(api, payload) {
-  if (typeof api?.withOrganization === "function") {
-    return api.withOrganization(payload);
-  }
-  if (api?.organizationId) {
-    return { organization_id: api.organizationId, ...payload };
-  }
-  return payload;
 }
 
 async function getApi() {
@@ -104,7 +95,44 @@ function ensureRoot() {
   return root;
 }
 
-function renderHeader(root, count) {
+function workspaceHash(path, values = {}) {
+  const query = new URLSearchParams();
+  Object.entries(values).forEach(([key, value]) => {
+    const normalized = clean(value, 500);
+    if (normalized) query.set(key, normalized);
+  });
+  return `#${path}?${query.toString()}`;
+}
+
+export function beginMediaHandoff(source) {
+  const context = window.ContentEngineWorkspaceRuntime
+    ?.getExactYoutubeHandoffContext?.() || {};
+  const currentProjectId = projectId();
+  if (String(context.project_id || "").trim().toLowerCase() !== currentProjectId) {
+    return false;
+  }
+  return writeExactYoutubeMediaHandoff(window.sessionStorage, {
+    organization_id: context.organization_id,
+    user_id: context.user_id,
+    session_id: context.session_id,
+    project_id: currentProjectId,
+    source_id: clean(source?.id, 64).toLowerCase(),
+    canonical_url: clean(source?.canonical_url, 300),
+    product_name: clean(source?.product_name, 300),
+    product_sku: clean(source?.product_sku, 160),
+  });
+}
+
+function renderHeader(root, sources) {
+  const attached = sources.filter(
+    (source) => source?.status === "media_attached"
+      && source?.analysis_ready === true,
+  ).length;
+  const restore = sources.filter(
+    (source) => source?.status === "media_attached"
+      && source?.analysis_ready !== true,
+  ).length;
+  const awaiting = sources.length - attached - restore;
   const header = el("header", "ai-exact-youtube-sources__head");
   const copy = el("div");
   const eyebrow = el("p", "eyebrow", "ИСТОЧНИКИ ИЗ ИССЛЕДОВАНИЙ");
@@ -119,7 +147,11 @@ function renderHeader(root, count) {
   const badge = el(
     "span",
     "ai-exact-youtube-sources__count",
-    count ? `${count} ждут медиа` : "Очередь пуста",
+    [
+      awaiting ? `${awaiting} ждут MP4` : "",
+      attached ? `${attached} готовы к разбору` : "",
+      restore ? `${restore} требуют проверки файла` : "",
+    ].filter(Boolean).join(" · ") || "Очередь пуста",
   );
   header.append(copy, badge);
   root.append(header);
@@ -134,7 +166,21 @@ function sourceCard(source) {
     "",
     clean(source.product_name, 180) || `YouTube · ${clean(source.video_id, 20)}`,
   );
-  const status = el("span", "ai-exact-youtube-source__status", "Ждёт MP4");
+  const attachedMediaId = clean(source?.media?.id, 64).toLowerCase();
+  const hasAttachment = source?.status === "media_attached";
+  const attached = hasAttachment
+    && source?.analysis_ready === true
+    && UUID_PATTERN.test(attachedMediaId);
+  const restore = hasAttachment && !attached;
+  const status = el(
+    "span",
+    "ai-exact-youtube-source__status",
+    attached
+      ? "MP4 привязан"
+      : restore
+        ? "Проверьте сохранённый MP4"
+        : "Ждёт MP4",
+  );
   head.append(title, status);
 
   const link = el("a", "ai-exact-youtube-source__url", clean(source.canonical_url, 240));
@@ -145,7 +191,11 @@ function sourceCard(source) {
   const explanation = el(
     "p",
     "",
-    "Шаг 1 выполнен: точный ролик зарегистрирован. Кадры, монтаж и речь ещё не анализировались, поэтому этот источник пока не может обучать ИИ.",
+    attached
+      ? "MP4 сохранён и связан с точным источником. Разбор пяти контрольных кадров и визуальной механики ещё не выполнен; речь, аудио и полный видеопоток внешнему ИИ не передаются. До отдельной квитанции исследования источник не влияет на рекомендации ИИ."
+      : restore
+        ? "Связь с MP4 сохранена, но сервер больше не подтверждает готовность файла. Не загружайте другой ролик вместо него: сначала проверьте исходник в Файлах."
+        : "Шаг 1 выполнен: точный ролик зарегистрирован. Кадры, монтаж и речь ещё не анализировались. Выбранный путь позже анализирует только пять контрольных JPEG и визуальную механику; речь, аудио и полный поток не передаются. Поэтому источник пока не может обучать ИИ.",
   );
   const meta = el("small", "ai-exact-youtube-source__meta");
   const sku = clean(source.product_sku, 100);
@@ -156,12 +206,55 @@ function sourceCard(source) {
   ].join(" · ");
 
   const actions = el("div", "ai-exact-youtube-source__actions");
-  const upload = el("a", "btn btn-primary btn-small", "Загрузить MP4 и продолжить");
-  upload.href = clean(source.files_deep_link, 500)
-    || `#/workspace/board?project_id=${encodeURIComponent(projectId())}`;
+  const primary = el(
+    "a",
+    "btn btn-primary btn-small",
+    attached
+      ? "Подготовить кадры для исследования"
+      : restore
+        ? "Проверить сохранённый файл"
+        : "Загрузить MP4 и продолжить",
+  );
+  primary.href = attached
+    ? workspaceHash("/workspace/review", {
+        view: "new",
+        media: attachedMediaId,
+        project_id: projectId(),
+        youtube_source: clean(source.id, 64),
+        attachment: clean(source?.attachment?.id, 64),
+        product_name: clean(source.product_name, 300),
+        product_sku: clean(source.product_sku, 160),
+        purpose: "exact_youtube_research",
+      })
+    : restore
+      ? workspaceHash("/workspace/board", {
+          project_id: projectId(),
+        })
+      : workspaceHash("/workspace/media", {
+        project_id: projectId(),
+        youtube_source: clean(source.id, 64),
+        video_url: clean(source.canonical_url, 300),
+        product_name: clean(source.product_name, 300),
+        product_sku: clean(source.product_sku, 160),
+        return_to: workspaceHash("/workspace/ai", {
+          project_id: projectId(),
+          youtube_source: clean(source.id, 64),
+        }),
+      });
+  if (!attached && !restore) {
+    primary.dataset.exactYoutubeQueueUpload = "true";
+    primary.addEventListener("click", (event) => {
+      if (beginMediaHandoff(source)) return;
+      event.preventDefault();
+      primary.setAttribute("aria-disabled", "true");
+      status.textContent = "Обновите ИИ-центр";
+      explanation.textContent =
+        "Контекст пользователя, проекта или вкладки изменился. MP4 не выбран и не загружен; обновите ИИ-центр и снова откройте этот источник.";
+    });
+  }
   const research = el("a", "btn btn-secondary btn-small", "Открыть Исследования");
   research.href = `#/workspace/research?project_id=${encodeURIComponent(projectId())}&source_url=${encodeURIComponent(clean(source.canonical_url, 300))}`;
-  actions.append(upload, research);
+  actions.append(primary, research);
 
   card.append(head, link, explanation, meta, actions);
   return card;
@@ -169,7 +262,7 @@ function sourceCard(source) {
 
 function render(root, sources) {
   root.replaceChildren();
-  renderHeader(root, sources.length);
+  renderHeader(root, sources);
   if (!sources.length) {
     const empty = el("div", "ai-exact-youtube-sources__empty");
     empty.append(
@@ -190,7 +283,7 @@ function render(root, sources) {
 
 function renderError(root) {
   root.replaceChildren();
-  renderHeader(root, 0);
+  renderHeader(root, []);
   const error = el("div", "ai-exact-youtube-sources__empty is-error");
   error.append(
     el("strong", "", "Очередь видеоисточников не загрузилась"),
@@ -213,13 +306,13 @@ async function load() {
   root.setAttribute("aria-busy", "true");
   try {
     const api = await getApi();
-    const response = await api.call(
-      RPC_QUEUE,
-      payloadWithOrganization(api, {
-        project_id: currentProjectId,
-        limit: 30,
-      }),
-    );
+    if (typeof api.exactYoutubeSourceQueue !== "function") {
+      throw new Error("exact_youtube_queue_api_unavailable");
+    }
+    const response = await api.exactYoutubeSourceQueue({
+      projectId: currentProjectId,
+      limit: 30,
+    });
     if (runtime.requestKey !== requestKey || routePath() !== ROUTE) return;
     const value = response?.data && typeof response.data === "object"
       && !Array.isArray(response.data)
@@ -227,7 +320,10 @@ async function load() {
       : response;
     if (
       value?.ok !== true
-      || value?.version !== "exact-youtube-source-queue-v1"
+      || !new Set([
+        "exact-youtube-source-queue-v1",
+        "exact-youtube-source-queue-v2",
+      ]).has(value?.version)
       || value?.project_id !== currentProjectId
       || !Array.isArray(value?.sources)
       || value?.contract?.url_is_video_evidence !== false

@@ -51,7 +51,14 @@ def test_new_research_form_restores_safe_inputs_but_not_spend_confirmation() -> 
         """
         const html = subject.productResearchInputMarkup({
           notice: "Прежний снимок сохранён; запуск не выполнен.",
-          media: [{ id: "media-1", title: "Упаковка" }],
+          media: [{
+            id: "media-1",
+            title: "Упаковка",
+            kind: "product_photo",
+            status: "ready",
+            mime_type: "image/webp",
+            sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          }],
           defaults: {
             productName: "Тестовый товар",
             sku: "SKU-42",

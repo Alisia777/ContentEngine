@@ -7,7 +7,11 @@
  * without starting any provider or paid operation.
  */
 
-import { productResearchInputMarkup } from "./product-research-view.js";
+import { productResearchInputMarkup } from "./product-research-view.js?v=20260810.os4.24";
+import {
+  readExactYoutubeMediaHandoff,
+  writeExactYoutubeMediaHandoff,
+} from "./exact-youtube-media-handoff.js?v=20260810.exact-video.2";
 
 const RESEARCH_ROUTE = "/workspace/research";
 const MEDIA_ROUTE = "/workspace/media";
@@ -86,20 +90,62 @@ function clearPendingSource() {
   }
 }
 
-function rememberUploadHandoff(sourceId, canonicalUrl) {
-  try {
-    window.sessionStorage.setItem(
-      "contentengine.research.youtube.upload-handoff.v1",
-      JSON.stringify({
-        project_id: currentProjectId(),
-        source_id: sourceId,
-        canonical_url: canonicalUrl,
-        requested_at: new Date().toISOString(),
-      }),
-    );
-  } catch {
-    // The URL still carries the recovery context.
+function rememberUploadHandoff(
+  sourceId,
+  canonicalUrl,
+  productName = "",
+  productSku = "",
+) {
+  const context = window.ContentEngineWorkspaceRuntime
+    ?.getExactYoutubeHandoffContext?.() || {};
+  return writeExactYoutubeMediaHandoff(window.sessionStorage, {
+    organization_id: context.organization_id,
+    user_id: context.user_id,
+    session_id: context.session_id,
+    project_id: currentProjectId(),
+    source_id: sourceId,
+    canonical_url: canonicalUrl,
+    product_name: productName,
+    product_sku: productSku,
+  });
+}
+
+function currentUploadHandoff(sourceId) {
+  const context = window.ContentEngineWorkspaceRuntime
+    ?.getExactYoutubeHandoffContext?.() || {};
+  return readExactYoutubeMediaHandoff(window.sessionStorage, {
+    organization_id: context.organization_id,
+    user_id: context.user_id,
+    session_id: context.session_id,
+    project_id: currentProjectId(),
+    source_id: sourceId,
+  });
+}
+
+function bindUploadHandoffLink(
+  link,
+  {
+    sourceId = "",
+    canonicalUrl = "",
+    productName = "",
+    productSku = "",
+  } = {},
+) {
+  if (!(link instanceof HTMLAnchorElement) || link.dataset.handoffBound === "true") {
+    return;
   }
+  link.dataset.handoffBound = "true";
+  link.addEventListener("click", (event) => {
+    if (rememberUploadHandoff(
+      sourceId,
+      canonicalUrl,
+      productName,
+      productSku,
+    )) return;
+    event.preventDefault();
+    link.setAttribute("aria-disabled", "true");
+    link.title = "Контекст пользователя, проекта или вкладки изменился. Обновите экран.";
+  });
 }
 
 function findAction(root, pattern) {
@@ -121,11 +167,15 @@ export function mediaHandoffHash({
   projectId = currentProjectId(),
   sourceId = "",
   canonicalUrl = "",
+  productName = "",
+  productSku = "",
 } = {}) {
   return hashUrl(MEDIA_ROUTE, {
     project_id: projectId,
     youtube_source: sourceId || "pending_media",
     video_url: canonicalUrl,
+    product_name: productName,
+    product_sku: productSku,
     return_to: hashUrl(RESEARCH_ROUTE, {
       project_id: projectId,
       recovery: "1",
@@ -203,11 +253,13 @@ function scheduleDesktopFlush() {
   });
 }
 
-function recoveryBannerMarkup(projectId, pending) {
+function recoveryBannerMarkup(projectId, pending, defaults = {}) {
   const uploadHref = mediaHandoffHash({
     projectId,
     sourceId: pending?.sourceId || "",
     canonicalUrl: pending?.canonicalUrl || "",
+    productName: defaults.productName || "",
+    productSku: defaults.sku || "",
   });
   return `
     <section class="research-failure-recovery-card card card-pad" role="status">
@@ -228,23 +280,33 @@ function renderFreshResearch() {
   }
   const target = researchTarget();
   if (!(target instanceof HTMLElement)) return false;
+  const pending = readPendingSource();
   clearPendingSource();
   target.querySelectorAll(FAILURE_GUARD_SELECTOR).forEach((node) => node.remove());
   if (target.getAttribute(RECOVERY_ROOT_ATTRIBUTE) === "true") return true;
 
   const projectId = currentProjectId();
-  const pending = readPendingSource();
+  const defaults = researchDefaults();
   target.setAttribute(RECOVERY_ROOT_ATTRIBUTE, "true");
-  target.innerHTML = `${recoveryBannerMarkup(projectId, pending)}${
+  target.innerHTML = `${recoveryBannerMarkup(projectId, pending, defaults)}${
     productResearchInputMarkup({
       media: [],
       mediaLoading: false,
       notice:
         "Предыдущий terminal-failure закрыт. Заполните новый запуск либо сначала загрузите MP4.",
-      defaults: researchDefaults(),
+      defaults,
     })
   }`;
   target.querySelectorAll(FAILURE_GUARD_SELECTOR).forEach((node) => node.remove());
+  bindUploadHandoffLink(
+    target.querySelector("[data-research-recovery-upload]"),
+    {
+      sourceId: pending?.sourceId || "",
+      canonicalUrl: pending?.canonicalUrl || "",
+      productName: defaults.productName || "",
+      productSku: defaults.sku || "",
+    },
+  );
   scheduleDesktopFlush();
   window.queueMicrotask(() => {
     target.querySelector(".research-failure-recovery-card")?.scrollIntoView?.({
@@ -270,12 +332,21 @@ function repairFailureGuard() {
   const sourceId = pending?.sourceId
     || sourceIdFromHref(upload?.getAttribute?.("href"));
   const canonicalUrl = pending?.canonicalUrl || "";
+  const defaults = researchDefaults();
   if (upload instanceof HTMLAnchorElement) {
-    upload.href = mediaHandoffHash({ sourceId, canonicalUrl });
+    upload.href = mediaHandoffHash({
+      sourceId,
+      canonicalUrl,
+      productName: defaults.productName,
+      productSku: defaults.sku,
+    });
     upload.textContent = "Загрузить MP4 и продолжить";
     upload.dataset.researchRecoveryUpload = "true";
-    upload.addEventListener("click", () => {
-      rememberUploadHandoff(sourceId, canonicalUrl);
+    bindUploadHandoffLink(upload, {
+      sourceId,
+      canonicalUrl,
+      productName: defaults.productName,
+      productSku: defaults.sku,
     });
   }
 
@@ -323,7 +394,9 @@ function mediaStatus(panel, text, tone = "neutral") {
 function mountMediaHandoff() {
   if (routePath() !== MEDIA_ROUTE) return;
   const params = routeParams();
-  const sourceId = String(params.get("youtube_source") || "").trim();
+  const sourceId = String(params.get("youtube_source") || "")
+    .trim()
+    .toLowerCase();
   if (!sourceId) return;
   const form = document.getElementById("media-upload-form");
   if (!(form instanceof HTMLFormElement)) return;
@@ -338,6 +411,10 @@ function mountMediaHandoff() {
       <p class="eyebrow">ВОССТАНОВЛЕНИЕ ИССЛЕДОВАНИЯ</p>
       <h2>Загрузите именно MP4 ролика</h2>
       <p>Это настоящий экран загрузки. После выбора файла используйте штатную кнопку «Загрузить файлы в защищённую папку» ниже.</p>
+      <label class="acknowledgement youtube-media-handoff__match">
+        <input name="media_matches_registered_source" type="checkbox" form="media-upload-form" required />
+        <span>Подтверждаю: выбранный MP4 — это тот же ролик, что зарегистрированная ссылка YouTube, а не другое видео по теме.</span>
+      </label>
       <div class="youtube-media-handoff__actions">
         <button class="btn btn-primary" type="button" data-youtube-media-choose>Выбрать MP4</button>
         <a class="btn btn-secondary" data-youtube-media-back>Вернуться в Исследования</a>
@@ -346,7 +423,6 @@ function mountMediaHandoff() {
     container.insertBefore(panel, form);
   }
 
-  const canonicalUrl = String(params.get("video_url") || "").trim();
   const back = panel.querySelector("[data-youtube-media-back]");
   if (back instanceof HTMLAnchorElement) {
     back.href = String(params.get("return_to") || "") || freshResearchHash();
@@ -356,8 +432,40 @@ function mountMediaHandoff() {
     mediaStatus(panel, "Форма загрузки ещё не готова. Обновите экран Файлы.", "danger");
     return;
   }
+  if (!UUID_PATTERN.test(sourceId) || !currentProjectId()) {
+    input.disabled = true;
+    mediaStatus(
+      panel,
+      "Ссылка загрузки не содержит точный источник и проект. Вернитесь в ИИ-центр и откройте видео заново.",
+      "danger",
+    );
+    return;
+  }
+  const initialHandoff = currentUploadHandoff(sourceId);
+  if (!initialHandoff.ok) {
+    input.disabled = true;
+    mediaStatus(
+      panel,
+      initialHandoff.code === "handoff_expired"
+        ? "Контекст загрузки истёк. Вернитесь в ИИ-центр и снова нажмите «Загрузить MP4» у нужного источника."
+        : "Эта ссылка не была открыта из текущей вкладки ИИ-центра либо относится к другому пользователю, проекту или источнику. Откройте видеоисточник заново.",
+      "danger",
+    );
+    return;
+  }
+  const savedMediaId = String(
+    initialHandoff.handoff?.progress?.media_id || "",
+  ).trim().toLowerCase();
   input.accept = "video/mp4,.mp4";
   input.multiple = false;
+  const kind = form.elements.namedItem("kind");
+  if (kind instanceof HTMLSelectElement) {
+    kind.value = "source_video";
+    [...kind.options].forEach((option) => {
+      option.disabled = option.value !== "source_video";
+    });
+    kind.dispatchEvent(new Event("change", { bubbles: true }));
+  }
 
   const choose = panel.querySelector("[data-youtube-media-choose]");
   if (choose instanceof HTMLButtonElement && choose.dataset.bound !== "true") {
@@ -379,10 +487,15 @@ function mountMediaHandoff() {
         mediaStatus(panel, "Нужен MP4, а не изображение или другой формат.", "danger");
         return;
       }
-      rememberUploadHandoff(
-        UUID_PATTERN.test(sourceId.toLowerCase()) ? sourceId.toLowerCase() : "",
-        canonicalUrl,
-      );
+      if (!currentUploadHandoff(sourceId).ok) {
+        input.value = "";
+        mediaStatus(
+          panel,
+          "Сессия загрузки изменилась. Вернитесь в ИИ-центр и откройте источник заново.",
+          "danger",
+        );
+        return;
+      }
       mediaStatus(
         panel,
         `Выбран ${file.name}. Теперь нажмите штатную кнопку загрузки ниже.`,
@@ -394,32 +507,75 @@ function mountMediaHandoff() {
       const mp4 = file && (
         file.type === "video/mp4" || file.name.toLowerCase().endsWith(".mp4")
       );
-      if (!mp4) {
+      const registeredRetry = UUID_PATTERN.test(String(
+        currentUploadHandoff(sourceId)?.handoff?.progress?.media_id || "",
+      ).trim().toLowerCase());
+      if (!mp4 && !registeredRetry) {
         event.preventDefault();
         event.stopImmediatePropagation();
         mediaStatus(panel, "Сначала выберите один MP4 для этого источника.", "danger");
         input.focus();
         return;
       }
-      mediaStatus(panel, "MP4 передан штатному загрузчику…", "ready");
+      const matchConfirmed = form.elements
+        .namedItem("media_matches_registered_source");
+      if (!(matchConfirmed instanceof HTMLInputElement) || !matchConfirmed.checked) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        mediaStatus(
+          panel,
+          "Подтвердите, что MP4 является именно зарегистрированным YouTube-роликом. Другой референс нужно зарегистрировать отдельно.",
+          "danger",
+        );
+        matchConfirmed?.focus?.();
+        return;
+      }
+      mediaStatus(
+        panel,
+        registeredRetry && !mp4
+          ? "Повторяем только привязку уже сохранённого MP4 — новая загрузка не выполняется…"
+          : "MP4 передан штатному загрузчику…",
+        "ready",
+      );
     }, { capture: true });
+  }
+  if (UUID_PATTERN.test(savedMediaId)) {
+    input.required = false;
+    mediaStatus(
+      panel,
+      "MP4 уже сохранён. Повторно подтвердите соответствие ролику и права, затем нажмите штатную кнопку — новая загрузка не выполняется.",
+      "ready",
+    );
   }
 }
 
 function repairAiCenterLinks() {
   if (routePath() !== AI_ROUTE) return;
-  document.querySelectorAll('a[href*="/workspace/board"][href*="youtube_source="]')
+  document.querySelectorAll([
+    'a[href*="/workspace/board"][href*="youtube_source="]',
+    'a[href*="/workspace/media"][href*="youtube_source="]',
+  ].join(","))
     .forEach((link) => {
       if (!(link instanceof HTMLAnchorElement)) return;
+      if (link.dataset.exactYoutubeQueueUpload === "true") return;
       const raw = link.getAttribute("href") || "";
       const query = raw.includes("?") ? raw.slice(raw.indexOf("?") + 1) : "";
       const params = new URLSearchParams(query);
       link.href = mediaHandoffHash({
         projectId: params.get("project_id") || currentProjectId(),
         sourceId: params.get("youtube_source") || "",
+        canonicalUrl: params.get("video_url") || "",
+        productName: params.get("product_name") || "",
+        productSku: params.get("product_sku") || "",
       });
       link.textContent = "Загрузить MP4 и продолжить";
       link.dataset.exactYoutubeUploadFixed = "true";
+      bindUploadHandoffLink(link, {
+        sourceId: params.get("youtube_source") || "",
+        canonicalUrl: params.get("video_url") || "",
+        productName: params.get("product_name") || "",
+        productSku: params.get("product_sku") || "",
+      });
     });
 }
 

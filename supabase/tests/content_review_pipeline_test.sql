@@ -509,6 +509,31 @@ values (
   '95000000-0000-4000-8000-000000000001'
 );
 
+-- Project ACL is independent from organization role.  Enrol the two
+-- collaborators used below so the media-ownership assertions exercise the
+-- intended private-media boundary instead of failing at the project gateway.
+insert into content_factory.workspace_project_memberships (
+  organization_id, project_id, profile_id, access_role, status,
+  granted_by, updated_by
+)
+values
+  (
+    '95100000-0000-4000-8000-000000000001',
+    '95100000-0000-4000-8000-000000000101',
+    '95000000-0000-4000-8000-000000000002',
+    'member', 'active',
+    '95000000-0000-4000-8000-000000000001',
+    '95000000-0000-4000-8000-000000000001'
+  ),
+  (
+    '95100000-0000-4000-8000-000000000001',
+    '95100000-0000-4000-8000-000000000101',
+    '95000000-0000-4000-8000-000000000003',
+    'member', 'active',
+    '95000000-0000-4000-8000-000000000001',
+    '95000000-0000-4000-8000-000000000001'
+  );
+
 insert into content_factory.generation_spend_policies (
   organization_id, paid_generation_enabled,
   daily_limit_minor, monthly_limit_minor, per_request_limit_minor,

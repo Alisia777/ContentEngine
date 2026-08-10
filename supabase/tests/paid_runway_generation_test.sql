@@ -930,8 +930,8 @@ select throws_ok(
       'job_id', (select initial_response #>> '{job,id}' from paid_runway_context)
     ))
   $$,
-  '42501', 'role_not_allowed',
-  'viewer cannot inspect paid generation state'
+  '42501', 'workspace_project_access_required',
+  'a viewer without project membership cannot inspect paid generation state'
 );
 
 do $$
