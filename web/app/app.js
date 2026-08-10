@@ -3,7 +3,7 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260810.os4.24";
+} from "./supabase-api.js?v=20260810.os4.25";
 import {
   clearExactYoutubeMediaHandoff,
   exactYoutubeRegisteredMediaId,
@@ -13,14 +13,18 @@ import {
   updateExactYoutubeMediaHandoffProgress,
 } from "./exact-youtube-media-handoff.js?v=20260810.exact-video.2";
 import {
+  exactYoutubeResearchFailureRecovery,
+  resolveExactYoutubeResearchCaptureMedia,
+} from "./exact-youtube-research-capture.js?v=20260810.exact-video-capture.1";
+import {
   generationSpecCardMarkup,
   generationSpecScopesMatch,
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
 } from "./generation-spec.js?v=20260803.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260810.os4.24";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260810.os4.24";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260810.os4.25";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260810.os4.25";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -83,7 +87,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260810.os4.24";
+} from "./product-research-view.js?v=20260810.os4.25";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -94,7 +98,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260810.os4.24";
+} from "./ai-learning-control-room.js?v=20260810.os4.25";
 import {
   compileContentGenerationPrompt,
   compileSafeGenerationBrief,
@@ -107,7 +111,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260810.os4.24";
+} from "./content-generation-handoff.js?v=20260810.os4.25";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -121,7 +125,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260810.os4.24";
+} from "./generation-form-draft.js?v=20260810.os4.25";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -133,7 +137,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260810.os4.24";
+} from "./generation-autopilot.js?v=20260810.os4.25";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -154,7 +158,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260810.os4.24";
+} from "./content-review-view.js?v=20260810.os4.25";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -183,7 +187,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260810.os4.24";
+} from "./workspace-board-view.js?v=20260810.os4.25";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -212,7 +216,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260810.os4.24";
+} from "./training-journey.js?v=20260810.os4.25";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -231,7 +235,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260810.os4.24";
+} from "./training-practical-review.js?v=20260810.os4.25";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -250,7 +254,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260810.os4.24";
+} from "./my-work-view.js?v=20260810.os4.25";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -25536,24 +25540,57 @@ async function submitExactYoutubeResearchEvidence(form) {
     if (status) status.textContent = text;
   };
   setFormBusy(form, true, "Подготавливаем кадры…");
-  let durableEvidence = readExactYoutubeResearchEvidence(context, video);
+  let verifiedVideo = video;
+  let durableEvidence = null;
+  let paidDispatchStarted = false;
   try {
     setStatus("Сверяем точный источник, attachment, MP4 и подпись товара с актуальной серверной очередью. Платный анализ ещё не начат…");
-    await requireFreshExactYoutubeResearchSource(context, {
+    const freshSource = await requireFreshExactYoutubeResearchSource(context, {
       productName,
       sku,
     });
+    const verified = resolveExactYoutubeResearchCaptureMedia(
+      video,
+      freshSource,
+      { projectId: context.projectId, mediaId: context.mediaId },
+    );
+    if (!verified.ok) {
+      throw new CreatorApiError(
+        "MP4 больше не совпадает с подтверждённым сервером видеоисточником. Платный анализ не запущен — обновите ИИ-центр.",
+        { code: verified.code },
+      );
+    }
+    verifiedVideo = verified.media;
+    durableEvidence = readExactYoutubeResearchEvidence(context, verifiedVideo);
     let capturedEvidence = durableEvidence
       ? { frames: [], technical_metrics: durableEvidence.technicalMetrics }
       : null;
+    let captureVideo = verifiedVideo;
     if (!capturedEvidence) {
+      setStatus("Обновляем защищённую ссылку на подтверждённый MP4. Платный анализ ещё не начат…");
+      const freshObjectKey = verifiedVideo.objectName;
+      const signedUrls = await withUiTimeout(
+        state.api.signedPrivateObjectUrls([freshObjectKey], 600),
+        WORKSPACE_REQUEST_TIMEOUT_MS,
+        "exact_youtube_research_signed_url_timeout",
+      );
+      const freshSignedUrl = String(
+        signedUrls?.get?.(freshObjectKey) || "",
+      ).trim();
+      if (!isTrustedGenerationDownload(freshSignedUrl)) {
+        throw new CreatorApiError(
+          "Не удалось получить свежую защищённую ссылку на подтверждённый MP4. Платный анализ не запущен — повторите подготовку.",
+          { code: "exact_youtube_research_signed_url_missing" },
+        );
+      }
+      captureVideo = { ...verifiedVideo, url: freshSignedUrl };
       setStatus("Бесплатно извлекаем пять контрольных JPEG в браузере. Платный анализ ещё не начат…");
-      capturedEvidence = await captureContentReviewEvidence(video);
+      capturedEvidence = await captureContentReviewEvidence(captureVideo);
     }
     if (durableEvidence?.status !== "ready") {
       setStatus("Сохраняем пять кадров в защищённом evidence-контуре. Платный анализ ещё не начат…");
       durableEvidence = await persistContentReviewVideoEvidence(
-        video,
+        captureVideo,
         capturedEvidence,
         null,
         {
@@ -25595,6 +25632,7 @@ async function submitExactYoutubeResearchEvidence(form) {
     state.productResearch.record = previous;
     state.productResearch.error = "";
     state.productResearch.notice = "";
+    paidDispatchStarted = true;
     const raw = await state.api.startProductResearch(
       {
         product_id: productPhoto.productId,
@@ -25673,7 +25711,15 @@ async function submitExactYoutubeResearchEvidence(form) {
       scheduleProductResearchPolling(800);
     } else {
       const message = actionErrorMessage(error);
-      setStatus(`Запуск остановлен: ${message} Подтверждённые кадры сохранены для безопасного повтора.`);
+      const recoveryEvidence = readExactYoutubeResearchEvidence(
+        context,
+        verifiedVideo,
+      );
+      const recovery = exactYoutubeResearchFailureRecovery(
+        recoveryEvidence,
+        { paidDispatchStarted },
+      );
+      setStatus(`Запуск остановлен: ${message} ${recovery.message}`);
       toast(message, "error");
     }
   } finally {

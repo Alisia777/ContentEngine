@@ -215,8 +215,8 @@ def test_edge_and_browser_validate_the_same_bounded_learning_contract() -> None:
         assert token in APP
     assert ".generation-learning-status" in STYLES
     assert "./styles.css?v=20260730.4" in INDEX
-    assert "./app.js?v=20260810.os4.24" in INDEX
-    assert "./supabase-api.js?v=20260810.os4.24" in APP
+    assert "./app.js?v=20260810.os4.25" in INDEX
+    assert "./supabase-api.js?v=20260810.os4.25" in APP
 
 
 def test_paid_start_uses_learning_only_when_the_user_explicitly_applies_advice() -> None:
