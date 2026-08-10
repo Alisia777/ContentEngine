@@ -133,6 +133,9 @@ select ok(
 select ok(
   pg_get_functiondef(
     'public.creator_start_real_generation(jsonb)'::regprocedure
+  ) like '%creator_start_real_generation_pre_video_reference_v54%'
+  and pg_get_functiondef(
+    'content_factory_private.creator_start_real_generation_pre_video_reference_v54(jsonb)'::regprocedure
   ) like '%call_project_scoped_v47%'
   and pg_get_functiondef(
     'content_factory_private.creator_start_real_generation_pre_project_v47(jsonb)'::regprocedure

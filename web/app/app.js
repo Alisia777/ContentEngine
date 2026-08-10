@@ -3,7 +3,7 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260810.os4.26";
+} from "./supabase-api.js?v=20260810.os4.27";
 import {
   clearExactYoutubeMediaHandoff,
   exactYoutubeRegisteredMediaId,
@@ -24,8 +24,8 @@ import {
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
 } from "./generation-spec.js?v=20260803.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260810.os4.26";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260810.os4.26";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260810.os4.27";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260810.os4.27";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -88,7 +88,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260810.os4.26";
+} from "./product-research-view.js?v=20260810.os4.27";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -99,7 +99,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260810.os4.26";
+} from "./ai-learning-control-room.js?v=20260810.os4.27";
 import {
   compileContentGenerationPrompt,
   compileSafeGenerationBrief,
@@ -112,7 +112,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260810.os4.26";
+} from "./content-generation-handoff.js?v=20260810.os4.27";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -122,11 +122,16 @@ import {
   generationReadinessMarkup,
 } from "./generation-form-readiness.js?v=20260805.1";
 import {
+  generationVideoReferencePromptFragment,
+  normalizeGenerationVideoReference,
+  normalizeGenerationVideoReferenceContext,
+} from "./generation-video-reference.js?v=20260810.os4.27";
+import {
   buildGenerationFormDraft,
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260810.os4.26";
+} from "./generation-form-draft.js?v=20260810.os4.27";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -138,7 +143,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260810.os4.26";
+} from "./generation-autopilot.js?v=20260810.os4.27";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -159,7 +164,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260810.os4.26";
+} from "./content-review-view.js?v=20260810.os4.27";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -188,7 +193,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260810.os4.26";
+} from "./workspace-board-view.js?v=20260810.os4.27";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -217,7 +222,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260810.os4.26";
+} from "./training-journey.js?v=20260810.os4.27";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -236,7 +241,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260810.os4.26";
+} from "./training-practical-review.js?v=20260810.os4.27";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -255,7 +260,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260810.os4.26";
+} from "./my-work-view.js?v=20260810.os4.27";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -1063,6 +1068,7 @@ const state = {
   realGenerationPollCursor: 0,
   realGenerationStatusRequests: new Map(),
   realGenerationResults: new Map(),
+  generationVideoReferenceLineage: new Map(),
   realGenerationDrafts: new Map(),
   generatedVideoQa: {
     entries: new Map(),
@@ -1122,6 +1128,7 @@ const state = {
     dirty: true,
     saving: false,
     aiResearchBinding: null,
+    videoReferenceBinding: null,
   },
   aiResearchRecommendation: null,
   generationRepair: readStoredGenerationRepair(),
@@ -1761,6 +1768,18 @@ function generationFormDraftValues(form) {
     format: String(form.elements.format?.value || ""),
     brief: String(form.elements.brief?.value || ""),
     scenario_intent: String(form.dataset.generationScenarioIntent || ""),
+    generation_reference_url: String(
+      form.elements.generation_reference_url?.value || "",
+    ),
+    generation_reference_mechanics: String(
+      form.elements.generation_reference_mechanics?.value || "",
+    ),
+    generation_reference_source_access_confirmed:
+      form.elements.generation_reference_source_access_confirmed?.checked
+        === true,
+    generation_reference_transformative_use_confirmed:
+      form.elements.generation_reference_transformative_use_confirmed?.checked
+        === true,
     media_ids: Array.from(
       form.querySelectorAll('input[name="media_id"]:checked:not(:disabled)'),
     ).map((input) => String(input.value || "")).filter(Boolean),
@@ -1831,10 +1850,20 @@ function restoreGenerationLaunchSnapshot(form, snapshot) {
     "count",
     "format",
     "brief",
+    "generation_reference_url",
+    "generation_reference_mechanics",
   ]) {
     setValue(name, values[name]);
   }
   syncGenerationModeForm(form);
+  if (form.elements.generation_reference_source_access_confirmed) {
+    form.elements.generation_reference_source_access_confirmed.checked =
+      values.generation_reference_source_access_confirmed === true;
+  }
+  if (form.elements.generation_reference_transformative_use_confirmed) {
+    form.elements.generation_reference_transformative_use_confirmed.checked =
+      values.generation_reference_transformative_use_confirmed === true;
+  }
 
   const selectedMedia = new Set(values.media_ids || []);
   form.querySelectorAll('input[name="media_id"]').forEach((input) => {
@@ -1969,11 +1998,21 @@ function restoreGenerationFormDraft(form) {
     "count",
     "format",
     "brief",
+    "generation_reference_url",
+    "generation_reference_mechanics",
   ]) {
     setValue(name, values[name]);
   }
   if (values.scenario_intent) {
     form.dataset.generationScenarioIntent = values.scenario_intent;
+  }
+  if (form.elements.generation_reference_source_access_confirmed) {
+    form.elements.generation_reference_source_access_confirmed.checked =
+      values.generation_reference_source_access_confirmed === true;
+  }
+  if (form.elements.generation_reference_transformative_use_confirmed) {
+    form.elements.generation_reference_transformative_use_confirmed.checked =
+      values.generation_reference_transformative_use_confirmed === true;
   }
   if (!restoredMediaCount) {
     setValue("sku", values.sku);
@@ -2466,6 +2505,7 @@ function handleGenerationResearchPresetApplied(event) {
   if (!normalized || normalized.selection.appliedFields.length < 1) return;
   state.aiResearchRecommendation = normalized.selection;
   state.generationSpec.aiResearchBinding = null;
+  state.generationSpec.videoReferenceBinding = null;
   normalized.form.dataset.dirty = "true";
   invalidateGenerationSpec(
     normalized.form,
@@ -2480,6 +2520,7 @@ function handleGenerationResearchPresetOptOut(event) {
   if (!form) return;
   state.aiResearchRecommendation = null;
   state.generationSpec.aiResearchBinding = null;
+  state.generationSpec.videoReferenceBinding = null;
   form.dataset.dirty = "true";
   invalidateGenerationSpec(
     form,
@@ -8524,6 +8565,19 @@ async function loadSection(section, options = {}) {
         (reason) => ({ status: "rejected", reason }),
       )
       : null;
+    const generationVideoReferenceRequest = routeGenerationJobId
+      ? withUiTimeout(
+        state.api.generationVideoReferenceLineage({
+          project_id: projectId,
+          generation_job_id: routeGenerationJobId,
+        }),
+        WORKSPACE_REQUEST_TIMEOUT_MS,
+        "generation_video_reference_lineage_timeout",
+      ).then(
+        (value) => ({ status: "fulfilled", value }),
+        (reason) => ({ status: "rejected", reason }),
+      )
+      : null;
     const routeMediaId = ["generation", "review"].includes(section)
       ? safeWorkspaceRouteEntityId("media")
       : "";
@@ -8655,6 +8709,38 @@ async function loadSection(section, options = {}) {
           deepLinkOutcome.reason?.code || "",
           deepLinkOutcome.reason?.serverCode || "",
         );
+      }
+      const videoReferenceOutcome = await generationVideoReferenceRequest;
+      if (
+        requestEpoch !== state.dataEpoch
+        || requestUserId !== state.user?.id
+        || requestId !== target.requestId
+      ) return;
+      if (videoReferenceOutcome?.status === "fulfilled") {
+        const referenceData = videoReferenceOutcome.value?.data
+          ?? videoReferenceOutcome.value
+          ?? {};
+        try {
+          state.generationVideoReferenceLineage.set(routeGenerationJobId, {
+            status: "ready",
+            lineage: normalizeSharedGenerationVideoReferenceLineage(
+              referenceData?.lineage,
+            ),
+            error: "",
+          });
+        } catch (error) {
+          state.generationVideoReferenceLineage.set(routeGenerationJobId, {
+            status: "error",
+            lineage: null,
+            error: actionErrorMessage(error),
+          });
+        }
+      } else if (videoReferenceOutcome?.status === "rejected") {
+        state.generationVideoReferenceLineage.set(routeGenerationJobId, {
+          status: "error",
+          lineage: null,
+          error: actionErrorMessage(videoReferenceOutcome.reason),
+        });
       }
     }
     if (projectMediaRequest) {
@@ -10217,9 +10303,50 @@ function syncContentGenerationHandoff(form) {
   return evaluation;
 }
 
+function generationVideoReferenceForForm(form) {
+  if (!form) return { present: false, ready: true };
+  const sku = generationSkuForForm(form);
+  if (!sku || sku.contentKind !== "video") {
+    return { present: false, ready: true };
+  }
+  return normalizeGenerationVideoReference({
+    url: form.elements.generation_reference_url?.value,
+    mechanics_summary:
+      form.elements.generation_reference_mechanics?.value,
+    source_access_confirmed:
+      form.elements.generation_reference_source_access_confirmed?.checked
+        === true,
+    transformative_use_confirmed:
+      form.elements.generation_reference_transformative_use_confirmed?.checked
+        === true,
+  });
+}
+
+function syncGenerationVideoReferenceStatus(form) {
+  const status = form?.querySelector(
+    "[data-generation-video-reference-status]",
+  );
+  if (!status) return;
+  const reference = generationVideoReferenceForForm(form);
+  status.dataset.state = reference.ready ? "ready" : "warning";
+  status.textContent = !reference.present
+    ? "Референс не задан. Запуск использует только ваш замысел и рекомендации ИИ-центра."
+    : reference.ready
+      ? `Источник распознан: ${reference.canonical_url}. URL сохранится в lineage и не попадёт генератору.`
+      : {
+          generation_video_reference_url_invalid:
+            "Укажите прямую HTTPS-ссылку YouTube, Shorts или youtu.be.",
+          generation_video_reference_mechanics_invalid:
+            "Опишите переносимую механику 20–360 знаками без ссылок.",
+          generation_video_reference_attestation_required:
+            "Подтвердите законный доступ и перенос только механики.",
+        }[reference.code] || "Проверьте данные видеореференса.";
+}
+
 function generationFormReadiness(form) {
   const mode = String(form?.elements?.generation_mode?.value || "mock");
   const sku = generationSkuForForm(form);
+  const videoReference = generationVideoReferenceForForm(form);
   const mediaCount = form
     ? form.querySelectorAll('input[name="media_id"]:checked:not(:disabled)').length
     : 0;
@@ -10232,6 +10359,8 @@ function generationFormReadiness(form) {
     destinationRef: form?.elements?.destination_ref?.value,
     mediaCount,
     brief: form?.elements?.brief?.value,
+    generationReferencePresent: videoReference.present,
+    generationReferenceReady: videoReference.ready,
     campaignId: form?.elements?.campaign_id?.value,
     spendAllowed: !sku || realGenerationSpendAllowed(
       mode,
@@ -10269,6 +10398,10 @@ function generationPromptInspection(form) {
       productCategory: form.elements.product_category?.value,
       researchCategoryRuleRequired:
         matchingHandoff && handoff.requiresResearchCategoryRule === true,
+      generationReferenceFragment:
+        generationVideoReferencePromptFragment(
+          generationVideoReferenceForForm(form),
+        ) || "",
     },
   );
 }
@@ -10908,6 +11041,28 @@ function renderGenerationSection(sectionState) {
               <textarea name="brief" rows="8" maxlength="1200" ${defaultIsReal ? "required" : ""} placeholder="Кто в кадре, где происходит действие, как показан товар и какую фразу произносит герой"></textarea>
               <small id="generation-brief-hint" class="field-hint">${defaultMode === REAL_SEEDANCE_MODE ? "Опишите сюжет обычным языком. Портал сохранит ваш замысел и перед оплатой добавит только ограничения товара, камеры и безопасности." : defaultMode === REAL_PHOTO_MODE ? "Опишите желаемый кадр обычным языком. Портал сохранит композицию и добавит ограничения этикетки, геометрии и точного товара." : "Опишите движение камеры обычным языком. Портал сохранит замысел и добавит ограничения модели."}</small>
             </label>
+            <fieldset id="generation-video-reference" class="card card-pad form-stack" ${defaultIsReal && defaultRealSku.contentKind !== "photo" ? "" : "hidden"}>
+              <legend class="field-label">Видеореференс · только для этой генерации</legend>
+              <p class="muted tiny">Необязательно. Портал сохранит точный YouTube-источник отдельно от исследований. ИИ не получает URL и не считается просмотревшим ролик: генератору передаётся только ваше описание механики.</p>
+              <label class="field">
+                <span>Ссылка на YouTube / Shorts</span>
+                <input name="generation_reference_url" type="url" maxlength="500" inputmode="url" placeholder="https://www.youtube.com/shorts/…" ${defaultIsReal && defaultRealSku.contentKind !== "photo" ? "" : "disabled"} />
+              </label>
+              <label class="field">
+                <span>Переносимая механика ролика</span>
+                <textarea name="generation_reference_mechanics" rows="4" minlength="20" maxlength="360" placeholder="Результат в первом кадре; короткое действие с товаром; процесс; финальный результат." ${defaultIsReal && defaultRealSku.contentKind !== "photo" ? "" : "disabled"}></textarea>
+                <small class="field-hint">20–360 знаков, без ссылок. Это разбор оператора, а не подтверждение просмотра ИИ.</small>
+              </label>
+              <label class="option">
+                <input name="generation_reference_source_access_confirmed" type="checkbox" ${defaultIsReal && defaultRealSku.contentKind !== "photo" ? "" : "disabled"} />
+                <span>Источник получен законно и используется как визуальный ориентир.</span>
+              </label>
+              <label class="option">
+                <input name="generation_reference_transformative_use_confirmed" type="checkbox" ${defaultIsReal && defaultRealSku.contentKind !== "photo" ? "" : "disabled"} />
+                <span>Переносим только механику: без чужого бренда, музыки, голоса, текста, водяных знаков и точных кадров.</span>
+              </label>
+              <p class="muted tiny" data-generation-video-reference-status role="status">Референс не задан.</p>
+            </fieldset>
             <div id="generation-brief-assist" class="generation-brief-assist" ${defaultIsReal ? "" : "hidden"}>
               <small id="generation-auto-brief-status" class="field-hint" role="status">Портал сам подготовит техническое ТЗ при запуске. Ваш текст останется замыслом и не будет заменён служебными инструкциями.</small>
             </div>
@@ -11216,6 +11371,9 @@ function generationTable(items, interactive = false) {
           : details.jobId
             ? `<a class="btn btn-secondary btn-small" href="#/workspace/generation?view=history&job=${encodeURIComponent(details.jobId)}">Открыть один запуск</a>`
             : "";
+        const videoReferenceLineage = interactive
+          ? generationVideoReferenceLineageMarkup(details)
+          : "";
         const technicalQa = interactive ? generatedVideoTechnicalQaMarkup(details) : "";
         const preview = interactive && previewUrl
           ? `<div class="generation-result-preview">${details.photo
@@ -11232,6 +11390,7 @@ function generationTable(items, interactive = false) {
               ${failureMarkup}
               ${details.transientError ? `<small class="generation-transient-error">${escapeHtml(details.transientError)}</small>` : ""}
               ${actions}
+              ${videoReferenceLineage}
               ${technicalQa}
               ${preview}
             </td>
@@ -18228,6 +18387,11 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "load-generation-video-reference") {
+    await loadGenerationVideoReferenceLineage(control.dataset.jobId);
+    return;
+  }
+
   if (action === "retry-generated-video-qa") {
     const jobId = String(control.dataset.jobId || "").trim();
     const mediaId = String(control.dataset.mediaId || "").trim().toLowerCase();
@@ -18754,6 +18918,26 @@ function handleChange(event) {
 
   const generationForm = event.target.closest("#mock-batch-form");
   if (generationForm && [
+    "generation_reference_url",
+    "generation_reference_mechanics",
+    "generation_reference_source_access_confirmed",
+    "generation_reference_transformative_use_confirmed",
+  ].includes(event.target.name)) {
+    state.generationSpec.videoReferenceBinding = null;
+    if (event.target.name === "generation_reference_mechanics") {
+      invalidateGenerationSpec(
+        generationForm,
+        "Описание механики видеореференса изменилось после последней серверной версии.",
+      );
+      syncAutomaticGenerationBrief(generationForm, { force: true });
+    } else if (generationForm.elements.real_spend_confirmation) {
+      generationForm.elements.real_spend_confirmation.checked = false;
+    }
+    syncGenerationVideoReferenceStatus(generationForm);
+    syncGenerationFormReadiness(generationForm);
+    scheduleGenerationFormDraftSave(generationForm);
+  }
+  if (generationForm && [
     "generation_mode",
     "duration_seconds",
     "platform",
@@ -18879,6 +19063,23 @@ function handleFormActivity(event) {
     form.dataset.dirty = "true";
     if (form.id === "content-review-form") persistContentReviewDraft(form);
     if (form.id === "mock-batch-form") {
+      if ([
+        "generation_reference_url",
+        "generation_reference_mechanics",
+      ].includes(event.target.name)) {
+        state.generationSpec.videoReferenceBinding = null;
+        if (event.target.name === "generation_reference_mechanics") {
+          invalidateGenerationSpec(
+            form,
+            "Описание механики видеореференса изменилось после последней серверной версии.",
+          );
+          syncAutomaticGenerationBrief(form, { force: true });
+        }
+        if (form.elements.real_spend_confirmation) {
+          form.elements.real_spend_confirmation.checked = false;
+        }
+        syncGenerationVideoReferenceStatus(form);
+      }
       if (event.target.name === "destination_ref") {
         delete form.dataset.autoGenerationDestination;
         const hint = form.querySelector("#generation-destination-hint");
@@ -19983,6 +20184,10 @@ function automaticGenerationBriefCandidate(form, identity) {
     && handoff.productName === identity.productName;
   const learningPolicy = activeGenerationLearningPolicy(form, identity);
   const repairPolicy = activeGenerationRepairPolicy(form, identity);
+  const generationReferenceFragment = generationVideoReferencePromptFragment(
+    generationVideoReferenceForForm(form),
+  );
+  if (generationReferenceFragment === null) return null;
   if (handoffMatchesIdentity) {
     return compileSafeGenerationBrief({
       mode,
@@ -19994,6 +20199,7 @@ function automaticGenerationBriefCandidate(form, identity) {
       researchDecision: handoff.researchDecision || "",
       learningPolicy,
       repairPolicy,
+      generationReferenceFragment,
       durationSeconds: generationSkuForForm(form)?.durationSeconds,
       productCategory: form.elements.product_category?.value,
     });
@@ -20005,6 +20211,7 @@ function automaticGenerationBriefCandidate(form, identity) {
     scenarioIntent: form.dataset.generationScenarioIntent || "",
     learningPolicy,
     repairPolicy,
+    generationReferenceFragment,
     durationSeconds: generationSkuForForm(form)?.durationSeconds,
     productCategory: form.elements.product_category?.value,
   });
@@ -20333,6 +20540,188 @@ async function bindGenerationSpecAiResearch(spec, preparedPayload) {
   }
 }
 
+function generationVideoReferenceLineageMarkup(details) {
+  if (!details.real || details.photo || !details.jobId) return "";
+  const entry = state.generationVideoReferenceLineage.get(details.jobId);
+  if (!entry) {
+    return `
+      <div class="generation-reference-lineage" role="status">
+        <strong>Видеореференс запуска</strong>
+        <span>Ссылка и операторское описание хранятся отдельно от исследования и доступны участникам этого проекта.</span>
+        <button class="btn btn-ghost btn-small" type="button" data-action="load-generation-video-reference" data-job-id="${escapeHtml(details.jobId)}">Показать видеореференс</button>
+      </div>
+    `;
+  }
+  if (entry.status === "loading") {
+    return `<div class="generation-reference-lineage" role="status"><strong>Видеореференс запуска</strong><span>Загружаем общую запись проекта…</span></div>`;
+  }
+  if (entry.status === "error") {
+    return `
+      <div class="generation-reference-lineage" role="alert">
+        <strong>Видеореференс пока не загружен</strong>
+        <span>${escapeHtml(entry.error || "Обновите общую запись проекта.")}</span>
+        <button class="btn btn-ghost btn-small" type="button" data-action="load-generation-video-reference" data-job-id="${escapeHtml(details.jobId)}">Повторить</button>
+      </div>
+    `;
+  }
+  const lineage = entry.lineage;
+  if (!lineage) {
+    return `<div class="generation-reference-lineage" role="status"><strong>Видеореференс не использовался</strong><span>Этот платный запуск не связан с отдельным видеоисточником.</span></div>`;
+  }
+  return `
+    <div class="generation-reference-lineage is-ready" role="status">
+      <strong>Видеореференс запуска · операторское описание</strong>
+      <span>${escapeHtml(lineage.mechanics_summary || "Описание механики не найдено.")}</span>
+      <a class="btn btn-ghost btn-small" href="${escapeHtml(lineage.canonical_url)}" target="_blank" rel="noopener noreferrer">Открыть точный YouTube-источник</a>
+      <small>Оператор подтвердил законный доступ и перенос только механики. ИИ не просматривал исходный ролик и не подтверждал его содержание. URL не передавался провайдеру генерации и не менял исследовательские выводы.</small>
+    </div>
+  `;
+}
+
+function normalizeSharedGenerationVideoReferenceLineage(value) {
+  if (value === null || value === undefined) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new CreatorApiError(
+      "Сервер вернул повреждённую lineage-запись видеореференса.",
+      { code: "generation_video_reference_lineage_response_invalid" },
+    );
+  }
+  const normalized = normalizeGenerationVideoReference({
+    canonical_url: value.canonical_url,
+    mechanics_summary: value.mechanics_summary,
+    source_access_confirmed: value.source_access_confirmed,
+    transformative_use_confirmed: value.transformative_use_confirmed,
+  });
+  if (
+    !normalized.ready
+    || normalized.canonical_url !== value.canonical_url
+    || normalized.video_id !== value.video_id
+    || value.analysis_basis !== "operator_summary"
+    || value.attestation_version !== "generation-video-reference-v1"
+    || value.ai_watched !== false
+    || value.evidence_verified !== false
+  ) {
+    throw new CreatorApiError(
+      "Сервер вернул повреждённую lineage-запись видеореференса.",
+      { code: "generation_video_reference_lineage_response_invalid" },
+    );
+  }
+  return {
+    ...value,
+    canonical_url: normalized.canonical_url,
+    video_id: normalized.video_id,
+    mechanics_summary: normalized.mechanics_summary,
+    source_access_confirmed: true,
+    transformative_use_confirmed: true,
+    ai_watched: false,
+    evidence_verified: false,
+  };
+}
+
+async function loadGenerationVideoReferenceLineage(jobId) {
+  const normalizedJobId = String(jobId || "").trim().toLowerCase();
+  const projectId = currentWorkspaceProjectId();
+  if (!contentReviewUuid(normalizedJobId) || !isWorkspaceProjectId(projectId)) {
+    toast("Не удалось определить запуск или проект для видеореференса.", "error");
+    return;
+  }
+  state.generationVideoReferenceLineage.set(normalizedJobId, {
+    status: "loading",
+    lineage: null,
+    error: "",
+  });
+  if (state.route.path === "/workspace/generation") renderWorkspace("generation");
+  try {
+    const raw = await state.api.generationVideoReferenceLineage({
+      project_id: projectId,
+      generation_job_id: normalizedJobId,
+    });
+    const data = raw?.data ?? raw ?? {};
+    const lineage = normalizeSharedGenerationVideoReferenceLineage(
+      data?.lineage,
+    );
+    state.generationVideoReferenceLineage.set(normalizedJobId, {
+      status: "ready",
+      lineage,
+      error: "",
+    });
+  } catch (error) {
+    state.generationVideoReferenceLineage.set(normalizedJobId, {
+      status: "error",
+      lineage: null,
+      error: actionErrorMessage(error),
+    });
+  }
+  if (state.route.path === "/workspace/generation") renderWorkspace("generation");
+}
+
+function normalizeGenerationSpecVideoReferenceBinding(raw, spec, reference) {
+  const source = raw?.data && typeof raw.data === "object" ? raw.data : raw;
+  const binding = source?.binding;
+  if (
+    source?.ok !== true
+    || source?.version !== "generation-video-reference-lineage-v1"
+    || !binding
+    || !contentReviewUuid(binding.id)
+    || String(binding.spec_id || "").toLowerCase()
+      !== String(spec?.spec_id || "").toLowerCase()
+    || Number(binding.spec_version) !== Number(spec?.spec_version)
+    || String(binding.spec_hash || "").toLowerCase()
+      !== String(spec?.spec_hash || "").toLowerCase()
+    || binding.video_id !== reference.video_id
+    || binding.canonical_url !== reference.canonical_url
+    || binding.analysis_basis !== "operator_summary"
+    || binding.source_access_confirmed !== true
+    || binding.transformative_use_confirmed !== true
+    || binding.attestation_version !== "generation-video-reference-v1"
+    || binding.ai_watched !== false
+    || binding.evidence_verified !== false
+    || !/^[0-9a-f]{64}$/u.test(String(binding.binding_hash || ""))
+  ) {
+    throw new CreatorApiError(
+      "Сервер не подтвердил generation-only lineage видеореференса.",
+      { code: "generation_video_reference_binding_response_invalid" },
+    );
+  }
+  return binding;
+}
+
+async function bindGenerationSpecVideoReference(spec, form) {
+  const reference = generationVideoReferenceForForm(form);
+  if (!reference.present) {
+    state.generationSpec.videoReferenceBinding = null;
+    return null;
+  }
+  if (!reference.ready) {
+    throw new CreatorApiError(
+      "Проверьте ссылку, описание механики и два подтверждения видеореференса.",
+      { code: reference.code || "generation_video_reference_binding_payload_invalid" },
+    );
+  }
+  const raw = await state.api.bindGenerationSpecVideoReference({
+    project_id: currentWorkspaceProjectId(),
+    spec_id: spec.spec_id,
+    spec_version: spec.spec_version,
+    spec_hash: spec.spec_hash,
+    video_id: reference.video_id,
+    canonical_url: reference.canonical_url,
+    mechanics_summary: reference.mechanics_summary,
+    source_access_confirmed: true,
+    transformative_use_confirmed: true,
+    confirmation: true,
+  });
+  const binding = normalizeGenerationSpecVideoReferenceBinding(
+    raw,
+    spec,
+    reference,
+  );
+  state.generationSpec.videoReferenceBinding = binding;
+  return normalizeGenerationVideoReferenceContext({
+    binding_id: binding.id,
+    binding_hash: binding.binding_hash,
+  });
+}
+
 function generationSpecPreparePayload(form) {
   const identity = selectedGenerationProductIdentity(form);
   const projectId = currentWorkspaceProjectId();
@@ -20442,6 +20831,7 @@ function syncGenerationSpecUi(form) {
 function invalidateGenerationSpec(form, reason = "") {
   state.generationSpec.dirty = true;
   state.generationSpec.error = reason;
+  state.generationSpec.videoReferenceBinding = null;
   if (form?.elements?.real_spend_confirmation) {
     form.elements.real_spend_confirmation.checked = false;
   }
@@ -20457,6 +20847,7 @@ function resetGenerationSpecState() {
   state.generationSpec.dirty = true;
   state.generationSpec.saving = false;
   state.generationSpec.aiResearchBinding = null;
+  state.generationSpec.videoReferenceBinding = null;
   const form = document.querySelector("#mock-batch-form");
   if (form) delete form.dataset.generationSpecPromptLocked;
 }
@@ -20779,17 +21170,23 @@ async function runGenerationSpecControl(form, action, {
         envelope.generationSpec,
         generationSpecPreparePayload(form) || preparedPayload,
       );
+      await bindGenerationSpecVideoReference(envelope.generationSpec, form);
       state.generationSpec.key = generationSpecDocumentKey(
         envelope.generationSpec,
       );
       state.generationSpec.dirty = false;
-    } else if (action === "revert" && generationSpecAiResearchSelection(
-      generationSpecPreparePayload(form),
-    )) {
+    } else if (
+      action === "revert"
+      && (
+        generationSpecAiResearchSelection(generationSpecPreparePayload(form))
+        || generationVideoReferenceForForm(form).present
+      )
+    ) {
       state.generationSpec.aiResearchBinding = null;
+      state.generationSpec.videoReferenceBinding = null;
       invalidateGenerationSpec(
         form,
-        "Возвращённая версия ещё не связана с текущей рекомендацией ИИ‑центра. При запуске будет создана новая проверяемая версия.",
+        "Возвращённая версия ещё не связана с текущей рекомендацией ИИ‑центра или видеореференсом. При запуске будет создана новая проверяемая версия.",
       );
     }
     syncGenerationSpecUi(form);
@@ -20840,7 +21237,9 @@ async function ensurePreparedGenerationSpecForPaidStart(form) {
       { code: "generation_spec_launch_confirmation_stale" },
     );
   }
-  return { context, spec: preparedSpec };
+  const generationReferenceContext =
+    await bindGenerationSpecVideoReference(preparedSpec, form);
+  return { context, spec: preparedSpec, generationReferenceContext };
 }
 
 function generationLearningOptOut(form) {
@@ -21106,11 +21505,27 @@ function syncGenerationModeForm(form) {
   const preflightButton = form.querySelector('[data-action="check-runway-readiness"]');
   const briefHint = form.querySelector("#generation-brief-hint");
   const briefLabel = form.querySelector("#generation-brief-label");
+  const videoReferencePanel = form.querySelector(
+    "#generation-video-reference",
+  );
   const spendAllowed = !real || realGenerationSpendAllowed(
     mode,
     campaignSelect?.value || "",
     sku?.durationSeconds,
   );
+  const videoReferenceEnabled = real && !photo;
+  if (videoReferencePanel) videoReferencePanel.hidden = !videoReferenceEnabled;
+  for (const fieldName of [
+    "generation_reference_url",
+    "generation_reference_mechanics",
+    "generation_reference_source_access_confirmed",
+    "generation_reference_transformative_use_confirmed",
+  ]) {
+    if (form.elements[fieldName]) {
+      form.elements[fieldName].disabled = !videoReferenceEnabled;
+    }
+  }
+  syncGenerationVideoReferenceStatus(form);
 
   if (count) {
     if (real) {
@@ -22222,10 +22637,12 @@ async function submitRealGeneration(form, values, mode) {
 
   let generationSpecContext;
   let preparedSpec;
+  let generationReferenceContext;
   try {
     const prepared = await ensurePreparedGenerationSpecForPaidStart(form);
     generationSpecContext = prepared.context;
     preparedSpec = prepared.spec;
+    generationReferenceContext = prepared.generationReferenceContext;
   } catch (error) {
     if (form.isConnected) {
       setFormBusy(form, false);
@@ -22275,6 +22692,9 @@ async function submitRealGeneration(form, values, mode) {
       : {}),
     learning_context: learningContext,
     generation_spec_context: generationSpecContext,
+    ...(generationReferenceContext
+      ? { generation_reference_context: generationReferenceContext }
+      : {}),
     ...(repairContext ? { repair_context: repairContext } : {}),
     ...(generationLearningOptOut(form) ? { learning_opt_out: true } : {}),
     ...(canManageTeam()
@@ -26983,6 +27403,7 @@ function clearAuthenticatedState() {
   state.realGenerationPollCursor = 0;
   state.realGenerationStatusRequests.clear();
   state.realGenerationResults.clear();
+  state.generationVideoReferenceLineage.clear();
   state.realGenerationDrafts.clear();
   state.generatedVideoQa.entries.clear();
   state.generatedVideoQa.activePromise = null;

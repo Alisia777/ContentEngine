@@ -54,6 +54,10 @@ def test_generation_draft_is_bounded_and_never_contains_spend_confirmation() -> 
             "format": "9:16",
             "brief": "Безопасное ТЗ",
             "scenario_intent": "Блогер готовит лосось в пароварке",
+            "generation_reference_url": "https://www.youtube.com/shorts/RIJ_v--Yncw",
+            "generation_reference_mechanics": "Show the result, demonstrate one action, then reveal the result again.",
+            "generation_reference_source_access_confirmed": True,
+            "generation_reference_transformative_use_confirmed": True,
             "media_ids": ["media-a", "media-a", "media-b"],
             "primary_media_id": "media-b",
             "real_spend_confirmation": "I_CONFIRM_PAID_GENERATION",
@@ -65,7 +69,7 @@ def test_generation_draft_is_bounded_and_never_contains_spend_confirmation() -> 
         "now: 1000, context: {projectId: '11111111-1111-4111-8111-111111111111', handoffDraftId: 'draft-1'}"
         "})"
     )
-    assert result["version"] == 2
+    assert result["version"] == 3
     assert result["updatedAt"] == 1000
     assert result["context"]["projectId"] == "11111111-1111-4111-8111-111111111111"
     assert result["context"]["handoffDraftId"] == "draft-1"
@@ -74,6 +78,10 @@ def test_generation_draft_is_bounded_and_never_contains_spend_confirmation() -> 
     assert result["values"]["media_ids"] == ["media-a", "media-b"]
     assert result["values"]["primary_media_id"] == "media-b"
     assert result["values"]["scenario_intent"] == "Блогер готовит лосось в пароварке"
+    assert result["values"]["generation_reference_url"].endswith("RIJ_v--Yncw")
+    assert result["values"]["generation_reference_mechanics"].startswith("Show the result")
+    assert result["values"]["generation_reference_source_access_confirmed"] is True
+    assert result["values"]["generation_reference_transformative_use_confirmed"] is True
     assert "real_spend_confirmation" not in result
     assert "real_spend_confirmation" not in result["values"]
 
@@ -145,9 +153,9 @@ def test_portal_restores_generation_draft_but_requires_fresh_spend_confirmation(
         "persistGenerationFormDraft(form, { manual: true })",
     ):
         assert token in APP
-    assert "generation-form-draft.js?v=20260810.os4.26" in APP
+    assert "generation-form-draft.js?v=20260810.os4.27" in APP
     assert "form.dataset.generationScenarioIntent" in APP
-    assert "app.js?v=20260810.os4.26" in INDEX
+    assert "app.js?v=20260810.os4.27" in INDEX
 
 
 def test_generated_video_review_starts_automatically_after_durable_evidence() -> None:

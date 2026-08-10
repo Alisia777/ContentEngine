@@ -22,7 +22,7 @@ def read(path: Path) -> str:
 def test_failed_research_can_be_closed_and_replaced_with_a_fresh_form() -> None:
     source = read(RECOVERY)
     assert (
-        'from "./product-research-view.js?v=20260810.os4.26"'
+        'from "./product-research-view.js?v=20260810.os4.27"'
         in source
     )
     for marker in (
@@ -35,6 +35,8 @@ def test_failed_research_can_be_closed_and_replaced_with_a_fresh_form() -> None:
         "Предыдущий terminal-failure закрыт",
         "clearPendingSource",
         "Повторного платного запуска нет",
+        'guard.dataset.failureMode === "exact-video-provider-terminal"',
+        "must never rewrite recovery into another upload or generic paid form",
     ):
         assert marker in source
     assert "savedStatus.focus" not in source
@@ -68,11 +70,11 @@ def test_recovery_module_is_loaded_on_every_handoff_route() -> None:
         'route === "/workspace/ai"',
         "workspace-research-failure-recovery.css",
         "workspace-research-failure-recovery.js",
-        'const BUILD = "20260810.research.29"',
+        'const BUILD = "20260810.research.30"',
     ):
         assert marker in bootstrap
     assert (
-        'workspace-research-training-bootstrap.js?v=20260810.research.29'
+        'workspace-research-training-bootstrap.js?v=20260810.research.30'
         in index
     )
 

@@ -264,6 +264,7 @@ def test_generation_archive_executes_browse_and_exact_job_modes() -> None:
         function generationFailureMessage() {{ return ""; }}
         function trustedCachedGenerationUrl() {{ return "https://cdn.example/result.mp4"; }}
         function generationActionsMarkup() {{ return '<button data-generation-mutation>Скачать</button>'; }}
+        function generationVideoReferenceLineageMarkup() {{ return '<div data-generation-reference>Reference</div>'; }}
         function generatedVideoTechnicalQaMarkup() {{ return '<div data-generation-qa>QA</div>'; }}
         function generationStageMarkup() {{ return "Готово"; }}
         function generationCostMarkup() {{ return "10 ₽"; }}

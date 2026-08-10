@@ -31,6 +31,8 @@ export function evaluateGenerationFormReadiness(value = {}) {
   ];
 
   if (real) {
+    const referencePresent = value.generationReferencePresent === true;
+    const referenceReady = value.generationReferenceReady === true;
     steps.push(
       step(
         "category",
@@ -46,6 +48,12 @@ export function evaluateGenerationFormReadiness(value = {}) {
           ? "Опишите фон, свет и композицию; потребуйте сохранить точную упаковку и текст."
           : "Опишите один ролик и главную мысль без неподтверждённых обещаний.",
       ),
+      ...(!photo && referencePresent ? [step(
+        "video_reference",
+        "Видеореференс",
+        referenceReady,
+        "Проверьте YouTube-ссылку, опишите механику и подтвердите два условия использования.",
+      )] : []),
       step(
         "budget",
         "Бюджет кампании",

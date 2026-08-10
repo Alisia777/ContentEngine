@@ -4,6 +4,12 @@ export const SEEDANCE_SPOKEN_WORD_LIMIT = 22;
 export const CONTENT_GENERATION_PRODUCT_REFERENCE_TAG = "ProductReference";
 export const GENERATION_LEARNING_COMPILER_VERSION = "safe-brief-v7";
 export const GENERATION_REPAIR_COMPILER_VERSION = "review-repair-v1";
+export const GENERATION_VIDEO_REFERENCE_PROMPT_MARKER =
+  "GenerationVideoReference/operator-summary:";
+export const GENERATION_VIDEO_REFERENCE_PROMPT_DISCLAIMER =
+  "ИИ исходный ролик не просматривал.";
+export const GENERATION_VIDEO_REFERENCE_MARKER_INVALID_CODE =
+  "generation_video_reference_marker_invalid";
 
 const HANDOFF_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
 const REAL_GEN4_MODE = "real_gen4";
@@ -50,6 +56,39 @@ const RESEARCH_CATEGORY_STRUCTURAL_SIGNALS = new Set([
   "channel.marketplace_native_video",
   "channel.short_vertical_video",
 ]);
+
+export function inspectGenerationVideoReferencePromptFragment(value = "") {
+  const fragment = cleanText(value);
+  if (!fragment) {
+    return { present: false, ready: true, code: "", fragment: "" };
+  }
+  const prefix = `${GENERATION_VIDEO_REFERENCE_PROMPT_MARKER} `;
+  const suffix = `. ${GENERATION_VIDEO_REFERENCE_PROMPT_DISCLAIMER}`;
+  const markerCount = fragment.split(
+    GENERATION_VIDEO_REFERENCE_PROMPT_MARKER,
+  ).length - 1;
+  const mechanicsSummary = fragment.startsWith(prefix)
+    && fragment.endsWith(suffix)
+    ? fragment.slice(prefix.length, -suffix.length)
+    : "";
+  const canonicalFragment = mechanicsSummary
+    ? `${prefix}${mechanicsSummary}${suffix}`
+    : "";
+  const ready = markerCount === 1
+    && mechanicsSummary.length >= 20
+    && mechanicsSummary.length <= 360
+    && !EXTERNAL_REFERENCE_PATTERN.test(mechanicsSummary)
+    && !mechanicsSummary.includes(GENERATION_VIDEO_REFERENCE_PROMPT_MARKER)
+    && fragment === canonicalFragment;
+  return {
+    present: true,
+    ready,
+    code: ready ? "" : GENERATION_VIDEO_REFERENCE_MARKER_INVALID_CODE,
+    fragment,
+    mechanics_summary: mechanicsSummary,
+    marker_count: markerCount,
+  };
+}
 
 export function contentGenerationDurationSeconds(mode, value = null) {
   const normalizedMode = normalizeMode(mode);
@@ -385,6 +424,7 @@ export function compileSafeGenerationBrief({
   researchDecision = "",
   learningPolicy = null,
   repairPolicy = null,
+  generationReferenceFragment = "",
   durationSeconds: requestedDurationSeconds = null,
   productCategory = "",
   researchCategoryRule = null,
@@ -401,6 +441,13 @@ export function compileSafeGenerationBrief({
   const safeVisualDirection = cleanText(visualDirection);
   const safeAvoidClaims = uniqueStrings(avoidClaims, 8);
   const safeResearchDecision = cleanResearchDecision(researchDecision);
+  const safeGenerationReferenceFragment = cleanText(
+    generationReferenceFragment,
+  ).slice(0, 520);
+  const generationReferenceInspection =
+    inspectGenerationVideoReferencePromptFragment(
+      safeGenerationReferenceFragment,
+    );
   const researchCategoryRuleFragment = generationResearchCategoryRuleFragment(
     researchCategoryRule,
   );
@@ -416,6 +463,28 @@ export function compileSafeGenerationBrief({
   });
   const blockers = [];
   const warnings = [];
+
+  if (
+    safeGenerationReferenceFragment
+    && EXTERNAL_REFERENCE_PATTERN.test(safeGenerationReferenceFragment)
+  ) {
+    blockers.push({
+      code: "generation_reference_url_forbidden",
+      message: "URL видеореференса хранится только в lineage; в генератор передаётся описание механики.",
+    });
+  }
+  if (!generationReferenceInspection.ready) {
+    blockers.push({
+      code: GENERATION_VIDEO_REFERENCE_MARKER_INVALID_CODE,
+      message: "Служебная строка видеореференса повреждена или добавлена вручную. Обновите авто-ТЗ.",
+    });
+  }
+  if (normalizedMode === REAL_PHOTO_MODE && safeGenerationReferenceFragment) {
+    blockers.push({
+      code: "generation_video_reference_mode_invalid",
+      message: "Видеореференс можно привязать только к генерации видео.",
+    });
+  }
 
   if (!exactProductName) {
     blockers.push({
@@ -479,6 +548,7 @@ export function compileSafeGenerationBrief({
         ? `Решение пользователя после исследования — имеет приоритет: ${safeResearchDecision}.`
         : ""),
       required(researchCategoryRuleFragment),
+      required(safeGenerationReferenceFragment),
       optional(
         safeScenarioIntent
           ? `Замысел пользователя (только без конфликта с ограничениями ниже): ${withTerminalPunctuation(safeScenarioIntent)}`
@@ -512,6 +582,7 @@ export function compileSafeGenerationBrief({
         ? `Решение пользователя после исследования — имеет приоритет: ${safeResearchDecision}.`
         : ""),
       required(researchCategoryRuleFragment),
+      required(safeGenerationReferenceFragment),
       optional(
         safeScenarioIntent
           ? `Замысел пользователя (только без конфликта с ограничениями ниже): ${withTerminalPunctuation(safeScenarioIntent)}`
@@ -546,6 +617,9 @@ export function compileSafeGenerationBrief({
     durationSeconds,
     productCategory,
     researchCategoryRuleRequired: Boolean(researchCategoryRuleFragment),
+    generationReferenceFragment: generationReferenceInspection.ready
+      ? generationReferenceInspection.fragment
+      : "",
   });
   for (const blocker of inspection.blockers) {
     if (!blockers.some((item) => item.code === blocker.code)) blockers.push(blocker);
@@ -1222,6 +1296,7 @@ export function inspectContentGenerationPrompt(
     avoidClaims = [],
     durationSeconds = null,
     researchCategoryRuleRequired = false,
+    generationReferenceFragment = "",
   } = {},
 ) {
   const promptLines = String(prompt ?? "").split(/\r?\n/u).map(cleanText).filter(Boolean);
@@ -1248,6 +1323,27 @@ export function inspectContentGenerationPrompt(
     blockers.push({
       code: "external_url_forbidden",
       message: "Удалите URL из задания: источники остаются в исследовании, а не передаются генератору.",
+    });
+  }
+  const expectedReference = inspectGenerationVideoReferencePromptFragment(
+    generationReferenceFragment,
+  );
+  const expectedReferenceMarkerCount = expectedReference.present
+    && expectedReference.ready ? 1 : 0;
+  const actualReferenceMarkerCount = normalized.split(
+    GENERATION_VIDEO_REFERENCE_PROMPT_MARKER,
+  ).length - 1;
+  const exactReferenceFragmentCount = expectedReferenceMarkerCount === 1
+    ? normalized.split(expectedReference.fragment).length - 1
+    : 0;
+  if (
+    !expectedReference.ready
+    || actualReferenceMarkerCount !== expectedReferenceMarkerCount
+    || (expectedReferenceMarkerCount === 1 && exactReferenceFragmentCount !== 1)
+  ) {
+    blockers.push({
+      code: GENERATION_VIDEO_REFERENCE_MARKER_INVALID_CODE,
+      message: "Служебная строка видеореференса должна добавляться системой ровно один раз.",
     });
   }
   const researchCategoryRuleTokenCount = (
