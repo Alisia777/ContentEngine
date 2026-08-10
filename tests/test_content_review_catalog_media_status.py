@@ -36,6 +36,9 @@ def test_catalog_status_wrapper_is_latest_transactional_and_parseable() -> None:
 
 def test_wrapper_preserves_the_existing_catalog_and_project_acl() -> None:
     migration = _read(MIGRATION)
+    repair_contract = _read(
+        ROOT / "supabase" / "tests" / "generation_repair_next_action_test.sql"
+    )
 
     assert "creator_content_review_catalog_pre_media_status" in migration
     assert migration.index(
@@ -46,6 +49,11 @@ def test_wrapper_preserves_the_existing_catalog_and_project_acl() -> None:
     assert "media.project_id = project_id_value" in migration
     assert "media.id::text = item.value ->> 'id'" in migration
     assert "media.status = 'ready'" in migration
+    assert "creator_content_review_catalog_pre_media_status" in repair_contract
+    assert (
+        "preserves the privacy-minimized repair action through the status wrapper"
+        in repair_contract
+    )
 
 
 def test_media_fields_come_from_the_authoritative_relational_row() -> None:

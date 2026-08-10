@@ -87,7 +87,7 @@ insert into content_factory.workspace_folders (
 ) values (
   'ca120000-0000-4000-8000-000000000001'::uuid,
   'ca110000-0000-4000-8000-000000000001'::uuid,
-  null, 'Catalog media status project', 'amber', 'project',
+  null, 'Catalog media status project', 'gold', 'project',
   'active', 1024,
   'ca100000-0000-4000-8000-000000000001'::uuid,
   'ca100000-0000-4000-8000-000000000001'::uuid

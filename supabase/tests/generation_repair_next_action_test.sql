@@ -85,9 +85,12 @@ select ok(
     ))
   ) like '%repair_next_action%'
   and pg_get_functiondef(
+    'content_factory_private.creator_content_review_catalog_pre_media_status(jsonb)'::regprocedure
+  ) like '%creator_content_review_catalog_pre_project_v47%'
+  and pg_get_functiondef(
     'public.creator_content_review_catalog(jsonb)'::regprocedure
-  ) like '%creator_content_review_catalog_pre_project_v47%',
-  'public catalog includes the privacy-minimized repair action'
+  ) like '%creator_content_review_catalog_pre_media_status%',
+  'public catalog preserves the privacy-minimized repair action through the status wrapper'
 );
 
 select * from finish();
