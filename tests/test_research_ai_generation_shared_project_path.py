@@ -63,14 +63,14 @@ def test_fixture_covers_shared_acl_and_server_owned_media_lifecycle() -> None:
     assert "content_factory.storage_project_read_allowed(" in source
     assert source.count("workspace_project_access_required") >= 4
     assert "generated_output:drafts" in source
-    assert "the provider-free generated fixture retains exact advice and spec lineage" in source
+    assert "the deterministic generated fixture retains exact advice and spec lineage" in source
     assert "a completed server review routes generated material to review" in source
     assert "an immutable approval routes generated material to ready" in source
     for system_role in ("'sources'", "'drafts'", "'review'", "'ready'"):
         assert system_role in source
 
 
-def test_fixture_is_transactional_and_provider_free() -> None:
+def test_fixture_is_transactional_and_network_free() -> None:
     source = _source().casefold().strip()
 
     assert source.startswith("begin;")
@@ -82,6 +82,10 @@ def test_fixture_is_transactional_and_provider_free() -> None:
     assert "net.http_" not in source
     assert "http_post(" not in source
     assert "'provider_attempts', 0" in source
-    assert "'generation_batches', 0" in source
-    assert "'generation_jobs', 0" in source
-    assert "'spend_entries', 0" in source
+    assert "'generation_batches', 1" in source
+    assert "'generation_jobs', 1" in source
+    assert "'spend_entries', 2" in source
+    assert "'generation_job_id', 'ca600000-0000-4000-8000-000000000002'" in source
+    assert source.count("disable trigger a_generation_spec_binding_guard") == 1
+    assert source.count("enable trigger a_generation_spec_binding_guard") == 1
+    assert "disable trigger all" not in source

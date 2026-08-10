@@ -6,8 +6,10 @@ set local search_path = public, extensions, pg_temp, pg_catalog;
 select no_plan();
 
 -- This is a deterministic integration fixture.  It exercises the same
--- server-owned completion seam as the worker, but deliberately creates no
--- provider attempt, paid generation job, HTTP request, or storage mutation.
+-- server-owned research completion and generated-artifact review seams as the
+-- workers, but deliberately creates no provider attempt, HTTP request, or
+-- storage mutation.  Its one synthetic succeeded job exercises the normal
+-- server ledger and exact generated-claim lineage guards.
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password,
@@ -778,9 +780,129 @@ select ok(
   'append-only binding references the exact selection and exact spec version'
 );
 
--- Simulate a provider-free generated result record.  The lifecycle itself is
--- authoritative and runs through the production classification/review
--- triggers: Drafts -> Review -> Ready.
+-- Materialize the minimum production-faithful succeeded-job lineage required
+-- for a generated artifact.  These rows are deterministic fixture evidence:
+-- no provider API is called, while the normal spend ledger and review guards
+-- remain active and fail closed exactly as they do in production.
+insert into content_factory.generation_spend_policies (
+  organization_id, paid_generation_enabled,
+  daily_limit_minor, monthly_limit_minor, per_request_limit_minor,
+  currency, timezone, version, reason, updated_by
+) values (
+  'ca100000-0000-4000-8000-000000000001', true,
+  2500, 10000, 500, 'USD', 'Europe/Moscow', 1,
+  'Shared-path deterministic generated-result fixture policy.',
+  'ca000000-0000-4000-8000-000000000001'
+);
+
+insert into content_factory.generation_batches (
+  id, organization_id, project_id, product_id, created_by, name,
+  mode, allow_real_spend, status, total_requested, total_created,
+  input, request_hash, idempotency_key,
+  provider, model, duration_seconds, audio,
+  estimated_cost_minor, estimated_credits, currency
+) values (
+  'ca600000-0000-4000-8000-000000000001',
+  'ca100000-0000-4000-8000-000000000001',
+  'ca200000-0000-4000-8000-000000000001',
+  'ca300000-0000-4000-8000-000000000001',
+  'ca000000-0000-4000-8000-000000000001',
+  'Shared path deterministic Seedance result',
+  'real', true, 'succeeded', 1, 1,
+  jsonb_build_object(
+    'job_id', 'ca600000-0000-4000-8000-000000000002',
+    'provider', 'runway',
+    'model', 'seedance2_fast',
+    'duration_seconds', 8,
+    'audio', true,
+    'format', '9:16',
+    'ratio', '720:1280',
+    'spend_confirmation',
+      'RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32',
+    'billing', jsonb_build_object(
+      'currency', 'USD',
+      'estimated_cost_minor', 232,
+      'estimated_credits', 232,
+      'credit_unit_usd_minor', 1
+    )
+  ),
+  repeat('5', 64),
+  'shared-path-seedance-batch-0001',
+  'runway', 'seedance2_fast', 8, true, 232, 232, 'USD'
+);
+
+-- TEST-ONLY: the synthetic terminal job is inserted directly because this
+-- network-free fixture cannot run the provider worker that normally binds an
+-- approved generation-spec version under its private transaction GUC.  Keep
+-- the lifecycle and spend triggers active; bypass only that insert-time spec
+-- gate while assembling the exact terminal job lineage.
+alter table content_factory.generation_jobs
+  disable trigger a_generation_spec_binding_guard;
+
+insert into content_factory.generation_jobs (
+  id, organization_id, project_id, product_id, batch_id, ordinal,
+  requested_by, assigned_to, mode, provider, allow_real_spend,
+  estimated_cost_minor, actual_cost_minor, status,
+  input, output, request_hash, idempotency_key
+) values (
+  'ca600000-0000-4000-8000-000000000002',
+  'ca100000-0000-4000-8000-000000000001',
+  'ca200000-0000-4000-8000-000000000001',
+  'ca300000-0000-4000-8000-000000000001',
+  'ca600000-0000-4000-8000-000000000001',
+  1,
+  'ca000000-0000-4000-8000-000000000001',
+  'ca000000-0000-4000-8000-000000000001',
+  'real', 'runway', true, 232, 232, 'succeeded',
+  jsonb_build_object(
+    'sku', 'SHARED-PATH-SKU-1',
+    'product_name', 'Shared path detergent',
+    'prompt_text',
+      'Deterministic fixture prompt; no provider request is performed.',
+    'provider', 'runway',
+    'model', 'seedance2_fast',
+    'duration_seconds', 8,
+    'audio', true,
+    'format', '9:16',
+    'ratio', '720:1280',
+    'input_object_name',
+      'ca100000-0000-4000-8000-000000000001/'
+        || 'ca000000-0000-4000-8000-000000000001/uploads/'
+        || 'shared-path-source.webp',
+    'output_object_name',
+      'ca100000-0000-4000-8000-000000000001/'
+        || 'ca000000-0000-4000-8000-000000000001/generated/'
+        || 'shared-path-output.mp4',
+    'platform', 'tiktok',
+    'destination_ref', 'shared-path-deterministic-fixture',
+    'spend_confirmation',
+      'RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32',
+    'billing', jsonb_build_object(
+      'currency', 'USD',
+      'estimated_cost_minor', 232,
+      'estimated_credits', 232,
+      'credit_unit_usd_minor', 1
+    )
+  ),
+  jsonb_build_object(
+    'provider_task_id', 'provider-shared-path-deterministic-fixture',
+    'output_object_name',
+      'ca100000-0000-4000-8000-000000000001/'
+        || 'ca000000-0000-4000-8000-000000000001/generated/'
+        || 'shared-path-output.mp4',
+    'output_media_id', 'ca400000-0000-4000-8000-000000000002',
+    'mime_type', 'video/mp4',
+    'sha256', repeat('2', 64)
+  ),
+  repeat('6', 64),
+  'shared-path-seedance-job-0001'
+);
+
+alter table content_factory.generation_jobs
+  enable trigger a_generation_spec_binding_guard;
+
+-- The lifecycle itself remains authoritative and runs through the production
+-- classification/review triggers: Drafts -> Review -> Ready.
 insert into content_factory.media_objects (
   id, organization_id, project_id, owner_id, product_id, bucket_id,
   object_name, mime_type, size_bytes, sha256, status, metadata,
@@ -804,6 +926,10 @@ select
     'kind', 'generated_video',
     'original_filename', 'shared-path-output.mp4',
     'rights_confirmed', true,
+    'provider', 'runway',
+    'model', 'seedance2_fast',
+    'audio', true,
+    'generation_job_id', 'ca600000-0000-4000-8000-000000000002',
     'ai_research_selection_id', context_row.selection_id,
     'ai_research_binding_id', context_row.binding_result #>> '{binding,id}',
     'generation_spec_id', context_row.prepare_result #>>
@@ -843,7 +969,7 @@ select ok(
      and media.metadata ->> 'generation_spec_hash' =
        context_row.prepare_result #>> '{generation_spec,spec_hash}'
   ),
-  'the provider-free generated fixture retains exact advice and spec lineage'
+  'the deterministic generated fixture retains exact advice and spec lineage'
 );
 
 select is(
@@ -873,7 +999,10 @@ insert into content_factory.content_review_runs (
   'ca000000-0000-4000-8000-000000000001',
   'completed',
   repeat('2', 64),
-  jsonb_build_object('content_kind', 'organic'),
+  jsonb_build_object(
+    'content_kind', 'organic',
+    'generation_job_id', 'ca600000-0000-4000-8000-000000000002'
+  ),
   jsonb_build_object(
     'overall_score', 98,
     'blockers_count', 0,
@@ -1150,11 +1279,11 @@ select is(
   ),
   jsonb_build_object(
     'provider_attempts', 0,
-    'generation_batches', 0,
-    'generation_jobs', 0,
-    'spend_entries', 0
+    'generation_batches', 1,
+    'generation_jobs', 1,
+    'spend_entries', 2
   ),
-  'the full fixture remains bounded: no provider, paid job, or spend record'
+  'the fixture is bounded: no provider call and exact synthetic accounting'
 );
 
 select * from finish();
