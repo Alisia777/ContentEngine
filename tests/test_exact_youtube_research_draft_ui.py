@@ -62,6 +62,10 @@ def test_scope_bound_draft_round_trip_and_safe_hydration() -> None:
       const read = mod.readExactYoutubeResearchDraft(storage, scope, {{
         now: Date.parse(requestedAt) + 1_000,
       }});
+      const reloadedSession = mod.readExactYoutubeResearchDraft(storage, {{
+        ...scope,
+        session_id: '77777777-7777-4777-8777-777777777777',
+      }}, {{ now: Date.parse(requestedAt) + 1_000 }});
       const hydration = mod.exactYoutubeResearchHydration(
         read.draft,
         ['{media_b}', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'],
@@ -74,6 +78,18 @@ def test_scope_bound_draft_round_trip_and_safe_hydration() -> None:
         ...scope,
         user_id: '66666666-6666-4666-8666-666666666666',
       }}, {{ now: Date.parse(requestedAt) + 1_000 }});
+      const wrongOrganization = mod.readExactYoutubeResearchDraft(storage, {{
+        ...scope,
+        organization_id: '88888888-8888-4888-8888-888888888888',
+      }}, {{ now: Date.parse(requestedAt) + 1_000 }});
+      const wrongProject = mod.readExactYoutubeResearchDraft(storage, {{
+        ...scope,
+        project_id: '99999999-9999-4999-8999-999999999999',
+      }}, {{ now: Date.parse(requestedAt) + 1_000 }});
+      const wrongSource = mod.readExactYoutubeResearchDraft(storage, {{
+        ...scope,
+        source_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      }}, {{ now: Date.parse(requestedAt) + 1_000 }});
       const expired = mod.readExactYoutubeResearchDraft(storage, scope, {{
         now: Date.parse(requestedAt)
           + mod.EXACT_YOUTUBE_RESEARCH_DRAFT_MAX_AGE_MS + 1,
@@ -81,6 +97,10 @@ def test_scope_bound_draft_round_trip_and_safe_hydration() -> None:
       process.stdout.write(JSON.stringify({{
         wrote,
         readOk: read.ok,
+        reloadedSessionOk: reloadedSession.ok,
+        returnedSessionField: Object.hasOwn(
+          reloadedSession.draft || {{}}, 'session_id',
+        ),
         category: hydration.productCategory,
         marketplace: hydration.marketplaceUrl,
         platforms: hydration.platforms,
@@ -93,12 +113,17 @@ def test_scope_bound_draft_round_trip_and_safe_hydration() -> None:
           Object.hasOwn(raw, 'paid_analysis_ack')
           || Object.hasOwn(raw, 'human_review_ack'),
         wrongUser: wrongUser.code,
+        wrongOrganization: wrongOrganization.code,
+        wrongProject: wrongProject.code,
+        wrongSource: wrongSource.code,
         expired: expired.code,
       }}));
     """
     assert run_node(script) == {
         "wrote": True,
         "readOk": True,
+        "reloadedSessionOk": True,
+        "returnedSessionField": False,
         "category": "household",
         "marketplace": (
             "https://www.wildberries.ru/catalog/518413561/detail.aspx"
@@ -110,7 +135,212 @@ def test_scope_bound_draft_round_trip_and_safe_hydration() -> None:
         "objectiveBounded": True,
         "acknowledgementsStored": False,
         "wrongUser": "draft_scope_mismatch",
+        "wrongOrganization": "draft_scope_mismatch",
+        "wrongProject": "draft_scope_mismatch",
+        "wrongSource": "draft_scope_mismatch",
         "expired": "draft_expired",
+    }
+
+
+def test_hard_reload_retries_incomplete_runtime_and_restores_without_acks() -> None:
+    photo = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    script = f"""
+      class FakeInput {{
+        constructor(name, value = '', type = 'text') {{
+          this.name = name; this.value = value; this.type = type;
+          this.checked = false;
+        }}
+      }}
+      class FakeTextArea extends FakeInput {{}}
+      class FakeSelect {{
+        constructor(name, options) {{
+          this.name = name; this.options = options;
+          this.value = options[0]?.value || '';
+        }}
+        querySelector(selector) {{
+          return selector === 'option[value=""]'
+            ? this.options.find((item) => item.value === '') || null
+            : null;
+        }}
+        prepend(option) {{ this.options.unshift(option); }}
+      }}
+      class FakeForm {{
+        constructor(controls, radios, platforms) {{
+          this.dataset = {{}};
+          this.controls = controls;
+          this.radios = radios;
+          this.platforms = platforms;
+          this.elements = {{ namedItem: (name) => controls[name] || null }};
+        }}
+        querySelectorAll(selector) {{
+          if (selector.includes('radio') && selector.includes('source_media_id')) return this.radios;
+          if (selector.includes('checkbox') && selector.includes('platforms')) return this.platforms;
+          return [];
+        }}
+      }}
+      globalThis.HTMLInputElement = FakeInput;
+      globalThis.HTMLTextAreaElement = FakeTextArea;
+      globalThis.HTMLSelectElement = FakeSelect;
+      globalThis.HTMLFormElement = FakeForm;
+      globalThis.HTMLAnchorElement = class {{}};
+      globalThis.HTMLElement = class {{}};
+      const values = new Map();
+      const storage = {{
+        getItem: (key) => values.get(key) ?? null,
+        setItem: (key, value) => values.set(key, value),
+        removeItem: (key) => values.delete(key),
+      }};
+      const scope = {{
+        organization_id: '11111111-1111-4111-8111-111111111111',
+        user_id: '22222222-2222-4222-8222-222222222222',
+        session_id: '33333333-3333-4333-8333-333333333333',
+        project_id: '44444444-4444-4444-8444-444444444444',
+        source_id: '55555555-5555-4555-8555-555555555555',
+      }};
+      const category = new FakeSelect('product_category', [
+        {{ value: 'cosmetics' }}, {{ value: 'household' }},
+      ]);
+      const marketplace = new FakeInput('marketplace_url');
+      const objective = new FakeTextArea('objective', 'Базовая цель.');
+      const acknowledgements = [
+        'media_matches_registered_source', 'external_ai_processing_ack',
+        'paid_analysis_ack', 'human_review_ack',
+      ].map((name) => {{
+        const input = new FakeInput(name, 'on', 'checkbox');
+        input.checked = true;
+        return input;
+      }});
+      const controls = {{ product_category: category, marketplace_url: marketplace, objective }};
+      for (const input of acknowledgements) controls[input.name] = input;
+      const radios = [new FakeInput('source_media_id', '{photo}', 'radio')];
+      const platforms = ['youtube', 'wildberries'].map((value) =>
+        new FakeInput('platforms', value, 'checkbox'),
+      );
+      const form = new FakeForm(controls, radios, platforms);
+      let activeForm = form;
+      let retry = null;
+      let runtimeScope = {{
+        organization_id: '', user_id: '',
+        session_id: '77777777-7777-4777-8777-777777777777',
+        project_id: scope.project_id,
+      }};
+      globalThis.document = {{
+        getElementById: (id) => id === 'exact-youtube-research-evidence-form' ? activeForm : null,
+        createElement: () => ({{ value: '', textContent: '', disabled: false }}),
+        querySelectorAll: () => [],
+      }};
+      globalThis.window = {{
+        location: {{ hash: '#/workspace/review?purpose=exact_youtube_research&project_id=' + scope.project_id + '&youtube_source=' + scope.source_id }},
+        sessionStorage: storage,
+        addEventListener: () => {{}},
+        queueMicrotask: () => {{}},
+        setTimeout: (callback) => {{ retry = callback; return 1; }},
+        clearTimeout: () => {{}},
+        ContentEngineWorkspaceRuntime: {{
+          getExactYoutubeHandoffContext: () => runtimeScope,
+        }},
+      }};
+      const draft = await import({json.dumps(DRAFT.as_uri())});
+      draft.writeExactYoutubeResearchDraft(storage, {{
+        ...scope,
+        product_category: 'household',
+        marketplace_url: 'https://www.wildberries.ru/catalog/518413561/detail.aspx',
+        research_focus: 'результат сначала',
+        known_facts: '10 программ',
+        platforms: ['youtube', 'wildberries'],
+        source_media_ids: ['{photo}'],
+        paid_analysis_ack: true,
+      }});
+      const recovery = await import({json.dumps(RECOVERY.as_uri())});
+      const first = recovery.hydrateExactYoutubeResearchDraft();
+      const before = {{
+        first,
+        hydrated: form.dataset.exactResearchDraftHydrated || '',
+        category: category.value,
+        retryScheduled: typeof retry === 'function',
+        acknowledgements: acknowledgements.map((item) => item.checked),
+      }};
+      runtimeScope = {{
+        ...scope,
+        session_id: '77777777-7777-4777-8777-777777777777',
+      }};
+      retry();
+      const restored = {{
+        hydrated: form.dataset.exactResearchDraftHydrated,
+        category: category.value,
+        marketplace: marketplace.value,
+        selectedPhoto: radios.find((item) => item.checked)?.value || '',
+        selectedPlatforms: platforms.filter((item) => item.checked).map((item) => item.value),
+        objectiveHasFacts: objective.value.includes('10 программ'),
+        acknowledgements: acknowledgements.map((item) => item.checked),
+      }};
+      draft.clearExactYoutubeResearchDraft(storage);
+      const copiedCategory = new FakeSelect('product_category', [
+        {{ value: 'cosmetics' }}, {{ value: 'household' }},
+      ]);
+      const copiedAcks = [
+        'media_matches_registered_source', 'external_ai_processing_ack',
+        'paid_analysis_ack', 'human_review_ack',
+      ].map((name) => {{
+        const input = new FakeInput(name, 'on', 'checkbox');
+        input.checked = true;
+        return input;
+      }});
+      const copiedControls = {{
+        product_category: copiedCategory,
+        marketplace_url: new FakeInput('marketplace_url'),
+        objective: new FakeTextArea('objective', 'Базовая цель.'),
+      }};
+      for (const input of copiedAcks) copiedControls[input.name] = input;
+      const copiedRadios = [
+        new FakeInput('source_media_id', '{photo}', 'radio'),
+      ];
+      activeForm = new FakeForm(copiedControls, copiedRadios, []);
+      window.location.hash = '#/workspace/review?purpose=exact_youtube_research&project_id=' + scope.project_id + '&youtube_source=66666666-6666-4666-8666-666666666666';
+      retry = null;
+      const copiedResult = recovery.hydrateExactYoutubeResearchDraft();
+      process.stdout.write(JSON.stringify({{
+        before,
+        restored,
+        copied: {{
+          result: copiedResult,
+          hydrated: activeForm.dataset.exactResearchDraftHydrated,
+          category: copiedCategory.value,
+          marketplace: copiedControls.marketplace_url.value,
+          selectedPhoto: copiedRadios.find((item) => item.checked)?.value || '',
+          retryScheduled: typeof retry === 'function',
+          acknowledgements: copiedAcks.map((item) => item.checked),
+        }},
+      }}));
+    """
+    assert run_node(script) == {
+        "before": {
+            "first": False,
+            "hydrated": "",
+            "category": "",
+            "retryScheduled": True,
+            "acknowledgements": [False, False, False, False],
+        },
+        "restored": {
+            "hydrated": "true",
+            "category": "household",
+            "marketplace": (
+                "https://www.wildberries.ru/catalog/518413561/detail.aspx"
+            ),
+            "selectedPhoto": photo,
+            "selectedPlatforms": ["youtube", "wildberries"],
+            "objectiveHasFacts": True,
+            "acknowledgements": [False, False, False, False],
+        },
+        "copied": {
+            "result": True,
+            "hydrated": "true",
+            "category": "",
+            "marketplace": "",
+            "selectedPhoto": "",
+            "retryScheduled": False,
+            "acknowledgements": [False, False, False, False],
+        },
     }
 
 

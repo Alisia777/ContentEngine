@@ -16,7 +16,7 @@ import {
   clearExactYoutubeResearchDraft,
   exactYoutubeResearchHydration,
   readExactYoutubeResearchDraft,
-} from "./exact-youtube-research-draft.js?v=20260810.exact-research-draft.1";
+} from "./exact-youtube-research-draft.js?v=20260810.exact-research-draft.2";
 
 const RESEARCH_ROUTE = "/workspace/research";
 const MEDIA_ROUTE = "/workspace/media";
@@ -31,7 +31,12 @@ const PENDING_SOURCE_PREFIX = "contentengine.research.youtube.pending.v1";
 const runtime = {
   queued: false,
   flushQueued: false,
+  exactDraftRetryKey: "",
+  exactDraftRetryCount: 0,
+  exactDraftRetryTimer: 0,
 };
+const EXACT_DRAFT_RETRY_LIMIT = 12;
+const EXACT_DRAFT_RETRY_DELAY_MS = 250;
 
 function routePath() {
   const apiRoute = globalThis.window?.ContentEngineDesktopV4?.route?.();
@@ -154,6 +159,47 @@ function ensureExactResearchCategoryPlaceholder(select) {
   select.prepend(option);
 }
 
+function clearExactResearchAcknowledgements(form) {
+  for (const name of [
+    "media_matches_registered_source",
+    "external_ai_processing_ack",
+    "paid_analysis_ack",
+    "human_review_ack",
+  ]) {
+    const acknowledgement = exactResearchFormControl(form, name);
+    if (acknowledgement instanceof HTMLInputElement) {
+      acknowledgement.checked = false;
+    }
+  }
+}
+
+function stopExactResearchDraftRetry() {
+  if (runtime.exactDraftRetryTimer) {
+    window.clearTimeout(runtime.exactDraftRetryTimer);
+  }
+  runtime.exactDraftRetryKey = "";
+  runtime.exactDraftRetryCount = 0;
+  runtime.exactDraftRetryTimer = 0;
+}
+
+function scheduleExactResearchDraftRetry(form, sourceId) {
+  const retryKey = `${currentProjectId()}:${sourceId}`;
+  if (runtime.exactDraftRetryKey !== retryKey) {
+    stopExactResearchDraftRetry();
+    runtime.exactDraftRetryKey = retryKey;
+  }
+  if (
+    runtime.exactDraftRetryTimer
+    || runtime.exactDraftRetryCount >= EXACT_DRAFT_RETRY_LIMIT
+  ) return;
+  runtime.exactDraftRetryCount += 1;
+  form.dataset.exactResearchDraftRetry = String(runtime.exactDraftRetryCount);
+  runtime.exactDraftRetryTimer = window.setTimeout(() => {
+    runtime.exactDraftRetryTimer = 0;
+    hydrateExactYoutubeResearchDraft();
+  }, EXACT_DRAFT_RETRY_DELAY_MS);
+}
+
 export function hydrateExactYoutubeResearchDraft() {
   if (routePath() !== REVIEW_ROUTE) return false;
   const params = routeParams();
@@ -166,11 +212,18 @@ export function hydrateExactYoutubeResearchDraft() {
     return false;
   }
   if (form.dataset.exactResearchDraftHydrated === "true") return true;
-  form.dataset.exactResearchDraftHydrated = "true";
 
   const category = exactResearchFormControl(form, "product_category");
   ensureExactResearchCategoryPlaceholder(category);
+  clearExactResearchAcknowledgements(form);
   const stored = currentExactResearchDraft(sourceId);
+  if (stored.code === "draft_context_invalid") {
+    if (category instanceof HTMLSelectElement) category.value = "";
+    scheduleExactResearchDraftRetry(form, sourceId);
+    return false;
+  }
+  stopExactResearchDraftRetry();
+  form.dataset.exactResearchDraftHydrated = "true";
   if (!stored.ok) {
     if (category instanceof HTMLSelectElement) category.value = "";
     return true;
@@ -218,17 +271,6 @@ export function hydrateExactYoutubeResearchDraft() {
     if (selectedPhoto) selectedPhoto.checked = true;
   }
 
-  for (const name of [
-    "media_matches_registered_source",
-    "external_ai_processing_ack",
-    "paid_analysis_ack",
-    "human_review_ack",
-  ]) {
-    const acknowledgement = exactResearchFormControl(form, name);
-    if (acknowledgement instanceof HTMLInputElement) {
-      acknowledgement.checked = false;
-    }
-  }
   return true;
 }
 

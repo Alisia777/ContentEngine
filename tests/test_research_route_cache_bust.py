@@ -21,7 +21,7 @@ def test_research_route_bootstrap_uses_one_fresh_cache_key() -> None:
     assert build_match is not None
     cache_key = build_match.group(1)
 
-    assert cache_key == "20260810.research.28"
+    assert cache_key == "20260810.research.29"
     assert (
         f'workspace-research-training-bootstrap.js?v={cache_key}'
         in index

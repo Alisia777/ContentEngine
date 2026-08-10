@@ -68,11 +68,11 @@ def test_recovery_module_is_loaded_on_every_handoff_route() -> None:
         'route === "/workspace/ai"',
         "workspace-research-failure-recovery.css",
         "workspace-research-failure-recovery.js",
-        'const BUILD = "20260810.research.28"',
+        'const BUILD = "20260810.research.29"',
     ):
         assert marker in bootstrap
     assert (
-        'workspace-research-training-bootstrap.js?v=20260810.research.28'
+        'workspace-research-training-bootstrap.js?v=20260810.research.29'
         in index
     )
 
