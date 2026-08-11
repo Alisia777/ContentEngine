@@ -3,6 +3,7 @@ import {
   beginBoundedProviderPost,
   MAX_PROVIDER_REQUEST_JSON_BYTES,
   promptForRun,
+  providerResponseRetrieveUrl,
   providerTerminalFailure,
   readExactVideoResearchEvidence,
   readPhoto,
@@ -1129,6 +1130,53 @@ Deno.test("exact-video research requires its canonical social source and fact", 
 Deno.test("readResearchResult accepts a complete corroborated v2 result", () => {
   const fixture = validFixture();
   assert(validate(fixture) !== null, "expected the canonical fixture to pass");
+});
+
+Deno.test("background response retrieval preserves the full web-search source set", () => {
+  const url = providerResponseRetrieveUrl("resp_example/unsafe suffix");
+  assert(
+    url ===
+      "https://api.openai.com/v1/responses/resp_example%2Funsafe%20suffix?include%5B%5D=web_search_call.action.sources",
+    "GET-only retrieval must encode the response id and request expanded search sources",
+  );
+});
+
+Deno.test("unsupported model-authored sources are removed only when trusted references remain", () => {
+  const unsupportedId = "brief:confirmed_facts";
+  const unsupportedSource = {
+    id: unsupportedId,
+    title: "Confirmed facts from the brief",
+    url: null,
+    publisher: "Creator brief",
+    published_at: null,
+    accessed_at: new Date().toISOString(),
+    source_type: "other",
+  };
+  const fixture = validFixture();
+  fixture.sources.push({ ...unsupportedSource });
+  fixture.category_analysis.source_ids.push(unsupportedId);
+  fixture.facts[0].source_ids.push(unsupportedId);
+  fixture.scenarios[0].risks.push(
+    "Keep creator-brief facts independently verified",
+  );
+
+  const result = validate(fixture);
+  assert(
+    result !== null,
+    "trusted provider citations must preserve the paid result",
+  );
+  assert(
+    !JSON.stringify(result).includes(unsupportedId),
+    "the unsupported source row and every reference to it must be removed",
+  );
+
+  const unsupportedOnly = validFixture();
+  unsupportedOnly.sources.push({ ...unsupportedSource });
+  unsupportedOnly.facts[0].source_ids = [unsupportedId];
+  assertNull(
+    validate(unsupportedOnly),
+    "a claim supported only by an untrusted model-authored source must fail closed",
+  );
 });
 
 Deno.test("unsupported sufficient coverage is preserved as limited evidence", () => {
