@@ -313,12 +313,12 @@ begin
     from content_factory
       .research_provider_response_recovery_get_reservations reservation
     join content_factory
-      .research_provider_response_recovery_authorizations authorization
-      on authorization.organization_id = reservation.organization_id
-     and authorization.project_id = reservation.project_id
-     and authorization.run_id = reservation.run_id
-     and authorization.id = reservation.authorization_id
-     and authorization.authorization_hash =
+      .research_provider_response_recovery_authorizations recovery_auth
+      on recovery_auth.organization_id = reservation.organization_id
+     and recovery_auth.project_id = reservation.project_id
+     and recovery_auth.run_id = reservation.run_id
+     and recovery_auth.id = reservation.authorization_id
+     and recovery_auth.authorization_hash =
        reservation.authorization_hash_snapshot
     join content_factory.research_exact_youtube_research_bindings exact_binding
       on exact_binding.organization_id = reservation.organization_id
@@ -493,12 +493,12 @@ begin
     )
   );
 
-  select authorization.* into authorization_row
+  select recovery_auth.* into authorization_row
   from content_factory.research_provider_response_recovery_authorizations
-    authorization
-  where authorization.organization_id = organization_id_value
-    and authorization.authorized_by = actor_id_value
-    and authorization.idempotency_key = idempotency_key_value;
+    recovery_auth
+  where recovery_auth.organization_id = organization_id_value
+    and recovery_auth.authorized_by = actor_id_value
+    and recovery_auth.idempotency_key = idempotency_key_value;
   if authorization_row.id is not null then
     if authorization_row.request_hash <> request_hash_value then
       raise exception using
@@ -593,11 +593,11 @@ begin
       message = 'research_response_recovery_completed_response_required';
   end if;
 
-  select authorization.* into authorization_row
+  select recovery_auth.* into authorization_row
   from content_factory.research_provider_response_recovery_authorizations
-    authorization
-  where authorization.organization_id = organization_id_value
-    and authorization.run_id = run_id_value;
+    recovery_auth
+  where recovery_auth.organization_id = organization_id_value
+    and recovery_auth.run_id = run_id_value;
   if authorization_row.id is not null then
     return jsonb_build_object(
       'ok', true,
@@ -791,10 +791,10 @@ begin
     p_payload, 'authorization_id'
   );
 
-  select authorization.* into authorization_row
+  select recovery_auth.* into authorization_row
   from content_factory.research_provider_response_recovery_authorizations
-    authorization
-  where authorization.id = authorization_id_value
+    recovery_auth
+  where recovery_auth.id = authorization_id_value
   for update;
   if authorization_row.id is null then
     raise exception using
@@ -1096,11 +1096,11 @@ begin
       errcode = '22023',
       message = 'research_response_recovery_reservation_not_found';
   end if;
-  select authorization.* into authorization_row
+  select recovery_auth.* into authorization_row
   from content_factory.research_provider_response_recovery_authorizations
-    authorization
-  where authorization.organization_id = reservation_row.organization_id
-    and authorization.id = reservation_row.authorization_id;
+    recovery_auth
+  where recovery_auth.organization_id = reservation_row.organization_id
+    and recovery_auth.id = reservation_row.authorization_id;
   if authorization_row.id is null
      or authorization_row.run_id <> reservation_row.run_id
      or authorization_row.project_id <> reservation_row.project_id then

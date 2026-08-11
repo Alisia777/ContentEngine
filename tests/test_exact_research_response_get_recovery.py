@@ -38,8 +38,15 @@ def test_migration_prefix_is_unique_and_sql_is_parseable() -> None:
         path.name for path in MIGRATIONS.glob("202608110003_*.sql")
     )
     assert matching_prefixes == [MIGRATION.name]
-    assert parse_sql(_read(MIGRATION))
+    migration_sql = _read(MIGRATION)
+    assert parse_sql(migration_sql)
     assert parse_sql(_read(PGTAP))
+    assert not re.search(
+        r"research_provider_response_recovery_authorizations\s+authorization\b",
+        migration_sql,
+        flags=re.IGNORECASE,
+    )
+    assert "recovery_auth." in migration_sql
 
 
 def test_recovery_ledgers_are_private_append_only_and_lineage_composite() -> None:
