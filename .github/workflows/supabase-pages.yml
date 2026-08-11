@@ -175,6 +175,44 @@ jobs:
                       "provider_post_count": 0,
                       "terminal_status": "failed",
                       "safe_code": safe_code,
+                      "code_shape": {
+                          "length": (
+                              len(provider_code)
+                              if isinstance(provider_code, str)
+                              else None
+                          ),
+                          "lower_snake": bool(
+                              isinstance(provider_code, str)
+                              and re.fullmatch(r"[a-z][a-z0-9_]+", provider_code)
+                          ),
+                          "lower_kebab": bool(
+                              isinstance(provider_code, str)
+                              and re.fullmatch(r"[a-z][a-z0-9-]+", provider_code)
+                          ),
+                          "lower_dotted": bool(
+                              isinstance(provider_code, str)
+                              and re.fullmatch(r"[a-z][a-z0-9._-]+", provider_code)
+                          ),
+                          "has_whitespace": bool(
+                              isinstance(provider_code, str)
+                              and re.search(r"\s", provider_code)
+                          ),
+                          "has_uppercase": bool(
+                              isinstance(provider_code, str)
+                              and re.search(r"[A-Z]", provider_code)
+                          ),
+                          "has_semantic_fragment": bool(
+                              isinstance(provider_code, str)
+                              and any(
+                                  part in provider_code.lower()
+                                  for part in semantic_fragments
+                              )
+                          ),
+                          "has_long_hex_or_digits": bool(
+                              isinstance(provider_code, str)
+                              and re.search(r"[0-9a-f]{12,}|[0-9]{6,}", provider_code)
+                          ),
+                      },
                       "message_present": message_present,
                       "response_id_exposed": False,
                   },
