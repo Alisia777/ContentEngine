@@ -168,82 +168,181 @@ class PartialAdoptionResult:
     recovery_status: str
 
 
-def _required_int(row: dict[str, Any], key: str) -> int:
-    value = row.get(key)
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise KlimovPartialAdoptionError("Partial-adoption snapshot is invalid")
-    return value
+_SAFE_FIELD_PATH = re.compile(
+    r"^[a-z][a-z0-9_]*(?:\[[0-9]+\])?"
+    r"(?:\.[a-z][a-z0-9_]*(?:\[[0-9]+\])?)*$"
+)
 
 
-def _required_bool(row: dict[str, Any], key: str) -> bool:
-    value = row.get(key)
-    if not isinstance(value, bool):
-        raise KlimovPartialAdoptionError("Partial-adoption snapshot is invalid")
-    return value
-
-
-def _required_text(row: dict[str, Any], key: str) -> str:
-    value = row.get(key)
-    if not isinstance(value, str) or not value:
-        raise KlimovPartialAdoptionError("Partial-adoption snapshot is invalid")
-    return value
-
-
-def _text(row: dict[str, Any], key: str) -> str:
-    value = row.get(key)
-    if not isinstance(value, str):
-        raise KlimovPartialAdoptionError("Partial-adoption snapshot is invalid")
-    return value
-
-
-def _required_dict(row: dict[str, Any], key: str) -> dict[str, Any]:
-    value = row.get(key)
-    if not isinstance(value, dict):
-        raise KlimovPartialAdoptionError("Partial-adoption snapshot is invalid")
-    return dict(value)
-
-
-def _required_list(row: dict[str, Any], key: str) -> list[Any]:
-    value = row.get(key)
-    if not isinstance(value, list):
-        raise KlimovPartialAdoptionError("Partial-adoption snapshot is invalid")
-    return list(value)
-
-
-def _parse_event(value: Any) -> ProvenanceEvent:
-    if not isinstance(value, dict):
-        raise KlimovPartialAdoptionError("Membership provenance is invalid")
-    properties = value.get("properties")
-    if not isinstance(properties, dict):
-        raise KlimovPartialAdoptionError("Membership provenance is invalid")
-    return ProvenanceEvent(
-        event_id=_validated_uuid(value.get("event_id")),
-        organization_id=_validated_uuid(value.get("organization_id")),
-        profile_id=_validated_uuid(value.get("profile_id")),
-        event_name=_required_text(value, "event_name"),
-        source=_required_text(value, "source"),
-        entity_type=_required_text(value, "entity_type"),
-        entity_id=_required_text(value, "entity_id"),
-        properties=dict(properties),
-        idempotency_key=_required_text(value, "idempotency_key"),
-        occurred_at=_required_text(value, "occurred_at"),
+def _invalid_snapshot_field(field_name: str) -> KlimovPartialAdoptionError:
+    safe_field_name = (
+        field_name
+        if _SAFE_FIELD_PATH.fullmatch(field_name) is not None
+        else "internal_field"
+    )
+    return KlimovPartialAdoptionError(
+        f"Partial-adoption snapshot is invalid: field={safe_field_name}"
     )
 
 
-def _parse_receipt(value: Any) -> ProvenanceReceipt:
+def _required_int(
+    row: dict[str, Any],
+    key: str,
+    *,
+    field_name: str | None = None,
+) -> int:
+    value = row.get(key)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise _invalid_snapshot_field(field_name or key)
+    return value
+
+
+def _required_bool(
+    row: dict[str, Any],
+    key: str,
+    *,
+    field_name: str | None = None,
+) -> bool:
+    value = row.get(key)
+    if not isinstance(value, bool):
+        raise _invalid_snapshot_field(field_name or key)
+    return value
+
+
+def _required_text(
+    row: dict[str, Any],
+    key: str,
+    *,
+    field_name: str | None = None,
+) -> str:
+    value = row.get(key)
+    if not isinstance(value, str) or not value:
+        raise _invalid_snapshot_field(field_name or key)
+    return value
+
+
+def _text(
+    row: dict[str, Any],
+    key: str,
+    *,
+    field_name: str | None = None,
+) -> str:
+    value = row.get(key)
+    if not isinstance(value, str):
+        raise _invalid_snapshot_field(field_name or key)
+    return value
+
+
+def _required_dict(
+    row: dict[str, Any],
+    key: str,
+    *,
+    field_name: str | None = None,
+) -> dict[str, Any]:
+    value = row.get(key)
     if not isinstance(value, dict):
-        raise KlimovPartialAdoptionError("Membership provenance is invalid")
+        raise _invalid_snapshot_field(field_name or key)
+    return dict(value)
+
+
+def _required_list(
+    row: dict[str, Any],
+    key: str,
+    *,
+    field_name: str | None = None,
+) -> list[Any]:
+    value = row.get(key)
+    if not isinstance(value, list):
+        raise _invalid_snapshot_field(field_name or key)
+    return list(value)
+
+
+def _required_uuid(
+    row: dict[str, Any],
+    key: str,
+    *,
+    field_name: str | None = None,
+) -> str:
+    try:
+        return _validated_uuid(row.get(key))
+    except OwnerBootstrapError:
+        raise _invalid_snapshot_field(field_name or key) from None
+
+
+def _parse_event(value: Any, *, index: int) -> ProvenanceEvent:
+    prefix = f"provenance_events[{index}]"
+    if not isinstance(value, dict):
+        raise _invalid_snapshot_field(prefix)
+    properties = value.get("properties")
+    if not isinstance(properties, dict):
+        raise _invalid_snapshot_field(f"{prefix}.properties")
+    return ProvenanceEvent(
+        event_id=_required_uuid(
+            value, "event_id", field_name=f"{prefix}.event_id"
+        ),
+        organization_id=_required_uuid(
+            value,
+            "organization_id",
+            field_name=f"{prefix}.organization_id",
+        ),
+        profile_id=_required_uuid(
+            value, "profile_id", field_name=f"{prefix}.profile_id"
+        ),
+        event_name=_required_text(
+            value, "event_name", field_name=f"{prefix}.event_name"
+        ),
+        source=_required_text(
+            value, "source", field_name=f"{prefix}.source"
+        ),
+        entity_type=_required_text(
+            value, "entity_type", field_name=f"{prefix}.entity_type"
+        ),
+        entity_id=_required_text(
+            value, "entity_id", field_name=f"{prefix}.entity_id"
+        ),
+        properties=dict(properties),
+        idempotency_key=_required_text(
+            value,
+            "idempotency_key",
+            field_name=f"{prefix}.idempotency_key",
+        ),
+        occurred_at=_required_text(
+            value, "occurred_at", field_name=f"{prefix}.occurred_at"
+        ),
+    )
+
+
+def _parse_receipt(value: Any, *, index: int) -> ProvenanceReceipt:
+    prefix = f"provenance_receipts[{index}]"
+    if not isinstance(value, dict):
+        raise _invalid_snapshot_field(prefix)
     result = value.get("result")
     if not isinstance(result, dict):
-        raise KlimovPartialAdoptionError("Membership provenance is invalid")
+        raise _invalid_snapshot_field(f"{prefix}.result")
     return ProvenanceReceipt(
-        receipt_id=_validated_uuid(value.get("receipt_id")),
-        organization_id=_validated_uuid(value.get("organization_id")),
-        actor_id=_validated_uuid(value.get("actor_id")),
-        command_name=_required_text(value, "command_name"),
-        idempotency_key=_required_text(value, "idempotency_key"),
+        receipt_id=_required_uuid(
+            value, "receipt_id", field_name=f"{prefix}.receipt_id"
+        ),
+        organization_id=_required_uuid(
+            value,
+            "organization_id",
+            field_name=f"{prefix}.organization_id",
+        ),
+        actor_id=_required_uuid(
+            value, "actor_id", field_name=f"{prefix}.actor_id"
+        ),
+        command_name=_required_text(
+            value, "command_name", field_name=f"{prefix}.command_name"
+        ),
+        idempotency_key=_required_text(
+            value,
+            "idempotency_key",
+            field_name=f"{prefix}.idempotency_key",
+        ),
         result=dict(result),
-        created_at=_required_text(value, "created_at"),
+        created_at=_required_text(
+            value, "created_at", field_name=f"{prefix}.created_at"
+        ),
     )
 
 
@@ -494,17 +593,22 @@ limit 2
     auth_providers = _required_list(row, "auth_providers")
     membership_permissions = _required_list(row, "membership_permissions")
     events = tuple(
-        _parse_event(value) for value in _required_list(row, "provenance_events")
+        _parse_event(value, index=index)
+        for index, value in enumerate(
+            _required_list(row, "provenance_events")
+        )
     )
     receipts = tuple(
-        _parse_receipt(value)
-        for value in _required_list(row, "provenance_receipts")
+        _parse_receipt(value, index=index)
+        for index, value in enumerate(
+            _required_list(row, "provenance_receipts")
+        )
     )
     if not all(isinstance(value, str) for value in auth_providers):
-        raise KlimovPartialAdoptionError("Partial-adoption snapshot is invalid")
+        raise _invalid_snapshot_field("auth_providers")
     return PartialAdoptionSnapshot(
         auth_match_count=_required_int(row, "auth_match_count"),
-        user_id=_validated_uuid(row.get("user_id")),
+        user_id=_required_uuid(row, "user_id"),
         auth_email=_required_text(row, "auth_email"),
         auth_created_at=_required_text(row, "auth_created_at"),
         auth_created_in_source_window=_required_bool(
@@ -518,24 +622,24 @@ limit 2
         auth_display_name=_required_text(row, "auth_display_name"),
         auth_provider=_required_text(row, "auth_provider"),
         auth_providers=tuple(auth_providers),
-        profile_id=_validated_uuid(row.get("profile_id")),
+        profile_id=_required_uuid(row, "profile_id"),
         profile_email=_required_text(row, "profile_email"),
         profile_display_name=_required_text(row, "profile_display_name"),
         profile_status=_required_text(row, "profile_status"),
-        organization_id=_validated_uuid(row.get("organization_id")),
+        organization_id=_required_uuid(row, "organization_id"),
         organization_slug=_required_text(row, "organization_slug"),
         organization_status=_required_text(row, "organization_status"),
-        authority_id=_validated_uuid(row.get("authority_id")),
+        authority_id=_required_uuid(row, "authority_id"),
         authority_email=_required_text(row, "authority_email"),
         authority_auth_email=_required_text(row, "authority_auth_email"),
         authority_is_active_owner=_required_bool(
             row, "authority_is_active_owner"
         ),
-        membership_id=_validated_uuid(row.get("membership_id")),
-        membership_organization_id=_validated_uuid(
-            row.get("membership_organization_id")
+        membership_id=_required_uuid(row, "membership_id"),
+        membership_organization_id=_required_uuid(
+            row, "membership_organization_id"
         ),
-        membership_profile_id=_validated_uuid(row.get("membership_profile_id")),
+        membership_profile_id=_required_uuid(row, "membership_profile_id"),
         membership_role=_required_text(row, "membership_role"),
         membership_status=_required_text(row, "membership_status"),
         membership_permissions=tuple(membership_permissions),
@@ -604,53 +708,125 @@ def _classify_provenance(
     receipts = snapshot.provenance_receipts
     if not events and not receipts:
         return CLASS_NO_PROVENANCE
-    if len(events) != 1 or len(receipts) != 1:
-        raise KlimovPartialAdoptionError(
-            "Membership provenance is present but ambiguous"
-        )
+    if len(events) != 1:
+        raise _invalid_snapshot_field("provenance_events")
+    if len(receipts) != 1:
+        raise _invalid_snapshot_field("provenance_receipts")
 
     event = events[0]
     receipt = receipts[0]
-    if (
-        event.organization_id != snapshot.organization_id
-        or event.profile_id != snapshot.authority_id
-        or event.source != "system"
-        or event.entity_type != "membership"
-        or event.entity_id != snapshot.membership_id
-        or receipt.organization_id != snapshot.organization_id
-        or receipt.actor_id != snapshot.authority_id
-        or event.properties.get("target_user_id") != snapshot.user_id
-        or event.properties.get("role") != "trainee"
-        or receipt.result.get("ok") is not True
-        or receipt.result.get("organization_id") != snapshot.organization_id
-        or receipt.result.get("user_id") != snapshot.user_id
-        or receipt.result.get("membership_id") != snapshot.membership_id
-        or receipt.result.get("role") != "trainee"
-        or receipt.result.get("status") != "active"
-    ):
-        raise KlimovPartialAdoptionError(
-            "Membership provenance does not match the adoption boundary"
-        )
-
-    if (
-        event.event_name == "limited_member_provisioned"
-        and receipt.command_name == "system_provision_limited_member"
-        and event.idempotency_key == receipt.idempotency_key
-        and event.properties.get("already_active") is False
-        and receipt.result.get("already_active") is False
-    ):
-        return CLASS_LIMITED_PROVENANCE
-    if (
-        event.event_name == "member_invited_provisioned"
-        and receipt.command_name == "system_provision_invited_member"
-        and event.idempotency_key == f"system-invite:{receipt.idempotency_key}"
-        and "already_active" not in event.properties
-        and "already_active" not in receipt.result
-    ):
-        return CLASS_INVITED_PROVENANCE
-    raise KlimovPartialAdoptionError(
-        "Membership provenance is not a verified creation record"
+    checks = (
+        (
+            event.organization_id == snapshot.organization_id,
+            "provenance_events[0].organization_id",
+        ),
+        (
+            event.profile_id == snapshot.authority_id,
+            "provenance_events[0].profile_id",
+        ),
+        (event.source == "system", "provenance_events[0].source"),
+        (
+            event.entity_type == "membership",
+            "provenance_events[0].entity_type",
+        ),
+        (
+            event.entity_id == snapshot.membership_id,
+            "provenance_events[0].entity_id",
+        ),
+        (
+            receipt.organization_id == snapshot.organization_id,
+            "provenance_receipts[0].organization_id",
+        ),
+        (
+            receipt.actor_id == snapshot.authority_id,
+            "provenance_receipts[0].actor_id",
+        ),
+        (
+            event.properties.get("target_user_id") == snapshot.user_id,
+            "provenance_events[0].properties.target_user_id",
+        ),
+        (
+            event.properties.get("role") == "trainee",
+            "provenance_events[0].properties.role",
+        ),
+        (
+            receipt.result.get("ok") is True,
+            "provenance_receipts[0].result.ok",
+        ),
+        (
+            receipt.result.get("organization_id")
+            == snapshot.organization_id,
+            "provenance_receipts[0].result.organization_id",
+        ),
+        (
+            receipt.result.get("user_id") == snapshot.user_id,
+            "provenance_receipts[0].result.user_id",
+        ),
+        (
+            receipt.result.get("membership_id") == snapshot.membership_id,
+            "provenance_receipts[0].result.membership_id",
+        ),
+        (
+            receipt.result.get("role") == "trainee",
+            "provenance_receipts[0].result.role",
+        ),
+        (
+            receipt.result.get("status") == "active",
+            "provenance_receipts[0].result.status",
+        ),
     )
+    for valid, field_name in checks:
+        if not valid:
+            raise _invalid_snapshot_field(field_name)
+
+    if event.event_name == "limited_member_provisioned":
+        limited_checks = (
+            (
+                receipt.command_name == "system_provision_limited_member",
+                "provenance_receipts[0].command_name",
+            ),
+            (
+                event.idempotency_key == receipt.idempotency_key,
+                "provenance_events[0].idempotency_key",
+            ),
+            (
+                event.properties.get("already_active") is False,
+                "provenance_events[0].properties.already_active",
+            ),
+            (
+                receipt.result.get("already_active") is False,
+                "provenance_receipts[0].result.already_active",
+            ),
+        )
+        for valid, field_name in limited_checks:
+            if not valid:
+                raise _invalid_snapshot_field(field_name)
+        return CLASS_LIMITED_PROVENANCE
+    if event.event_name == "member_invited_provisioned":
+        invited_checks = (
+            (
+                receipt.command_name == "system_provision_invited_member",
+                "provenance_receipts[0].command_name",
+            ),
+            (
+                event.idempotency_key
+                == f"system-invite:{receipt.idempotency_key}",
+                "provenance_events[0].idempotency_key",
+            ),
+            (
+                "already_active" not in event.properties,
+                "provenance_events[0].properties.already_active",
+            ),
+            (
+                "already_active" not in receipt.result,
+                "provenance_receipts[0].result.already_active",
+            ),
+        )
+        for valid, field_name in invited_checks:
+            if not valid:
+                raise _invalid_snapshot_field(field_name)
+        return CLASS_INVITED_PROVENANCE
+    raise _invalid_snapshot_field("provenance_events[0].event_name")
 
 
 def _matches_prior_one_off_reason(reason: str, classification: str) -> bool:

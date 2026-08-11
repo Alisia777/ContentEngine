@@ -1,0 +1,58 @@
+name: Preview Klimov partial onboarding diagnostic
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type PREVIEW_KLIMOV_PARTIAL_SNAPSHOT_DIAGNOSTIC_ONCE to run the read-only diagnostic
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-klimov-operator-onboarding
+  cancel-in-progress: false
+
+jobs:
+  preview:
+    name: Preview exact partial identity without mutation
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.inputs.confirmation == 'PREVIEW_KLIMOV_PARTIAL_SNAPSHOT_DIAGNOSTIC_ONCE'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_OWNER_EMAIL: ${{ secrets.SUPABASE_OWNER_EMAIL }}
+      SUPABASE_MEMBER_KLIMOV_EMAIL: ${{ secrets.SUPABASE_MEMBER_KLIMOV_EMAIL }}
+      SUPABASE_MEMBER_KLIMOV_DISPLAY_NAME: ${{ secrets.SUPABASE_MEMBER_KLIMOV_DISPLAY_NAME }}
+    steps:
+      - name: Check out the exact reviewed main revision
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Run the fixed read-only diagnostic preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${SUPABASE_PROJECT_REF:?Configure SUPABASE_PROJECT_REF in production}"
+          : "${SUPABASE_ACCESS_TOKEN:?Configure SUPABASE_ACCESS_TOKEN in production}"
+          : "${SUPABASE_OWNER_EMAIL:?Configure SUPABASE_OWNER_EMAIL in production}"
+          : "${SUPABASE_MEMBER_KLIMOV_EMAIL:?Configure SUPABASE_MEMBER_KLIMOV_EMAIL in production}"
+          : "${SUPABASE_MEMBER_KLIMOV_DISPLAY_NAME:?Configure SUPABASE_MEMBER_KLIMOV_DISPLAY_NAME in production}"
+          echo "::add-mask::$SUPABASE_MEMBER_KLIMOV_EMAIL"
+          echo "::add-mask::$SUPABASE_MEMBER_KLIMOV_DISPLAY_NAME"
+          echo "::add-mask::$SUPABASE_OWNER_EMAIL"
+          python -m scripts.adopt_klimov_partial_onboarding

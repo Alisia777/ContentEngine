@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import asdict, replace
 
 import pytest
@@ -280,6 +281,133 @@ def test_snapshot_query_is_read_only_and_captures_every_boundary() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("field_name", "invalid_value"),
+    [
+        ("auth_match_count", "SENSITIVE_INVALID_VALUE"),
+        ("auth_created_in_source_window", "SENSITIVE_INVALID_VALUE"),
+        ("app_metadata", "SENSITIVE_INVALID_VALUE"),
+        ("auth_providers", "SENSITIVE_INVALID_VALUE"),
+        ("membership_permissions", "SENSITIVE_INVALID_VALUE"),
+        ("membership_id", "SENSITIVE_INVALID_VALUE"),
+        ("profile_display_name", ""),
+    ],
+)
+def test_snapshot_parser_reports_only_the_invalid_top_level_field(
+    field_name: str,
+    invalid_value: object,
+) -> None:
+    row = _row(_snapshot())
+    row[field_name] = invalid_value
+
+    with pytest.raises(adoption.KlimovPartialAdoptionError) as caught:
+        adoption._read_snapshot(
+            ReadOnlyManagement(row),
+            email=EMAIL,
+            organization_id=ORGANIZATION_ID,
+            authority_id=OWNER_ID,
+        )
+
+    assert str(caught.value) == (
+        f"Partial-adoption snapshot is invalid: field={field_name}"
+    )
+    assert "SENSITIVE_INVALID_VALUE" not in str(caught.value)
+    assert EMAIL not in str(caught.value)
+    assert DISPLAY_NAME not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("collection_name", "nested_path", "mutate"),
+    [
+        (
+            "provenance_events",
+            "provenance_events[0].entity_id",
+            lambda item: item.update(entity_id=""),
+        ),
+        (
+            "provenance_events",
+            "provenance_events[0].properties",
+            lambda item: item.update(properties="SENSITIVE_INVALID_VALUE"),
+        ),
+        (
+            "provenance_receipts",
+            "provenance_receipts[0].actor_id",
+            lambda item: item.update(actor_id="SENSITIVE_INVALID_VALUE"),
+        ),
+        (
+            "provenance_receipts",
+            "provenance_receipts[0].result",
+            lambda item: item.update(result="SENSITIVE_INVALID_VALUE"),
+        ),
+    ],
+)
+def test_snapshot_parser_reports_only_nested_provenance_field(
+    collection_name: str,
+    nested_path: str,
+    mutate: Callable[[dict[str, object]], object],
+) -> None:
+    events, receipts = _limited_provenance()
+    row = _row(
+        _snapshot(
+            provenance_events=events,
+            provenance_receipts=receipts,
+        )
+    )
+    item = row[collection_name][0]
+    assert isinstance(item, dict)
+    mutate(item)
+
+    with pytest.raises(adoption.KlimovPartialAdoptionError) as caught:
+        adoption._read_snapshot(
+            ReadOnlyManagement(row),
+            email=EMAIL,
+            organization_id=ORGANIZATION_ID,
+            authority_id=OWNER_ID,
+        )
+
+    assert str(caught.value) == (
+        f"Partial-adoption snapshot is invalid: field={nested_path}"
+    )
+    assert "SENSITIVE_INVALID_VALUE" not in str(caught.value)
+    assert EMAIL not in str(caught.value)
+
+
+def test_provenance_validation_reports_only_the_nested_field() -> None:
+    events, receipts = _limited_provenance()
+    broken_receipt = replace(
+        receipts[0],
+        result={
+            **receipts[0].result,
+            "membership_id": "SENSITIVE_INVALID_VALUE",
+        },
+    )
+
+    with pytest.raises(adoption.KlimovPartialAdoptionError) as caught:
+        adoption._classify_provenance(
+            _snapshot(
+                provenance_events=events,
+                provenance_receipts=(broken_receipt,),
+            )
+        )
+
+    assert str(caught.value) == (
+        "Partial-adoption snapshot is invalid: "
+        "field=provenance_receipts[0].result.membership_id"
+    )
+    assert "SENSITIVE_INVALID_VALUE" not in str(caught.value)
+
+
+def test_snapshot_field_diagnostic_rejects_an_unsafe_field_label() -> None:
+    error = adoption._invalid_snapshot_field(
+        "profile_email=secret@example.com"
+    )
+
+    assert str(error) == (
+        "Partial-adoption snapshot is invalid: field=internal_field"
+    )
+    assert "secret@example.com" not in str(error)
+
+
 def test_exact_owner_authority_is_bound_to_fixed_email_and_read_only() -> None:
     class OwnerManagement:
         def __init__(self) -> None:
@@ -504,6 +632,7 @@ class ApplyHarness:
     ) -> None:
         self.management = ApplyManagement()
         self.auth = ApplyAuth()
+        self.auth_builds = 0
         self.reads = 0
         self.grants: list[dict[str, object]] = []
         self.verifications: list[dict[str, object]] = []
@@ -526,7 +655,11 @@ class ApplyHarness:
                 pytest.fail("unexpected extra adoption snapshot read")
 
         monkeypatch.setattr(adoption, "_read_snapshot", read_snapshot)
-        monkeypatch.setattr(adoption, "SupabaseAuthClient", lambda **_kwargs: self.auth)
+        def build_auth(**_kwargs: object) -> ApplyAuth:
+            self.auth_builds += 1
+            return self.auth
+
+        monkeypatch.setattr(adoption, "SupabaseAuthClient", build_auth)
 
         def grant(**kwargs: object) -> tuple[str, str]:
             self.grants.append(dict(kwargs))
@@ -550,22 +683,46 @@ class ApplyHarness:
         )
 
 
-def test_read_only_preflight_never_reveals_key_or_mutates(
+@pytest.mark.parametrize(
+    ("snapshot", "expected_phase", "expected_role"),
+    [
+        (
+            _snapshot(),
+            adoption.PHASE_UNCONFIRMED_TRAINEE,
+            "trainee",
+        ),
+        (
+            _confirmed_trainee(),
+            adoption.PHASE_CONFIRMED_TRAINEE,
+            "trainee",
+        ),
+        (
+            _operator(),
+            adoption.PHASE_CONFIRMED_OPERATOR,
+            "operator",
+        ),
+    ],
+)
+def test_read_only_preflight_never_creates_auth_or_mutates_in_any_phase(
     monkeypatch: pytest.MonkeyPatch,
+    snapshot: adoption.PartialAdoptionSnapshot,
+    expected_phase: str,
+    expected_role: str,
 ) -> None:
-    harness = ApplyHarness(monkeypatch, [_snapshot()])
+    harness = ApplyHarness(monkeypatch, [snapshot])
 
     result = harness.run(apply=False)
 
     assert result == adoption.PartialAdoptionResult(
         classification=adoption.CLASS_NO_PROVENANCE,
-        phase=adoption.PHASE_UNCONFIRMED_TRAINEE,
+        phase=expected_phase,
         identity_status="preflight_only",
-        membership_role="trainee",
+        membership_role=expected_role,
         recovery_status="not_requested",
     )
     assert harness.reads == 1
     assert harness.management.server_key_calls == 0
+    assert harness.auth_builds == 0
     assert harness.auth.calls == []
     assert harness.auth.recovery_emails == []
     assert harness.grants == []
