@@ -16,6 +16,10 @@ SHAPE_MIGRATION_PATH = (
     MIGRATIONS
     / "202608110001_research_provider_terminal_shape_diagnostics.sql"
 )
+BILLING_MIGRATION_PATH = (
+    MIGRATIONS
+    / "202608110002_research_provider_billing_diagnostics.sql"
+)
 EDGE_PATH = (
     ROOT / "supabase" / "functions" / "creator-product-research" / "index.ts"
 )
@@ -203,6 +207,65 @@ def test_terminal_shape_migration_is_append_only_parseable_and_future_bounded() 
     )
 
 
+def test_billing_diagnostic_migration_is_append_only_parseable_and_exactly_bounded() -> None:
+    migration = read(BILLING_MIGRATION_PATH)
+    assert BILLING_MIGRATION_PATH.name.startswith("202608110002_")
+    assert parse_sql(migration)
+    immutable_v2 = read(SHAPE_MIGRATION_PATH).replace("\r\n", "\n").replace(
+        "\r", "\n"
+    )
+    assert hashlib.sha256(immutable_v2.encode("utf-8")).hexdigest() == (
+        "9a519121226293c544a775f9a566b4af3cf94850bb236fc54af9422605bc3a4d"
+    )
+    expected = {
+        "credit_balance_exhausted",
+        "organization_spend_limit_exceeded",
+        "project_spend_limit_exceeded",
+        "organization_usage_limit_exceeded",
+        "data_residency_mismatch",
+        "bio_policy",
+    }
+    table_checks, writer = migration.split(
+        "create or replace function public.system_record_research_provider_health", 1
+    )
+    for code in expected:
+        assert migration.count(f"'{code}'") == 4
+        assert f"'{code}'" in table_checks
+        assert f"'{code}'" in writer
+    for marker in (
+        "research_provider_health_error_code_v2_check",
+        "research_provider_health_error_code_v3_check",
+        "research_provider_health_terminal_shape_v2_consistent",
+        "research_provider_health_terminal_shape_v3_consistent",
+        "failure_code = 'provider_configuration_error'",
+        "failure_code = 'provider_request_rejected'",
+        "provider_error_type = 'responses_terminal.failed'",
+        "failure_code_value <> 'provider_configuration_error'",
+        "failure_code_value <> 'provider_request_rejected'",
+        "provider_error_type_value <> 'responses_terminal.failed'",
+    ):
+        assert marker in migration
+    for forbidden in (
+        "provider_response_id",
+        "request_payload",
+        "object_name",
+        "source_url",
+        "media_sha256_snapshot",
+        "update content_factory.research_provider_health_receipts",
+        "delete from content_factory.research_provider_health_receipts",
+    ):
+        assert forbidden not in migration.lower()
+    assert migration.count(
+        "create or replace function public.system_record_research_provider_health"
+    ) == 1
+    assert migration.index("research_provider_health_error_code_v2_check") < (
+        migration.index("research_provider_health_error_code_v3_check")
+    )
+    assert migration.index(
+        "research_provider_health_terminal_shape_v2_consistent"
+    ) < migration.index("research_provider_health_terminal_shape_v3_consistent")
+
+
 def test_failed_shape_codes_have_exact_edge_sql_reachability_parity() -> None:
     edge = read(EDGE_PATH)
     migration = read(SHAPE_MIGRATION_PATH)
@@ -246,7 +309,7 @@ def test_failed_shape_codes_have_exact_edge_sql_reachability_parity() -> None:
 
 def test_official_code_allowlist_and_app_owned_type_have_edge_sql_parity() -> None:
     edge = read(EDGE_PATH)
-    migration = read(SHAPE_MIGRATION_PATH)
+    migration = read(BILLING_MIGRATION_PATH)
     safe_block = edge.split("const SAFE_PROVIDER_ERROR_CODES", 1)[1].split(
         "]);", 1
     )[0]
@@ -305,6 +368,26 @@ def test_pgtap_executes_v3_acceptance_and_rejection_constraints() -> None:
         "future_provider_error",
         "the rolling-deploy writer rejects a failed-shape code outside both allowlists",
         "responses_failed.future_shape",
+        "research_provider_terminal_diagnostic_invalid",
+    ):
+        assert marker in sql_test
+    assert parse_sql(sql_test)
+
+
+def test_pgtap_executes_v4_billing_code_acceptance_and_rejection_constraints() -> None:
+    sql_test = read(PROVIDER_SQL_TEST_PATH)
+    for marker in (
+        "the v4 writer and table checks accept exactly six bounded billing, residency and policy codes",
+        "credit_balance_exhausted",
+        "organization_spend_limit_exceeded",
+        "project_spend_limit_exceeded",
+        "organization_usage_limit_exceeded",
+        "data_residency_mismatch",
+        "bio_policy",
+        "billing_diagnostic_probe_rollback",
+        "the v4 writer rejects a future provider billing code outside the exact allowlist",
+        "future_billing_limit_exceeded",
+        "the v4 writer enforces configuration classification for a depleted API balance",
         "research_provider_terminal_diagnostic_invalid",
     ):
         assert marker in sql_test

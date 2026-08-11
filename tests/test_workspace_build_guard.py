@@ -17,12 +17,12 @@ MANIFEST = json.loads((APP_DIR / "build.json").read_text(encoding="utf-8"))
 
 def test_build_id_is_consistent_across_entrypoints() -> None:
     build_id = MANIFEST["id"]
-    assert build_id == "20260810.os4.27"
+    assert build_id == "20260811.os4.28"
     assert f'content="{build_id}"' in APP_INDEX
     assert f'content="{build_id}"' in ROOT_INDEX
     assert f'const CURRENT_BUILD = "{build_id}"' in SCRIPT
-    assert MANIFEST["label"] == "ContentEngine Desktop v4.27"
-    assert MANIFEST["released_at"] == "2026-08-10"
+    assert MANIFEST["label"] == "ContentEngine Desktop v4.28"
+    assert MANIFEST["released_at"] == "2026-08-11"
     assert 'const BUILD_BADGE = "Desktop · 4.14"' in SCRIPT
 
 
