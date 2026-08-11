@@ -76,7 +76,7 @@ jobs:
                 extract(epoch from (clock_timestamp() - binding.accepted_at))::int
                   as age_seconds
               from content_factory.research_provider_response_bindings binding
-              where binding.accepted_at > clock_timestamp() - interval '10 minutes'
+              where binding.accepted_at > clock_timestamp() - interval '30 minutes'
                 and exists (
                   select 1
                   from content_factory.research_provider_response_receipts receipt
@@ -99,7 +99,7 @@ jobs:
               or not response_id.startswith("resp_")
               or not isinstance(age_seconds, int)
               or age_seconds < 0
-              or age_seconds >= 600
+              or age_seconds >= 1800
           ):
               raise SystemExit("Recent failed response binding is invalid or expired")
 
