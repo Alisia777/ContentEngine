@@ -266,6 +266,81 @@ def test_failed_paid_response_can_be_revalidated_without_a_new_provider_post() -
     assert "from public, anon, authenticated" in sql
 
 
+def test_expired_exact_response_recovery_reserves_one_get_and_never_posts() -> None:
+    edge = _read(EDGE)
+    handler = edge[edge.index("async function handleCreatorProductResearch(") :]
+    recovery = _between(
+        handler,
+        'if (revalidationCode !== "provider_response_expired")',
+        "authorized = await readCurrentStatus()",
+    )
+
+    authorize = recovery.index(
+        '"creator_authorize_product_research_response_recovery"'
+    )
+    reserve = recovery.index(
+        '"system_claim_product_research_response_recovery"', authorize
+    )
+    strict_claim = recovery.index("readResponseRecoveryClaim(", reserve)
+    assert authorize < reserve < strict_claim
+    assert 'recovery_ack: true' in recovery
+    assert 'provider_post_allowed !== false' in edge
+    assert 'include_web_search_sources !== true' in edge
+    assert 'method: "POST"' not in recovery
+
+    claim = handler.index('"system_claim_product_research"', strict_claim)
+    post_barrier = handler.index(
+        "if (responseRecovery !== null && claim.claimed)", claim
+    )
+    assert '"system_read_product_research_response_recovery_reservation"' in handler
+    reservation_read = handler.index(
+        "await readResponseRecoveryReservation()", post_barrier
+    )
+    reservation_known = handler.index(
+        "if (recoveryReservation.getReserved)", reservation_read
+    )
+    unknown_guard = handler[reservation_read:reservation_known]
+    assert "if (recoveryReservation === null)" in unknown_guard
+    assert "return await pending()" in unknown_guard
+    assert "return await fail(" not in unknown_guard
+    replay_barrier = handler.index(
+        "if (responseRecovery === null) return await pending()",
+        reservation_known,
+    )
+    continuation_read = handler.index(
+        "continuation = await readProviderResponse()", replay_barrier
+    )
+    continuation_match = handler.index(
+        "continuation.responseId !== responseRecovery.providerResponseId",
+        continuation_read,
+    )
+    observer_get = handler.index('method: "GET"', continuation_match)
+    paid_launch = handler.index(
+        "const providerLaunch = await beginBoundedProviderPost(", observer_get
+    )
+    paid_post = handler.index('method: "POST"', paid_launch)
+    assert (
+        claim
+        < post_barrier
+        < reservation_read
+        < replay_barrier
+        < continuation_read
+        < continuation_match
+        < observer_get
+        < paid_launch
+        < paid_post
+    )
+    assert handler.count('method: "POST"') == 1
+    assert "continuation.attemptId !== responseRecovery.attemptId" in handler
+    assert "continuation.model !== responseRecovery.model" in handler
+    assert "continuation.acceptedAt !== responseRecovery.acceptedAt" in handler
+    assert 'continuation.providerStatus !== "completed"' in handler
+
+    complete = handler.index("const completionStored = await complete(", observer_get)
+    record_outcome = handler.index("await recordResponseRecoveryOutcome()", complete)
+    assert observer_get < complete < record_outcome
+
+
 def test_research_requires_fixed_ai_category_from_form_through_api_payload() -> None:
     view = _read(VIEW)
     app = _read(APP)

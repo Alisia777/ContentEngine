@@ -10,6 +10,9 @@ import {
   readProviderResponseIdentity,
   readResearchResult,
   readResearchStageRecomputeContext,
+  readResponseRecoveryAuthorization,
+  readResponseRecoveryClaim,
+  readResponseRecoveryReservationState,
   type ResearchRun,
   verifyExactProductPhoto,
 } from "./index.ts";
@@ -1080,6 +1083,28 @@ Deno.test("exact-video research requires its canonical social source and fact", 
     "the registered server canonical URL must be retained",
   );
 
+  const equivalentAlias = validFixture();
+  equivalentAlias.sources.push({
+    ...fixture.sources[2],
+    url: "https://youtu.be/ABCDEFGHIJK?t=64",
+  });
+  equivalentAlias.facts.push({ ...fixture.facts[2] });
+  assert(
+    readResearchResult(
+      equivalentAlias,
+      providerSources(equivalentAlias),
+      0,
+      ["instagram"],
+      utcDay(),
+      parsed,
+    ) !== null,
+    "a canonical-equivalent alias of the exact video must pass",
+  );
+  assert(
+    equivalentAlias.sources[2].url === parsed.canonicalUrl,
+    "an equivalent alias must be rewritten to the server canonical URL",
+  );
+
   const missingFact = validFixture();
   missingFact.sources.push({ ...fixture.sources[2] });
   assertNull(
@@ -1132,12 +1157,151 @@ Deno.test("readResearchResult accepts a complete corroborated v2 result", () => 
   assert(validate(fixture) !== null, "expected the canonical fixture to pass");
 });
 
+Deno.test("unsafe structural pattern hints are dropped, never persisted", () => {
+  const fixture = validFixture();
+  fixture.competitor_analysis.competitors[0].recurring_formats.push(
+    '"verbatim shot sequence" from a competitor',
+  );
+  fixture.competitor_analysis.competitors[0].reusable_structures.push(
+    "raw transcript of the competitor video",
+  );
+  fixture.competitor_analysis.saturated_patterns.push({
+    pattern: 'Quoted "before and after" formula',
+    source_ids: ["web:alpha", "web:beta"],
+  });
+
+  const result = validate(fixture);
+  assert(result !== null, "unsafe optional hints must not destroy the result");
+  assert(
+    fixture.competitor_analysis.competitors[0].recurring_formats.length === 1 &&
+      fixture.competitor_analysis.competitors[0].reusable_structures.length ===
+        1 &&
+      fixture.competitor_analysis.saturated_patterns.length === 1,
+    "unsafe pattern strings must be removed before persistence",
+  );
+});
+
 Deno.test("background response retrieval preserves the full web-search source set", () => {
   const url = providerResponseRetrieveUrl("resp_example/unsafe suffix");
   assert(
     url ===
       "https://api.openai.com/v1/responses/resp_example%2Funsafe%20suffix?include%5B%5D=web_search_call.action.sources",
     "GET-only retrieval must encode the response id and request expanded search sources",
+  );
+});
+
+Deno.test("saved-response recovery accepts only an exact GET-only reservation", () => {
+  const runId = "10000000-0000-4000-8000-000000000001";
+  const projectId = "10000000-0000-4000-8000-000000000002";
+  const authorizationId = "10000000-0000-4000-8000-000000000003";
+  const reservationId = "10000000-0000-4000-8000-000000000004";
+  const attemptId = "10000000-0000-4000-8000-000000000005";
+  const authorization = {
+    ok: true,
+    code: "research_response_recovery_authorized",
+    authorization_id: authorizationId,
+    run_id: runId,
+    project_id: projectId,
+    get_reserved: false,
+  };
+  const parsedAuthorization = readResponseRecoveryAuthorization(
+    authorization,
+    runId,
+    projectId,
+  );
+  assert(
+    parsedAuthorization?.authorizationId === authorizationId &&
+      parsedAuthorization.getReserved === false,
+    "the user authorization must remain bound to the exact run and project",
+  );
+  assertNull(
+    readResponseRecoveryAuthorization(
+      { ...authorization, project_id: crypto.randomUUID() },
+      runId,
+      projectId,
+    ),
+    "a copied project must not reuse the recovery authorization",
+  );
+
+  const claim = {
+    ok: true,
+    code: "research_response_recovery_get_reserved",
+    get_allowed: true,
+    provider_post_allowed: false,
+    include_web_search_sources: true,
+    reservation_id: reservationId,
+    run_id: runId,
+    status: "processing",
+    lease_expires_at: "2026-08-11T10:15:00.000Z",
+    provider_response_id: "resp_existing_paid_result",
+    attempt_id: attemptId,
+    model: "gpt-5.5",
+    accepted_at: "2026-08-11T09:55:12.676583Z",
+  };
+  const parsedClaim = readResponseRecoveryClaim(claim, runId);
+  assert(
+    parsedClaim?.reservationId === reservationId &&
+      parsedClaim.providerResponseId === "resp_existing_paid_result" &&
+      parsedClaim.attemptId === attemptId,
+    "the reservation must bind the exact saved response and paid attempt",
+  );
+  for (
+    const unsafe of [
+      { ...claim, provider_post_allowed: true },
+      { ...claim, get_allowed: false },
+      { ...claim, include_web_search_sources: false },
+      { ...claim, provider_response_id: "not-a-response" },
+      {
+        ...claim,
+        attempt_id: crypto.randomUUID(),
+        run_id: crypto.randomUUID(),
+      },
+      { ...claim, code: "research_response_recovery_get_already_reserved" },
+    ]
+  ) {
+    assertNull(
+      readResponseRecoveryClaim(unsafe, runId),
+      "a changed, replayed, or POST-capable reservation must fail closed",
+    );
+  }
+
+  const reservation = {
+    ok: true,
+    run_id: runId,
+    get_reserved: true,
+    reservation_id: reservationId,
+    outcome_recorded: false,
+  };
+  assert(
+    readResponseRecoveryReservationState(reservation, runId)
+      ?.reservationId === reservationId,
+    "a fresh request may use only its matching reserved GET",
+  );
+  assertNull(
+    readResponseRecoveryReservationState(
+      { ...reservation, run_id: crypto.randomUUID() },
+      runId,
+    ),
+    "another run's reservation must fail closed",
+  );
+  assertNull(
+    readResponseRecoveryReservationState(
+      { ...reservation, get_reserved: false },
+      runId,
+    ),
+    "an absent reservation cannot retain a reservation id",
+  );
+  assertNull(
+    readResponseRecoveryReservationState(
+      {
+        ...reservation,
+        get_reserved: false,
+        reservation_id: null,
+        outcome_recorded: true,
+      },
+      runId,
+    ),
+    "an outcome cannot exist without a reservation",
   );
 });
 

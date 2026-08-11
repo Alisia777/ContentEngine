@@ -79,6 +79,7 @@ select is(
         'creator_invite_delivery_attempts', 'creator_manager_dashboard',
         'creator_operational_health',
         'creator_start_product_research', 'creator_product_research_status',
+        'creator_authorize_product_research_response_recovery',
         'creator_save_creative_brief_draft', 'creator_approve_creative_brief',
         'creator_workspace_browser', 'creator_create_workspace_folder',
         'creator_update_workspace_folder', 'creator_move_workspace_items',
@@ -141,7 +142,7 @@ select is(
       and procedure.pronargs = 1
       and pg_get_function_identity_arguments(procedure.oid) = 'p_payload jsonb'
   ),
-  87,
+  88,
   'all browser RPCs expose exactly p_payload jsonb'
 );
 
@@ -154,7 +155,7 @@ select is(
       and procedure.proname like 'creator_%'
       and has_function_privilege('authenticated', procedure.oid, 'execute')
   ),
-  105,
+  106,
   'authenticated can execute all creator RPCs'
 );
 
@@ -184,6 +185,9 @@ select is(
         'system_claim_product_research',
         'system_complete_product_research',
         'system_revalidate_product_research_response',
+        'system_claim_product_research_response_recovery',
+        'system_read_product_research_response_recovery_reservation',
+        'system_record_product_research_response_recovery_outcome',
         'system_claim_content_review',
         'system_complete_content_review'
       )
@@ -206,12 +210,15 @@ select is(
         'system_claim_product_research',
         'system_complete_product_research',
         'system_revalidate_product_research_response',
+        'system_claim_product_research_response_recovery',
+        'system_read_product_research_response_recovery_reservation',
+        'system_record_product_research_response_recovery_outcome',
         'system_claim_content_review',
         'system_complete_content_review'
       )
       and has_function_privilege('service_role', procedure.oid, 'execute')
   ),
-  8,
+  11,
   'service_role can execute all system onboarding RPCs'
 );
 

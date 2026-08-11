@@ -163,6 +163,22 @@ type ContentEngineDatabase = {
         Args: { p_payload: Json };
         Returns: Json;
       };
+      creator_authorize_product_research_response_recovery: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
+      system_claim_product_research_response_recovery: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
+      system_read_product_research_response_recovery_reservation: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
+      system_record_product_research_response_recovery_outcome: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
       system_apply_research_stage_recompute: {
         Args: { p_payload: Json };
         Returns: Json;
@@ -254,6 +270,27 @@ type ProviderContinuation = {
   responseId: string | null;
   providerStatus: ProviderResponseStatus | null;
   acceptedAt: string | null;
+};
+
+export type ResponseRecoveryAuthorization = {
+  authorizationId: string;
+  getReserved: boolean;
+};
+
+export type ResponseRecoveryClaim = {
+  reservationId: string;
+  runId: string;
+  providerResponseId: string;
+  attemptId: string;
+  model: string;
+  acceptedAt: string;
+  leaseExpiresAt: string;
+};
+
+export type ResponseRecoveryReservationState = {
+  getReserved: boolean;
+  reservationId: string | null;
+  outcomeRecorded: boolean;
 };
 
 export type ResearchPhoto = {
@@ -965,6 +1002,75 @@ function readClaimEnvelope(
   }
   const run = readRun(value.run);
   return run === null ? null : { claimed: value.claimed, run };
+}
+
+export function readResponseRecoveryAuthorization(
+  value: unknown,
+  expectedRunId: string,
+  expectedProjectId: string,
+): ResponseRecoveryAuthorization | null {
+  if (
+    !isRecord(value) || value.ok !== true ||
+    (value.code !== "research_response_recovery_authorized" &&
+      value.code !== "research_response_recovery_already_authorized") ||
+    !isUuid(value.authorization_id) || value.run_id !== expectedRunId ||
+    value.project_id !== expectedProjectId ||
+    typeof value.get_reserved !== "boolean"
+  ) return null;
+  return {
+    authorizationId: value.authorization_id,
+    getReserved: value.get_reserved,
+  };
+}
+
+export function readResponseRecoveryClaim(
+  value: unknown,
+  expectedRunId: string,
+): ResponseRecoveryClaim | null {
+  if (
+    !isRecord(value) || value.ok !== true ||
+    value.code !== "research_response_recovery_get_reserved" ||
+    value.get_allowed !== true || value.provider_post_allowed !== false ||
+    value.include_web_search_sources !== true ||
+    !isUuid(value.reservation_id) || value.run_id !== expectedRunId ||
+    value.status !== "processing" || !isUuid(value.attempt_id) ||
+    !isBoundedText(value.model, 2, 160) ||
+    !isBoundedText(value.provider_response_id, 8, 255) ||
+    !/^resp_[A-Za-z0-9_-]+$/u.test(value.provider_response_id) ||
+    !isBoundedText(value.accepted_at, 10, 64) ||
+    !Number.isFinite(Date.parse(value.accepted_at)) ||
+    !isBoundedText(value.lease_expires_at, 10, 64) ||
+    !Number.isFinite(Date.parse(value.lease_expires_at))
+  ) return null;
+  return {
+    reservationId: value.reservation_id,
+    runId: value.run_id,
+    providerResponseId: value.provider_response_id,
+    attemptId: value.attempt_id,
+    model: value.model,
+    acceptedAt: value.accepted_at,
+    leaseExpiresAt: value.lease_expires_at,
+  };
+}
+
+export function readResponseRecoveryReservationState(
+  value: unknown,
+  expectedRunId: string,
+): ResponseRecoveryReservationState | null {
+  if (
+    !isRecord(value) || value.ok !== true || value.run_id !== expectedRunId ||
+    typeof value.get_reserved !== "boolean" ||
+    typeof value.outcome_recorded !== "boolean" ||
+    (value.get_reserved
+      ? !isUuid(value.reservation_id)
+      : value.reservation_id !== null) ||
+    (!value.get_reserved && value.outcome_recorded)
+  ) return null;
+  return {
+    getReserved: value.get_reserved,
+    reservationId: value.reservation_id as string | null,
+    outcomeRecorded: value.outcome_recorded,
+  };
 }
 
 async function readBoundedStream(
@@ -1847,9 +1953,13 @@ export function readResearchResult(
     if (exactVideoSourceKey !== null && key === exactVideoSourceKey) {
       if (
         exactVideo === null || source.source_type !== "social" ||
-        source.url !== exactVideo.canonicalUrl ||
         source.published_at !== null || exactVideoSourceId !== null
       ) return null;
+      // The source identity was already proven by the server-bound YouTube
+      // video key above. Persist the authoritative canonical URL rather than
+      // rejecting an equivalent www/youtu.be/shorts or timestamp spelling
+      // authored by the model.
+      source.url = exactVideo.canonicalUrl;
       exactVideoSourceId = source.id;
       sourcePublishers.set(source.id, "exact_video_input");
       sourcePublishedAt.set(source.id, null);
@@ -1929,6 +2039,35 @@ export function readResearchResult(
     !isTextArray(categoryAnalysis.unknowns, 0, 10, 600) ||
     !validRefs(categoryAnalysis.source_ids)
   ) return null;
+
+  // Structural-pattern fields are optional analytical hints. If the model
+  // returns a quote, transcript-like wording, or an overlong pattern, omit
+  // that unsafe hint instead of persisting it or discarding an otherwise
+  // source-valid paid result. Malformed non-string values remain in place and
+  // still fail the strict schema checks below.
+  const candidateCompetitorAnalysis = value.competitor_analysis;
+  if (isRecord(candidateCompetitorAnalysis)) {
+    if (Array.isArray(candidateCompetitorAnalysis.competitors)) {
+      for (const competitor of candidateCompetitorAnalysis.competitors) {
+        if (!isRecord(competitor)) continue;
+        for (const field of ["recurring_formats", "reusable_structures"]) {
+          if (!Array.isArray(competitor[field])) continue;
+          competitor[field] = competitor[field].filter((pattern) =>
+            typeof pattern !== "string" || isStructuralPatternText(pattern)
+          );
+        }
+      }
+    }
+    if (Array.isArray(candidateCompetitorAnalysis.saturated_patterns)) {
+      candidateCompetitorAnalysis.saturated_patterns =
+        candidateCompetitorAnalysis.saturated_patterns.filter((row) =>
+          !isRecord(row) ||
+          !hasExactKeys(row, ["pattern", "source_ids"]) ||
+          typeof row.pattern !== "string" ||
+          isStructuralPatternText(row.pattern)
+        );
+    }
+  }
 
   const competitorAnalysis = value.competitor_analysis;
   if (
@@ -3525,6 +3664,30 @@ async function handleCreatorProductResearch(
       },
     );
 
+  let responseRecovery: ResponseRecoveryClaim | null = null;
+  let responseRecoveryOutcomeReservationId: string | null = null;
+  const recordResponseRecoveryOutcome = async (): Promise<boolean> => {
+    if (responseRecoveryOutcomeReservationId === null) return true;
+    try {
+      const { data, error } = await supabaseAdmin.rpc(
+        "system_record_product_research_response_recovery_outcome",
+        {
+          p_payload: {
+            reservation_id: responseRecoveryOutcomeReservationId,
+          },
+        },
+      );
+      return error === null && isRecord(data) && data.ok === true &&
+        data.reservation_id === responseRecoveryOutcomeReservationId &&
+        data.run_id === payload.research_id &&
+        (data.code === "research_response_recovery_outcome_recorded" ||
+          data.code ===
+            "research_response_recovery_outcome_already_recorded");
+    } catch {
+      return false;
+    }
+  };
+
   const beginProviderAttempt = async (
     model: string,
   ): Promise<string | null> => {
@@ -3555,15 +3718,46 @@ async function handleCreatorProductResearch(
   const readProviderResponse = async (): Promise<
     ProviderContinuation | null
   > => {
-    try {
-      const { data, error } = await supabaseAdmin.rpc(
-        "system_read_research_provider_response",
-        { p_payload: { run_id: payload.research_id } },
-      );
-      return error === null ? readProviderContinuation(data) : null;
-    } catch {
-      return null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const { data, error } = await supabaseAdmin.rpc(
+          "system_read_research_provider_response",
+          { p_payload: { run_id: payload.research_id } },
+        );
+        if (error === null) {
+          const parsed = readProviderContinuation(data);
+          if (parsed !== null) return parsed;
+        }
+      } catch {
+        // Retry only the local idempotent receipt read, never provider I/O.
+      }
     }
+    return null;
+  };
+
+  const readResponseRecoveryReservation = async (): Promise<
+    ResponseRecoveryReservationState | null
+  > => {
+    // This is a read-only database guard, not a provider GET. One retry avoids
+    // stranding a fresh reservation on a transient PostgREST response loss.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const { data, error } = await supabaseAdmin.rpc(
+          "system_read_product_research_response_recovery_reservation",
+          { p_payload: { run_id: payload.research_id } },
+        );
+        if (error === null) {
+          const parsed = readResponseRecoveryReservationState(
+            data,
+            payload.research_id,
+          );
+          if (parsed !== null) return parsed;
+        }
+      } catch {
+        // Retry only this idempotent local read; never retry a provider GET.
+      }
+    }
+    return null;
   };
 
   const bindProviderResponse = async (
@@ -3674,6 +3868,7 @@ async function handleCreatorProductResearch(
       error_message: message.slice(0, 2_000),
     });
     await applyStageRecompute();
+    await recordResponseRecoveryOutcome();
     if (stored) {
       const current = await readCurrentStatus();
       if (current !== null) return json(request, current.data);
@@ -3697,13 +3892,76 @@ async function handleCreatorProductResearch(
       revalidation = null;
     }
     if (!isRecord(revalidation) || revalidation.ok !== true) {
-      return json(request, {
-        ok: false,
-        code: isRecord(revalidation) &&
-            typeof revalidation.code === "string"
-          ? revalidation.code
-          : "research_response_revalidation_unavailable",
-      });
+      const revalidationCode = isRecord(revalidation) &&
+          typeof revalidation.code === "string"
+        ? revalidation.code
+        : "research_response_revalidation_unavailable";
+      if (revalidationCode !== "provider_response_expired") {
+        return json(request, { ok: false, code: revalidationCode });
+      }
+
+      let authorization: unknown = null;
+      try {
+        const { data, error } = await context.supabase.rpc(
+          "creator_authorize_product_research_response_recovery",
+          {
+            p_payload: {
+              project_id: payload.project_id,
+              run_id: payload.research_id,
+              idempotency_key:
+                `research-response-recovery:${payload.research_id}:v1`,
+              recovery_ack: true,
+            },
+          },
+        );
+        if (!error) authorization = data;
+      } catch {
+        authorization = null;
+      }
+      const recoveryAuthorization = readResponseRecoveryAuthorization(
+        authorization,
+        payload.research_id,
+        payload.project_id,
+      );
+      if (recoveryAuthorization === null) {
+        return json(request, {
+          ok: false,
+          code: "research_response_recovery_authorization_unavailable",
+        });
+      }
+      if (recoveryAuthorization.getReserved) {
+        return json(request, {
+          ok: false,
+          code: "research_response_recovery_get_already_reserved",
+        });
+      }
+
+      let recoveryClaim: unknown = null;
+      try {
+        const { data, error } = await supabaseAdmin.rpc(
+          "system_claim_product_research_response_recovery",
+          {
+            p_payload: {
+              authorization_id: recoveryAuthorization.authorizationId,
+            },
+          },
+        );
+        if (!error) recoveryClaim = data;
+      } catch {
+        recoveryClaim = null;
+      }
+      const trustedRecoveryClaim = readResponseRecoveryClaim(
+        recoveryClaim,
+        payload.research_id,
+      );
+      if (trustedRecoveryClaim === null) {
+        return json(request, {
+          ok: false,
+          code: "research_response_recovery_unavailable",
+        });
+      }
+      responseRecovery = trustedRecoveryClaim;
+      responseRecoveryOutcomeReservationId = trustedRecoveryClaim.reservationId;
     }
     authorized = await readCurrentStatus();
     if (authorized === null) {
@@ -3783,19 +4041,71 @@ async function handleCreatorProductResearch(
   let providerRequestedAt = new Date().toISOString();
   let providerAttemptId = "";
   let providerValue: unknown;
-  let continuation = await readProviderResponse();
+  let continuation: ProviderContinuation | null = null;
   let providerResponse: Response;
 
+  if (responseRecovery !== null && claim.claimed) {
+    return await fail(
+      "internal_error",
+      "Saved-response recovery cannot create a new provider attempt.",
+    );
+  }
+
   if (!claim.claimed) {
+    const recoveryReservation = await readResponseRecoveryReservation();
+    if (recoveryReservation === null) {
+      return await pending();
+    }
+    if (recoveryReservation.getReserved) {
+      responseRecoveryOutcomeReservationId = recoveryReservation.reservationId;
+      // A concurrent observer must never consume the reserved GET or turn the
+      // shared run terminal while the request holding the fresh reservation is
+      // still retrieving and validating the saved response.
+      if (responseRecovery === null) return await pending();
+      if (
+        recoveryReservation.outcomeRecorded ||
+        recoveryReservation.reservationId !== responseRecovery.reservationId
+      ) {
+        return await fail(
+          "internal_error",
+          "Saved-response recovery GET was already reserved.",
+        );
+      }
+    } else if (responseRecovery !== null) {
+      return await fail(
+        "internal_error",
+        "Saved-response recovery reservation was not persisted.",
+      );
+    }
+    continuation = await readProviderResponse();
     // Another request already crossed the local paid boundary.  With no saved
     // response id we cannot prove whether its POST reached OpenAI, so this path
     // only waits and eventually closes as unknown; it never issues another POST.
-    if (continuation === null) return await pending();
+    if (continuation === null) {
+      return responseRecovery === null ? await pending() : await fail(
+        "internal_error",
+        "Saved-response recovery binding is unavailable.",
+      );
+    }
+    if (
+      responseRecovery !== null &&
+      (continuation.responseId !== responseRecovery.providerResponseId ||
+        continuation.attemptId !== responseRecovery.attemptId ||
+        continuation.model !== responseRecovery.model ||
+        continuation.acceptedAt !== responseRecovery.acceptedAt ||
+        continuation.providerStatus !== "completed")
+    ) {
+      return await fail(
+        "internal_error",
+        "Saved-response recovery binding changed before provider retrieval.",
+      );
+    }
     providerAttemptId = continuation.attemptId;
     model = continuation.model;
     providerRequestedAt = continuation.boundAt;
     if (continuation.responseId === null || continuation.acceptedAt === null) {
       if (
+        responseRecovery === null &&
         providerResponseAgeMs(continuation.boundAt) <
           MAX_BACKGROUND_RESPONSE_AGE_MS
       ) {
@@ -3827,7 +4137,10 @@ async function handleCreatorProductResearch(
         OPENAI_TIMEOUT_MS,
       );
     } catch {
-      if (responseAge < MAX_BACKGROUND_RESPONSE_AGE_MS) {
+      if (
+        responseRecovery === null &&
+        responseAge < MAX_BACKGROUND_RESPONSE_AGE_MS
+      ) {
         await recordProviderResponseStatus(
           providerAttemptId,
           continuation.responseId,
@@ -3851,7 +4164,10 @@ async function handleCreatorProductResearch(
     if (!providerResponse.ok) {
       const failureCode = providerFailureForHttp(providerResponse.status);
       await providerResponse.body?.cancel();
-      if (responseAge < MAX_BACKGROUND_RESPONSE_AGE_MS) {
+      if (
+        responseRecovery === null &&
+        responseAge < MAX_BACKGROUND_RESPONSE_AGE_MS
+      ) {
         await recordProviderResponseStatus(
           providerAttemptId,
           continuation.responseId,
@@ -3886,7 +4202,10 @@ async function handleCreatorProductResearch(
     try {
       providerValue = await readProviderJson(providerResponse);
     } catch {
-      if (responseAge < MAX_BACKGROUND_RESPONSE_AGE_MS) return await pending();
+      if (
+        responseRecovery === null &&
+        responseAge < MAX_BACKGROUND_RESPONSE_AGE_MS
+      ) return await pending();
       await recordProviderHealth(
         providerAttemptId,
         "unknown",
@@ -3902,7 +4221,10 @@ async function handleCreatorProductResearch(
       continuation.responseId,
     );
     if (identity === null) {
-      if (responseAge < MAX_BACKGROUND_RESPONSE_AGE_MS) {
+      if (
+        responseRecovery === null &&
+        responseAge < MAX_BACKGROUND_RESPONSE_AGE_MS
+      ) {
         await recordProviderResponseStatus(
           providerAttemptId,
           continuation.responseId,
@@ -3928,7 +4250,12 @@ async function handleCreatorProductResearch(
       identity.id,
       identity.status,
     );
-    if (providerResponsePending(identity.status)) return await pending();
+    if (providerResponsePending(identity.status)) {
+      return responseRecovery === null ? await pending() : await fail(
+        "provider_response_invalid",
+        "Saved completed response returned a non-terminal recovery status.",
+      );
+    }
     if (identity.status !== "completed") {
       const terminalFailure = providerTerminalFailure(identity);
       if (terminalFailure === null) {
@@ -4323,6 +4650,7 @@ async function handleCreatorProductResearch(
   // Apply is a local, idempotent database receipt. Run it even when the
   // completion response was lost; it can observe a transaction that committed.
   await applyStageRecompute();
+  await recordResponseRecoveryOutcome();
   if (!completionStored) {
     return json(request, { ok: false, code: "research_unavailable" }, 503);
   }

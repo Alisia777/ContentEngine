@@ -114,6 +114,9 @@ def test_competitor_patterns_are_structural_and_never_raw_copy_fields() -> None:
     assert "isStructuralPatternArray(competitor.recurring_formats, 0, 8)" in validator
     assert "isStructuralPatternArray(competitor.reusable_structures, 0, 8)" in validator
     assert "isStructuralPatternText(row.pattern)" in validator
+    assert 'for (const field of ["recurring_formats", "reusable_structures"])' in validator
+    assert "isStructuralPatternText(pattern)" in validator
+    assert "candidateCompetitorAnalysis.saturated_patterns.filter" in validator
 
     instructions = source[
         source.index("const RESEARCH_INSTRUCTIONS") :

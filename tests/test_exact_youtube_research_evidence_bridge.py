@@ -115,7 +115,8 @@ def test_exact_video_is_trusted_sampled_input_not_a_fake_full_video_result() -> 
 
 
 def test_exact_source_does_not_depend_on_youtube_web_search_but_stays_exact() -> None:
-    assert 'source.url !== exactVideo.canonicalUrl' in EDGE
+    assert 'source.url !== exactVideo.canonicalUrl' not in EDGE
+    assert 'source.url = exactVideo.canonicalUrl' in EDGE
     assert 'source.source_type !== "social"' in EDGE
     assert 'source.published_at !== null' in EDGE
     assert 'sourcePublishers.set(source.id, "exact_video_input")' in EDGE
