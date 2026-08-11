@@ -101,8 +101,14 @@ def test_move_validates_entities_without_requiring_a_preexisting_location() -> N
     assert "from content_factory.creator_tasks task" in task_check
     assert "join content_factory.workspace_task_locations" not in task_check
     assert "insert into content_factory.workspace_task_locations" in validation
-    assert "on conflict (organization_id, media_object_id) do nothing" in validation
-    assert "on conflict (organization_id, task_id) do nothing" in validation
+    assert (
+        "on conflict on constraint workspace_media_locations_pkey do nothing"
+        in validation
+    )
+    assert (
+        "on conflict on constraint workspace_task_locations_pkey do nothing"
+        in validation
+    )
     assert "media.project_id = project_id_value" in validation
     assert "task.project_id = project_id_value" in validation
 

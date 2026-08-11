@@ -656,7 +656,7 @@ begin
         and media.id = item.entity_id
         and media.project_id = project_id_value
         and media.status <> 'deleted'
-      on conflict (organization_id, media_object_id) do nothing;
+      on conflict on constraint workspace_media_locations_pkey do nothing;
     else
       if not exists (
         select 1
@@ -687,7 +687,7 @@ begin
       where task.organization_id = organization_id
         and task.id = item.entity_id
         and task.project_id = project_id_value
-      on conflict (organization_id, task_id) do nothing;
+      on conflict on constraint workspace_task_locations_pkey do nothing;
     end if;
   end loop;
 
