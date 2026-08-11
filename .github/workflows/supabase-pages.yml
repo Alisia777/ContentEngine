@@ -18,6 +18,149 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  diagnose-latest-terminal-response:
+    name: Diagnose latest terminal response (GET only)
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/agent/provider-terminal-get-diagnostic'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    permissions:
+      contents: read
+    env:
+      SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - name: Check out diagnostic revision
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Classify the latest failed response without another provider POST
+        shell: bash
+        run: |
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          echo "::add-mask::$OPENAI_API_KEY"
+          python - <<'PY'
+          import json
+          import os
+          from urllib import error, parse, request
+
+          from scripts.deploy_supabase_management_api import (
+              ManagementApiClient,
+              _rows_from_response,
+          )
+
+          project_ref = os.environ.get("SUPABASE_PROJECT_REF", "")
+          access_token = os.environ.get("SUPABASE_ACCESS_TOKEN", "")
+          openai_key = os.environ.get("OPENAI_API_KEY", "")
+          if not openai_key:
+              raise SystemExit("OPENAI_API_KEY is unavailable")
+
+          client = ManagementApiClient(
+              project_ref=project_ref,
+              access_token=access_token,
+          )
+          payload = client.execute(
+              """
+              select
+                binding.provider_response_id,
+                extract(epoch from (clock_timestamp() - binding.accepted_at))::int
+                  as age_seconds
+              from content_factory.research_provider_response_bindings binding
+              where binding.accepted_at > clock_timestamp() - interval '10 minutes'
+                and exists (
+                  select 1
+                  from content_factory.research_provider_response_receipts receipt
+                  where receipt.organization_id = binding.organization_id
+                    and receipt.response_binding_id = binding.id
+                    and receipt.provider_status = 'failed'
+                )
+              order by binding.accepted_at desc
+              limit 2
+              """,
+              read_only=True,
+          )
+          rows = _rows_from_response(payload)
+          if len(rows) != 1:
+              raise SystemExit("Expected exactly one recent failed response binding")
+          response_id = rows[0].get("provider_response_id")
+          age_seconds = rows[0].get("age_seconds")
+          if (
+              not isinstance(response_id, str)
+              or not response_id.startswith("resp_")
+              or not isinstance(age_seconds, int)
+              or age_seconds < 0
+              or age_seconds >= 600
+          ):
+              raise SystemExit("Recent failed response binding is invalid or expired")
+
+          provider_request = request.Request(
+              "https://api.openai.com/v1/responses/"
+              + parse.quote(response_id, safe=""),
+              method="GET",
+              headers={
+                  "Accept": "application/json",
+                  "Authorization": f"Bearer {openai_key}",
+                  "User-Agent": "ContentEngine-Terminal-Diagnostic/1",
+              },
+          )
+          try:
+              with request.urlopen(provider_request, timeout=30) as response:
+                  response_body = response.read(1_000_001)
+          except (error.HTTPError, error.URLError, TimeoutError, OSError) as exc:
+              if isinstance(exc, error.HTTPError):
+                  exc.close()
+              raise SystemExit("Existing provider response GET failed") from None
+          if len(response_body) > 1_000_000:
+              raise SystemExit("Existing provider response was unexpectedly large")
+          try:
+              provider_payload = json.loads(response_body.decode("utf-8"))
+          except (UnicodeDecodeError, json.JSONDecodeError):
+              raise SystemExit("Existing provider response was invalid") from None
+
+          terminal_status = provider_payload.get("status")
+          provider_error = provider_payload.get("error")
+          provider_code = (
+              provider_error.get("code")
+              if isinstance(provider_error, dict)
+              else None
+          )
+          message_present = bool(
+              isinstance(provider_error, dict)
+              and isinstance(provider_error.get("message"), str)
+              and provider_error["message"].strip()
+          )
+          if terminal_status != "failed":
+              raise SystemExit("Existing provider response is not terminal failed")
+          if provider_code == "data_residency_mismatch":
+              safe_code = "data_residency_mismatch"
+          elif provider_code == "bio_policy":
+              safe_code = "bio_policy"
+          else:
+              safe_code = "other_unrecognized"
+          print(
+              json.dumps(
+                  {
+                      "provider_method": "GET",
+                      "provider_post_count": 0,
+                      "terminal_status": "failed",
+                      "safe_code": safe_code,
+                      "message_present": message_present,
+                      "response_id_exposed": False,
+                  },
+                  separators=(",", ":"),
+              )
+          )
+          PY
+
   migrate:
     name: Apply Supabase migrations
     if: >-
