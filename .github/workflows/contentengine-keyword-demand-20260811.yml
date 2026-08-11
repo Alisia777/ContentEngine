@@ -1,0 +1,463 @@
+name: One-off ContentEngine keyword demand research
+
+on:
+  push:
+    paths:
+      - .github/workflows/contentengine-keyword-demand-20260811.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: contentengine-keyword-demand-20260811
+  cancel-in-progress: true
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      REPORT_BRANCH: research/contentengine-keyword-demand-20260811
+      REPORT_DIR: docs/research
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Collect keyword demand and live suggestions
+        shell: bash
+        run: |
+          python <<'PY'
+          from __future__ import annotations
+
+          import csv
+          import json
+          import math
+          import re
+          import statistics
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from collections import defaultdict
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          REPORT_DIR = Path('docs/research')
+          REPORT_DIR.mkdir(parents=True, exist_ok=True)
+          STAMP = '2026-08-11'
+
+          SEEDS = [
+              ('Продажи и продвижение', 'продвижение на маркетплейсах'),
+              ('Продажи и продвижение', 'продвижение товаров на маркетплейсах'),
+              ('Продажи и продвижение', 'продвижение товара на wildberries'),
+              ('Продажи и продвижение', 'продвижение товара на wb'),
+              ('Продажи и продвижение', 'продвижение товара на ozon'),
+              ('Продажи и продвижение', 'раскрутка товара на wildberries'),
+              ('Продажи и продвижение', 'реклама товара на wildberries'),
+              ('Продажи и продвижение', 'реклама товара на ozon'),
+              ('Продажи и продвижение', 'увеличить продажи на wildberries'),
+              ('Продажи и продвижение', 'как увеличить продажи на wildberries'),
+              ('Продажи и продвижение', 'увеличить продажи на ozon'),
+              ('Продажи и продвижение', 'продвижение нового товара на wildberries'),
+              ('Продажи и продвижение', 'запуск товара на wildberries'),
+              ('Продажи и продвижение', 'вывод товара в топ wildberries'),
+              ('Продажи и продвижение', 'агентство по продвижению маркетплейсов'),
+              ('Продажи и продвижение', 'ведение маркетплейсов'),
+              ('Продажи и продвижение', 'ведение wildberries'),
+              ('Продажи и продвижение', 'ведение ozon'),
+              ('Продажи и продвижение', 'маркетплейс агентство'),
+              ('Продажи и продвижение', 'услуги для маркетплейсов'),
+
+              ('Внешний трафик', 'внешний трафик на маркетплейсы'),
+              ('Внешний трафик', 'внешний трафик wildberries'),
+              ('Внешний трафик', 'внешний трафик wb'),
+              ('Внешний трафик', 'внешний трафик ozon'),
+              ('Внешний трафик', 'внешний трафик на wildberries'),
+              ('Внешний трафик', 'внешний трафик на ozon'),
+              ('Внешний трафик', 'внешняя реклама wildberries'),
+              ('Внешний трафик', 'внешняя реклама ozon'),
+              ('Внешний трафик', 'внешняя реклама маркетплейсов'),
+
+              ('Видео для товаров', 'видео для маркетплейсов'),
+              ('Видео для товаров', 'видео для карточки товара'),
+              ('Видео для товаров', 'видео для wildberries'),
+              ('Видео для товаров', 'видео для ozon'),
+              ('Видео для товаров', 'видеосъемка для маркетплейсов'),
+              ('Видео для товаров', 'видеосъемка товара для маркетплейсов'),
+              ('Видео для товаров', 'продающее видео для маркетплейсов'),
+              ('Видео для товаров', 'видеообзор товара'),
+              ('Видео для товаров', 'распаковка товара видео'),
+              ('Видео для товаров', 'креативы для маркетплейсов'),
+              ('Видео для товаров', 'видео реклама товара'),
+              ('Видео для товаров', 'короткие видео для бизнеса'),
+              ('Видео для товаров', 'рилс для бизнеса'),
+              ('Видео для товаров', 'reels для бренда'),
+
+              ('UGC и креаторы', 'ugc для маркетплейсов'),
+              ('UGC и креаторы', 'ugc контент для бренда'),
+              ('UGC и креаторы', 'ugc контент заказать'),
+              ('UGC и креаторы', 'заказать ugc видео'),
+              ('UGC и креаторы', 'ugc агентство'),
+              ('UGC и креаторы', 'ugc студия'),
+              ('UGC и креаторы', 'креаторы для бренда'),
+              ('UGC и креаторы', 'креатор для маркетплейсов'),
+
+              ('Контент-производство', 'контент для маркетплейсов'),
+              ('Контент-производство', 'создание контента для маркетплейсов'),
+              ('Контент-производство', 'контент завод'),
+              ('Контент-производство', 'контент завод для бизнеса'),
+              ('Контент-производство', 'контент завод для бренда'),
+              ('Контент-производство', 'производство контента для соцсетей'),
+              ('Контент-производство', 'контент на аутсорсе'),
+              ('Контент-производство', 'отдел контента на аутсорсе'),
+              ('Контент-производство', 'внешний отдел маркетинга'),
+              ('Контент-производство', 'контент маркетинг для маркетплейсов'),
+
+              ('AI-контент', 'ai видео для товара'),
+              ('AI-контент', 'ии видео для товара'),
+              ('AI-контент', 'видео из фото товара'),
+              ('AI-контент', 'генерация видео для маркетплейсов'),
+              ('AI-контент', 'нейросеть для видео товара'),
+              ('AI-контент', 'нейросеть для видео маркетплейсов'),
+              ('AI-контент', 'нейрофотосессия товара'),
+              ('AI-контент', 'ai контент для маркетплейсов'),
+
+              ('Блогеры и performance', 'блогеры для wildberries'),
+              ('Блогеры и performance', 'блогеры для ozon'),
+              ('Блогеры и performance', 'реклама у блогеров wildberries'),
+              ('Блогеры и performance', 'продвижение товара через блогеров'),
+              ('Блогеры и performance', 'блогеры за процент от продаж'),
+              ('Блогеры и performance', 'реклама товара с оплатой за заказ'),
+              ('Блогеры и performance', 'cpo продвижение'),
+              ('Блогеры и performance', 'партнерская программа для бренда'),
+
+              ('Система и аналитика', 'автоматизация контента для маркетплейсов'),
+              ('Система и аналитика', 'система управления контентом'),
+              ('Система и аналитика', 'управление контентом товаров'),
+              ('Система и аналитика', 'аналитика контента'),
+              ('Система и аналитика', 'аналитика креативов'),
+              ('Система и аналитика', 'платформа для создания контента'),
+              ('Система и аналитика', 'контент платформа для бизнеса'),
+          ]
+
+          def normalize(value: str) -> str:
+              value = str(value or '').casefold().replace('ё', 'е')
+              value = re.sub(r'[^a-zа-я0-9]+', ' ', value, flags=re.I)
+              return re.sub(r'\s+', ' ', value).strip()
+
+          def as_number(value):
+              try:
+                  if value in (None, ''):
+                      return 0
+                  return int(float(str(value).replace(' ', '').replace(',', '.')))
+              except Exception:
+                  return 0
+
+          def get_json(url: str, *, attempts: int = 3):
+              last_error = None
+              for attempt in range(attempts):
+                  request = urllib.request.Request(
+                      url,
+                      headers={
+                          'User-Agent': 'ContentEngine-keyword-research/1.0',
+                          'Accept': 'application/json,text/plain,*/*',
+                      },
+                  )
+                  try:
+                      with urllib.request.urlopen(request, timeout=90) as response:
+                          body = response.read().decode('utf-8-sig', errors='replace')
+                      return json.loads(body)
+                  except Exception as error:
+                      last_error = error
+                      time.sleep(1.5 * (attempt + 1))
+              raise RuntimeError(f'GET failed: {url}: {last_error}')
+
+          def bukvarix(seed: str):
+              params = urllib.parse.urlencode({
+                  'q': seed,
+                  'api_key': 'free',
+                  'num': 500,
+                  'format': 'json',
+                  'json_type': 'array',
+              })
+              errors = []
+              for scheme in ('https', 'http'):
+                  url = f'{scheme}://api.bukvarix.com/v1/keywords/?{params}'
+                  try:
+                      payload = get_json(url)
+                      if isinstance(payload, list):
+                          return payload, url
+                      errors.append(f'{scheme}: unexpected {type(payload).__name__}')
+                  except Exception as error:
+                      errors.append(f'{scheme}: {error}')
+              raise RuntimeError('; '.join(errors))
+
+          def parse_bukvarix_row(row):
+              if isinstance(row, (list, tuple)) and len(row) >= 5:
+                  return {
+                      'keyword': str(row[0] or '').strip(),
+                      'words': as_number(row[1]),
+                      'characters': as_number(row[2]),
+                      'broad': as_number(row[3]),
+                      'exact': as_number(row[4]),
+                  }
+              if isinstance(row, dict):
+                  keys = {normalize(key).replace(' ', '_'): value for key, value in row.items()}
+                  keyword = (
+                      row.get('keyword') or row.get('word') or row.get('query') or
+                      row.get('Ключевое слово') or row.get('Ключевое_слово') or
+                      keys.get('ключевое_слово') or ''
+                  )
+                  broad = (
+                      row.get('broad') or row.get('broad_frequency') or row.get('frequency') or
+                      keys.get('частотность_весь_мир') or keys.get('частотность') or 0
+                  )
+                  exact = (
+                      row.get('exact') or row.get('exact_frequency') or
+                      keys.get('частотность_весь_мир_точная') or
+                      keys.get('точная_частотность') or 0
+                  )
+                  return {
+                      'keyword': str(keyword or '').strip(),
+                      'words': as_number(row.get('words') or keys.get('слов')),
+                      'characters': as_number(row.get('characters') or keys.get('символов')),
+                      'broad': as_number(broad),
+                      'exact': as_number(exact),
+                  }
+              return None
+
+          def yandex_suggest(seed: str):
+              params = urllib.parse.urlencode({
+                  'part': seed,
+                  'lr': 225,
+                  'v': 4,
+                  'uil': 'ru',
+                  'n': 10,
+              })
+              url = f'https://suggest.yandex.ru/suggest-ya.cgi?{params}'
+              try:
+                  payload = get_json(url, attempts=2)
+              except Exception:
+                  return []
+              if isinstance(payload, list) and len(payload) > 1 and isinstance(payload[1], list):
+                  return [str(item).strip() for item in payload[1] if str(item).strip()]
+              return []
+
+          collected_at = datetime.now(timezone.utc).isoformat()
+          seed_rows = []
+          raw_rows = []
+          errors = []
+
+          for index, (cluster, seed) in enumerate(SEEDS, start=1):
+              try:
+                  payload, source_url = bukvarix(seed)
+                  parsed = [item for item in (parse_bukvarix_row(row) for row in payload) if item and item['keyword']]
+              except Exception as error:
+                  errors.append({'cluster': cluster, 'seed': seed, 'error': str(error)})
+                  parsed = []
+                  source_url = ''
+
+              seed_norm = normalize(seed)
+              direct = [row for row in parsed if normalize(row['keyword']) == seed_norm]
+              if not direct:
+                  seed_tokens = sorted(seed_norm.split())
+                  direct = [row for row in parsed if sorted(normalize(row['keyword']).split()) == seed_tokens]
+              direct_row = max(direct, key=lambda row: (row['exact'], row['broad']), default=None)
+              top_related = sorted(parsed, key=lambda row: (row['exact'], row['broad']), reverse=True)[:15]
+              suggestions = yandex_suggest(seed)
+
+              row = {
+                  'cluster': cluster,
+                  'seed': seed,
+                  'broad_frequency_world': direct_row['broad'] if direct_row else 0,
+                  'exact_frequency_world': direct_row['exact'] if direct_row else 0,
+                  'direct_match': direct_row['keyword'] if direct_row else '',
+                  'related_rows': len(parsed),
+                  'live_yandex_suggestions_count': len(suggestions),
+                  'live_yandex_suggestions': ' | '.join(suggestions),
+                  'top_related': ' | '.join(
+                      f"{item['keyword']} [{item['exact']}]" for item in top_related[:8]
+                  ),
+                  'source': 'Bukvarix free API + Yandex Suggest',
+                  'collected_at': collected_at,
+              }
+              seed_rows.append(row)
+
+              for item in parsed:
+                  raw_rows.append({
+                      'cluster': cluster,
+                      'seed': seed,
+                      **item,
+                  })
+
+              print(json.dumps({
+                  'progress': f'{index}/{len(SEEDS)}',
+                  'cluster': cluster,
+                  'seed': seed,
+                  'exact': row['exact_frequency_world'],
+                  'broad': row['broad_frequency_world'],
+                  'related': len(parsed),
+                  'suggestions': len(suggestions),
+              }, ensure_ascii=False), flush=True)
+              time.sleep(0.15)
+
+          seed_rows.sort(key=lambda row: (row['exact_frequency_world'], row['broad_frequency_world']), reverse=True)
+
+          csv_path = REPORT_DIR / f'contentengine_keyword_demand_{STAMP}.csv'
+          with csv_path.open('w', encoding='utf-8-sig', newline='') as handle:
+              writer = csv.DictWriter(handle, fieldnames=list(seed_rows[0].keys()))
+              writer.writeheader()
+              writer.writerows(seed_rows)
+
+          raw_path = REPORT_DIR / f'contentengine_keyword_demand_raw_{STAMP}.json'
+          raw_path.write_text(json.dumps({
+              'methodology': {
+                  'collected_at': collected_at,
+                  'bukvarix_region': 'Весь мир',
+                  'bukvarix_frequency_columns': ['broad', 'exact'],
+                  'yandex_suggest_region_id': 225,
+                  'warning': 'Это не авторизованная текущая выгрузка Wordstat. Частотности взяты из базы Bukvarix; подсказки Yandex сняты живым запросом и не являются частотностью.',
+              },
+              'seeds': seed_rows,
+              'raw': raw_rows,
+              'errors': errors,
+          }, ensure_ascii=False, indent=2), encoding='utf-8')
+
+          clusters = defaultdict(list)
+          for row in seed_rows:
+              clusters[row['cluster']].append(row)
+
+          cluster_rows = []
+          for cluster, rows in clusters.items():
+              exact_values = [row['exact_frequency_world'] for row in rows]
+              broad_values = [row['broad_frequency_world'] for row in rows]
+              nonzero = [value for value in exact_values if value > 0]
+              cluster_rows.append({
+                  'cluster': cluster,
+                  'seeds': len(rows),
+                  'nonzero_exact_seeds': len(nonzero),
+                  'max_exact': max(exact_values or [0]),
+                  'median_exact_nonzero': int(statistics.median(nonzero)) if nonzero else 0,
+                  'max_broad': max(broad_values or [0]),
+                  'live_suggest_seeds': sum(1 for row in rows if row['live_yandex_suggestions_count'] > 0),
+                  'top_seed': max(rows, key=lambda row: (row['exact_frequency_world'], row['broad_frequency_world']))['seed'],
+              })
+          cluster_rows.sort(key=lambda row: (row['max_exact'], row['median_exact_nonzero'], row['live_suggest_seeds']), reverse=True)
+
+          commercial_re = re.compile(r'\b(заказать|заказ|агентство|услуг|под ключ|цена|стоимость|ведение|купить|студия|съемк|съёмк|продвижение|реклама)\w*', re.I)
+          problem_re = re.compile(r'\b(как|увеличить|рост|упали|почему|вывести|запуск|топ)\w*', re.I)
+          unique_related = {}
+          for row in raw_rows:
+              key = normalize(row['keyword'])
+              if not key:
+                  continue
+              previous = unique_related.get(key)
+              if previous is None or (row['exact'], row['broad']) > (previous['exact'], previous['broad']):
+                  unique_related[key] = row
+          commercial_related = [
+              row for row in unique_related.values()
+              if commercial_re.search(row['keyword']) or problem_re.search(row['keyword'])
+          ]
+          commercial_related.sort(key=lambda row: (row['exact'], row['broad']), reverse=True)
+
+          def md_escape(value):
+              return str(value).replace('|', '\\|').replace('\n', ' ')
+
+          lines = [
+              '# ContentEngine — фактический срез поискового спроса',
+              '',
+              f'Дата сбора: **{STAMP}**  ',
+              f'UTC-время запуска: `{collected_at}`',
+              '',
+              '## Что именно измерено',
+              '',
+              '- Частотности: бесплатная база Bukvarix, широкая и `!точная` частотность для региона «Весь мир».',
+              '- Живой языковой сигнал: подсказки Yandex Suggest для региона 225.',
+              '- Это **не** авторизованная текущая выгрузка Yandex Wordstat. Значения нельзя выдавать за официальный месячный Wordstat по России.',
+              '- Частотности пересекающихся фраз не суммируются в «размер рынка». Они используются для сравнения языка и относительной силы кластеров.',
+              '',
+              '## Рейтинг кластеров',
+              '',
+              '| Кластер | Фраз | С ненулевой точной частотой | Max exact | Median exact (ненул.) | Фраз с живыми подсказками | Самая сильная seed-фраза |',
+              '|---|---:|---:|---:|---:|---:|---|',
+          ]
+          for row in cluster_rows:
+              lines.append(
+                  f"| {md_escape(row['cluster'])} | {row['seeds']} | {row['nonzero_exact_seeds']} | "
+                  f"{row['max_exact']} | {row['median_exact_nonzero']} | {row['live_suggest_seeds']} | {md_escape(row['top_seed'])} |"
+              )
+
+          lines.extend([
+              '',
+              '## Seed-фразы: точная частота и живые подсказки',
+              '',
+              '| Кластер | Запрос | Broad | Exact | Yandex suggestions |',
+              '|---|---|---:|---:|---:|',
+          ])
+          for row in seed_rows:
+              lines.append(
+                  f"| {md_escape(row['cluster'])} | {md_escape(row['seed'])} | "
+                  f"{row['broad_frequency_world']} | {row['exact_frequency_world']} | {row['live_yandex_suggestions_count']} |"
+              )
+
+          lines.extend([
+              '',
+              '## Сильнейшие коммерческие и проблемные формулировки из связанных запросов',
+              '',
+              '| Запрос | Exact | Broad | Исходный кластер |',
+              '|---|---:|---:|---|',
+          ])
+          for row in commercial_related[:80]:
+              lines.append(
+                  f"| {md_escape(row['keyword'])} | {row['exact']} | {row['broad']} | {md_escape(row['cluster'])} |"
+              )
+
+          if errors:
+              lines.extend(['', '## Ошибки источников', ''])
+              for error in errors:
+                  lines.append(f"- `{error['seed']}`: {md_escape(error['error'])}")
+
+          lines.extend([
+              '',
+              '## Поля для интерпретации позиционирования',
+              '',
+              '1. Высокая частота широких общих фраз показывает существующий спрос, но часто смешивает обучение, вакансии и услуги.',
+              '2. Низкочастотная коммерческая фраза может быть ценнее высокочастотной информационной: у неё ближе покупательское намерение.',
+              '3. Для финального медиаплана всё равно нужна официальная Wordstat-выгрузка по России/Москве/СПб и прогноз ставок Direct.',
+              '4. Этот срез нужен, чтобы не ждать: он уже показывает, каким языком рынок формулирует боль и где ContentEngine может входить в спрос.',
+              '',
+              f'CSV: `contentengine_keyword_demand_{STAMP}.csv`  ',
+              f'Raw JSON: `contentengine_keyword_demand_raw_{STAMP}.json`',
+          ])
+
+          md_path = REPORT_DIR / f'contentengine_keyword_demand_{STAMP}.md'
+          md_path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+
+          print(json.dumps({
+              'ok': True,
+              'seed_count': len(SEEDS),
+              'raw_row_count': len(raw_rows),
+              'cluster_count': len(cluster_rows),
+              'errors': len(errors),
+              'outputs': [str(md_path), str(csv_path), str(raw_path)],
+          }, ensure_ascii=False), flush=True)
+          PY
+
+      - name: Publish report branch
+        shell: bash
+        run: |
+          git config user.name "ContentEngine Research Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git push origin --delete "$REPORT_BRANCH" >/dev/null 2>&1 || true
+          git switch -c "$REPORT_BRANCH"
+          git add "$REPORT_DIR/contentengine_keyword_demand_2026-08-11.md" \
+                  "$REPORT_DIR/contentengine_keyword_demand_2026-08-11.csv" \
+                  "$REPORT_DIR/contentengine_keyword_demand_raw_2026-08-11.json"
+          git commit -m "Add ContentEngine keyword-demand research 2026-08-11"
+          git push -u origin "$REPORT_BRANCH"
