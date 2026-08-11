@@ -975,7 +975,7 @@ def test_api_boundary_and_scoped_cache_edges_are_wired() -> None:
     assert '"contentengine_generation_ai_research_working_draft"' in API
     assert "generationResearchRecommendation(input = {})" in API
     assert "generationAiResearchWorkingDraft(input = {})" in API
-    assert '"workspace-ai-research-training.js":\n      "20260811.ai-working-draft.3"' in BOOTSTRAP
+    assert '"workspace-ai-research-training.js":\n      "20260811.ai-center-runtime-owned.1"' in BOOTSTRAP
     assert '"workspace-generation-research-recommendations.js":\n      "20260811.ai-working-draft.3"' in BOOTSTRAP
     assert "generation-ai-research-working-draft.js?v=20260811.ai-working-draft.1" in APP
     assert "generation-ai-research-working-draft.js?v=20260811.ai-working-draft.1" in GENERATION

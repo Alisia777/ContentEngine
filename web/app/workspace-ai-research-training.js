@@ -1233,12 +1233,43 @@ function renderSnapshot(root, snapshot, expectedProjectId = runtime.projectId) {
       : `Категория «${selectedCategoryLabel}»: очередь пуста — ждём завершённое исследование.`,
     queue.length ? "ready" : "neutral",
   );
+  root.dataset.renderedProjectId = expectedProjectId;
+  root.dataset.renderedCategory = selectedCategory;
   return true;
+}
+
+function invalidateRenderedTrainingScope(root) {
+  if (!(root instanceof HTMLElement)) return;
+  root.dataset.renderedProjectId = "";
+  root.dataset.renderedCategory = "";
+  root.querySelector("[data-ai-research-training-queue]")?.replaceChildren();
+  root.querySelector("[data-ai-research-training-history]")?.replaceChildren();
+}
+
+function guardRenderedTrainingScopeClick(event) {
+  const root = event.currentTarget;
+  if (!(root instanceof HTMLElement)) return;
+  if (
+    root.dataset.renderedProjectId === currentTrainingProjectId()
+    && root.dataset.renderedCategory === currentCategory()
+  ) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}
+
+function prepareTrainingRoot(root) {
+  root.dataset.ceV4Owned = "ai-research-training";
+  root.setAttribute(ROOT_ATTRIBUTE, "true");
+  if (root.dataset.renderedScopeGuardBound !== "true") {
+    root.addEventListener("click", guardRenderedTrainingScopeClick, true);
+    root.dataset.renderedScopeGuardBound = "true";
+  }
+  return root;
 }
 
 function buildRoot() {
   const root = el("section", "ai-research-training card card-pad");
-  root.setAttribute(ROOT_ATTRIBUTE, "true");
+  prepareTrainingRoot(root);
   const header = el("header", "ai-research-training__header");
   const copy = el("div");
   copy.append(
@@ -1286,7 +1317,7 @@ function hostForRoot() {
 
 function ensureRoot() {
   let root = document.querySelector(`[${ROOT_ATTRIBUTE}]`);
-  if (root instanceof HTMLElement) return root;
+  if (root instanceof HTMLElement) return prepareTrainingRoot(root);
   const host = hostForRoot();
   if (!(host instanceof HTMLElement)) return null;
   root = buildRoot();
@@ -1511,6 +1542,7 @@ function handleChange(event) {
   const projectId = currentTrainingProjectId();
   const requestKey = `${projectId}:${category}:${runtime.root?.isConnected}`;
   if (changed || runtime.requestKey !== requestKey) {
+    if (changed) invalidateRenderedTrainingScope(runtime.root);
     runtime.requestKey = requestKey;
     void load(runtime.root, category, projectId);
   }
@@ -1530,6 +1562,7 @@ function handleLegacyCategoryClick(event) {
   syncLegacyCategoryButtons(category);
   syncTrainingCategorySelect(category);
   if (changed && runtime.root?.isConnected) {
+    invalidateRenderedTrainingScope(runtime.root);
     runtime.requestKey = `${projectId}:${category}:${runtime.root.isConnected}`;
     void load(runtime.root, category, projectId);
   }
@@ -1539,6 +1572,17 @@ function handleLegacyCategoryClick(event) {
 }
 
 function handleClick(event) {
+  const root = event.currentTarget;
+  if (
+    root instanceof HTMLElement
+    && (
+      root.dataset.renderedProjectId !== currentTrainingProjectId()
+      || root.dataset.renderedCategory !== currentCategory()
+    )
+  ) {
+    event.preventDefault();
+    return;
+  }
   const button = event.target.closest?.("[data-training-decision]");
   if (!(button instanceof HTMLButtonElement)) return;
   event.preventDefault();
@@ -1556,15 +1600,22 @@ function mount() {
     runtime.projectId = "";
     return;
   }
+  const previousRoot = runtime.root;
+  const previousProjectId = runtime.projectId;
+  const previousCategory = runtime.category;
   const root = ensureRoot();
   if (!root) return;
-  runtime.root = root;
   const category = currentCategory();
   const projectId = currentTrainingProjectId();
+  const scopeChanged = previousRoot !== root
+    || previousProjectId !== projectId
+    || previousCategory !== category;
+  runtime.root = root;
   if (projectId) canonicalizeTrainingRoute(category, projectId);
   const requestKey = `${projectId}:${category}:${root.isConnected}`;
   runtime.category = category;
   runtime.projectId = projectId;
+  if (scopeChanged) invalidateRenderedTrainingScope(root);
   rememberCategory(category);
   syncLegacyCategoryButtons(category);
   syncTrainingCategorySelect(category);

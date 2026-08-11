@@ -22,7 +22,7 @@ def read(path: Path) -> str:
 def test_failed_research_can_be_closed_and_replaced_with_a_fresh_form() -> None:
     source = read(RECOVERY)
     assert (
-        'from "./product-research-view.js?v=20260811.os4.30"'
+        'from "./product-research-view.js?v=20260811.os4.31"'
         in source
     )
     for marker in (
@@ -63,6 +63,11 @@ def test_mp4_handoff_opens_the_real_media_upload_form() -> None:
 def test_recovery_module_is_loaded_on_every_handoff_route() -> None:
     bootstrap = read(BOOTSTRAP)
     index = read(INDEX)
+    assert (
+        '"workspace-research-failure-recovery.js":\n'
+        '      "20260811.ai-center-runtime-owned.1"'
+        in bootstrap
+    )
     for marker in (
         'route === "/workspace/research"',
         'route === "/workspace/media"',
@@ -75,7 +80,7 @@ def test_recovery_module_is_loaded_on_every_handoff_route() -> None:
         assert marker in bootstrap
     assert (
         "workspace-research-training-bootstrap.js?"
-        "v=20260811.exact-source-lifecycle.1"
+        "v=sha256-"
         in index
     )
 

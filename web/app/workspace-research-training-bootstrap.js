@@ -13,11 +13,13 @@
   const BUILD = "20260810.research.30";
   const ASSET_BUILD_OVERRIDES = Object.freeze({
     "workspace-ai-exact-youtube-sources.js":
-      "20260811.exact-source-lifecycle.1",
+      "20260811.ai-center-runtime-owned.1",
     "workspace-ai-research-training.js":
-      "20260811.ai-working-draft.3",
+      "20260811.ai-center-runtime-owned.1",
     "workspace-generation-research-recommendations.js":
       "20260811.ai-working-draft.3",
+    "workspace-research-failure-recovery.js":
+      "20260811.ai-center-runtime-owned.1",
   });
   const SCRIPT_URL = document.currentScript?.src || window.location.href;
   const BASE_URL = new URL(".", SCRIPT_URL);
@@ -177,9 +179,7 @@
       (entry) => entry.requiresRpcAliases === true,
     );
     try {
-      if (requiresRpcAliases && !await installRpcAliases()) {
-        throw new Error("Research learning API bridge is unavailable");
-      }
+      if (requiresRpcAliases && !await installRpcAliases()) return;
       await Promise.all(styles.map(ensureStyle));
       for (const moduleName of modules) {
         await ensureModule(moduleName);
@@ -204,6 +204,7 @@
   }
 
   window.addEventListener("contentengine:v4-route-ready", schedule);
+  window.addEventListener("contentengine:workspace-runtime-ready", schedule);
   if (document.documentElement.dataset.ceV4Ready === "true") {
     schedule();
   }
