@@ -17,7 +17,7 @@ const runtime = {
   root: null,
   loading: false,
   pendingLoad: false,
-  requestKey: "",
+  loadToken: 0,
   loadedRoot: null,
   loadedProjectId: "",
 };
@@ -80,7 +80,10 @@ function guardRenderedProjectClick(event) {
   const root = event.currentTarget;
   const link = event.target.closest?.("a[href]");
   if (!(root instanceof HTMLElement) || !link) return;
-  if (root.dataset.renderedProjectId === projectId()) return;
+  if (
+    routePath() === ROUTE
+    && root.dataset.renderedProjectId === projectId()
+  ) return;
   event.preventDefault();
   event.stopImmediatePropagation();
 }
@@ -127,6 +130,7 @@ function workspaceHash(path, values = {}) {
 }
 
 export function beginMediaHandoff(source) {
+  if (routePath() !== ROUTE) return false;
   const context = window.ContentEngineWorkspaceRuntime
     ?.getExactYoutubeHandoffContext?.() || {};
   const currentProjectId = projectId();
@@ -541,13 +545,12 @@ function renderError(root) {
 
 async function load() {
   const currentProjectId = projectId();
-  if (!currentProjectId) return;
+  if (routePath() !== ROUTE || !currentProjectId) return;
   if (runtime.loading) {
     runtime.pendingLoad = true;
     return;
   }
-  const requestKey = `${currentProjectId}:${Date.now()}`;
-  runtime.requestKey = requestKey;
+  const loadToken = ++runtime.loadToken;
   runtime.loading = true;
   runtime.pendingLoad = false;
   const root = ensureRoot();
@@ -562,7 +565,7 @@ async function load() {
       limit: 30,
     });
     if (
-      runtime.requestKey !== requestKey
+      runtime.loadToken !== loadToken
       || routePath() !== ROUTE
       || projectId() !== currentProjectId
       || runtime.root !== root
@@ -590,14 +593,14 @@ async function load() {
     render(root, value.sources, currentProjectId);
   } catch {
     if (
-      runtime.requestKey === requestKey
+      runtime.loadToken === loadToken
       && routePath() === ROUTE
       && projectId() === currentProjectId
       && runtime.root === root
       && root.isConnected
     ) renderError(root);
   } finally {
-    if (runtime.requestKey === requestKey) {
+    if (runtime.loadToken === loadToken) {
       runtime.loading = false;
       if (root.isConnected) root.removeAttribute("aria-busy");
       const pendingLoad = runtime.pendingLoad;
@@ -607,9 +610,22 @@ async function load() {
   }
 }
 
+function unmount() {
+  runtime.loadToken += 1;
+  runtime.loading = false;
+  runtime.pendingLoad = false;
+  runtime.root = null;
+  runtime.loadedRoot = null;
+  runtime.loadedProjectId = "";
+  document.querySelectorAll(`[${ROOT_ATTRIBUTE}]`).forEach((root) => root.remove());
+}
+
 function mount({ force = false } = {}) {
   const currentProjectId = projectId();
-  if (routePath() !== ROUTE || !currentProjectId) return;
+  if (routePath() !== ROUTE || !currentProjectId) {
+    unmount();
+    return;
+  }
   const root = ensureRoot();
   const scopeChanged = runtime.loadedRoot !== root
     || runtime.loadedProjectId !== currentProjectId;

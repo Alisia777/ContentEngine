@@ -80,6 +80,9 @@ def test_training_capture_guard_blocks_stale_selection_and_clear_is_immediate() 
     script = f"""
       class FakeElement {{}}
       globalThis.HTMLElement = FakeElement;
+      const ROUTE = '/workspace/ai';
+      let route = ROUTE;
+      const routePath = () => route;
       let routeProject = '22222222-2222-4222-8222-222222222222';
       let routeCategory = 'household';
       const currentTrainingProjectId = () => routeProject;
@@ -376,6 +379,410 @@ def test_exact_source_mount_deduplicates_same_root_and_project_but_reloads_edges
             "11111111-1111-4111-8111-111111111111",
             "22222222-2222-4222-8222-222222222222",
         ],
+    }
+
+
+def test_owned_ai_roots_unmount_off_route_and_reenter_with_fresh_requests() -> None:
+    training_url = TRAINING.as_uri()
+    exact_sources_url = EXACT_SOURCES.as_uri()
+    script = f"""
+      const dataKey = (attribute) => attribute.slice(5).replace(
+        /-([a-z])/gu,
+        (_, letter) => letter.toUpperCase(),
+      );
+
+      class FakeElement {{
+        constructor(tag = 'div') {{
+          this.tagName = String(tag).toUpperCase();
+          this.dataset = {{}};
+          this.attributes = new Map();
+          this.children = [];
+          this.parentNode = null;
+          this.isConnected = false;
+          this.className = '';
+          this.textContent = '';
+          this.value = '';
+          this.hidden = false;
+          this.listeners = [];
+          this.replaceCount = 0;
+          this.classList = {{
+            toggle: (name, enabled) => {{
+              const names = new Set(this.className.split(/\\s+/u).filter(Boolean));
+              if (enabled) names.add(name);
+              else names.delete(name);
+              this.className = [...names].join(' ');
+            }},
+          }};
+        }}
+        connect(value) {{
+          this.isConnected = value;
+          this.children.forEach((child) => child?.connect?.(value));
+        }}
+        detach(node) {{
+          if (!node?.parentNode) return;
+          node.parentNode.children = node.parentNode.children.filter((item) => item !== node);
+          node.parentNode = null;
+        }}
+        append(...nodes) {{
+          for (const node of nodes) {{
+            if (!node || typeof node !== 'object') continue;
+            this.detach(node);
+            node.parentNode = this;
+            node.connect?.(this.isConnected);
+            this.children.push(node);
+          }}
+        }}
+        prepend(...nodes) {{
+          for (const node of [...nodes].reverse()) {{
+            if (!node || typeof node !== 'object') continue;
+            this.detach(node);
+            node.parentNode = this;
+            node.connect?.(this.isConnected);
+            this.children.unshift(node);
+          }}
+        }}
+        insertBefore(node, reference) {{
+          this.detach(node);
+          const index = this.children.indexOf(reference);
+          node.parentNode = this;
+          node.connect?.(this.isConnected);
+          if (index < 0) this.children.push(node);
+          else this.children.splice(index, 0, node);
+        }}
+        replaceChildren(...nodes) {{
+          this.replaceCount += 1;
+          this.children.forEach((child) => {{
+            child.parentNode = null;
+            child.connect?.(false);
+          }});
+          this.children = [];
+          this.append(...nodes);
+        }}
+        remove() {{
+          if (this.parentNode) {{
+            this.parentNode.children = this.parentNode.children.filter(
+              (item) => item !== this,
+            );
+          }}
+          this.parentNode = null;
+          this.connect(false);
+        }}
+        setAttribute(name, value) {{
+          this.attributes.set(name, String(value));
+          if (name.startsWith('data-')) this.dataset[dataKey(name)] = String(value);
+        }}
+        getAttribute(name) {{
+          if (this.attributes.has(name)) return this.attributes.get(name);
+          if (name.startsWith('data-')) return this.dataset[dataKey(name)] ?? null;
+          return null;
+        }}
+        removeAttribute(name) {{
+          this.attributes.delete(name);
+          if (name.startsWith('data-')) delete this.dataset[dataKey(name)];
+        }}
+        addEventListener(type, callback, options) {{
+          this.listeners.push({{
+            type,
+            callback,
+            capture: options === true || options?.capture === true,
+          }});
+        }}
+        matches(selector) {{
+          const alternatives = String(selector).split(',').map((value) => value.trim());
+          return alternatives.some((candidate) => {{
+            if (!candidate || candidate.startsWith(':scope')) return false;
+            const tag = candidate.match(/^[a-z]+/iu)?.[0];
+            if (tag && this.tagName !== tag.toUpperCase()) return false;
+            for (const match of candidate.matchAll(/[.]([a-z0-9_-]+)/giu)) {{
+              if (!this.className.split(/\\s+/u).includes(match[1])) return false;
+            }}
+            for (const match of candidate.matchAll(
+              /\\[([^=\\]]+)(?:=[\"']?([^\"'\\]]+)[\"']?)?\\]/gu,
+            )) {{
+              const actual = this.getAttribute(match[1]);
+              if (actual === null) return false;
+              if (match[2] !== undefined && actual !== match[2]) return false;
+            }}
+            return true;
+          }});
+        }}
+        descendants() {{
+          return this.children.flatMap((child) => [child, ...child.descendants()]);
+        }}
+        querySelector(selector) {{
+          if (selector === ':scope > header, .ai-learning-hero') {{
+            return this.children.find((child) => child.tagName === 'HEADER')
+              || this.descendants().find((child) => child.matches('.ai-learning-hero'))
+              || null;
+          }}
+          return this.descendants().find((child) => child.matches(selector)) || null;
+        }}
+        querySelectorAll(selector) {{
+          return this.descendants().filter((child) => child.matches(selector));
+        }}
+      }}
+
+      globalThis.HTMLElement = FakeElement;
+      globalThis.HTMLSelectElement = FakeElement;
+      globalThis.HTMLInputElement = FakeElement;
+      globalThis.HTMLButtonElement = FakeElement;
+
+      const body = new FakeElement('body');
+      body.connect(true);
+      const host = new FakeElement('main');
+      host.className = 'ai-learning-control-room';
+      body.append(host);
+      const documentListeners = new Map();
+      globalThis.document = {{
+        body,
+        createElement: (tag) => new FakeElement(tag),
+        querySelector: (selector) => {{
+          if (body.matches(selector)) return body;
+          return body.querySelector(selector);
+        }},
+        querySelectorAll: (selector) => {{
+          const matches = body.querySelectorAll(selector);
+          return body.matches(selector) ? [body, ...matches] : matches;
+        }},
+        addEventListener(type, callback) {{
+          const callbacks = documentListeners.get(type) || [];
+          callbacks.push(callback);
+          documentListeners.set(type, callbacks);
+        }},
+      }};
+
+      const projectId = '11111111-1111-4111-8111-111111111111';
+      let route = '/workspace/ai';
+      const storage = new Map();
+      const queuedMicrotasks = [];
+      const trainingRequests = [];
+      const exactRequests = [];
+      const api = {{
+        call(name, payload) {{
+          return new Promise((resolve) => trainingRequests.push({{
+            name,
+            payload,
+            resolve,
+          }}));
+        }},
+        exactYoutubeSourceQueue({{ projectId: requestedProjectId }}) {{
+          return new Promise((resolve) => exactRequests.push({{
+            projectId: requestedProjectId,
+            resolve,
+          }}));
+        }},
+      }};
+      globalThis.window = {{
+        location: {{ hash: '#/workspace/ai?project_id=' + projectId }},
+        history: {{
+          state: null,
+          replaceState(_state, _title, nextHash) {{ this.lastHash = nextHash; }},
+        }},
+        sessionStorage: {{
+          getItem: (key) => storage.get(key) ?? null,
+          setItem: (key, value) => storage.set(key, String(value)),
+        }},
+        queueMicrotask: (callback) => queuedMicrotasks.push(callback),
+        addEventListener() {{}},
+        getComputedStyle: () => ({{ display: 'block', visibility: 'visible' }}),
+        ContentEngineDesktopV4: {{
+          route: () => route,
+          registerAdapter() {{}},
+        }},
+        ContentEngineWorkspaceRuntime: {{
+          getApi: () => api,
+          getExactYoutubeHandoffContext: () => ({{ project_id: projectId }}),
+        }},
+      }};
+
+      const training = await import(
+        {json.dumps(training_url)} + '?route-exit-lifecycle=1'
+      );
+      const exact = await import(
+        {json.dumps(exact_sources_url)} + '?route-exit-lifecycle=1'
+      );
+      queuedMicrotasks.length = 0;
+      const settle = async () => {{
+        await Promise.resolve();
+        await Promise.resolve();
+        await new Promise((resolve) => setImmediate(resolve));
+      }};
+      const waitFor = async (predicate) => {{
+        for (let index = 0; index < 20 && !predicate(); index += 1) {{
+          await Promise.resolve();
+        }}
+      }};
+
+      training.AiResearchTraining.mount();
+      exact.AiExactYoutubeSources.mount();
+      await waitFor(() => trainingRequests.length === 1 && exactRequests.length === 1);
+      const oldTrainingRoot = document.querySelector('[data-ai-research-training-root]');
+      const oldExactRoot = document.querySelector('[data-ai-exact-youtube-sources-root]');
+      const oldTrainingQueue = oldTrainingRoot.querySelector(
+        '[data-ai-research-training-queue]',
+      );
+      const oldTrainingHistory = oldTrainingRoot.querySelector(
+        '[data-ai-research-training-history]',
+      );
+      const oldTrainingMutations = oldTrainingQueue.replaceCount
+        + oldTrainingHistory.replaceCount;
+      const oldExactMutations = oldExactRoot.replaceCount;
+
+      route = '/workspace/generation';
+      window.location.hash = '#/workspace/generation?project_id=' + projectId;
+      const exactGuard = oldExactRoot.listeners.find(
+        (listener) => listener.type === 'click' && listener.capture,
+      );
+      const trainingGuard = oldTrainingRoot.listeners.find(
+        (listener) => listener.type === 'click' && listener.capture,
+      );
+      const staleExactClick = {{
+        currentTarget: oldExactRoot,
+        target: {{ closest: () => ({{ href: '#stale-exact' }}) }},
+        prevented: false,
+        stopped: false,
+        preventDefault() {{ this.prevented = true; }},
+        stopImmediatePropagation() {{ this.stopped = true; }},
+      }};
+      const staleTrainingClick = {{
+        currentTarget: oldTrainingRoot,
+        prevented: false,
+        stopped: false,
+        preventDefault() {{ this.prevented = true; }},
+        stopImmediatePropagation() {{ this.stopped = true; }},
+      }};
+      exactGuard.callback(staleExactClick);
+      trainingGuard.callback(staleTrainingClick);
+      const offRouteHandoff = exact.beginMediaHandoff({{ id: 'stale-source' }});
+
+      exact.AiExactYoutubeSources.mount();
+      training.AiResearchTraining.mount();
+      const rootsAfterExit = {{
+        exact: document.querySelectorAll('[data-ai-exact-youtube-sources-root]').length,
+        training: document.querySelectorAll('[data-ai-research-training-root]').length,
+      }};
+
+      trainingRequests[0].resolve({{
+        project_id: projectId,
+        product_category: 'other',
+        queue: [],
+        learned: [],
+        capabilities: {{}},
+      }});
+      exactRequests[0].resolve({{
+        ok: true,
+        version: 'exact-youtube-source-queue-v2',
+        project_id: projectId,
+        sources: [],
+        contract: {{
+          url_is_video_evidence: false,
+          requires_lawful_mp4: true,
+          unattached_source_affects_learning: false,
+          unattached_source_affects_generation: false,
+          external_call_started: false,
+          paid_call_started: false,
+        }},
+      }});
+      await settle();
+      const staleResponsesIgnored = !oldTrainingRoot.isConnected
+        && !oldExactRoot.isConnected
+        && oldTrainingMutations === oldTrainingQueue.replaceCount
+          + oldTrainingHistory.replaceCount
+        && oldExactMutations === oldExactRoot.replaceCount
+        && document.querySelectorAll('[data-ai-exact-youtube-sources-root]').length === 0
+        && document.querySelectorAll('[data-ai-research-training-root]').length === 0;
+
+      route = '/workspace/ai';
+      window.location.hash = '#/workspace/ai';
+      exact.AiExactYoutubeSources.mount();
+      const missingProjectKeepsExactUnmounted = document.querySelectorAll(
+        '[data-ai-exact-youtube-sources-root]',
+      ).length === 0;
+
+      window.location.hash = '#/workspace/ai?project_id=' + projectId;
+      training.AiResearchTraining.mount();
+      exact.AiExactYoutubeSources.mount();
+      await waitFor(() => trainingRequests.length === 2 && exactRequests.length === 2);
+      const newTrainingRoot = document.querySelector('[data-ai-research-training-root]');
+      const newExactRoot = document.querySelector('[data-ai-exact-youtube-sources-root]');
+      trainingRequests[1].resolve({{
+        project_id: projectId,
+        product_category: 'other',
+        queue: [],
+        learned: [],
+        capabilities: {{}},
+      }});
+      exactRequests[1].resolve({{
+        ok: true,
+        version: 'exact-youtube-source-queue-v2',
+        project_id: projectId,
+        sources: [],
+        contract: {{
+          url_is_video_evidence: false,
+          requires_lawful_mp4: true,
+          unattached_source_affects_learning: false,
+          unattached_source_affects_generation: false,
+          external_call_started: false,
+          paid_call_started: false,
+        }},
+      }});
+      await settle();
+      training.AiResearchTraining.mount();
+      exact.AiExactYoutubeSources.mount();
+      await settle();
+
+      process.stdout.write(JSON.stringify({{
+        initialRequests: {{
+          training: trainingRequests[0].payload.project_id,
+          exact: exactRequests[0].projectId,
+        }},
+        offRouteGuards: {{
+          exact: staleExactClick.prevented && staleExactClick.stopped,
+          training: staleTrainingClick.prevented && staleTrainingClick.stopped,
+          handoffRejected: offRouteHandoff === false,
+        }},
+        rootsAfterExit,
+        staleResponsesIgnored,
+        missingProjectKeepsExactUnmounted,
+        reentry: {{
+          oneTrainingRoot: document.querySelectorAll(
+            '[data-ai-research-training-root]',
+          ).length === 1,
+          oneExactRoot: document.querySelectorAll(
+            '[data-ai-exact-youtube-sources-root]',
+          ).length === 1,
+          freshTrainingRoot: newTrainingRoot !== oldTrainingRoot,
+          freshExactRoot: newExactRoot !== oldExactRoot,
+          trainingRenderedProject: newTrainingRoot.dataset.renderedProjectId,
+          exactRenderedProject: newExactRoot.dataset.renderedProjectId,
+          trainingRequests: trainingRequests.length,
+          exactRequests: exactRequests.length,
+        }},
+      }}));
+    """
+    assert run_node(script) == {
+        "initialRequests": {
+            "training": "11111111-1111-4111-8111-111111111111",
+            "exact": "11111111-1111-4111-8111-111111111111",
+        },
+        "offRouteGuards": {
+            "exact": True,
+            "training": True,
+            "handoffRejected": True,
+        },
+        "rootsAfterExit": {"exact": 0, "training": 0},
+        "staleResponsesIgnored": True,
+        "missingProjectKeepsExactUnmounted": True,
+        "reentry": {
+            "oneTrainingRoot": True,
+            "oneExactRoot": True,
+            "freshTrainingRoot": True,
+            "freshExactRoot": True,
+            "trainingRenderedProject": "11111111-1111-4111-8111-111111111111",
+            "exactRenderedProject": "11111111-1111-4111-8111-111111111111",
+            "trainingRequests": 2,
+            "exactRequests": 2,
+        },
     }
 
 

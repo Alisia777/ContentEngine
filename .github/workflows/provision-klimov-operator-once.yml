@@ -6,6 +6,12 @@ on:
       - main
     paths:
       - .github/workflows/provision-klimov-operator-once.yml
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type PROVISION_KLIMOV_OPERATOR_WITH_WAIVER_ONCE to restore the owner, provision Klimov and send the recovery email
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -20,7 +26,16 @@ jobs:
     name: Restore owner, create employee and waive training
     if: >-
       github.ref == 'refs/heads/main' &&
-      github.event.head_commit.message == 'Run protected Klimov onboarding v10'
+      (
+        (
+          github.event_name == 'workflow_dispatch' &&
+          github.event.inputs.confirmation == 'PROVISION_KLIMOV_OPERATOR_WITH_WAIVER_ONCE'
+        ) ||
+        (
+          github.event_name == 'push' &&
+          github.event.head_commit.message == 'Run protected Klimov onboarding v10'
+        )
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: production

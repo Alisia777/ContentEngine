@@ -1250,7 +1250,8 @@ function guardRenderedTrainingScopeClick(event) {
   const root = event.currentTarget;
   if (!(root instanceof HTMLElement)) return;
   if (
-    root.dataset.renderedProjectId === currentTrainingProjectId()
+    routePath() === ROUTE
+    && root.dataset.renderedProjectId === currentTrainingProjectId()
     && root.dataset.renderedCategory === currentCategory()
   ) return;
   event.preventDefault();
@@ -1453,7 +1454,8 @@ async function decide(card, decision) {
     || normalizedProjectId(routeParams().get("project_id"));
   const category = runtime.category;
   if (
-    !mutationRoot
+    routePath() !== ROUTE
+    || !mutationRoot
     || !projectId
     || runtime.projectId !== projectId
     || normalizedProjectId(card.dataset.projectId) !== projectId
@@ -1549,6 +1551,7 @@ function handleChange(event) {
 }
 
 function handleLegacyCategoryClick(event) {
+  if (routePath() !== ROUTE) return;
   const control = event.target.closest?.(
     ".ai-learning-category[data-category-key]",
   );
@@ -1574,10 +1577,13 @@ function handleLegacyCategoryClick(event) {
 function handleClick(event) {
   const root = event.currentTarget;
   if (
-    root instanceof HTMLElement
-    && (
-      root.dataset.renderedProjectId !== currentTrainingProjectId()
-      || root.dataset.renderedCategory !== currentCategory()
+    routePath() !== ROUTE
+    || (
+      root instanceof HTMLElement
+      && (
+        root.dataset.renderedProjectId !== currentTrainingProjectId()
+        || root.dataset.renderedCategory !== currentCategory()
+      )
     )
   ) {
     event.preventDefault();
@@ -1593,11 +1599,18 @@ function handleClick(event) {
   void decide(card, decision);
 }
 
+function unmount() {
+  runtime.loadToken += 1;
+  runtime.loading = false;
+  runtime.requestKey = "";
+  runtime.root = null;
+  runtime.projectId = "";
+  document.querySelectorAll(`[${ROOT_ATTRIBUTE}]`).forEach((root) => root.remove());
+}
+
 function mount() {
   if (routePath() !== ROUTE) {
-    runtime.loadToken += 1;
-    runtime.root = null;
-    runtime.projectId = "";
+    unmount();
     return;
   }
   const previousRoot = runtime.root;

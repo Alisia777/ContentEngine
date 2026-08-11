@@ -38,12 +38,12 @@ def test_research_route_bootstrap_uses_content_addressed_ai_center_cache_key() -
     assert '"workspace-ai-exact-youtube-sources.js":' in bootstrap
     assert (
         '"workspace-ai-exact-youtube-sources.js":\n'
-        '      "20260811.ai-center-runtime-owned.1"'
+        '      "20260811.ai-center-runtime-owned.2"'
         in bootstrap
     )
     assert (
         '"workspace-ai-research-training.js":\n'
-        '      "20260811.ai-center-runtime-owned.1"'
+        '      "20260811.ai-center-runtime-owned.2"'
         in bootstrap
     )
     assert "ASSET_BUILD_OVERRIDES[file] || BUILD" in bootstrap

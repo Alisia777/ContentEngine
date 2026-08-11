@@ -3,7 +3,7 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260811.os4.31";
+} from "./supabase-api.js?v=20260811.os4.32";
 import {
   clearExactYoutubeMediaHandoff,
   exactYoutubeRegisteredMediaId,
@@ -24,8 +24,8 @@ import {
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
 } from "./generation-spec.js?v=20260803.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260811.os4.31";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260811.os4.31";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260811.os4.32";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260811.os4.32";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -88,7 +88,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260811.os4.31";
+} from "./product-research-view.js?v=20260811.os4.32";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -99,7 +99,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260811.os4.31";
+} from "./ai-learning-control-room.js?v=20260811.os4.32";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -115,7 +115,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260811.os4.31";
+} from "./content-generation-handoff.js?v=20260811.os4.32";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -128,13 +128,13 @@ import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
   normalizeGenerationVideoReferenceContext,
-} from "./generation-video-reference.js?v=20260811.os4.31";
+} from "./generation-video-reference.js?v=20260811.os4.32";
 import {
   buildGenerationFormDraft,
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260811.os4.31";
+} from "./generation-form-draft.js?v=20260811.os4.32";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
@@ -150,7 +150,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260811.os4.31";
+} from "./generation-autopilot.js?v=20260811.os4.32";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -171,7 +171,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260811.os4.31";
+} from "./content-review-view.js?v=20260811.os4.32";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -200,7 +200,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260811.os4.31";
+} from "./workspace-board-view.js?v=20260811.os4.32";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -229,7 +229,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260811.os4.31";
+} from "./training-journey.js?v=20260811.os4.32";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -248,7 +248,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260811.os4.31";
+} from "./training-practical-review.js?v=20260811.os4.32";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -267,7 +267,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260811.os4.31";
+} from "./my-work-view.js?v=20260811.os4.32";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -1222,6 +1222,7 @@ const state = {
     error: null,
     requestId: 0,
     projectId: "",
+    contextKey: "",
   },
   myWork: {
     filters: normalizeMyWorkFilters(),
@@ -3249,8 +3250,14 @@ async function handleAuthStateChange(event, session) {
   }
 
   if (event === "PASSWORD_RECOVERY") {
+    const previousUserId = String(state.user?.id || "");
+    const recoveryUser = session?.user || null;
+    const recoveryUserId = String(recoveryUser?.id || "");
+    if (previousUserId && previousUserId !== recoveryUserId) {
+      clearAuthenticatedState();
+    }
     state.session = session;
-    state.user = session?.user || null;
+    state.user = recoveryUser;
     state.authPurpose = "recovery";
     state.forcePassword = true;
     navigate("/set-password", true);
@@ -3423,6 +3430,9 @@ async function loadBootstrap({ silent = false } = {}) {
   const requestEpoch = state.dataEpoch;
   const requestUserId = state.user?.id;
   const requestApi = state.api;
+  const previousProjectContextKey = typeof workspaceProjectContextKey === "function"
+    ? workspaceProjectContextKey()
+    : "";
   const requestId = state.bootstrapRequestId + 1;
   state.bootstrapRequestId = requestId;
   if (!silent) {
@@ -3444,8 +3454,18 @@ async function loadBootstrap({ silent = false } = {}) {
       || requestApi !== state.api
     ) return null;
     const bootstrap = normalizeBootstrap(raw);
+    const nextProjectContextKey = typeof workspaceProjectContextKey === "function"
+      ? workspaceProjectContextKey(bootstrap)
+      : "";
     requestApi.commitBootstrapContext(raw);
+    if (
+      previousProjectContextKey
+      && previousProjectContextKey !== nextProjectContextKey
+    ) {
+      clearWorkspaceProjectSelection();
+    }
     state.bootstrap = bootstrap;
+    state.projectFlow.contextKey = nextProjectContextKey;
     hydrateWorkspaceAccessRequest(state.bootstrap.workspaceAccessRequest);
     state.courseCheckResults = Object.fromEntries(
       state.bootstrap.training.courseChecks.map((item) => [
@@ -7657,6 +7677,15 @@ function isWorkspaceProjectId(value) {
   );
 }
 
+function workspaceProjectContextKey(bootstrap = state.bootstrap, user = state.user) {
+  const userId = String(user?.id || "").trim().toLowerCase();
+  const profileId = String(bootstrap?.profile?.id || "").trim().toLowerCase();
+  const organizationId = String(bootstrap?.organization?.id || "").trim().toLowerCase();
+  const role = String(bootstrap?.membership?.role || "").trim().toLowerCase();
+  if (!userId || !profileId || !organizationId || !role) return "";
+  return `${userId}:${profileId}:${organizationId}:${role}`;
+}
+
 function storedWorkspaceProject() {
   try {
     const stored = JSON.parse(window.sessionStorage.getItem(WORKSPACE_PROJECT_STORAGE_KEY) || "null");
@@ -7903,10 +7932,12 @@ function clearWorkspaceProjectSelection(projectId = "") {
   state.projectFlow.data = null;
   state.projectFlow.error = null;
   state.projectFlow.projectId = "";
+  state.projectFlow.contextKey = "";
   state.home.requestId += 1;
   state.home.status = "idle";
   state.home.data = null;
   state.home.error = null;
+  state.home.unavailable = [];
   for (const section of ["work", "board", "media", "generation", "review", "tasks", "placement", "stats", "payouts"]) {
     const target = state.sections[section];
     if (!target) continue;
@@ -7916,6 +7947,9 @@ function clearWorkspaceProjectSelection(projectId = "") {
     target.error = null;
   }
   state.aiResearchRecommendation = null;
+  state.workspaceBoard.busy = false;
+  state.workspaceBoard.projectDraftName = "";
+  state.workspaceBoard.projectCreateError = "";
   resetGenerationSpecState();
   clearContentGenerationHandoff();
   clearGenerationRepair();
@@ -9050,6 +9084,19 @@ async function loadProjectFlow({ silent = false, force = false } = {}) {
     if (state.route.path.startsWith("/workspace/")) render();
     return null;
   }
+  const currentProjectContextKey = () => (
+    typeof workspaceProjectContextKey === "function"
+      ? workspaceProjectContextKey()
+      : String(state.projectFlow.contextKey || "")
+  );
+  const contextKey = currentProjectContextKey();
+  if (
+    state.projectFlow.contextKey
+    && contextKey
+    && state.projectFlow.contextKey !== contextKey
+  ) {
+    clearWorkspaceProjectSelection();
+  }
   const projectId = projectFlowRequestProjectId();
   if (
     !force
@@ -9060,6 +9107,7 @@ async function loadProjectFlow({ silent = false, force = false } = {}) {
     !force
     && state.projectFlow.status === "ready"
     && state.projectFlow.projectId === projectId
+    && state.projectFlow.contextKey === contextKey
   ) return state.projectFlow.data;
 
   const requestEpoch = state.dataEpoch;
@@ -9068,6 +9116,7 @@ async function loadProjectFlow({ silent = false, force = false } = {}) {
   const enteringChooser = projectId === "" && state.projectFlow.projectId !== "";
   state.projectFlow.requestId = requestId;
   state.projectFlow.projectId = projectId;
+  state.projectFlow.contextKey = contextKey;
   if (enteringChooser) state.projectFlow.data = null;
   state.projectFlow.status = state.projectFlow.data ? "refreshing" : "loading";
   state.projectFlow.error = null;
@@ -9084,10 +9133,13 @@ async function loadProjectFlow({ silent = false, force = false } = {}) {
       || requestUserId !== state.user?.id
       || requestId !== state.projectFlow.requestId
       || projectId !== projectFlowRequestProjectId()
+      || contextKey !== currentProjectContextKey()
+      || contextKey !== state.projectFlow.contextKey
     ) return null;
     const flow = normalizeProjectFlow(raw);
     state.projectFlow.data = flow;
     state.projectFlow.projectId = flow.project_id || projectId;
+    state.projectFlow.contextKey = contextKey;
     state.projectFlow.status = "ready";
     state.projectFlow.error = null;
     if (flow.project_id) {
@@ -9124,11 +9176,17 @@ async function loadProjectFlow({ silent = false, force = false } = {}) {
       || requestUserId !== state.user?.id
       || requestId !== state.projectFlow.requestId
       || projectId !== projectFlowRequestProjectId()
+      || contextKey !== currentProjectContextKey()
+      || contextKey !== state.projectFlow.contextKey
     ) return null;
     const serverCode = String(error?.serverCode || error?.code || "").trim().toLowerCase();
     if (
       projectId
-      && ["workspace_project_not_found", "workspace_project_archived"].includes(serverCode)
+      && [
+        "workspace_project_not_found",
+        "workspace_project_archived",
+        "workspace_project_access_required",
+      ].includes(serverCode)
     ) {
       const activeSection = state.route.path.split("/").filter(Boolean).at(-1) || "home";
       const mustLeaveRoute = workspaceSectionRequiresProject(activeSection, state.route.query);
@@ -9151,11 +9209,27 @@ async function loadProjectFlow({ silent = false, force = false } = {}) {
 
 async function openFirstAvailableWorkspaceProject() {
   if (!state.api?.projectFlow || !hasWorkspaceAccess()) return false;
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  const requestApi = state.api;
+  const currentProjectContextKey = () => (
+    typeof workspaceProjectContextKey === "function"
+      ? workspaceProjectContextKey()
+      : String(state.projectFlow?.contextKey || "")
+  );
+  const requestContextKey = currentProjectContextKey();
+  const requestIsCurrent = () => (
+    requestEpoch === state.dataEpoch
+    && requestUserId === state.user?.id
+    && requestApi === state.api
+    && requestContextKey === currentProjectContextKey()
+  );
   const cardsRaw = await withUiTimeout(
-    state.api.projectFlow({ includeProjects: true }),
+    requestApi.projectFlow({ includeProjects: true }),
     WORKSPACE_PROJECT_FLOW_TIMEOUT_MS,
     "workspace_project_flow_timeout",
   );
+  if (!requestIsCurrent()) return false;
   const cardsFlow = normalizeProjectFlow(cardsRaw);
   const storedId = storedWorkspaceProject()?.id || "";
   const project = cardsFlow.projects.find((item) => String(item?.id || "") === storedId)
@@ -9166,13 +9240,14 @@ async function openFirstAvailableWorkspaceProject() {
     navigate("/workspace/home");
     return false;
   }
-  activateWorkspaceProject(projectId, project?.name || "Проект");
   const selectedRaw = await withUiTimeout(
-    state.api.projectFlow({ projectId, includeProjects: true }),
+    requestApi.projectFlow({ projectId, includeProjects: true }),
     WORKSPACE_PROJECT_FLOW_TIMEOUT_MS,
     "workspace_project_flow_timeout",
   );
+  if (!requestIsCurrent()) return false;
   const selectedFlow = normalizeProjectFlow(selectedRaw);
+  activateWorkspaceProject(projectId, project?.name || "Проект");
   state.projectFlow.data = selectedFlow;
   state.projectFlow.projectId = projectId;
   state.projectFlow.status = "ready";
@@ -10334,6 +10409,22 @@ async function submitHomeProjectCreate(form) {
   const values = new FormData(form);
   const name = String(values.get("folder_name") || "").trim();
   if (!name || state.workspaceBoard.busy) return;
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  const requestApi = state.api;
+  const currentProjectContextKey = () => (
+    typeof workspaceProjectContextKey === "function"
+      ? workspaceProjectContextKey()
+      : String(state.projectFlow?.contextKey || "")
+  );
+  const requestContextKey = currentProjectContextKey();
+  const requestIsCurrent = () => (
+    requestEpoch === state.dataEpoch
+    && requestUserId === state.user?.id
+    && requestApi === state.api
+    && requestContextKey === currentProjectContextKey()
+  );
+  if (!requestIsCurrent()) return;
   const knownProjects = normalizeProjectFlow(state.projectFlow?.data || {}).projects;
   state.workspaceBoard.projectDraftName = name;
   state.workspaceBoard.busy = true;
@@ -10343,13 +10434,15 @@ async function submitHomeProjectCreate(form) {
 
   let response;
   try {
-    response = await state.api.createProject({ name });
+    response = await requestApi.createProject({ name });
   } catch (error) {
+    if (!requestIsCurrent()) return;
     state.workspaceBoard.projectCreateError = actionErrorMessage(error);
     state.workspaceBoard.busy = false;
     if (state.route.path === "/workspace/home") renderWorkspace("home");
     return;
   }
+  if (!requestIsCurrent()) return;
 
   const source = response?.data ?? response ?? {};
   const flowSource = source.flow && typeof source.flow === "object" ? source.flow : source;
@@ -10563,7 +10656,7 @@ function homeProjectSwitcherMarkup(action) {
             <div class="home-project-empty">
               <span aria-hidden="true">◇</span>
               <strong>Проектов пока нет</strong>
-              <p>${canCreateProject ? "Введите название выше — портал сразу откроет первый рабочий стол." : "Попросите руководителя создать первый проект."}</p>
+              <p>${canCreateProject ? "Введите название выше — портал сразу откроет первый рабочий стол." : "Доступных вам проектов пока нет. Попросите руководителя выдать доступ к нужному проекту."}</p>
             </div>`)}
         </div>
       </div>
@@ -19056,7 +19149,8 @@ async function handleClick(event) {
   if (action === "refresh-home") {
     state.home.requestId += 1;
     state.home.status = "idle";
-    render();
+    await loadProjectFlow({ silent: true, force: true });
+    if (state.route.path === "/workspace/home") render();
     return;
   }
 
@@ -28315,6 +28409,17 @@ function clearAuthenticatedState() {
   setMobileNavOpen(false);
   state.dataEpoch += 1;
   state.bootstrapRequestId += 1;
+  state.projectFlow.requestId += 1;
+  state.projectFlow.status = "idle";
+  state.projectFlow.data = null;
+  state.projectFlow.error = null;
+  state.projectFlow.projectId = "";
+  state.projectFlow.contextKey = "";
+  try {
+    window.sessionStorage.removeItem(WORKSPACE_PROJECT_STORAGE_KEY);
+  } catch {
+    // The authenticated state is still cleared when storage is unavailable.
+  }
   state.session = null;
   state.user = null;
   state.api?.clearBootstrapContext();
@@ -28463,6 +28568,8 @@ function clearAuthenticatedState() {
   state.workspaceBoard.hasMore = false;
   state.workspaceBoard.nextCursor = null;
   state.workspaceBoard.visibleItemLimit = WORKSPACE_BOARD_VISIBLE_STEP;
+  state.workspaceBoard.projectDraftName = "";
+  state.workspaceBoard.projectCreateError = "";
   state.myWork.filters = normalizeMyWorkFilters();
   state.myWork.selectedViewId = "";
   state.myWork.pendingDeleteViewId = "";
