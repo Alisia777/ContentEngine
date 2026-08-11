@@ -952,6 +952,97 @@ Deno.test("terminal diagnostic classification uses exact allowlisted mappings", 
   );
 });
 
+Deno.test("billing residency and policy codes produce bounded actionable failures", () => {
+  const cases = [
+    {
+      code: "credit_balance_exhausted",
+      failureCode: "provider_configuration_error",
+      message: "Баланс OpenAI API исчерпан",
+    },
+    {
+      code: "organization_spend_limit_exceeded",
+      failureCode: "provider_configuration_error",
+      message: "лимит расходов организации",
+    },
+    {
+      code: "project_spend_limit_exceeded",
+      failureCode: "provider_configuration_error",
+      message: "лимит расходов проекта",
+    },
+    {
+      code: "organization_usage_limit_exceeded",
+      failureCode: "provider_configuration_error",
+      message: "лимит использования организации",
+    },
+    {
+      code: "data_residency_mismatch",
+      failureCode: "provider_configuration_error",
+      message: "data residency",
+    },
+    {
+      code: "bio_policy",
+      failureCode: "provider_request_rejected",
+      message: "Диагностический код: bio_policy",
+    },
+  ];
+  for (const testCase of cases) {
+    const identity = readProviderResponseIdentity({
+      id: `resp_${testCase.code}`,
+      status: "failed",
+      error: {
+        code: testCase.code,
+        message: "Provider-owned details must not cross the boundary",
+      },
+    });
+    assert(
+      identity?.terminalDiagnostic?.code === testCase.code,
+      `${testCase.code} must survive the finite diagnostic allowlist`,
+    );
+    const failure = identity ? providerTerminalFailure(identity) : null;
+    assert(
+      failure?.failureCode === testCase.failureCode &&
+        failure.healthStatus === "blocked" &&
+        failure.message.includes(testCase.message) &&
+        failure.message.includes("Автоматического повтора не было") &&
+        !failure.message.includes("Provider-owned details"),
+      `${testCase.code} must have an app-owned actionable classification`,
+    );
+  }
+
+  const credit = readProviderResponseIdentity({
+    id: "resp_credit_balance_operator_copy",
+    status: "failed",
+    error: { code: "credit_balance_exhausted" },
+  });
+  const creditFailure = credit ? providerTerminalFailure(credit) : null;
+  assert(
+    creditFailure?.message.includes("OpenAI Platform → Billing") &&
+      creditFailure.message.includes("GitHub Pro") &&
+      creditFailure.message.includes("PayPal") &&
+      creditFailure.message.includes("GitHub Actions"),
+    "credit exhaustion must point to OpenAI billing and disambiguate GitHub billing",
+  );
+
+  const cancelledCredit = readProviderResponseIdentity({
+    id: "resp_cancelled_credit_balance",
+    status: "cancelled",
+    error: { code: "credit_balance_exhausted" },
+  });
+  const incompletePolicy = readProviderResponseIdentity({
+    id: "resp_incomplete_bio_policy",
+    status: "incomplete",
+    incomplete_details: { reason: "content_filter" },
+    error: { code: "bio_policy" },
+  });
+  assert(
+    cancelledCredit?.terminalDiagnostic?.code ===
+        "responses_cancelled.unclassified" &&
+      incompletePolicy?.terminalDiagnostic?.code ===
+        "responses_incomplete.content_filter",
+    "failed-only codes must use status-owned fallbacks for non-failed terminals",
+  );
+});
+
 Deno.test("exact-video research requires its canonical social source and fact", () => {
   const parsed = readExactVideoResearchEvidence(exactVideoEvidenceFixture());
   assert(parsed !== null, "expected exact-video fixture");

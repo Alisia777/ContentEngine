@@ -890,6 +890,108 @@ select set_config(
 select lives_ok(
   format(
     $sql$
+      do $billing_diagnostic_probe$
+      declare
+        provider_code_value text;
+      begin
+        foreach provider_code_value in array array[
+          'credit_balance_exhausted',
+          'organization_spend_limit_exceeded',
+          'project_spend_limit_exceeded',
+          'organization_usage_limit_exceeded',
+          'data_residency_mismatch',
+          'bio_policy'
+        ] loop
+          begin
+            perform public.system_record_research_provider_health(
+              jsonb_build_object(
+                'attempt_id', %L,
+                'status', 'degraded',
+                'failure_code', case
+                  when provider_code_value = 'bio_policy'
+                    then 'provider_request_rejected'
+                  else 'provider_configuration_error'
+                end,
+                'checked_at', %L,
+                'provider_terminal_status', 'failed',
+                'provider_error_code', provider_code_value,
+                'provider_error_type', 'responses_terminal.failed',
+                'provider_error_message',
+                  'Provider accepted the response and ended processing with status failed.',
+                'provider_message_present', true
+              )
+            );
+            raise exception using
+              errcode = 'P0001',
+              message = 'billing_diagnostic_probe_rollback';
+          exception when raise_exception then
+            if sqlerrm <> 'billing_diagnostic_probe_rollback' then
+              raise;
+            end if;
+          end;
+        end loop;
+      end;
+      $billing_diagnostic_probe$
+    $sql$,
+    (select attempt_id::text from provider_control_context),
+    (select checked_at_value::text from provider_control_context)
+  ),
+  'the v4 writer and table checks accept exactly six bounded billing, residency and policy codes'
+);
+select throws_ok(
+  format(
+    $sql$
+      select public.system_record_research_provider_health(
+        jsonb_build_object(
+          'attempt_id', %L,
+          'status', 'degraded',
+          'failure_code', 'provider_configuration_error',
+          'checked_at', %L,
+          'provider_terminal_status', 'failed',
+          'provider_error_code', 'future_billing_limit_exceeded',
+          'provider_error_type', 'responses_terminal.failed',
+          'provider_error_message',
+            'Provider accepted the response and ended processing with status failed.',
+          'provider_message_present', true
+        )
+      )
+    $sql$,
+    (select attempt_id::text from provider_control_context),
+    (select checked_at_value::text from provider_control_context)
+  ),
+  '22023',
+  'research_provider_terminal_diagnostic_invalid',
+  'the v4 writer rejects a future provider billing code outside the exact allowlist'
+);
+select throws_ok(
+  format(
+    $sql$
+      select public.system_record_research_provider_health(
+        jsonb_build_object(
+          'attempt_id', %L,
+          'status', 'degraded',
+          'failure_code', 'provider_request_rejected',
+          'checked_at', %L,
+          'provider_terminal_status', 'failed',
+          'provider_error_code', 'credit_balance_exhausted',
+          'provider_error_type', 'responses_terminal.failed',
+          'provider_error_message',
+            'Provider accepted the response and ended processing with status failed.',
+          'provider_message_present', true
+        )
+      )
+    $sql$,
+    (select attempt_id::text from provider_control_context),
+    (select checked_at_value::text from provider_control_context)
+  ),
+  '22023',
+  'research_provider_terminal_diagnostic_invalid',
+  'the v4 writer enforces configuration classification for a depleted API balance'
+);
+
+select lives_ok(
+  format(
+    $sql$
       select public.system_record_research_provider_health(
         jsonb_build_object(
           'attempt_id', %L,

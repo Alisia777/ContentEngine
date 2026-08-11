@@ -2698,8 +2698,11 @@ const PROVIDER_TERMINAL_STATUSES = new Set<ProviderTerminalStatus>([
 // other user-derived opaque values in code/type fields.
 const SAFE_PROVIDER_ERROR_CODES = new Set([
   "authentication_error",
+  "bio_policy",
   "content_filter",
   "context_length_exceeded",
+  "credit_balance_exhausted",
+  "data_residency_mismatch",
   "empty_image_file",
   "failed_to_download_image",
   "image_content_policy_violation",
@@ -2718,8 +2721,11 @@ const SAFE_PROVIDER_ERROR_CODES = new Set([
   "invalid_prompt",
   "invalid_request_error",
   "model_not_found",
+  "organization_spend_limit_exceeded",
+  "organization_usage_limit_exceeded",
   "overloaded_error",
   "permission_error",
+  "project_spend_limit_exceeded",
   "rate_limit_exceeded",
   "request_timeout",
   "safety_violation",
@@ -2729,6 +2735,19 @@ const SAFE_PROVIDER_ERROR_CODES = new Set([
   "unsupported_image_media_type",
   "vector_store_timeout",
 ]);
+const PROVIDER_FAILED_ONLY_DIAGNOSTIC_CODES = new Set([
+  "bio_policy",
+  "credit_balance_exhausted",
+  "data_residency_mismatch",
+  "organization_spend_limit_exceeded",
+  "organization_usage_limit_exceeded",
+  "project_spend_limit_exceeded",
+]);
+const SAFE_PROVIDER_NONFAILED_ERROR_CODES = new Set(
+  [...SAFE_PROVIDER_ERROR_CODES].filter(
+    (code) => !PROVIDER_FAILED_ONLY_DIAGNOSTIC_CODES.has(code),
+  ),
+);
 const SAFE_PROVIDER_INCOMPLETE_REASONS = new Set([
   "content_filter",
   "max_output_tokens",
@@ -2742,7 +2761,15 @@ const PROVIDER_RATE_DIAGNOSTIC_CODES = new Set([
   "insufficient_quota",
   "rate_limit_exceeded",
 ]);
+const PROVIDER_CONFIGURATION_DIAGNOSTIC_CODES = new Set([
+  "credit_balance_exhausted",
+  "data_residency_mismatch",
+  "organization_spend_limit_exceeded",
+  "organization_usage_limit_exceeded",
+  "project_spend_limit_exceeded",
+]);
 const PROVIDER_REJECTED_DIAGNOSTIC_CODES = new Set([
+  "bio_policy",
   "content_filter",
   "context_length_exceeded",
   "empty_image_file",
@@ -2787,7 +2814,7 @@ function providerTerminalDiagnosticCode(
       : "responses_cancelled.unclassified";
     return providerDiagnosticToken(
       providerError?.code,
-      SAFE_PROVIDER_ERROR_CODES,
+      SAFE_PROVIDER_NONFAILED_ERROR_CODES,
       fallback,
     );
   }
@@ -2909,7 +2936,10 @@ export function providerTerminalFailure(
   if (diagnostic === null) return null;
   let failureCode = "provider_unavailable";
   let healthStatus: "degraded" | "blocked" = "degraded";
-  if (PROVIDER_AUTH_DIAGNOSTIC_CODES.has(diagnostic.code)) {
+  if (PROVIDER_CONFIGURATION_DIAGNOSTIC_CODES.has(diagnostic.code)) {
+    failureCode = "provider_configuration_error";
+    healthStatus = "blocked";
+  } else if (PROVIDER_AUTH_DIAGNOSTIC_CODES.has(diagnostic.code)) {
     failureCode = "provider_authentication_failed";
     healthStatus = "blocked";
   } else if (PROVIDER_RATE_DIAGNOSTIC_CODES.has(diagnostic.code)) {
@@ -2921,12 +2951,35 @@ export function providerTerminalFailure(
     failureCode = "provider_response_invalid";
   }
   const statusLabel = diagnostic.status;
+  let message =
+    `Провайдер принял запрос, но завершил обработку со статусом ${statusLabel}. ` +
+    `Диагностический код: ${diagnostic.code}. Автоматического повтора не было.`;
+  if (diagnostic.code === "credit_balance_exhausted") {
+    message =
+      "Баланс OpenAI API исчерпан. Пополните кредиты в OpenAI Platform → Billing. " +
+      "GitHub Pro, PayPal и бюджет GitHub Actions этот баланс не пополняют. " +
+      "Автоматического повтора не было.";
+  } else if (diagnostic.code === "organization_spend_limit_exceeded") {
+    message =
+      "В OpenAI API достигнут лимит расходов организации. Увеличьте или снимите " +
+      "лимит в OpenAI Platform → Organization limits. Автоматического повтора не было.";
+  } else if (diagnostic.code === "project_spend_limit_exceeded") {
+    message =
+      "В OpenAI API достигнут лимит расходов проекта. Увеличьте или снимите лимит " +
+      "в OpenAI Platform → Project limits. Автоматического повтора не было.";
+  } else if (diagnostic.code === "organization_usage_limit_exceeded") {
+    message =
+      "В OpenAI API достигнут назначенный лимит использования организации. " +
+      "Запросите его повышение в OpenAI Platform. Автоматического повтора не было.";
+  } else if (diagnostic.code === "data_residency_mismatch") {
+    message =
+      "Регион API-проекта OpenAI несовместим с этим фоновым запросом. Проверьте " +
+      "настройку data residency в OpenAI Platform. Автоматического повтора не было.";
+  }
   return {
     failureCode,
     healthStatus,
-    message:
-      `Провайдер принял запрос, но завершил обработку со статусом ${statusLabel}. ` +
-      `Диагностический код: ${diagnostic.code}. Автоматического повтора не было.`,
+    message,
     diagnostic,
   };
 }

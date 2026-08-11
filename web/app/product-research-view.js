@@ -7269,6 +7269,7 @@ export function researchProviderControlMarkup(value, { compact = false } = {}) {
   };
   const failureLabels = {
     provider_outcome_unknown: "исход платной попытки неизвестен",
+    provider_configuration_error: "требуется настройка или пополнение баланса OpenAI API",
     provider_authentication_failed: "провайдер отклонил авторизацию",
     provider_request_rejected: "провайдер отклонил запрос",
     provider_rate_limited: "провайдер сообщил об ограничении квоты",
