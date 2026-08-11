@@ -129,6 +129,9 @@ function visible(node) {
 function itemKind(card) {
   const type = String(card.dataset.entityType || "").toLowerCase();
   if (type === "task") return { key: "task", label: "Задача" };
+  const artifactClass = String(card.dataset.artifactClass || "").toLowerCase();
+  if (artifactClass === "source") return { key: "source", label: "Источник" };
+  if (artifactClass === "generated_output") return { key: "result", label: "Результат" };
   const text = `${card.textContent} ${card.dataset.kind || ""}`.toLocaleLowerCase("ru-RU");
   if (/референс|пример|creator_reference/iu.test(text)) return { key: "reference", label: "Референс" };
   if (/видео|source_video|generated_video|video\//iu.test(text)) return { key: "video", label: "Видео" };
@@ -190,6 +193,7 @@ function ensureBatchToolbar() {
   const destinations = qa(".workspace-board__folder-row[data-folder-id]", runtime.board)
     .filter((row) => (
       row.dataset.folderId !== "all"
+      && !String(row.dataset.systemRole || "").trim()
       && (row.dataset.systemFolder !== "true" || row.dataset.folderId === "root")
     ));
   const seen = new Set();
@@ -328,6 +332,7 @@ async function moveSelectedItems(destinationFolderId = "") {
     await api.moveWorkspaceItems(
       items.map(({ type, id }) => ({ type, id })),
       destination === "root" ? null : destination,
+      { projectId: finderProjectId() },
     );
     clearSelection();
     refreshFinderBoard();

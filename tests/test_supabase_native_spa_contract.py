@@ -161,7 +161,8 @@ process.stdout.write(JSON.stringify({{
 }}));
 """
     result = subprocess.run(
-        [node, "-e", script],
+        [node, "-"],
+        input=script,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -483,7 +484,7 @@ def test_password_reset_has_a_bounded_wait_and_always_unlocks_the_form() -> None
     assert "finally" in reset
     assert "if (form.isConnected) setFormBusy(form, false)" in reset
     assert "Promise.race([operation, timeout])" in app
-    assert './app.js?v=20260811.os4.28' in index
+    assert './app.js?v=20260811.os4.29' in index
 
 
 def test_novice_workspace_has_required_tabs_and_last_mile_forms() -> None:

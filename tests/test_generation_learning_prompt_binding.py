@@ -181,7 +181,7 @@ def test_runtime_sql_contract_covers_video_photo_and_tampering() -> None:
 def test_release_versions_bind_the_fixed_client_edge_and_adapter() -> None:
     assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-29.v8"' in EDGE
     assert 'GENERATION_LEARNING_GATE_VERSION = "2026-07-29.v8"' in APP
-    assert "./content-generation-handoff.js?v=20260811.os4.28" in APP
-    assert "./supabase-api.js?v=20260811.os4.28" in APP
-    assert "./app.js?v=20260811.os4.28" in INDEX
+    assert "./content-generation-handoff.js?v=20260811.os4.29" in APP
+    assert "./supabase-api.js?v=20260811.os4.29" in APP
+    assert "./app.js?v=20260811.os4.29" in INDEX
     assert "generation_learning_prompt_binding_invalid" in ADAPTER

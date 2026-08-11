@@ -13,6 +13,7 @@ const RPC_DECIDE = "contentengine_decide_ai_research_training";
 const ROOT_ATTRIBUTE = "data-ai-research-training-root";
 const CATEGORY_KEY = "contentengine.ai-research-training.category";
 const PROJECT_CONTEXT_KEY = "contentengine.desktop-v4.project";
+const GENERATION_INTENT_PREFIX = "contentengine.ai-research-generation.intent.v1:";
 const CATEGORIES = Object.freeze([
   ["cosmetics", "Косметика и уход"],
   ["baa", "БАД"],
@@ -368,11 +369,12 @@ function addTextList(parent, values, emptyText = "Нет подтверждён�
   parent.append(ul);
 }
 
-function insightCard({ key, title, description, content, checked = true }) {
+function insightCard({ key, title, description, content }) {
   const label = el("label", "ai-research-training__insight");
   const checkbox = el("input");
   checkbox.type = "checkbox";
-  checkbox.checked = checked;
+  // Analysis blocks are suggestions too; approval requires a human check.
+  checkbox.checked = false;
   checkbox.dataset.insightKey = key;
   const body = el("span", "ai-research-training__insight-body");
   const head = el("span", "ai-research-training__insight-title");
@@ -401,7 +403,6 @@ function categoryInsight(analysis) {
     title: "Категория и покупатель",
     description: "Что человек пытается решить товаром",
     content: block,
-    checked: Boolean(summary || jobs.length),
   });
 }
 
@@ -429,7 +430,6 @@ function competitorInsight(analysis) {
     title: "Конкуренты и насыщенные приёмы",
     description: "Структуры для адаптации, а не копирования",
     content: block,
-    checked: Boolean(reusable.length || saturated.length),
   });
 }
 
@@ -458,7 +458,6 @@ function trendInsight(analysis) {
     title: "Тренды и свежие сигналы",
     description: "Только подтверждённые или честно помеченные гипотезы",
     content: block,
-    checked: signals.length > 0,
   });
 }
 
@@ -478,7 +477,6 @@ function briefInsight(brief) {
     title: "Коммуникационная рамка",
     description: "Аудитория, боли, возражения и доказательства",
     content: block,
-    checked: lines.length > 0,
   });
 }
 
@@ -517,7 +515,8 @@ function scenarioCard(scenario, position) {
   const select = el("label", "ai-research-training__scenario-select");
   const checkbox = el("input");
   checkbox.type = "checkbox";
-  checkbox.checked = position === 1;
+  // Every recommendation is advisory: even position 1 waits for a human choice.
+  checkbox.checked = false;
   checkbox.dataset.scenarioSelect = String(position);
   select.append(
     checkbox,
@@ -760,6 +759,7 @@ export function normalizeLearnedResearch(item) {
     ?? source.forecasts;
   return {
     selectionId: clean(source.selection_id, 80),
+    projectId: normalizedProjectId(source.project_id),
     title: clean(source.product_name, 300)
       || clean(source.research_title, 300)
       || "Исследование",
@@ -854,7 +854,47 @@ function learnedAnalysisSection(analysis) {
   return section;
 }
 
-function learnedRecommendationCard(recommendation) {
+function generationRecommendationDeepLink(learned, recommendation, intent = "") {
+  const selectionId = String(learned?.selectionId || "").trim().toLowerCase();
+  const projectId = normalizedProjectId(learned?.projectId);
+  const position = Number(recommendation?.position);
+  if (
+    !projectId
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u
+      .test(selectionId)
+    || ![1, 2, 3].includes(position)
+  ) return "";
+  const params = new URLSearchParams({
+    project_id: projectId,
+    selection_id: selectionId,
+    recommendation_position: String(position),
+  });
+  if (UUID_PATTERN.test(intent)) params.set("recommendation_intent", intent);
+  return `#/workspace/generation?${params.toString()}`;
+}
+
+function armGenerationRecommendationIntent(learned, recommendation) {
+  const selectionId = String(learned?.selectionId || "").trim().toLowerCase();
+  const position = Number(recommendation?.position);
+  if (
+    !UUID_PATTERN.test(selectionId)
+    || ![1, 2, 3].includes(position)
+    || typeof globalThis.crypto?.randomUUID !== "function"
+  ) return "";
+  const intent = globalThis.crypto.randomUUID().toLowerCase();
+  if (!UUID_PATTERN.test(intent)) return "";
+  try {
+    globalThis.localStorage?.setItem(
+      `${GENERATION_INTENT_PREFIX}${intent}`,
+      JSON.stringify({ selectionId, recommendationPosition: position, createdAt: Date.now() }),
+    );
+    return intent;
+  } catch {
+    return "";
+  }
+}
+
+function learnedRecommendationCard(recommendation, learned) {
   const card = el("article", "ai-research-training__learned-recommendation");
   const head = el("header", "");
   head.append(
@@ -886,8 +926,28 @@ function learnedRecommendationCard(recommendation) {
   card.append(el(
     "small",
     "ai-research-training__editable-note",
-    "Это сохранённая редактируемая рекомендация: в «Создании» её можно применить и изменить.",
+    "Это сохранённая редактируемая рекомендация. Ссылка передаёт только номер серверного отбора и позицию; категорию и товар «Создать» заново проверит на сервере.",
   ));
+  const createHref = generationRecommendationDeepLink(learned, recommendation);
+  if (learned?.decision === "approve" && createHref) {
+    const action = el(
+      "a",
+      "btn btn-secondary btn-small",
+      "Использовать этот вариант в «Создать»",
+    );
+    action.href = createHref;
+    action.dataset.aiResearchGenerationSelection = learned.selectionId;
+    action.dataset.aiResearchGenerationPosition = String(
+      recommendation.position,
+    );
+    action.addEventListener("click", () => {
+      const intent = armGenerationRecommendationIntent(learned, recommendation);
+      if (intent) {
+        action.href = generationRecommendationDeepLink(learned, recommendation, intent);
+      }
+    });
+    card.append(action);
+  }
   return card;
 }
 
@@ -1096,7 +1156,9 @@ function learnedCard(item) {
   const recommendationGrid = el("div", "ai-research-training__learned-recommendations");
   if (learned.recommendations.length) {
     learned.recommendations.forEach((recommendation) => {
-      recommendationGrid.append(learnedRecommendationCard(recommendation));
+      recommendationGrid.append(
+        learnedRecommendationCard(recommendation, learned),
+      );
     });
   } else {
     recommendationGrid.append(el(

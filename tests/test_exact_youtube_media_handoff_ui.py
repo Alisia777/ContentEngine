@@ -349,7 +349,7 @@ def test_upload_flow_preserves_registered_media_and_normal_uploads_stay_unlinked
     ]
 
 
-def test_recovery_requires_exact_mp4_identity_and_queue_v2_links_to_review() -> None:
+def test_recovery_requires_exact_mp4_identity_and_queue_v2_routes_by_lifecycle() -> None:
     recovery = read(RECOVERY)
     queue = read(AI_QUEUE)
     for marker in (
@@ -366,17 +366,29 @@ def test_recovery_requires_exact_mp4_identity_and_queue_v2_links_to_review() -> 
     for marker in (
         '"exact-youtube-source-queue-v2"',
         'source?.status === "media_attached"',
-        'source?.analysis_ready === true',
+        'typeof source?.media_ready === "boolean"',
+        'researchLifecycle(source)?.state === "awaiting_learning_selection"',
+        'researchLifecycle(source)?.state === "recommendations_ready"',
         'workspaceHash("/workspace/review"',
         'view: "new"',
         'media: attachedMediaId',
         'product_name: clean(source.product_name, 300)',
         'product_sku: clean(source.product_sku, 160)',
         '"Подготовить кадры для исследования"',
-        "До отдельной квитанции исследования источник не влияет на рекомендации ИИ",
+        '"Отобрать для обучения"',
+        '"Создать с рекомендациями"',
+        'workspaceHash("/workspace/generation"',
         "речь, аудио и полный видеопоток внешнему ИИ не передаются",
     ):
         assert marker in queue
+    assert (
+        "Разбор пяти контрольных кадров и визуальной механики ещё не выполнен"
+        not in queue
+    )
+    assert (
+        "До отдельной квитанции исследования источник не влияет"
+        not in queue
+    )
     mount = recovery[
         recovery.index("function mountMediaHandoff(") : recovery.index(
             "function repairAiCenterLinks(",
