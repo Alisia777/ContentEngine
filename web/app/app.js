@@ -3,7 +3,7 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260811.os4.30";
+} from "./supabase-api.js?v=20260811.os4.31";
 import {
   clearExactYoutubeMediaHandoff,
   exactYoutubeRegisteredMediaId,
@@ -24,8 +24,8 @@ import {
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
 } from "./generation-spec.js?v=20260803.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260811.os4.30";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260811.os4.30";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260811.os4.31";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260811.os4.31";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -88,7 +88,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260811.os4.30";
+} from "./product-research-view.js?v=20260811.os4.31";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -99,7 +99,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260811.os4.30";
+} from "./ai-learning-control-room.js?v=20260811.os4.31";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -115,7 +115,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260811.os4.30";
+} from "./content-generation-handoff.js?v=20260811.os4.31";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -128,13 +128,13 @@ import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
   normalizeGenerationVideoReferenceContext,
-} from "./generation-video-reference.js?v=20260811.os4.30";
+} from "./generation-video-reference.js?v=20260811.os4.31";
 import {
   buildGenerationFormDraft,
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260811.os4.30";
+} from "./generation-form-draft.js?v=20260811.os4.31";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
@@ -150,7 +150,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260811.os4.30";
+} from "./generation-autopilot.js?v=20260811.os4.31";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -171,7 +171,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260811.os4.30";
+} from "./content-review-view.js?v=20260811.os4.31";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -200,7 +200,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260811.os4.30";
+} from "./workspace-board-view.js?v=20260811.os4.31";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -229,7 +229,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260811.os4.30";
+} from "./training-journey.js?v=20260811.os4.31";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -248,7 +248,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260811.os4.30";
+} from "./training-practical-review.js?v=20260811.os4.31";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -267,7 +267,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260811.os4.30";
+} from "./my-work-view.js?v=20260811.os4.31";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -2815,6 +2815,7 @@ async function initialize() {
       project_id: routeWorkspaceProjectId(),
     }),
   });
+  window.dispatchEvent(new CustomEvent("contentengine:workspace-runtime-ready"));
   void restorePublicRecoveryReceipt();
 
   let authLink = null;

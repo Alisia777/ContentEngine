@@ -16,7 +16,10 @@ const UUID_PATTERN =
 const runtime = {
   root: null,
   loading: false,
+  pendingLoad: false,
   requestKey: "",
+  loadedRoot: null,
+  loadedProjectId: "",
 };
 
 function routePath() {
@@ -73,16 +76,35 @@ function formatDate(value) {
   }).format(date);
 }
 
-function ensureRoot() {
-  if (runtime.root?.isConnected) return runtime.root;
-  const existing = document.querySelector(`[${ROOT_ATTRIBUTE}]`);
-  if (existing) {
-    runtime.root = existing;
-    return existing;
-  }
-  const root = el("section", "ai-exact-youtube-sources card card-pad");
+function guardRenderedProjectClick(event) {
+  const root = event.currentTarget;
+  const link = event.target.closest?.("a[href]");
+  if (!(root instanceof HTMLElement) || !link) return;
+  if (root.dataset.renderedProjectId === projectId()) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}
+
+function prepareRoot(root) {
+  root.dataset.ceV4Owned = "ai-exact-youtube-sources";
   root.setAttribute(ROOT_ATTRIBUTE, "true");
   root.setAttribute("aria-labelledby", "ai-exact-youtube-sources-title");
+  if (root.dataset.renderedProjectGuardBound !== "true") {
+    root.addEventListener("click", guardRenderedProjectClick, true);
+    root.dataset.renderedProjectGuardBound = "true";
+  }
+  return root;
+}
+
+function ensureRoot() {
+  if (runtime.root?.isConnected) return prepareRoot(runtime.root);
+  const existing = document.querySelector(`[${ROOT_ATTRIBUTE}]`);
+  if (existing) {
+    runtime.root = prepareRoot(existing);
+    return runtime.root;
+  }
+  const root = el("section", "ai-exact-youtube-sources card card-pad");
+  prepareRoot(root);
   const host = document.querySelector("[data-ai-research-training-root]")
     || document.querySelector("main")
     || document.body;
@@ -480,8 +502,9 @@ function sourceCard(source) {
   return card;
 }
 
-function render(root, sources) {
+function render(root, sources, renderedProjectId) {
   root.replaceChildren();
+  root.dataset.renderedProjectId = renderedProjectId;
   renderHeader(root, sources);
   if (!sources.length) {
     const empty = el("div", "ai-exact-youtube-sources__empty");
@@ -518,10 +541,15 @@ function renderError(root) {
 
 async function load() {
   const currentProjectId = projectId();
-  if (!currentProjectId || runtime.loading) return;
+  if (!currentProjectId) return;
+  if (runtime.loading) {
+    runtime.pendingLoad = true;
+    return;
+  }
   const requestKey = `${currentProjectId}:${Date.now()}`;
   runtime.requestKey = requestKey;
   runtime.loading = true;
+  runtime.pendingLoad = false;
   const root = ensureRoot();
   root.setAttribute("aria-busy", "true");
   try {
@@ -533,7 +561,13 @@ async function load() {
       projectId: currentProjectId,
       limit: 30,
     });
-    if (runtime.requestKey !== requestKey || routePath() !== ROUTE) return;
+    if (
+      runtime.requestKey !== requestKey
+      || routePath() !== ROUTE
+      || projectId() !== currentProjectId
+      || runtime.root !== root
+      || !root.isConnected
+    ) return;
     const value = response?.data && typeof response.data === "object"
       && !Array.isArray(response.data)
       ? response.data
@@ -553,20 +587,42 @@ async function load() {
       || value?.contract?.external_call_started !== false
       || value?.contract?.paid_call_started !== false
     ) throw new Error("exact_youtube_queue_invalid");
-    render(root, value.sources);
+    render(root, value.sources, currentProjectId);
   } catch {
-    if (runtime.requestKey === requestKey) renderError(root);
+    if (
+      runtime.requestKey === requestKey
+      && routePath() === ROUTE
+      && projectId() === currentProjectId
+      && runtime.root === root
+      && root.isConnected
+    ) renderError(root);
   } finally {
     if (runtime.requestKey === requestKey) {
       runtime.loading = false;
-      root.removeAttribute("aria-busy");
+      if (root.isConnected) root.removeAttribute("aria-busy");
+      const pendingLoad = runtime.pendingLoad;
+      runtime.pendingLoad = false;
+      if (pendingLoad && routePath() === ROUTE && projectId()) void load();
     }
   }
 }
 
-function mount() {
-  if (routePath() !== ROUTE || !projectId()) return;
-  ensureRoot();
+function mount({ force = false } = {}) {
+  const currentProjectId = projectId();
+  if (routePath() !== ROUTE || !currentProjectId) return;
+  const root = ensureRoot();
+  const scopeChanged = runtime.loadedRoot !== root
+    || runtime.loadedProjectId !== currentProjectId;
+  if (
+    !force
+    && !scopeChanged
+  ) return;
+  runtime.loadedRoot = root;
+  runtime.loadedProjectId = currentProjectId;
+  if (scopeChanged) {
+    root.dataset.renderedProjectId = "";
+    root.replaceChildren();
+  }
   void load();
 }
 
@@ -574,13 +630,19 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
   if (window.ContentEngineDesktopV4?.registerAdapter) {
     window.ContentEngineDesktopV4.registerAdapter(
       "ai-exact-youtube-sources",
-      mount,
+      () => mount(),
       { priority: 205 },
     );
   }
-  window.addEventListener("contentengine:v4-route-ready", mount);
-  window.addEventListener("hashchange", () => window.queueMicrotask(mount));
-  window.queueMicrotask(mount);
+  window.addEventListener(
+    "contentengine:v4-route-ready",
+    () => mount(),
+  );
+  window.addEventListener(
+    "hashchange",
+    () => window.queueMicrotask(() => mount()),
+  );
+  window.queueMicrotask(() => mount());
 }
 
 export const AiExactYoutubeSources = Object.freeze({ mount, load });
