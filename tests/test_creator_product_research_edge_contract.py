@@ -91,10 +91,7 @@ def test_ambiguous_openai_outcome_is_terminal_and_never_auto_replayed() -> None:
     )
     claim = source.index('"system_claim_product_research"', status_gate)
     observer = source.index("if (!claim.claimed)", claim)
-    paid_post = source.index(
-        "providerResponse = await fetchWithTimeout(\n        OPENAI_RESPONSES_URL,",
-        observer,
-    )
+    paid_post = source.index("const providerLaunch = await beginBoundedProviderPost(", observer)
     assert status_gate < claim < observer < paid_post
     assert 'method: "GET"' in source[observer:paid_post]
     assert 'method: "POST"' not in source[observer:paid_post]

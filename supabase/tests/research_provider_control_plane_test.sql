@@ -887,6 +887,141 @@ select set_config(
   true
 );
 
+select lives_ok(
+  format(
+    $sql$
+      select public.system_record_research_provider_health(
+        jsonb_build_object(
+          'attempt_id', %L,
+          'status', 'degraded',
+          'failure_code', 'provider_unavailable',
+          'checked_at', %L,
+          'provider_terminal_status', 'failed',
+          'provider_error_code', 'responses_failed.error_absent',
+          'provider_error_type', 'responses_terminal.failed',
+          'provider_error_message',
+            'Provider accepted the response and ended processing with status failed.',
+          'provider_message_present', false
+        )
+      )
+    $sql$,
+    (select attempt_id::text from provider_control_context),
+    (select checked_at_value::text from provider_control_context)
+  ),
+  'v3 stores one bounded app-owned failed-response shape diagnostic'
+);
+select ok(
+  exists (
+    select 1
+    from content_factory.research_provider_health_receipts receipt
+    where receipt.attempt_id = (
+      select attempt_id from provider_control_context
+    )
+      and receipt.status = 'degraded'
+      and receipt.provider_terminal_status = 'failed'
+      and receipt.provider_error_code = 'responses_failed.error_absent'
+      and receipt.provider_error_type = 'responses_terminal.failed'
+      and not receipt.provider_message_present
+  ),
+  'persisted terminal diagnostic contains no provider message, id, URL or token'
+);
+select lives_ok(
+  format(
+    $sql$
+      select public.system_record_research_provider_health(
+        jsonb_build_object(
+          'attempt_id', %L,
+          'status', 'blocked',
+          'failure_code', 'provider_request_rejected',
+          'checked_at', %L,
+          'provider_terminal_status', 'failed',
+          'provider_error_code', 'invalid_request_error',
+          'provider_error_type', 'invalid_request_error',
+          'provider_error_message',
+            'Provider accepted the response and ended processing with status failed.',
+          'provider_message_present', true
+        )
+      )
+    $sql$,
+    (select attempt_id::text from provider_control_context),
+    (select checked_at_value::text from provider_control_context)
+  ),
+  'the rolling-deploy writer accepts one bounded v2 provider-owned type'
+);
+select lives_ok(
+  format(
+    $sql$
+      select public.system_record_research_provider_health(
+        jsonb_build_object(
+          'attempt_id', %L,
+          'status', 'unknown',
+          'failure_code', 'provider_outcome_unknown',
+          'checked_at', %L,
+          'provider_terminal_status', 'failed',
+          'provider_error_code', 'responses_failed.unclassified',
+          'provider_error_type', 'responses_terminal.failed',
+          'provider_error_message',
+            'Provider accepted the response and ended processing with status failed.',
+          'provider_message_present', false
+        )
+      )
+    $sql$,
+    (select attempt_id::text from provider_control_context),
+    (select checked_at_value::text from provider_control_context)
+  ),
+  'the rolling-deploy writer accepts the bounded v2 generic failed code'
+);
+select throws_ok(
+  format(
+    $sql$
+      select public.system_record_research_provider_health(
+        jsonb_build_object(
+          'attempt_id', %L,
+          'status', 'blocked',
+          'failure_code', 'provider_request_rejected',
+          'checked_at', %L,
+          'provider_terminal_status', 'failed',
+          'provider_error_code', 'invalid_request_error',
+          'provider_error_type', 'future_provider_error',
+          'provider_error_message',
+            'Provider accepted the response and ended processing with status failed.',
+          'provider_message_present', true
+        )
+      )
+    $sql$,
+    (select attempt_id::text from provider_control_context),
+    (select checked_at_value::text from provider_control_context)
+  ),
+  '22023',
+  'research_provider_terminal_diagnostic_invalid',
+  'the rolling-deploy writer rejects a provider type outside the bounded v2 allowlist'
+);
+select throws_ok(
+  format(
+    $sql$
+      select public.system_record_research_provider_health(
+        jsonb_build_object(
+          'attempt_id', %L,
+          'status', 'blocked',
+          'failure_code', 'provider_request_rejected',
+          'checked_at', %L,
+          'provider_terminal_status', 'failed',
+          'provider_error_code', 'responses_failed.future_shape',
+          'provider_error_type', 'responses_terminal.failed',
+          'provider_error_message',
+            'Provider accepted the response and ended processing with status failed.',
+          'provider_message_present', false
+        )
+      )
+    $sql$,
+    (select attempt_id::text from provider_control_context),
+    (select checked_at_value::text from provider_control_context)
+  ),
+  '22023',
+  'research_provider_terminal_diagnostic_invalid',
+  'the rolling-deploy writer rejects a failed-shape code outside both allowlists'
+);
+
 select throws_ok(
   $$
     update content_factory.research_provider_catalog
