@@ -13,9 +13,9 @@
   const BUILD = "20260810.research.30";
   const ASSET_BUILD_OVERRIDES = Object.freeze({
     "workspace-ai-exact-youtube-sources.js":
-      "20260811.ai-center-runtime-owned.1",
+      "20260811.ai-center-runtime-owned.2",
     "workspace-ai-research-training.js":
-      "20260811.ai-center-runtime-owned.1",
+      "20260811.ai-center-runtime-owned.2",
     "workspace-generation-research-recommendations.js":
       "20260811.ai-working-draft.3",
     "workspace-research-failure-recovery.js":

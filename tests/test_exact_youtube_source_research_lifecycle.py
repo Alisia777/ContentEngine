@@ -453,8 +453,11 @@ def test_cache_bump_is_scoped_to_ai_center_runtime_modules() -> None:
     bootstrap = read(BOOTSTRAP)
     index = read(INDEX)
     assert 'const BUILD = "20260810.research.30"' in bootstrap
-    assert '"workspace-ai-exact-youtube-sources.js":' in bootstrap
-    assert '"20260811.ai-center-runtime-owned.1"' in bootstrap
+    assert (
+        '"workspace-ai-exact-youtube-sources.js":\n'
+        '      "20260811.ai-center-runtime-owned.2"'
+        in bootstrap
+    )
     assert "ASSET_BUILD_OVERRIDES[file] || BUILD" in bootstrap
     assert (
         "workspace-research-training-bootstrap.js?"
