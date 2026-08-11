@@ -12,6 +12,7 @@ employee can choose their own password.
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import os
 import sys
 
@@ -40,6 +41,17 @@ DEFAULT_REASON = (
 
 class TrainingWaiverError(RuntimeError):
     """A non-sensitive training-waiver failure safe for Actions logs."""
+
+
+@dataclass(frozen=True)
+class MembershipBoundary:
+    membership_id: str
+    organization_id: str
+    profile_id: str
+    role: str
+    status: str
+    permissions: tuple[object, ...]
+    membership_count: int
 
 
 def _validated_reason(value: str) -> str:
@@ -97,19 +109,123 @@ limit 1
     )
 
 
+def _read_membership_boundary(
+    client: SupabaseManagementClient,
+    *,
+    organization_id: str,
+    user_id: str,
+) -> MembershipBoundary:
+    validated_organization_id = _validated_uuid(organization_id)
+    validated_user_id = _validated_uuid(user_id)
+    payload = client.execute(
+        f"""
+select
+  membership.id::text as membership_id,
+  membership.organization_id::text as organization_id,
+  membership.profile_id::text as profile_id,
+  membership.role,
+  membership.status,
+  membership.permissions,
+  (
+    select count(*)::integer
+    from content_factory.memberships all_memberships
+    where all_memberships.profile_id = membership.profile_id
+  ) as membership_count
+from content_factory.memberships membership
+where membership.organization_id = {_sql_literal(validated_organization_id)}::uuid
+  and membership.profile_id = {_sql_literal(validated_user_id)}::uuid
+limit 2
+""".strip(),
+        read_only=True,
+    )
+    rows = _rows_from_response(payload)
+    if len(rows) != 1:
+        raise TrainingWaiverError("Target member membership boundary is ambiguous")
+    row = rows[0]
+    membership_count = row.get("membership_count")
+    if isinstance(membership_count, bool) or not isinstance(membership_count, int):
+        raise TrainingWaiverError("Target member membership boundary is invalid")
+    role = row.get("role")
+    status = row.get("status")
+    permissions = row.get("permissions")
+    if (
+        not isinstance(role, str)
+        or not isinstance(status, str)
+        or not isinstance(permissions, list)
+    ):
+        raise TrainingWaiverError("Target member membership boundary is invalid")
+    return MembershipBoundary(
+        membership_id=_validated_uuid(row.get("membership_id")),
+        organization_id=_validated_uuid(row.get("organization_id")),
+        profile_id=_validated_uuid(row.get("profile_id")),
+        role=role,
+        status=status,
+        permissions=tuple(permissions),
+        membership_count=membership_count,
+    )
+
+
+def _require_membership_boundary(
+    client: SupabaseManagementClient,
+    *,
+    organization_id: str,
+    user_id: str,
+    expected_membership_id: str,
+    expected_role: str,
+) -> None:
+    boundary = _read_membership_boundary(
+        client,
+        organization_id=organization_id,
+        user_id=user_id,
+    )
+    if (
+        boundary.membership_id != expected_membership_id
+        or boundary.organization_id != organization_id
+        or boundary.profile_id != user_id
+        or boundary.role != expected_role
+        or boundary.status != "active"
+        or boundary.permissions != ()
+        or boundary.membership_count != 1
+    ):
+        raise TrainingWaiverError("Target member membership boundary changed")
+
+
 def _verify_training_waiver(
     client: SupabaseManagementClient,
     *,
     organization_id: str,
     user_id: str,
+    expected_membership_id: str | None = None,
+    expected_authority_id: str | None = None,
+    expected_pre_role: str | None = None,
+    expected_reason: str | None = None,
 ) -> None:
     payload = client.execute(
         f"""
 select
+  membership.id::text as membership_id,
+  membership.organization_id::text as organization_id,
+  membership.profile_id::text as profile_id,
   membership.role,
   membership.status as membership_status,
+  membership.permissions as membership_permissions,
+  (
+    select count(*)::integer
+    from content_factory.memberships all_memberships
+    where all_memberships.profile_id = membership.profile_id
+  ) as membership_count,
+  waiver.id::text as waiver_id,
   waiver.status as waiver_status,
-  waiver.scope
+  waiver.scope,
+  waiver.previous_role,
+  waiver.granted_role,
+  waiver.grant_reason,
+  waiver.granted_by::text as granted_by,
+  (
+    select count(*)::integer
+    from content_factory.training_access_waivers all_waivers
+    where all_waivers.profile_id = membership.profile_id
+  ) as waiver_count
 from content_factory.memberships membership
 join content_factory.training_access_waivers waiver
   on waiver.organization_id = membership.organization_id
@@ -124,13 +240,31 @@ limit 2
     if len(rows) != 1:
         raise TrainingWaiverError("Training waiver verification is ambiguous")
     row = rows[0]
+    membership_permissions = row.get("membership_permissions")
+    if expected_membership_id is not None:
+        _validated_uuid(row.get("waiver_id"))
     if (
-        row.get("role") != "operator"
+        (expected_membership_id is not None
+         and _validated_uuid(row.get("membership_id")) != expected_membership_id)
+        or _validated_uuid(row.get("organization_id")) != organization_id
+        or _validated_uuid(row.get("profile_id")) != user_id
+        or row.get("role") != "operator"
         or row.get("membership_status") != "active"
         or row.get("waiver_status") != "active"
         or row.get("scope") != "workspace_generation"
+        or row.get("granted_role") != "operator"
     ):
         raise TrainingWaiverError("Training waiver verification failed")
+    if expected_membership_id is not None and (
+        not isinstance(membership_permissions, list)
+        or membership_permissions
+        or row.get("membership_count") != 1
+        or row.get("waiver_count") != 1
+        or row.get("previous_role") != expected_pre_role
+        or _validated_uuid(row.get("granted_by")) != expected_authority_id
+        or row.get("grant_reason") != expected_reason
+    ):
+        raise TrainingWaiverError("Training waiver boundary verification failed")
 
 
 def grant_training_access_waiver(
@@ -138,6 +272,10 @@ def grant_training_access_waiver(
     management_client: SupabaseManagementClient,
     email: str,
     expected_user_id: str | None = None,
+    expected_membership_id: str | None = None,
+    expected_organization_id: str | None = None,
+    expected_authority_id: str | None = None,
+    expected_pre_role: str | None = None,
     reason: str,
     send_recovery: bool,
     publishable_key: str,
@@ -148,8 +286,56 @@ def grant_training_access_waiver(
         if expected_user_id is not None
         else None
     )
+    validated_expected_membership_id = (
+        _validated_uuid(expected_membership_id)
+        if expected_membership_id is not None
+        else None
+    )
+    validated_expected_organization_id = (
+        _validated_uuid(expected_organization_id)
+        if expected_organization_id is not None
+        else None
+    )
+    validated_expected_authority_id = (
+        _validated_uuid(expected_authority_id)
+        if expected_authority_id is not None
+        else None
+    )
+    normalized_expected_pre_role = (
+        str(expected_pre_role or "").strip().casefold()
+        if expected_pre_role is not None
+        else None
+    )
+    if normalized_expected_pre_role not in {None, "trainee", "operator"}:
+        raise TrainingWaiverError("Expected member role is invalid")
+    if any(
+        value is not None
+        for value in (
+            validated_expected_membership_id,
+            validated_expected_organization_id,
+            validated_expected_authority_id,
+            normalized_expected_pre_role,
+        )
+    ) and any(
+        value is None
+        for value in (
+            validated_expected_membership_id,
+            validated_expected_organization_id,
+            validated_expected_authority_id,
+            normalized_expected_pre_role,
+        )
+    ):
+        raise TrainingWaiverError("Expected waiver boundary is incomplete")
     normalized_reason = _validated_reason(reason)
     authority = read_training_waiver_authority(management_client)
+    if (
+        validated_expected_organization_id is not None
+        and authority.organization_id != validated_expected_organization_id
+    ) or (
+        validated_expected_authority_id is not None
+        and authority.invited_by != validated_expected_authority_id
+    ):
+        raise TrainingWaiverError("Training waiver authority changed during onboarding")
     state = read_member_state(
         management_client,
         email=normalized_email,
@@ -171,6 +357,16 @@ def grant_training_access_waiver(
         raise TrainingWaiverError("Target member membership is not active")
     if state.membership_role not in {"trainee", "operator"}:
         raise TrainingWaiverError("Target member role cannot receive a training waiver")
+    if validated_expected_membership_id is not None:
+        if state.membership_count != 1 or state.membership_role != normalized_expected_pre_role:
+            raise TrainingWaiverError("Target member membership boundary changed")
+        _require_membership_boundary(
+            management_client,
+            organization_id=authority.organization_id,
+            user_id=user_id,
+            expected_membership_id=validated_expected_membership_id,
+            expected_role=normalized_expected_pre_role,
+        )
 
     idempotency_key = (
         f"github-training-waiver:{authority.organization_id}:{user_id}:v1"
@@ -192,10 +388,40 @@ select public.system_set_training_access_waiver(jsonb_build_object(
         management_client,
         organization_id=authority.organization_id,
         user_id=user_id,
+        expected_membership_id=validated_expected_membership_id,
+        expected_authority_id=validated_expected_authority_id,
+        expected_pre_role=normalized_expected_pre_role,
+        expected_reason=normalized_reason,
     )
 
     recovery_status = "not_requested"
     if send_recovery:
+        recovery_authority = read_training_waiver_authority(management_client)
+        if recovery_authority != authority:
+            raise TrainingWaiverError("Training waiver authority changed before recovery")
+        recovery_state = read_member_state(
+            management_client,
+            email=normalized_email,
+            organization_id=authority.organization_id,
+        )
+        if (
+            recovery_state.user_id != user_id
+            or not recovery_state.email_confirmed
+            or not recovery_state.auth_active
+            or recovery_state.membership_status != "active"
+            or recovery_state.membership_role != "operator"
+        ):
+            raise TrainingWaiverError("Recovery target changed after training waiver")
+        if validated_expected_membership_id is not None:
+            if recovery_state.membership_count != 1:
+                raise TrainingWaiverError("Recovery target membership boundary changed")
+            _require_membership_boundary(
+                management_client,
+                organization_id=authority.organization_id,
+                user_id=user_id,
+                expected_membership_id=validated_expected_membership_id,
+                expected_role="operator",
+            )
         server_key = management_client.get_server_key()
         auth_client = SupabaseAuthClient(
             project_ref=os.environ.get("SUPABASE_PROJECT_REF", "").strip(),
