@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
+import re
 
 from pglast import parse_sql
 
@@ -9,6 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS = ROOT / "supabase" / "migrations"
 MIGRATION_PATH = (
     MIGRATIONS / "202608100015_research_provider_terminal_diagnostics.sql"
+)
+SHAPE_MIGRATION_PATH = (
+    MIGRATIONS
+    / "202608110001_research_provider_terminal_shape_diagnostics.sql"
 )
 EDGE_PATH = (
     ROOT / "supabase" / "functions" / "creator-product-research" / "index.ts"
@@ -25,6 +31,10 @@ INTAKE_PATH = ROOT / "web" / "app" / "workspace-research-video-intake.js"
 PROJECT_ACCESS_PATH = (
     MIGRATIONS / "202608100003_project_team_shared_media_access.sql"
 )
+PROVIDER_SQL_TEST_PATH = (
+    ROOT / "supabase" / "tests" / "research_provider_control_plane_test.sql"
+)
+DEPLOY_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "supabase-pages.yml"
 
 
 def read(path: Path) -> str:
@@ -91,7 +101,7 @@ def test_edge_classifies_terminal_status_and_never_persists_raw_provider_message
         "Автоматического повтора не было",
     ):
         assert marker in edge
-    assert 'error["message"]' in diagnostic
+    assert 'error?.["message"]' in diagnostic
     assert "typeof providerMessage" in diagnostic
     assert "error.message" not in diagnostic
     assert "sanitizeProviderDiagnosticMessage(error.message" not in diagnostic
@@ -141,20 +151,185 @@ def test_deno_contract_covers_five_frames_terminal_error_and_no_secret_echo() ->
         "terminal provider failure keeps bounded diagnostics after five-frame lineage",
         "exactVideo?.frames.length === 5",
         'code: "server_error"',
-        'type: "provider_internal_error"',
+        'terminal.diagnostic.type === "responses_terminal.failed"',
         "providerMessagePresent",
         "must never persist the provider's arbitrary raw message",
         "incomplete and cancelled Responses states never authorize a retry",
+        "cancelled and incomplete preserve allowlisted codes with status-owned types",
+        'code: "permission_error"',
+        'code: "content_filter"',
         "terminal diagnostics reject opaque ids, secrets and unbounded incomplete reasons",
         "terminal diagnostic classification uses exact allowlisted mappings",
         'code: "request_timeout"',
         'code: "context_length_exceeded"',
-        '"responses_failed.unclassified"',
+        '"responses_failed.error_absent"',
+        '"responses_failed.code_absent"',
+        '"responses_failed.code_non_string"',
+        '"responses_failed.code_unrecognized"',
         '"responses_incomplete.unspecified"',
         '"z".repeat(80)',
         "Автоматического повтора не было",
     ):
         assert marker in tests
+
+
+def test_terminal_shape_migration_is_append_only_parseable_and_future_bounded() -> None:
+    migration = read(SHAPE_MIGRATION_PATH)
+    assert SHAPE_MIGRATION_PATH.name.startswith("202608110001_")
+    assert parse_sql(migration)
+    immutable_v1 = read(MIGRATION_PATH).replace("\r\n", "\n").replace("\r", "\n")
+    assert hashlib.sha256(immutable_v1.encode("utf-8")).hexdigest() == (
+        "1898d9d864fc8cce4974a842784ee46199246c481e58763a6b3ebcb525acbc4d"
+    )
+    for marker in (
+        "research_provider_health_error_code_v2_check",
+        "research_provider_health_terminal_shape_v2_consistent",
+        "research-provider-health-receipt-v3",
+        "responses_terminal.failed",
+        "responses_terminal.cancelled",
+        "responses_terminal.incomplete",
+    ):
+        assert marker in migration
+    for forbidden in (
+        "provider_response_id",
+        "request_payload",
+        "object_name",
+        "source_url",
+        "media_sha256_snapshot",
+    ):
+        assert forbidden not in migration
+    assert "update content_factory.research_provider_health_receipts" not in (
+        migration.lower()
+    )
+
+
+def test_failed_shape_codes_have_exact_edge_sql_reachability_parity() -> None:
+    edge = read(EDGE_PATH)
+    migration = read(SHAPE_MIGRATION_PATH)
+    diagnostic = edge.split(
+        "function providerTerminalDiagnosticCode", 1
+    )[1].split("export function sanitizeProviderDiagnosticMessage", 1)[0]
+    writer = migration.split(
+        "create or replace function public.system_record_research_provider_health", 1
+    )[1]
+    expected = {
+        "responses_failed.error_absent",
+        "responses_failed.code_absent",
+        "responses_failed.code_non_string",
+        "responses_failed.code_unrecognized",
+    }
+    assert set(re.findall(r'"(responses_failed\.[a-z_]+)"', diagnostic)) == expected
+    for code in expected:
+        assert migration.count(f"'{code}'") == 3
+        assert f"'{code}'" in writer
+    for unreachable in (
+        "responses_cancelled.error_absent",
+        "responses_cancelled.code_absent",
+        "responses_cancelled.code_non_string",
+        "responses_cancelled.code_unrecognized",
+        "responses_incomplete.error_absent",
+        "responses_incomplete.code_absent",
+        "responses_incomplete.code_non_string",
+        "responses_incomplete.code_unrecognized",
+    ):
+        assert unreachable not in edge
+        assert unreachable not in migration
+    assert '"responses_cancelled.unclassified"' in diagnostic
+    assert "`responses_incomplete.${incompleteReason}`" in diagnostic
+    assert "providerDiagnosticToken(" in diagnostic
+    assert "SAFE_PROVIDER_ERROR_CODES" in diagnostic
+    # The new Edge cannot emit the old generic failed code, but the DB writer
+    # must accept it while an old Edge isolate can still finish during rollout.
+    assert '"responses_failed.unclassified"' not in diagnostic
+    assert "'responses_failed.unclassified'" in writer
+
+
+def test_official_code_allowlist_and_app_owned_type_have_edge_sql_parity() -> None:
+    edge = read(EDGE_PATH)
+    migration = read(SHAPE_MIGRATION_PATH)
+    safe_block = edge.split("const SAFE_PROVIDER_ERROR_CODES", 1)[1].split(
+        "]);", 1
+    )[0]
+    official_codes = set(re.findall(r'"([a-z0-9_]+)"', safe_block))
+    assert official_codes
+    table_check, writer = migration.split(
+        "create or replace function public.system_record_research_provider_health", 1
+    )
+    for code in official_codes:
+        assert f"'{code}'" in table_check
+        assert f"'{code}'" in writer
+    diagnostic = edge.split(
+        "function readProviderTerminalDiagnostic", 1
+    )[1].split("export function readProviderResponseIdentity", 1)[0]
+    failure = edge.split("export function providerTerminalFailure", 1)[1].split(
+        "function providerResponsePending", 1
+    )[0]
+    assert "error.type" not in diagnostic
+    assert 'error["type"]' not in diagnostic
+    assert "SAFE_PROVIDER_ERROR_TYPES" not in edge
+    assert "DIAGNOSTIC_TYPES" not in edge
+    assert "const type = `responses_terminal.${terminalStatus}`" in diagnostic
+    assert "diagnostic.type" not in failure
+    type_guard = writer.split("provider_error_type_value not in (", 1)[1].split(
+        ")", 1
+    )[0]
+    assert set(re.findall(r"'([^']+)'", type_guard)) == {
+        "api_error",
+        "authentication_error",
+        "content_filter_error",
+        "invalid_request_error",
+        "permission_error",
+        "provider_internal_error",
+        "rate_limit_error",
+        "safety_error",
+        "server_error",
+        "service_unavailable_error",
+        "timeout_error",
+        "responses_terminal.failed",
+        "responses_terminal.cancelled",
+        "responses_terminal.incomplete",
+    }
+
+
+def test_pgtap_executes_v3_acceptance_and_rejection_constraints() -> None:
+    sql_test = read(PROVIDER_SQL_TEST_PATH)
+    for marker in (
+        "v3 stores one bounded app-owned failed-response shape diagnostic",
+        "responses_failed.error_absent",
+        "responses_terminal.failed",
+        "the rolling-deploy writer accepts one bounded v2 provider-owned type",
+        "invalid_request_error",
+        "the rolling-deploy writer accepts the bounded v2 generic failed code",
+        "responses_failed.unclassified",
+        "the rolling-deploy writer rejects a provider type outside the bounded v2 allowlist",
+        "future_provider_error",
+        "the rolling-deploy writer rejects a failed-shape code outside both allowlists",
+        "responses_failed.future_shape",
+        "research_provider_terminal_diagnostic_invalid",
+    ):
+        assert marker in sql_test
+    assert parse_sql(sql_test)
+
+
+def test_rollout_applies_compatible_db_writer_before_new_edge_bundle() -> None:
+    workflow = read(DEPLOY_WORKFLOW_PATH)
+    migration_step = workflow.index(
+        "- name: Apply immutable migrations and private grading keys"
+    )
+    product_research_step = workflow.index(
+        "- name: Deploy authenticated product research function"
+    )
+    assert migration_step < product_research_step
+    migration = read(SHAPE_MIGRATION_PATH)
+    writer = migration.split(
+        "create or replace function public.system_record_research_provider_health", 1
+    )[1]
+    # This order is safe only because the migrated writer accepts both the old
+    # bounded v2 vocabulary and the new app-owned v3 vocabulary.
+    assert "'responses_failed.unclassified'" in writer
+    assert "'provider_internal_error'" in writer
+    assert "'responses_failed.error_absent'" in writer
+    assert "'responses_terminal.failed'" in writer
 
 
 def test_project_status_wrapper_derives_org_from_authoritative_run_shape() -> None:

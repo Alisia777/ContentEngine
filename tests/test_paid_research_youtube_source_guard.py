@@ -109,15 +109,28 @@ def test_database_guard_is_private_fail_closed_and_provider_free() -> None:
 def test_edge_fallback_rejects_legacy_run_before_every_provider_boundary() -> None:
     source = _read(EDGE)
     handler = source[source.index("async function handleCreatorProductResearch(") :]
+    bounded_post = _between(
+        source,
+        "export async function beginBoundedProviderPost",
+        "async function fetchWithTimeout",
+    )
 
     claim = handler.index('"system_claim_product_research"')
     guard = handler.index("containsUnattachedYoutubeUrl(claim.run.brief)", claim)
     secret = handler.index("const apiKey = openAiSecret()", guard)
     continuation = handler.index("await readProviderResponse()", secret)
-    attempt = handler.index("await beginProviderAttempt(", continuation)
-    paid_post = handler.index('method: "POST"', attempt)
+    launch = handler.index(
+        "const providerLaunch = await beginBoundedProviderPost(", continuation
+    )
+    paid_post = handler.index('method: "POST"', launch)
+    serialize = bounded_post.index("JSON.stringify(requestBody)")
+    cap = bounded_post.index("MAX_PROVIDER_REQUEST_JSON_BYTES", serialize)
+    attempt = bounded_post.index("await beginAttempt(model)", cap)
+    transport = bounded_post.index("await post(serializedBody)", attempt)
 
-    assert claim < guard < secret < continuation < attempt < paid_post
+    assert claim < guard < secret < continuation < launch < paid_post
+    assert serialize < cap < attempt < transport
+    assert handler.count('method: "POST"') == 1
     guarded_branch = handler[guard:secret]
     assert "containsUnattachedYoutubeUrl(claim.run.productUrl)" in guarded_branch
     assert '"input_validation_failed"' in guarded_branch

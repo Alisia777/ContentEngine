@@ -22,9 +22,11 @@ const MAX_PHOTOS = 5;
 const MAX_TRUSTED_PHOTOS = 20;
 const MAX_PHOTO_BYTES = 10_485_760;
 const MAX_TOTAL_PHOTO_BYTES = 26_214_400;
+export const MAX_EXACT_PRODUCT_PHOTO_TOTAL_BYTES = 10_485_760;
 const EXACT_VIDEO_FRAME_COUNT = 5;
 const MAX_EXACT_VIDEO_FRAME_BYTES = 524_288;
 const MAX_EXACT_VIDEO_TOTAL_FRAME_BYTES = 2_359_296;
+export const MAX_PROVIDER_REQUEST_JSON_BYTES = 20_971_520;
 const MAX_INPUT_TEXT_BYTES = 131_072;
 const MAX_RECOMPUTE_CONTEXT_BYTES = 98_304;
 const MAX_OUTPUT_TOKENS = 18_000;
@@ -246,11 +248,12 @@ type ProviderContinuation = {
   acceptedAt: string | null;
 };
 
-type ResearchPhoto = {
+export type ResearchPhoto = {
   mediaId: string;
   objectName: string;
   mimeType: string;
   productId: string | null;
+  sha256: string;
   sizeBytes: number;
 };
 
@@ -486,17 +489,19 @@ function isHttpsUrlSyntax(value: unknown): value is string {
   }
 }
 
-function readPhoto(value: unknown): ResearchPhoto | null {
+export function readPhoto(value: unknown): ResearchPhoto | null {
   if (!isRecord(value)) return null;
   const mediaId = value.media_id;
   const objectName = value.object_name;
   const mimeType = value.mime_type;
   const productId = value.product_id;
+  const sha256 = value.sha256;
   const sizeBytes = value.size_bytes;
   if (
     !isUuid(mediaId) || !isObjectName(objectName) ||
     typeof mimeType !== "string" || !STORAGE_IMAGE_MIME_TYPES.has(mimeType) ||
     (productId !== null && productId !== undefined && !isUuid(productId)) ||
+    typeof sha256 !== "string" || !SHA256_PATTERN.test(sha256) ||
     !Number.isSafeInteger(sizeBytes) || Number(sizeBytes) < 1 ||
     Number(sizeBytes) > 52_428_800
   ) {
@@ -507,6 +512,7 @@ function readPhoto(value: unknown): ResearchPhoto | null {
     objectName,
     mimeType,
     productId: typeof productId === "string" ? productId : null,
+    sha256,
     sizeBytes: Number(sizeBytes),
   };
 }
@@ -1060,14 +1066,73 @@ function isJpeg(bytes: Uint8Array): boolean {
     bytes[bytes.length - 1] === 0xd9;
 }
 
-function jpegDataUrl(bytes: Uint8Array): string {
+function isPng(bytes: Uint8Array): boolean {
+  return bytes.length >= 24 && bytes[0] === 0x89 && bytes[1] === 0x50 &&
+    bytes[2] === 0x4e && bytes[3] === 0x47 && bytes[4] === 0x0d &&
+    bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a &&
+    bytes[12] === 0x49 && bytes[13] === 0x48 && bytes[14] === 0x44 &&
+    bytes[15] === 0x52;
+}
+
+function isWebp(bytes: Uint8Array): boolean {
+  if (
+    bytes.length < 20 || bytes[0] !== 0x52 || bytes[1] !== 0x49 ||
+    bytes[2] !== 0x46 || bytes[3] !== 0x46 || bytes[8] !== 0x57 ||
+    bytes[9] !== 0x45 || bytes[10] !== 0x42 || bytes[11] !== 0x50 ||
+    bytes[12] !== 0x56 || bytes[13] !== 0x50 || bytes[14] !== 0x38 ||
+    ![0x20, 0x4c, 0x58].includes(bytes[15])
+  ) {
+    return false;
+  }
+  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+        .getUint32(4, true) + 8 === bytes.length;
+}
+
+function imageMagicMatchesMime(bytes: Uint8Array, mimeType: string): boolean {
+  if (mimeType === "image/jpeg") return isJpeg(bytes);
+  if (mimeType === "image/png") return isPng(bytes);
+  if (mimeType === "image/webp") return isWebp(bytes);
+  return false;
+}
+
+function imageDataUrl(bytes: Uint8Array, mimeType: string): string {
   const chunks: string[] = [];
   for (let offset = 0; offset < bytes.length; offset += 32_768) {
     chunks.push(
       String.fromCharCode(...bytes.subarray(offset, offset + 32_768)),
     );
   }
-  return `data:image/jpeg;base64,${btoa(chunks.join(""))}`;
+  return `data:${mimeType};base64,${btoa(chunks.join(""))}`;
+}
+
+function jpegDataUrl(bytes: Uint8Array): string {
+  return imageDataUrl(bytes, "image/jpeg");
+}
+
+export type ExactProductPhotoVerification =
+  | { ok: true; dataUrl: string }
+  | { ok: false; reason: "metadata_mismatch" | "content_mismatch" };
+
+export async function verifyExactProductPhoto(
+  photo: ResearchPhoto,
+  blob: Blob,
+): Promise<ExactProductPhotoVerification> {
+  if (
+    blob.type.toLowerCase().trim() !== photo.mimeType ||
+    blob.size !== photo.sizeBytes || blob.size < 4 ||
+    blob.size > MAX_EXACT_PRODUCT_PHOTO_TOTAL_BYTES
+  ) {
+    return { ok: false, reason: "metadata_mismatch" };
+  }
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  if (
+    bytes.byteLength !== photo.sizeBytes ||
+    !imageMagicMatchesMime(bytes, photo.mimeType) ||
+    (await sha256Hex(bytes)) !== photo.sha256
+  ) {
+    return { ok: false, reason: "content_mismatch" };
+  }
+  return { ok: true, dataUrl: imageDataUrl(bytes, photo.mimeType) };
 }
 
 function nullableStringSchema(maxLength: number): Json {
@@ -2490,13 +2555,13 @@ Product Research v2 requirements:
 
 function openAiRequestBody(
   run: ResearchRun,
-  signedProductImageUrls: string[],
+  productImageUrls: string[],
   exactVideoFrames: ExactVideoInputFrame[],
   requestedAt: string,
 ): Json {
   const content: Json[] = [
     { type: "input_text", text: promptForRun(run, requestedAt) },
-    ...signedProductImageUrls.map((imageUrl) => ({
+    ...productImageUrls.map((imageUrl) => ({
       type: "input_image",
       image_url: imageUrl,
       detail: "high",
@@ -2536,6 +2601,56 @@ function openAiRequestBody(
     background: true,
     store: false,
   };
+}
+
+export type BoundedProviderPostResult<T> =
+  | { kind: "request_serialization_failed" }
+  | { kind: "request_too_large" }
+  | { kind: "attempt_unavailable" }
+  | { kind: "provider_outcome_unknown"; attemptId: string }
+  | { kind: "posted"; attemptId: string; response: T };
+
+export async function beginBoundedProviderPost<T>(
+  requestBody: unknown,
+  model: string,
+  beginAttempt: (model: string) => Promise<string | null>,
+  post: (serializedBody: string) => Promise<T>,
+): Promise<BoundedProviderPostResult<T>> {
+  let serializedBody: string;
+  try {
+    const serialized = JSON.stringify(requestBody);
+    if (typeof serialized !== "string") {
+      return { kind: "request_serialization_failed" };
+    }
+    serializedBody = serialized;
+  } catch {
+    return { kind: "request_serialization_failed" };
+  }
+  if (
+    new TextEncoder().encode(serializedBody).byteLength >
+      MAX_PROVIDER_REQUEST_JSON_BYTES
+  ) {
+    return { kind: "request_too_large" };
+  }
+
+  let attemptId: string | null;
+  try {
+    attemptId = await beginAttempt(model);
+  } catch {
+    attemptId = null;
+  }
+  if (attemptId === null || !isUuid(attemptId)) {
+    return { kind: "attempt_unavailable" };
+  }
+  try {
+    return {
+      kind: "posted",
+      attemptId,
+      response: await post(serializedBody),
+    };
+  } catch {
+    return { kind: "provider_outcome_unknown", attemptId };
+  }
 }
 
 async function fetchWithTimeout(
@@ -2614,19 +2729,6 @@ const SAFE_PROVIDER_ERROR_CODES = new Set([
   "unsupported_image_media_type",
   "vector_store_timeout",
 ]);
-const SAFE_PROVIDER_ERROR_TYPES = new Set([
-  "api_error",
-  "authentication_error",
-  "content_filter_error",
-  "invalid_request_error",
-  "permission_error",
-  "provider_internal_error",
-  "rate_limit_error",
-  "safety_error",
-  "server_error",
-  "service_unavailable_error",
-  "timeout_error",
-]);
 const SAFE_PROVIDER_INCOMPLETE_REASONS = new Set([
   "content_filter",
   "max_output_tokens",
@@ -2636,15 +2738,10 @@ const PROVIDER_AUTH_DIAGNOSTIC_CODES = new Set([
   "authentication_error",
   "permission_error",
 ]);
-const PROVIDER_AUTH_DIAGNOSTIC_TYPES = new Set([
-  "authentication_error",
-  "permission_error",
-]);
 const PROVIDER_RATE_DIAGNOSTIC_CODES = new Set([
   "insufficient_quota",
   "rate_limit_exceeded",
 ]);
-const PROVIDER_RATE_DIAGNOSTIC_TYPES = new Set(["rate_limit_error"]);
 const PROVIDER_REJECTED_DIAGNOSTIC_CODES = new Set([
   "content_filter",
   "context_length_exceeded",
@@ -2667,12 +2764,6 @@ const PROVIDER_REJECTED_DIAGNOSTIC_CODES = new Set([
   "safety_violation",
   "unsupported_image_media_type",
 ]);
-const PROVIDER_REJECTED_DIAGNOSTIC_TYPES = new Set([
-  "content_filter_error",
-  "invalid_request_error",
-  "safety_error",
-]);
-
 function providerDiagnosticToken(
   value: unknown,
   allowed: ReadonlySet<string>,
@@ -2682,6 +2773,43 @@ function providerDiagnosticToken(
     ? value.trim().toLowerCase()
     : "";
   return allowed.has(normalized) ? normalized : fallback;
+}
+
+function providerTerminalDiagnosticCode(
+  value: Record<string, unknown>,
+  terminalStatus: ProviderTerminalStatus,
+  incompleteReason: string,
+): string {
+  const providerError = isRecord(value.error) ? value.error : null;
+  if (terminalStatus !== "failed") {
+    const fallback = terminalStatus === "incomplete"
+      ? `responses_incomplete.${incompleteReason}`
+      : "responses_cancelled.unclassified";
+    return providerDiagnosticToken(
+      providerError?.code,
+      SAFE_PROVIDER_ERROR_CODES,
+      fallback,
+    );
+  }
+  const errorPresent = Object.prototype.hasOwnProperty.call(value, "error") &&
+    value.error !== null;
+  if (!errorPresent || !isRecord(value.error)) {
+    return "responses_failed.error_absent";
+  }
+  const error = value.error;
+  if (
+    !Object.prototype.hasOwnProperty.call(error, "code") ||
+    error.code === null
+  ) {
+    return "responses_failed.code_absent";
+  }
+  if (typeof error.code !== "string") {
+    return "responses_failed.code_non_string";
+  }
+  const normalized = error.code.trim().toLowerCase();
+  return SAFE_PROVIDER_ERROR_CODES.has(normalized)
+    ? normalized
+    : "responses_failed.code_unrecognized";
 }
 
 export function sanitizeProviderDiagnosticMessage(
@@ -2712,8 +2840,8 @@ function readProviderTerminalDiagnostic(
     return null;
   }
   const terminalStatus = status as ProviderTerminalStatus;
-  const error = isRecord(value.error) ? value.error : {};
-  const providerMessage = error["message"];
+  const error = isRecord(value.error) ? value.error : null;
+  const providerMessage = error?.["message"];
   const incompleteDetails = isRecord(value.incomplete_details)
     ? value.incomplete_details
     : {};
@@ -2722,19 +2850,15 @@ function readProviderTerminalDiagnostic(
     SAFE_PROVIDER_INCOMPLETE_REASONS,
     "unspecified",
   );
-  const defaultCode = terminalStatus === "incomplete"
-    ? `responses_incomplete.${incompleteReason}`
-    : `responses_${terminalStatus}.unclassified`;
-  const code = providerDiagnosticToken(
-    error.code,
-    SAFE_PROVIDER_ERROR_CODES,
-    defaultCode,
+  const code = providerTerminalDiagnosticCode(
+    value,
+    terminalStatus,
+    incompleteReason,
   );
-  const type = providerDiagnosticToken(
-    error.type,
-    SAFE_PROVIDER_ERROR_TYPES,
-    `responses_terminal.${terminalStatus}`,
-  );
+  // The Responses terminal error contract exposes code/message, not a stable
+  // provider-owned type. Keep type entirely app-owned and derive it only from
+  // the already-validated terminal status.
+  const type = `responses_terminal.${terminalStatus}`;
   // Never retain the provider's raw message. It may echo prompt text, private
   // object names, URLs or other user content that regex redaction cannot prove
   // safe. The receipt stores only allowlisted code/type plus this app-owned
@@ -2785,21 +2909,12 @@ export function providerTerminalFailure(
   if (diagnostic === null) return null;
   let failureCode = "provider_unavailable";
   let healthStatus: "degraded" | "blocked" = "degraded";
-  if (
-    PROVIDER_AUTH_DIAGNOSTIC_CODES.has(diagnostic.code) ||
-    PROVIDER_AUTH_DIAGNOSTIC_TYPES.has(diagnostic.type)
-  ) {
+  if (PROVIDER_AUTH_DIAGNOSTIC_CODES.has(diagnostic.code)) {
     failureCode = "provider_authentication_failed";
     healthStatus = "blocked";
-  } else if (
-    PROVIDER_RATE_DIAGNOSTIC_CODES.has(diagnostic.code) ||
-    PROVIDER_RATE_DIAGNOSTIC_TYPES.has(diagnostic.type)
-  ) {
+  } else if (PROVIDER_RATE_DIAGNOSTIC_CODES.has(diagnostic.code)) {
     failureCode = "provider_rate_limited";
-  } else if (
-    PROVIDER_REJECTED_DIAGNOSTIC_CODES.has(diagnostic.code) ||
-    PROVIDER_REJECTED_DIAGNOSTIC_TYPES.has(diagnostic.type)
-  ) {
+  } else if (PROVIDER_REJECTED_DIAGNOSTIC_CODES.has(diagnostic.code)) {
     failureCode = "provider_request_rejected";
     healthStatus = "blocked";
   } else if (diagnostic.status === "incomplete") {
@@ -3738,28 +3853,80 @@ async function handleCreatorProductResearch(
       );
     }
   } else {
-    const signedImageUrls: string[] = [];
-    for (const photo of claim.run.photos) {
-      try {
-        const { data, error } = await supabaseAdmin.storage.from(
-          STORAGE_BUCKET,
-        ).createSignedUrl(photo.objectName, SIGNED_IMAGE_TTL_SECONDS);
-        const signedUrl = error
-          ? null
-          : validateSignedStorageUrl(data?.signedUrl);
-        if (signedUrl === null) {
+    const productImageUrls: string[] = [];
+    if (claim.run.exactVideo !== null) {
+      const claimedExactProductPhotoBytes = claim.run.photos.reduce(
+        (total, photo) => total + photo.sizeBytes,
+        0,
+      );
+      if (
+        claimedExactProductPhotoBytes > MAX_EXACT_PRODUCT_PHOTO_TOTAL_BYTES
+      ) {
+        return await fail(
+          "input_validation_failed",
+          "Общий размер фото товара для анализа точного видео превышает безопасный предел.",
+        );
+      }
+      let exactProductPhotoBytes = 0;
+      for (const photo of claim.run.photos) {
+        exactProductPhotoBytes += photo.sizeBytes;
+        if (
+          exactProductPhotoBytes > MAX_EXACT_PRODUCT_PHOTO_TOTAL_BYTES
+        ) {
+          return await fail(
+            "input_validation_failed",
+            "Общий размер фото товара для анализа точного видео превышает безопасный предел.",
+          );
+        }
+        try {
+          const { data: photoBlob, error: downloadError } = await supabaseAdmin
+            .storage.from(STORAGE_BUCKET).download(photo.objectName);
+          if (downloadError || photoBlob === null) {
+            return await fail(
+              "image_access_failed",
+              "Одно из фото товара для анализа точного видео недоступно.",
+            );
+          }
+          const verification = await verifyExactProductPhoto(photo, photoBlob);
+          if (!verification.ok) {
+            return await fail(
+              "input_validation_failed",
+              "Фото товара не совпадает с сохранёнными MIME, размером, хешем и сигнатурой изображения.",
+            );
+          }
+          productImageUrls.push(verification.dataUrl);
+        } catch {
+          return await fail(
+            "image_access_failed",
+            "Не удалось безопасно проверить одно из фото товара.",
+          );
+        }
+      }
+    } else {
+      const signedImageUrls: string[] = [];
+      for (const photo of claim.run.photos) {
+        try {
+          const { data, error } = await supabaseAdmin.storage.from(
+            STORAGE_BUCKET,
+          ).createSignedUrl(photo.objectName, SIGNED_IMAGE_TTL_SECONDS);
+          const signedUrl = error
+            ? null
+            : validateSignedStorageUrl(data?.signedUrl);
+          if (signedUrl === null) {
+            return await fail(
+              "image_access_failed",
+              "Не удалось безопасно подготовить одно из фото товара.",
+            );
+          }
+          signedImageUrls.push(signedUrl);
+        } catch {
           return await fail(
             "image_access_failed",
             "Не удалось безопасно подготовить одно из фото товара.",
           );
         }
-        signedImageUrls.push(signedUrl);
-      } catch {
-        return await fail(
-          "image_access_failed",
-          "Не удалось безопасно подготовить одно из фото товара.",
-        );
       }
+      productImageUrls.push(...signedImageUrls);
     }
     const exactVideoInputFrames: ExactVideoInputFrame[] = [];
     if (claim.run.exactVideo !== null) {
@@ -3820,37 +3987,61 @@ async function handleCreatorProductResearch(
     }
     model = openAiModel();
     providerRequestedAt = new Date().toISOString();
-    providerAttemptId = await beginProviderAttempt(model) || "";
-    if (!providerAttemptId) {
+    let providerRequestBody: Json;
+    try {
+      providerRequestBody = openAiRequestBody(
+        claim.run,
+        productImageUrls,
+        exactVideoInputFrames,
+        providerRequestedAt,
+      );
+    } catch {
+      return await fail(
+        "internal_error",
+        "Не удалось безопасно подготовить запрос к сервису анализа.",
+      );
+    }
+    const providerLaunch = await beginBoundedProviderPost(
+      providerRequestBody,
+      model,
+      beginProviderAttempt,
+      (serializedBody) =>
+        fetchWithTimeout(
+          OPENAI_RESPONSES_URL,
+          {
+            method: "POST",
+            redirect: "manual",
+            headers: {
+              authorization: `Bearer ${apiKey}`,
+              "content-type": "application/json",
+              "idempotency-key": `product-research:${claim.run.id}`,
+              "X-Client-Request-Id": claim.run.id,
+            },
+            body: serializedBody,
+          },
+          OPENAI_TIMEOUT_MS,
+        ),
+    );
+    if (providerLaunch.kind === "request_serialization_failed") {
+      return await fail(
+        "internal_error",
+        "Не удалось безопасно подготовить запрос к сервису анализа.",
+      );
+    }
+    if (providerLaunch.kind === "request_too_large") {
+      return await fail(
+        "input_validation_failed",
+        "Итоговый запрос к сервису анализа превышает безопасный предел.",
+      );
+    }
+    if (providerLaunch.kind === "attempt_unavailable") {
       return await fail(
         "provider_configuration_error",
         "Сервер не смог зафиксировать разрешённый provider-план до платного запроса.",
       );
     }
-    try {
-      providerResponse = await fetchWithTimeout(
-        OPENAI_RESPONSES_URL,
-        {
-          method: "POST",
-          redirect: "manual",
-          headers: {
-            authorization: `Bearer ${apiKey}`,
-            "content-type": "application/json",
-            "idempotency-key": `product-research:${claim.run.id}`,
-            "X-Client-Request-Id": claim.run.id,
-          },
-          body: JSON.stringify(
-            openAiRequestBody(
-              claim.run,
-              signedImageUrls,
-              exactVideoInputFrames,
-              providerRequestedAt,
-            ),
-          ),
-        },
-        OPENAI_TIMEOUT_MS,
-      );
-    } catch {
+    providerAttemptId = providerLaunch.attemptId;
+    if (providerLaunch.kind === "provider_outcome_unknown") {
       await recordProviderHealth(
         providerAttemptId,
         "unknown",
@@ -3862,6 +4053,7 @@ async function handleCreatorProductResearch(
       // close it as unknown; no path below can issue a second POST.
       return await pending();
     }
+    providerResponse = providerLaunch.response;
     if (!providerResponse.ok) {
       const failureCode = providerFailureForHttp(providerResponse.status);
       await providerResponse.body?.cancel();

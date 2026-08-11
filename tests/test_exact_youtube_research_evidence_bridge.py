@@ -92,8 +92,15 @@ def test_edge_rechecks_private_frame_bytes_before_provider_attempt() -> None:
     for marker in markers:
         assert marker in EDGE
     assert EDGE.index("download(frame.objectName)") < EDGE.index(
-        "providerAttemptId = await beginProviderAttempt(model)"
+        "const providerLaunch = await beginBoundedProviderPost("
     )
+    bounded_post = EDGE[
+        EDGE.index("export async function beginBoundedProviderPost") :
+        EDGE.index("async function fetchWithTimeout")
+    ]
+    assert bounded_post.index("MAX_PROVIDER_REQUEST_JSON_BYTES") < bounded_post.index(
+        "await beginAttempt(model)"
+    ) < bounded_post.index("await post(serializedBody)")
 
 
 def test_exact_video_is_trusted_sampled_input_not_a_fake_full_video_result() -> None:

@@ -1,12 +1,16 @@
 import {
   applyResearchStageRecompute,
+  beginBoundedProviderPost,
+  MAX_PROVIDER_REQUEST_JSON_BYTES,
   promptForRun,
   providerTerminalFailure,
   readExactVideoResearchEvidence,
+  readPhoto,
   readProviderResponseIdentity,
   readResearchResult,
   readResearchStageRecomputeContext,
   type ResearchRun,
+  verifyExactProductPhoto,
 } from "./index.ts";
 
 type SourceFixture = {
@@ -35,6 +39,41 @@ function assert(condition: unknown, message: string): asserts condition {
 
 function assertNull(value: unknown, message: string): void {
   assert(value === null, message);
+}
+
+async function sha256Fixture(
+  bytes: Uint8Array<ArrayBuffer>,
+): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((value) =>
+    value.toString(16).padStart(2, "0")
+  ).join("");
+}
+
+function imageBytesFixture(mimeType: string): Uint8Array<ArrayBuffer> {
+  if (mimeType === "image/jpeg") {
+    return new Uint8Array([
+      0xff,
+      0xd8,
+      0xff,
+      0xe0,
+      0x00,
+      0x00,
+      0xff,
+      0xd9,
+    ]);
+  }
+  if (mimeType === "image/png") {
+    const bytes = new Uint8Array(24);
+    bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+    bytes.set([0x49, 0x48, 0x44, 0x52], 12);
+    return bytes;
+  }
+  const bytes = new Uint8Array(20);
+  bytes.set([0x52, 0x49, 0x46, 0x46], 0);
+  new DataView(bytes.buffer).setUint32(4, bytes.length - 8, true);
+  bytes.set([0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x58], 8);
+  return bytes;
 }
 
 function utcDay(offsetDays = 0): string {
@@ -318,6 +357,146 @@ function fixtureUuid(index: number): string {
   return `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
 }
 
+Deno.test("product-photo claims require an authoritative sha256", () => {
+  const claim: Record<string, unknown> = {
+    media_id: fixtureUuid(290),
+    object_name: `${ORGANIZATION_ID}/${fixtureUuid(291)}/product.webp`,
+    mime_type: "image/webp",
+    product_id: fixtureUuid(292),
+    sha256: "a".repeat(64),
+    size_bytes: 20,
+  };
+  const parsed = readPhoto(claim);
+  assert(
+    parsed?.sha256 === claim.sha256,
+    "the server-owned media hash must survive claim parsing",
+  );
+
+  const missingHash = { ...claim };
+  delete missingHash.sha256;
+  assertNull(
+    readPhoto(missingHash),
+    "a product photo without its authoritative hash must fail closed",
+  );
+  assertNull(
+    readPhoto({ ...claim, sha256: "A".repeat(64) }),
+    "a non-canonical product hash must fail closed",
+  );
+});
+
+Deno.test("exact-video product photos are hash, MIME, size and magic verified", async () => {
+  for (const mimeType of ["image/jpeg", "image/png", "image/webp"]) {
+    const bytes = imageBytesFixture(mimeType);
+    const photo = readPhoto({
+      media_id: fixtureUuid(293),
+      object_name: `${ORGANIZATION_ID}/${fixtureUuid(294)}/product-image`,
+      mime_type: mimeType,
+      product_id: fixtureUuid(295),
+      sha256: await sha256Fixture(bytes),
+      size_bytes: bytes.byteLength,
+    });
+    assert(photo !== null, `expected a valid ${mimeType} claim`);
+    const verified = await verifyExactProductPhoto(
+      photo,
+      new Blob([bytes], { type: mimeType }),
+    );
+    assert(verified.ok, `${mimeType} magic and hash must verify`);
+    assert(
+      verified.dataUrl.startsWith(`data:${mimeType};base64,`),
+      "the verified private photo must become an inline data URL",
+    );
+
+    const wrongHash = await verifyExactProductPhoto(
+      { ...photo, sha256: "0".repeat(64) },
+      new Blob([bytes], { type: mimeType }),
+    );
+    assert(
+      !wrongHash.ok && wrongHash.reason === "content_mismatch",
+      `${mimeType} with valid magic but the wrong expected hash must fail`,
+    );
+
+    const wrongMagic = bytes.slice();
+    wrongMagic[0] ^= 0xff;
+    const rejected = await verifyExactProductPhoto(
+      { ...photo, sha256: await sha256Fixture(wrongMagic) },
+      new Blob([wrongMagic], { type: mimeType }),
+    );
+    assert(
+      !rejected.ok && rejected.reason === "content_mismatch",
+      `${mimeType} bytes with the wrong signature must fail closed`,
+    );
+  }
+
+  const jpegBytes = imageBytesFixture("image/jpeg");
+  const jpegPhoto = readPhoto({
+    media_id: fixtureUuid(296),
+    object_name: `${ORGANIZATION_ID}/${fixtureUuid(297)}/product.jpg`,
+    mime_type: "image/jpeg",
+    product_id: fixtureUuid(298),
+    sha256: await sha256Fixture(jpegBytes),
+    size_bytes: jpegBytes.byteLength,
+  });
+  assert(jpegPhoto !== null, "expected a valid JPEG claim");
+  const wrongMime = await verifyExactProductPhoto(
+    jpegPhoto,
+    new Blob([jpegBytes], { type: "image/png" }),
+  );
+  assert(
+    !wrongMime.ok && wrongMime.reason === "metadata_mismatch",
+    "the storage response MIME must match the authoritative claim",
+  );
+  const wrongSize = await verifyExactProductPhoto(
+    jpegPhoto,
+    new Blob([jpegBytes, new Uint8Array([0])], { type: "image/jpeg" }),
+  );
+  assert(
+    !wrongSize.ok && wrongSize.reason === "metadata_mismatch",
+    "the storage response size must match the authoritative claim",
+  );
+});
+
+Deno.test("oversize provider JSON performs zero receipt and transport calls", async () => {
+  let beginCalls = 0;
+  let postCalls = 0;
+  const oversize = await beginBoundedProviderPost(
+    { payload: "x".repeat(MAX_PROVIDER_REQUEST_JSON_BYTES) },
+    "gpt-5.5",
+    () => {
+      beginCalls += 1;
+      return Promise.resolve(RUN_ID);
+    },
+    () => {
+      postCalls += 1;
+      return Promise.resolve("unexpected");
+    },
+  );
+  assert(oversize.kind === "request_too_large", "the 20 MiB cap must reject");
+  assert(beginCalls === 0, "an oversize body must not create a paid receipt");
+  assert(postCalls === 0, "an oversize body must not reach provider transport");
+
+  const accepted = await beginBoundedProviderPost(
+    { payload: "bounded" },
+    "gpt-5.5",
+    () => {
+      beginCalls += 1;
+      return Promise.resolve(RUN_ID);
+    },
+    (serializedBody) => {
+      postCalls += 1;
+      assert(serializedBody === '{"payload":"bounded"}', "serialize once");
+      return Promise.resolve("posted");
+    },
+  );
+  assert(
+    accepted.kind === "posted" && accepted.response === "posted",
+    "a bounded request must preserve the one receipt/one POST path",
+  );
+  assert(
+    Number(beginCalls) === 1 && Number(postCalls) === 1,
+    "exactly one paid path is allowed",
+  );
+});
+
 function recomputeContextFixture() {
   const heads = RESEARCH_STAGES.map((stage, index) => ({
     stage,
@@ -495,9 +674,9 @@ Deno.test("terminal provider failure keeps bounded diagnostics after five-frame 
   assert(
     terminal.diagnostic.status === "failed" &&
       terminal.diagnostic.code === "server_error" &&
-      terminal.diagnostic.type === "provider_internal_error" &&
+      terminal.diagnostic.type === "responses_terminal.failed" &&
       terminal.diagnostic.providerMessagePresent,
-    "bounded provider code, type and terminal status must survive",
+    "the allowlisted provider code and app-owned status type must survive",
   );
   assert(
     terminal.diagnostic.message.length <= 280 &&
@@ -537,7 +716,9 @@ Deno.test("incomplete and cancelled Responses states never authorize a retry", (
   );
   assert(
     cancelledFailure?.failureCode === "provider_unavailable" &&
-      cancelledFailure.diagnostic.status === "cancelled",
+      cancelledFailure.diagnostic.status === "cancelled" &&
+      cancelledFailure.diagnostic.code === "responses_cancelled.unclassified" &&
+      cancelledFailure.diagnostic.type === "responses_terminal.cancelled",
     "provider cancellation must not be blamed on the request without evidence",
   );
   for (const failure of [incompleteFailure, cancelledFailure]) {
@@ -546,6 +727,120 @@ Deno.test("incomplete and cancelled Responses states never authorize a retry", (
       "terminal classification is diagnostic only and never requests a POST",
     );
   }
+});
+
+Deno.test("failed Responses diagnostics distinguish bounded error and code shapes", () => {
+  const cases: Array<{
+    name: string;
+    body: Record<string, unknown>;
+    expectedCode: string;
+  }> = [
+    {
+      name: "error absent",
+      body: {},
+      expectedCode: "responses_failed.error_absent",
+    },
+    {
+      name: "code absent",
+      body: { error: { message: "Provider supplied no code" } },
+      expectedCode: "responses_failed.code_absent",
+    },
+    {
+      name: "code non-string",
+      body: { error: { code: { nested: "never persist me" } } },
+      expectedCode: "responses_failed.code_non_string",
+    },
+    {
+      name: "code unrecognized",
+      body: { error: { code: "future_provider_code" } },
+      expectedCode: "responses_failed.code_unrecognized",
+    },
+  ];
+  for (const testCase of cases) {
+    const identity = readProviderResponseIdentity({
+      id: `resp_shape_${testCase.name.replaceAll(" ", "_")}`,
+      status: "failed",
+      ...testCase.body,
+    });
+    assert(identity !== null, `${testCase.name} terminal envelope must parse`);
+    assert(
+      identity.terminalDiagnostic?.code === testCase.expectedCode &&
+        identity.terminalDiagnostic.type === "responses_terminal.failed",
+      `${testCase.name} must retain only its app-owned shape classification`,
+    );
+  }
+
+  const official = readProviderResponseIdentity({
+    id: "resp_official_code_without_type",
+    status: "failed",
+    error: {
+      code: "server_error",
+      message: "Official Responses errors have code and message only",
+    },
+  });
+  const spoofedType = readProviderResponseIdentity({
+    id: "resp_spoofed_provider_type",
+    status: "failed",
+    error: {
+      code: "server_error",
+      type: "invalid_request_error",
+      message: "Provider-owned type must not influence classification",
+    },
+  });
+  for (const identity of [official, spoofedType]) {
+    assert(
+      identity?.terminalDiagnostic?.code === "server_error" &&
+        identity.terminalDiagnostic.type === "responses_terminal.failed",
+      "allowlisted official codes survive while error.type is always ignored",
+    );
+    const failure = providerTerminalFailure(identity);
+    assert(
+      failure?.failureCode === "provider_unavailable",
+      "a spoofed provider type cannot reclassify an official server error",
+    );
+  }
+});
+
+Deno.test("cancelled and incomplete preserve allowlisted codes with status-owned types", () => {
+  const cancelled = readProviderResponseIdentity({
+    id: "resp_cancelled_permission_error",
+    status: "cancelled",
+    error: {
+      code: "permission_error",
+      type: "rate_limit_error",
+      message: "A provider-owned type cannot override the official code",
+    },
+  });
+  const incomplete = readProviderResponseIdentity({
+    id: "resp_incomplete_content_filter",
+    status: "incomplete",
+    incomplete_details: { reason: "max_output_tokens" },
+    error: {
+      code: "content_filter",
+      type: "server_error",
+      message: "Only the allowlisted code may cross the trust boundary",
+    },
+  });
+  const cancelledFailure = cancelled
+    ? providerTerminalFailure(cancelled)
+    : null;
+  const incompleteFailure = incomplete
+    ? providerTerminalFailure(incomplete)
+    : null;
+  assert(
+    cancelled?.terminalDiagnostic?.code === "permission_error" &&
+      cancelled.terminalDiagnostic.type === "responses_terminal.cancelled" &&
+      cancelledFailure?.failureCode === "provider_authentication_failed" &&
+      cancelledFailure.healthStatus === "blocked",
+    "cancelled keeps an official authentication code without trusting error.type",
+  );
+  assert(
+    incomplete?.terminalDiagnostic?.code === "content_filter" &&
+      incomplete.terminalDiagnostic.type === "responses_terminal.incomplete" &&
+      incompleteFailure?.failureCode === "provider_request_rejected" &&
+      incompleteFailure.healthStatus === "blocked",
+    "incomplete keeps an official rejection code before its bounded reason fallback",
+  );
 });
 
 Deno.test("terminal diagnostics reject opaque ids, secrets and unbounded incomplete reasons", () => {
@@ -565,7 +860,7 @@ Deno.test("terminal diagnostics reject opaque ids, secrets and unbounded incompl
     assert(identity !== null, "the terminal envelope itself remains valid");
     assert(
       identity.terminalDiagnostic?.code ===
-          "responses_failed.unclassified" &&
+          "responses_failed.code_unrecognized" &&
         identity.terminalDiagnostic?.type === "responses_terminal.failed",
       "untrusted diagnostic tokens must collapse to app-owned values",
     );

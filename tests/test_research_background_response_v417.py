@@ -38,7 +38,7 @@ def test_openai_responses_submit_is_background_non_stored_and_exactly_once() -> 
     )
     paid_branch = _between(
         edge,
-        "} else {\n    const signedImageUrls",
+        "} else {\n    const productImageUrls",
         "const outputText",
     )
 
@@ -46,7 +46,8 @@ def test_openai_responses_submit_is_background_non_stored_and_exactly_once() -> 
     assert "store: false" in request_body
     assert edge.count('method: "POST"') == 1
     assert paid_branch.count('method: "POST"') == 1
-    assert "providerResponse = await fetchWithTimeout(\n        OPENAI_RESPONSES_URL," in paid_branch
+    assert "const providerLaunch = await beginBoundedProviderPost(" in paid_branch
+    assert "fetchWithTimeout(\n          OPENAI_RESPONSES_URL," in paid_branch
     assert '"idempotency-key": `product-research:${claim.run.id}`' in paid_branch
     assert '"X-Client-Request-Id": claim.run.id' in paid_branch
 
@@ -55,7 +56,7 @@ def test_response_identity_is_bound_before_a_pending_result_is_returned() -> Non
     edge = _read(EDGE)
     paid_branch = _between(
         edge,
-        "} else {\n    const signedImageUrls",
+        "} else {\n    const productImageUrls",
         "const outputText",
     )
 
@@ -77,7 +78,7 @@ def test_processing_observers_retrieve_by_saved_id_and_never_submit_again() -> N
     observer = _between(
         edge,
         "if (!claim.claimed) {",
-        "} else {\n    const signedImageUrls",
+        "} else {\n    const productImageUrls",
     )
 
     assert "await readProviderResponse()" in edge
@@ -123,7 +124,7 @@ def test_saved_response_get_auth_failure_never_becomes_an_ordinary_paid_retry() 
     continuation = _between(
         edge,
         "if (!claim.claimed) {",
-        "} else {\n    const signedImageUrls",
+        "} else {\n    const productImageUrls",
     )
     failed_get = _between(
         continuation,
@@ -142,7 +143,7 @@ def test_saved_response_identity_mismatch_waits_then_closes_as_unknown() -> None
     continuation = _between(
         edge,
         "if (!claim.claimed) {",
-        "} else {\n    const signedImageUrls",
+        "} else {\n    const productImageUrls",
     )
     identity = _between(
         continuation,

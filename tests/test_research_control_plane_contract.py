@@ -95,18 +95,24 @@ def test_edge_records_attempt_before_paid_transport_and_binds_before_waiting() -
     analyze = edge[
         edge.index("let model = openAiModel()") : edge.index("const outputText")
     ]
-    paid_post = analyze.index(
-        "providerResponse = await fetchWithTimeout(\n        OPENAI_RESPONSES_URL,"
-    )
-    begin = analyze.index("beginProviderAttempt(model)", paid_post - 1_000)
-    bind = analyze.index("await bindProviderResponse(", paid_post)
+    bounded_post = edge[
+        edge.index("export async function beginBoundedProviderPost") :
+        edge.index("async function fetchWithTimeout")
+    ]
+    serialize = bounded_post.index("JSON.stringify(requestBody)")
+    cap = bounded_post.index("MAX_PROVIDER_REQUEST_JSON_BYTES", serialize)
+    begin = bounded_post.index("await beginAttempt(model)", cap)
+    paid_post = bounded_post.index("await post(serializedBody)", begin)
+    launch = analyze.index("const providerLaunch = await beginBoundedProviderPost(")
+    bind = analyze.index("await bindProviderResponse(", launch)
     pending = analyze.index(
         "if (providerResponsePending(identity.status)) return await pending();",
         bind,
     )
-    observer = analyze[: analyze.index("} else {\n    const signedImageUrls")]
+    observer = analyze[: analyze.index("} else {\n    const productImageUrls")]
 
-    assert begin < paid_post < bind < pending
+    assert serialize < cap < begin < paid_post
+    assert launch < bind < pending
     assert edge.count('method: "POST"') == 1
     assert 'method: "GET"' in observer
     assert 'method: "POST"' not in observer
