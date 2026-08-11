@@ -3,7 +3,7 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260811.os4.29";
+} from "./supabase-api.js?v=20260811.os4.30";
 import {
   clearExactYoutubeMediaHandoff,
   exactYoutubeRegisteredMediaId,
@@ -24,8 +24,8 @@ import {
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
 } from "./generation-spec.js?v=20260803.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260811.os4.29";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260811.os4.29";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260811.os4.30";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260811.os4.30";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -88,7 +88,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260811.os4.29";
+} from "./product-research-view.js?v=20260811.os4.30";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -99,8 +99,10 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260811.os4.29";
+} from "./ai-learning-control-room.js?v=20260811.os4.30";
 import {
+  AI_RESEARCH_HUMAN_INTENT_MARKER,
+  AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
   compileContentGenerationPrompt,
   compileSafeGenerationBrief,
   createContentGenerationHandoff,
@@ -109,10 +111,11 @@ import {
   generationResearchCategorySignal,
   inferGenerationCreativeSignals,
   inspectContentGenerationPrompt,
+  normalizeAiResearchProviderPromptFragment,
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260811.os4.29";
+} from "./content-generation-handoff.js?v=20260811.os4.30";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -125,13 +128,13 @@ import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
   normalizeGenerationVideoReferenceContext,
-} from "./generation-video-reference.js?v=20260811.os4.29";
+} from "./generation-video-reference.js?v=20260811.os4.30";
 import {
   buildGenerationFormDraft,
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260811.os4.29";
+} from "./generation-form-draft.js?v=20260811.os4.30";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
@@ -147,7 +150,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260811.os4.29";
+} from "./generation-autopilot.js?v=20260811.os4.30";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -168,7 +171,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260811.os4.29";
+} from "./content-review-view.js?v=20260811.os4.30";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -197,7 +200,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260811.os4.29";
+} from "./workspace-board-view.js?v=20260811.os4.30";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -226,7 +229,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260811.os4.29";
+} from "./training-journey.js?v=20260811.os4.30";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -245,7 +248,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260811.os4.29";
+} from "./training-practical-review.js?v=20260811.os4.30";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -264,7 +267,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260811.os4.29";
+} from "./my-work-view.js?v=20260811.os4.30";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -1998,7 +2001,196 @@ function requireGenerationAiResearchSelectionVerification(
   return true;
 }
 
+function generationAiResearchProviderPromptContract(value) {
+  const normalized = normalizeAiResearchProviderPromptFragment(value);
+  if (!normalized) return null;
+  return {
+    providerPromptFragmentVersion: normalized.version,
+    providerPromptFragment: normalized.fragment,
+    providerPromptFragmentHash: normalized.fragmentHash,
+    providerPromptFragmentStatus: "ready",
+  };
+}
+
+function exactGenerationAiResearchRecommendation(raw, expected) {
+  const source = raw?.data && typeof raw.data === "object"
+    ? raw.data
+    : raw;
+  const context = source?.authoritative_context;
+  const contract = source?.contract;
+  if (
+    source?.ok !== true
+    || source.version !== "generation-research-recommendation-v1"
+    || String(source.project_id || "").trim().toLowerCase()
+      !== expected.projectId
+    || String(context?.selection_id || "").trim().toLowerCase()
+      !== expected.selectionId
+    || Number(context?.recommendation_position)
+      !== expected.recommendationPosition
+    || contract?.selection_is_server_verified !== true
+    || contract?.category_is_server_derived !== true
+    || contract?.product_identity_is_server_derived !== true
+    || contract?.external_call_started !== false
+    || contract?.paid_call_started !== false
+    || !Array.isArray(source.recommendations)
+  ) return null;
+  const matchingRecommendations = source.recommendations.filter((candidate) => (
+    String(candidate?.selection_id || "").trim().toLowerCase()
+      === expected.selectionId
+    && Number(candidate?.recommendation_position)
+      === expected.recommendationPosition
+  ));
+  if (matchingRecommendations.length !== 1) return null;
+  const [recommendation] = matchingRecommendations;
+  const providerContract = generationAiResearchProviderPromptContract(
+    recommendation,
+  );
+  const productId = String(recommendation?.product_id || "")
+    .trim().toLowerCase();
+  const productCategory = String(recommendation?.product_category || "")
+    .trim().toLowerCase();
+  if (
+    !recommendation
+    || !providerContract
+    || String(recommendation.project_id || "").trim().toLowerCase()
+      !== expected.projectId
+    || !/^[0-9a-f]{64}$/u.test(
+      String(recommendation.selection_hash || ""),
+    )
+    || !/^[0-9a-f]{64}$/u.test(
+      String(recommendation.recommendation_hash || ""),
+    )
+    || !contentReviewUuid(productId)
+    || productId !== String(context.product_id || "").trim().toLowerCase()
+    || !productCategory
+    || productCategory !== String(context.product_category || "")
+      .trim().toLowerCase()
+  ) return null;
+  return {
+    recommendation,
+    productId,
+    productCategory,
+    ...providerContract,
+  };
+}
+
+async function hydrateGenerationAiResearchProviderPrompt(
+  form,
+  selection = state.aiResearchRecommendation,
+) {
+  if (!form || !selection) return null;
+  const existing = generationAiResearchProviderPromptContract(selection);
+  if (existing) return existing;
+  const expected = {
+    projectId: String(selection.projectId || "").trim().toLowerCase(),
+    selectionId: String(selection.selectionId || "").trim().toLowerCase(),
+    recommendationPosition: Number(selection.recommendationPosition),
+  };
+  if (
+    !isWorkspaceProjectId(expected.projectId)
+    || !contentReviewUuid(expected.selectionId)
+    || ![1, 2, 3].includes(expected.recommendationPosition)
+  ) return null;
+  const requestId = Number(state.aiResearchProviderPromptRequestId || 0) + 1;
+  state.aiResearchProviderPromptRequestId = requestId;
+  state.aiResearchRecommendation = {
+    ...selection,
+    providerPromptFragmentStatus: "loading",
+  };
+  form.dataset.researchRecommendationProviderFragmentStatus = "loading";
+  try {
+    const raw = await state.api.generationResearchRecommendation({
+      project_id: expected.projectId,
+      selection_id: expected.selectionId,
+      recommendation_position: expected.recommendationPosition,
+    });
+    const resolved = exactGenerationAiResearchRecommendation(raw, expected);
+    const current = state.aiResearchRecommendation;
+    if (
+      requestId !== state.aiResearchProviderPromptRequestId
+      || !form.isConnected
+      || currentWorkspaceProjectId() !== expected.projectId
+      || String(current?.selectionId || "").toLowerCase()
+        !== expected.selectionId
+      || Number(current?.recommendationPosition)
+        !== expected.recommendationPosition
+    ) return null;
+    if (!resolved) {
+      throw new CreatorApiError(
+        "Сервер не подтвердил provider-фрагмент выбранной рекомендации ИИ‑центра.",
+        { code: "generation_ai_research_prompt_fragment_invalid" },
+      );
+    }
+    const selectedMediaProductId = String(
+      form.dataset.identityProductId || "",
+    ).trim().toLowerCase();
+    const productIdentity = resolveGenerationAiResearchProductIdentity(
+      resolved.productId,
+      selectedMediaProductId,
+    );
+    if (selectedMediaProductId && !productIdentity.ok) {
+      throw new CreatorApiError(
+        "Выбранные медиа не совпадают с товаром серверной рекомендации ИИ‑центра.",
+        { code: "generation_research_recommendation_product_mismatch" },
+      );
+    }
+    state.aiResearchRecommendation = {
+      ...current,
+      productId: resolved.productId,
+      productCategory: resolved.productCategory,
+      preset: resolved.recommendation.preset
+        && typeof resolved.recommendation.preset === "object"
+        ? { ...resolved.recommendation.preset }
+        : { ...(current?.preset || {}) },
+      ...generationAiResearchProviderPromptContract(resolved.recommendation),
+    };
+    form.dataset.researchRecommendationProviderFragmentStatus = "ready";
+    form.dataset.researchRecommendationProviderFragmentVersion =
+      state.aiResearchRecommendation.providerPromptFragmentVersion;
+    form.dataset.researchRecommendationProviderFragmentHash =
+      state.aiResearchRecommendation.providerPromptFragmentHash;
+    form.dataset.researchRecommendationVerificationRequired = "true";
+    form.dataset.researchRecommendationVerificationState =
+      selectedMediaProductId ? "verified" : "pending";
+    delete form.dataset.researchRecommendationVerificationFailure;
+    syncAutomaticGenerationBrief(form, {
+      identity: selectedGenerationProductIdentity(form),
+      force: true,
+    });
+    syncGenerationFormReadiness(form);
+    return state.aiResearchRecommendation;
+  } catch (error) {
+    const current = state.aiResearchRecommendation;
+    if (
+      requestId === state.aiResearchProviderPromptRequestId
+      && form.isConnected
+      && String(current?.selectionId || "").toLowerCase()
+        === expected.selectionId
+      && Number(current?.recommendationPosition)
+        === expected.recommendationPosition
+    ) {
+      state.aiResearchRecommendation = {
+        ...current,
+        providerPromptFragmentStatus: "failed",
+      };
+      form.dataset.researchRecommendationProviderFragmentStatus = "failed";
+      blockGenerationAiResearchVerification(
+        form,
+        "provider_prompt_fragment_unverified",
+        "Сервер не подтвердил обязательный provider-фрагмент выбранного варианта. Техническое ТЗ и платный запуск заблокированы; Runway не вызывался.",
+      );
+      syncAutomaticGenerationBrief(form, {
+        identity: selectedGenerationProductIdentity(form),
+        force: true,
+      });
+    }
+    return null;
+  }
+}
+
 function clearGenerationAiResearchLineageFromForm(form) {
+  state.aiResearchProviderPromptRequestId =
+    Number(state.aiResearchProviderPromptRequestId || 0) + 1;
   state.aiResearchRecommendation = null;
   for (const key of [
     "generationAiResearchWorkingSelectionId",
@@ -2014,6 +2206,9 @@ function clearGenerationAiResearchLineageFromForm(form) {
     "researchRecommendationVerificationFailure",
     "researchRecommendationVerificationSelectionId",
     "researchRecommendationVerificationPosition",
+    "researchRecommendationProviderFragmentStatus",
+    "researchRecommendationProviderFragmentVersion",
+    "researchRecommendationProviderFragmentHash",
   ]) delete form.dataset[key];
   form.querySelectorAll("[data-research-recommendation-applied]").forEach(
     (control) => {
@@ -2147,6 +2342,8 @@ function applyGenerationAiResearchWorkingDraft(form, shared) {
   const values = draft?.editableFields;
   const recommendation = draft?.recommendation;
   if (!form || !values || !recommendation) return false;
+  const providerPromptContract =
+    generationAiResearchProviderPromptContract(recommendation);
   const setValue = (name, value, { allowEmpty = true } = {}) => {
     const field = form.elements?.[name];
     if (
@@ -2269,8 +2466,22 @@ function applyGenerationAiResearchWorkingDraft(form, shared) {
     preset: recommendation.preset && typeof recommendation.preset === "object"
       ? { ...recommendation.preset }
       : {},
+    ...(providerPromptContract || {
+      providerPromptFragmentStatus: "loading",
+    }),
     receivedAt: Date.now(),
   };
+  form.dataset.researchRecommendationProviderFragmentStatus =
+    providerPromptContract ? "ready" : "loading";
+  if (providerPromptContract) {
+    form.dataset.researchRecommendationProviderFragmentVersion =
+      providerPromptContract.providerPromptFragmentVersion;
+    form.dataset.researchRecommendationProviderFragmentHash =
+      providerPromptContract.providerPromptFragmentHash;
+  } else {
+    delete form.dataset.researchRecommendationProviderFragmentVersion;
+    delete form.dataset.researchRecommendationProviderFragmentHash;
+  }
   state.generationSpec.aiResearchBinding = null;
   state.generationSpec.videoReferenceBinding = null;
   if (form.elements.real_spend_confirmation) {
@@ -2284,6 +2495,12 @@ function applyGenerationAiResearchWorkingDraft(form, shared) {
   if (status) {
     status.textContent =
       "Общий черновик проекта восстановлен с сервера. Проверьте правки; кампания, медиа и подтверждение оплаты не сохранялись.";
+  }
+  if (!providerPromptContract) {
+    void hydrateGenerationAiResearchProviderPrompt(
+      form,
+      state.aiResearchRecommendation,
+    );
   }
   return true;
 }
@@ -2873,9 +3090,37 @@ function normalizeGenerationResearchPresetEvent(event) {
 function handleGenerationResearchPresetApplied(event) {
   const normalized = normalizeGenerationResearchPresetEvent(event);
   if (!normalized || normalized.selection.appliedFields.length < 1) return;
-  state.aiResearchRecommendation = normalized.selection;
+  const previous = state.aiResearchRecommendation;
+  const sameSelection = Boolean(
+    previous
+    && previous.projectId === normalized.selection.projectId
+    && previous.selectionId === normalized.selection.selectionId
+    && Number(previous.recommendationPosition)
+      === normalized.selection.recommendationPosition
+  );
+  state.aiResearchRecommendation = {
+    ...(sameSelection ? previous : {}),
+    ...normalized.selection,
+    ...(sameSelection
+      ? generationAiResearchProviderPromptContract(previous) || {}
+      : { providerPromptFragmentStatus: "loading" }),
+  };
   normalized.form.dataset.researchRecommendationProductCategory =
     normalized.selection.productCategory;
+  const providerPromptContract = generationAiResearchProviderPromptContract(
+    state.aiResearchRecommendation,
+  );
+  normalized.form.dataset.researchRecommendationProviderFragmentStatus =
+    providerPromptContract ? "ready" : "loading";
+  if (providerPromptContract) {
+    normalized.form.dataset.researchRecommendationProviderFragmentVersion =
+      providerPromptContract.providerPromptFragmentVersion;
+    normalized.form.dataset.researchRecommendationProviderFragmentHash =
+      providerPromptContract.providerPromptFragmentHash;
+  } else {
+    delete normalized.form.dataset.researchRecommendationProviderFragmentVersion;
+    delete normalized.form.dataset.researchRecommendationProviderFragmentHash;
+  }
   state.generationSpec.aiResearchBinding = null;
   state.generationSpec.videoReferenceBinding = null;
   normalized.form.dataset.dirty = "true";
@@ -2885,6 +3130,12 @@ function handleGenerationResearchPresetApplied(event) {
   );
   persistGenerationFormDraft(normalized.form);
   syncGenerationFormReadiness(normalized.form);
+  if (!providerPromptContract) {
+    void hydrateGenerationAiResearchProviderPrompt(
+      normalized.form,
+      state.aiResearchRecommendation,
+    );
+  }
 }
 
 function handleGenerationResearchPresetOptOut(event) {
@@ -2917,7 +3168,12 @@ function handleGenerationResearchPresetOptOut(event) {
       receivedAt: Date.now(),
     };
   } else {
+    state.aiResearchProviderPromptRequestId =
+      Number(state.aiResearchProviderPromptRequestId || 0) + 1;
     state.aiResearchRecommendation = null;
+    delete form.dataset.researchRecommendationProviderFragmentStatus;
+    delete form.dataset.researchRecommendationProviderFragmentVersion;
+    delete form.dataset.researchRecommendationProviderFragmentHash;
   }
   state.generationSpec.aiResearchBinding = null;
   state.generationSpec.videoReferenceBinding = null;
@@ -11347,7 +11603,6 @@ function renderGenerationSection(sectionState) {
             ${generationReadinessMarkup(initialGenerationReadiness)}
             ${generationSpecCardMarkup({
               ...state.generationSpec,
-              hidden: true,
             })}
             <label class="field">
               <span>Режим генерации *</span>
@@ -20596,6 +20851,21 @@ async function ensureGenerationLearningPolicy(
   return learning.data;
 }
 
+function activeGenerationAiResearchPromptBinding(form) {
+  if (!generationAiResearchLineageActive(form)) return null;
+  const selection = state.aiResearchRecommendation;
+  const provider = generationAiResearchProviderPromptContract(selection);
+  return {
+    required: true,
+    provider_prompt_fragment_version:
+      provider?.providerPromptFragmentVersion || "",
+    provider_prompt_fragment: provider?.providerPromptFragment || "",
+    provider_prompt_fragment_hash:
+      provider?.providerPromptFragmentHash || "",
+    currentBrief: String(form?.elements?.brief?.value || ""),
+  };
+}
+
 function automaticGenerationBriefCandidate(form, identity) {
   if (!form || !identity) return null;
   const mode = String(form.elements.generation_mode?.value || "mock");
@@ -20609,6 +20879,7 @@ function automaticGenerationBriefCandidate(form, identity) {
   const generationReferenceFragment = generationVideoReferencePromptFragment(
     generationVideoReferenceForForm(form),
   );
+  const selectedRecommendation = activeGenerationAiResearchPromptBinding(form);
   if (generationReferenceFragment === null) return null;
   if (handoffMatchesIdentity) {
     return compileSafeGenerationBrief({
@@ -20624,6 +20895,7 @@ function automaticGenerationBriefCandidate(form, identity) {
       generationReferenceFragment,
       durationSeconds: generationSkuForForm(form)?.durationSeconds,
       productCategory: form.elements.product_category?.value,
+      selectedRecommendation,
     });
   }
   return compileSafeGenerationBrief({
@@ -20636,6 +20908,7 @@ function automaticGenerationBriefCandidate(form, identity) {
     generationReferenceFragment,
     durationSeconds: generationSkuForForm(form)?.durationSeconds,
     productCategory: form.elements.product_category?.value,
+    selectedRecommendation,
   });
 }
 
@@ -20852,11 +21125,14 @@ function generationSpecAiResearchSelection(payload = null) {
   const selection = state.aiResearchRecommendation;
   const form = document.querySelector("#mock-batch-form");
   const identity = selectedGenerationProductIdentity(form);
+  const providerPromptContract =
+    generationAiResearchProviderPromptContract(selection);
   const selectionProductId = String(
     selection?.productId || form?.dataset?.researchRecommendationProductId || "",
   ).trim().toLowerCase();
   if (
     !selection
+    || !providerPromptContract
     || !contentReviewUuid(selection.selectionId)
     || ![1, 2, 3].includes(Number(selection.recommendationPosition))
     || !contentReviewUuid(selectionProductId)
@@ -20880,6 +21156,12 @@ function generationSpecAiResearchSelection(payload = null) {
   return {
     selection_id: selection.selectionId,
     recommendation_position: Number(selection.recommendationPosition),
+    provider_prompt_fragment_version:
+      providerPromptContract.providerPromptFragmentVersion,
+    provider_prompt_fragment:
+      providerPromptContract.providerPromptFragment,
+    provider_prompt_fragment_hash:
+      providerPromptContract.providerPromptFragmentHash,
   };
 }
 
@@ -20892,6 +21174,10 @@ function generationSpecAiResearchBindingMatches(
     return !generationAiResearchLineageActive(form);
   }
   const binding = state.generationSpec.aiResearchBinding;
+  const expectedHumanIntent = String(spec?.compiled_prompt || "")
+    .split("\n")
+    .find((line) => line.startsWith(`${AI_RESEARCH_HUMAN_INTENT_MARKER} `))
+    || "";
   return Boolean(
     binding
     && String(binding.spec_id || "").toLowerCase()
@@ -20903,6 +21189,24 @@ function generationSpecAiResearchBindingMatches(
       === selection.selection_id
     && Number(binding.recommendation_position)
       === selection.recommendation_position
+    && binding.provider_prompt_fragment_version
+      === selection.provider_prompt_fragment_version
+    && binding.provider_prompt_fragment
+      === selection.provider_prompt_fragment
+    && binding.provider_prompt_fragment_hash
+      === selection.provider_prompt_fragment_hash
+    && binding.human_intent_fragment_version
+      === "ai-research-human-intent-v1"
+    && binding.human_intent_fragment === expectedHumanIntent
+    && /^[0-9a-f]{64}$/u.test(
+      String(binding.human_intent_fragment_hash || ""),
+    )
+    && String(binding.compiled_prompt_hash || "")
+      === String(spec?.prompt_hash || "").toLowerCase()
+    && /^[0-9a-f]{64}$/u.test(
+      String(binding.prompt_binding_proof_hash || ""),
+    )
+    && binding.legacy === false
   );
 }
 
@@ -20911,6 +21215,14 @@ function normalizeGenerationSpecAiResearchBinding(raw, spec, selection) {
     ? raw.data
     : raw;
   const binding = source?.binding;
+  const activeProvider = generationAiResearchProviderPromptContract(
+    state.aiResearchRecommendation,
+  );
+  const bindingProvider = normalizeAiResearchProviderPromptFragment(binding);
+  const expectedHumanIntent = String(spec?.compiled_prompt || "")
+    .split("\n")
+    .find((line) => line.startsWith(`${AI_RESEARCH_HUMAN_INTENT_MARKER} `))
+    || "";
   const matches = Boolean(
     binding
     && String(binding.spec_id || "").toLowerCase()
@@ -20922,17 +21234,66 @@ function normalizeGenerationSpecAiResearchBinding(raw, spec, selection) {
       === selection.selection_id
     && Number(binding.recommendation_position)
       === selection.recommendation_position
+    && activeProvider
+    && bindingProvider
+    && bindingProvider.version === activeProvider.providerPromptFragmentVersion
+    && bindingProvider.fragment === activeProvider.providerPromptFragment
+    && bindingProvider.fragmentHash === activeProvider.providerPromptFragmentHash
   );
   if (
-    !binding
+    source?.ok !== true
+    || source?.version !== "generation-spec-ai-research-binding-v2"
+    || !binding
     || !contentReviewUuid(binding.id)
     || !matches
+    || binding.legacy !== false
+    || binding.human_intent_fragment_version
+      !== "ai-research-human-intent-v1"
+    || String(binding.human_intent_fragment || "") !== expectedHumanIntent
+    || expectedHumanIntent.split(AI_RESEARCH_HUMAN_INTENT_MARKER).length - 1
+      !== 1
+    || Array.from(expectedHumanIntent).length > 150
+    || !/^[0-9a-f]{64}$/u.test(
+      String(binding.human_intent_fragment_hash || ""),
+    )
+    || String(binding.compiled_prompt_hash || "")
+      !== String(spec?.prompt_hash || "").toLowerCase()
+    || !/^[0-9a-f]{64}$/u.test(
+      String(binding.prompt_binding_proof_hash || ""),
+    )
   ) {
     throw new CreatorApiError(
       "Сервер не подтвердил связь замысла с рекомендацией ИИ‑центра.",
       { code: "generation_spec_ai_research_binding_response_invalid" },
     );
   }
+  return binding;
+}
+
+async function readGenerationSpecAiResearchBinding(spec, preparedPayload) {
+  const selection = generationSpecAiResearchSelection(preparedPayload);
+  const form = document.querySelector("#mock-batch-form");
+  if (!selection) {
+    state.generationSpec.aiResearchBinding = null;
+    if (generationAiResearchLineageActive(form)) {
+      throw new CreatorApiError(
+        "Активный вариант ИИ‑центра не имеет точной серверной привязки к prompt.",
+        { code: "generation_spec_ai_research_selection_unverified" },
+      );
+    }
+    return null;
+  }
+  const raw = await state.api.generationSpecAiResearchBinding({
+    project_id: preparedPayload?.project_id || currentWorkspaceProjectId(),
+    spec_id: spec.spec_id,
+    spec_version: spec.spec_version,
+    spec_hash: spec.spec_hash,
+  });
+  const binding = normalizeGenerationSpecAiResearchBinding(
+    raw,
+    spec,
+    selection,
+  );
   return binding;
 }
 
@@ -21210,6 +21571,13 @@ function generationAiResearchSelectionContextMatches(form) {
       "ИИ‑поля не имеют подтверждённой серверной привязки к выбранному варианту. Техническое ТЗ и платный запуск заблокированы до точной проверки или полного перехода в ручной режим.",
     );
   }
+  if (!generationAiResearchProviderPromptContract(selection)) {
+    return blockGenerationAiResearchVerification(
+      form,
+      "provider_prompt_fragment_unverified",
+      "Серверный provider-фрагмент выбранной рекомендации не подтверждён. Техническое ТЗ и платный запуск заблокированы; Runway не вызывался.",
+    );
+  }
   if (!authoritativeCategory || authoritativeCategory !== currentCategory) {
     return blockGenerationAiResearchVerification(
       form,
@@ -21361,18 +21729,17 @@ function syncGenerationSpecUi(form) {
   wrapper.innerHTML = generationSpecCardMarkup({
     ...state.generationSpec,
     dirty,
-    hidden: true,
   }, {
     expectedScope,
   }).trim();
   if (!wrapper.firstElementChild) return;
-  wrapper.firstElementChild.hidden = true;
   current.replaceWith(wrapper.firstElementChild);
 }
 
 function invalidateGenerationSpec(form, reason = "") {
   state.generationSpec.dirty = true;
   state.generationSpec.error = reason;
+  state.generationSpec.aiResearchBinding = null;
   state.generationSpec.videoReferenceBinding = null;
   if (form?.elements?.real_spend_confirmation) {
     form.elements.real_spend_confirmation.checked = false;
@@ -21459,9 +21826,19 @@ async function refreshGenerationSpec(form, { force = false } = {}) {
     if (requestId !== state.generationSpec.requestId || !form.isConnected) {
       return null;
     }
-    return applyGenerationSpecEnvelope(raw, form, {
+    const envelope = applyGenerationSpecEnvelope(raw, form, {
       expectedContext,
     });
+    const aiResearchBinding = await readGenerationSpecAiResearchBinding(
+      envelope.generationSpec,
+      generationSpecPreparePayload(form),
+    );
+    if (requestId !== state.generationSpec.requestId || !form.isConnected) {
+      return null;
+    }
+    state.generationSpec.aiResearchBinding = aiResearchBinding;
+    syncGenerationSpecUi(form);
+    return envelope;
   } catch (error) {
     if (requestId === state.generationSpec.requestId) {
       state.generationSpec.status = "error";

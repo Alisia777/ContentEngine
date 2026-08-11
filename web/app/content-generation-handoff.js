@@ -10,6 +10,10 @@ export const GENERATION_VIDEO_REFERENCE_PROMPT_DISCLAIMER =
   "ИИ исходный ролик не просматривал.";
 export const GENERATION_VIDEO_REFERENCE_MARKER_INVALID_CODE =
   "generation_video_reference_marker_invalid";
+export const AI_RESEARCH_PROVIDER_FRAGMENT_VERSION =
+  "ai-research-provider-fragment-v1";
+export const AI_RESEARCH_PROVIDER_FRAGMENT_MARKER = "AIResearchSelection/v1";
+export const AI_RESEARCH_HUMAN_INTENT_MARKER = "AIResearchHumanIntent/v1";
 
 const HANDOFF_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
 const REAL_GEN4_MODE = "real_gen4";
@@ -29,6 +33,16 @@ const VIDEO_DURATION_OPTIONS = Object.freeze({
   [REAL_SEEDANCE_MODE]: Object.freeze([4, 8, 12, 15]),
 });
 const SAFE_SCENARIO_INTENT_LIMIT = 400;
+const AI_RESEARCH_PROVIDER_FRAGMENT_LIMIT = 240;
+const AI_RESEARCH_HUMAN_INTENT_LIMIT = 150;
+const AI_RESEARCH_BRIEF_SECTION_PATTERN = /^(ТОВАР|КОНЦЕПЦИЯ|ХУК|КЛЮЧЕВОЕ СООБЩЕНИЕ|АУДИТОРИЯ|РЕПЛИКА \/ СЮЖЕТ|КАДРЫ|ВИЗУАЛ|CTA|ДОКАЗАТЕЛЬСТВА|НЕ ОБЕЩАТЬ \/ УЧЕСТЬ):[ \t\f\v]*(.*)$/iu;
+const AI_RESEARCH_HUMAN_SECTION_KEYS = Object.freeze([
+  ["КОНЦЕПЦИЯ", "C", 16],
+  ["ХУК", "H", 16],
+  ["CTA", "CTA", 24],
+  ["ДОКАЗАТЕЛЬСТВА", "P", 16],
+  ["НЕ ОБЕЩАТЬ / УЧЕСТЬ", "A", 20],
+]);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const EXPLICIT_SPOKEN_LINE_PATTERN =
   /(^|[.!?…]\s+)((?:(?:герой|блогер|ведущ(?:ий|ая)|человек)\s+(?:говорит|произносит|рассказывает)|реплика\s+героя(?:\s+дословно)?))\s*:\s*[«“"]([^»”"]{2,500})[»”"]\s*[.!?…]?/iu;
@@ -414,6 +428,94 @@ export function compileContentGenerationPrompt(
   });
 }
 
+export function normalizeAiResearchProviderPromptFragment(value) {
+  const source = value && typeof value === "object" && !Array.isArray(value)
+    ? value
+    : {};
+  const version = String(
+    source.provider_prompt_fragment_version
+      || source.providerPromptFragmentVersion
+      || source.fragmentVersion
+      || "",
+  );
+  const fragment = String(
+    source.provider_prompt_fragment
+      || source.providerPromptFragment
+      || source.fragment
+      || "",
+  );
+  const fragmentHash = String(
+    source.provider_prompt_fragment_hash
+      || source.providerPromptFragmentHash
+      || source.fragmentHash
+      || "",
+  );
+  if (
+    version !== AI_RESEARCH_PROVIDER_FRAGMENT_VERSION
+    || !fragment
+    || textCodePointLength(fragment) > AI_RESEARCH_PROVIDER_FRAGMENT_LIMIT
+    || cleanAiResearchHumanText(fragment) !== fragment
+    || !fragment.startsWith(`${AI_RESEARCH_PROVIDER_FRAGMENT_MARKER} `)
+    || countCaseInsensitive(fragment, AI_RESEARCH_PROVIDER_FRAGMENT_MARKER) !== 1
+    || countCaseInsensitive(fragment, AI_RESEARCH_HUMAN_INTENT_MARKER) !== 0
+    || !/^[0-9a-f]{64}$/u.test(fragmentHash)
+  ) return null;
+  return { version, fragment, fragmentHash };
+}
+
+export function compileAiResearchHumanIntent({
+  currentBrief = "",
+} = {}) {
+  const currentRaw = trimAsciiWhitespace(currentBrief);
+  if (
+    !currentRaw
+    || countCaseInsensitive(currentRaw, AI_RESEARCH_PROVIDER_FRAGMENT_MARKER) > 0
+    || countCaseInsensitive(currentRaw, AI_RESEARCH_HUMAN_INTENT_MARKER) > 0
+  ) {
+    return {
+      ready: false,
+      line: "",
+      changedSections: [],
+      code: "ai_research_human_intent_invalid",
+    };
+  }
+  const currentSections = aiResearchBriefSections(currentRaw);
+  const fields = AI_RESEARCH_HUMAN_SECTION_KEYS.map(
+    ([section, key, limit]) => ({
+      section,
+      key,
+      limit,
+      value: cleanAiResearchHumanText(currentSections?.[section]),
+    }),
+  );
+  if (fields.some((field) => !field.value)) {
+    return {
+      ready: false,
+      line: "",
+      changedSections: fields.filter((field) => field.value)
+        .map((field) => field.section),
+      code: "ai_research_human_intent_invalid",
+    };
+  }
+  const body = fields.map((field) => (
+    `${field.key}=${boundedAiResearchText(field.value, field.limit)}`
+  )).join("|");
+  const line = `${AI_RESEARCH_HUMAN_INTENT_MARKER} ${body}`;
+  if (textCodePointLength(line) > AI_RESEARCH_HUMAN_INTENT_LIMIT) {
+    return {
+      ready: false,
+      line: "",
+      changedSections: fields.map((field) => field.section),
+      code: "ai_research_prompt_budget_exceeded",
+    };
+  }
+  return {
+    ready: true,
+    line,
+    changedSections: fields.map((field) => field.section),
+  };
+}
+
 export function compileSafeGenerationBrief({
   mode,
   productName,
@@ -428,6 +530,7 @@ export function compileSafeGenerationBrief({
   durationSeconds: requestedDurationSeconds = null,
   productCategory = "",
   researchCategoryRule = null,
+  selectedRecommendation = null,
 } = {}) {
   const normalizedMode = normalizeMode(mode);
   const exactProductName = cleanText(productName);
@@ -438,6 +541,18 @@ export function compileSafeGenerationBrief({
     removeExplicitSpokenLine(rawScenarioIntent),
     SAFE_SCENARIO_INTENT_LIMIT,
   );
+  const selectedRecommendationRequired = selectedRecommendation?.required === true;
+  const selectedProviderFragment = selectedRecommendationRequired
+    ? normalizeAiResearchProviderPromptFragment(selectedRecommendation)
+    : null;
+  const selectedHumanIntent = selectedRecommendationRequired
+    ? compileAiResearchHumanIntent({
+        currentBrief: selectedRecommendation?.currentBrief,
+      })
+    : { ready: true, line: "", changedSections: [] };
+  const promptScenarioIntent = selectedRecommendationRequired
+    ? ""
+    : safeScenarioIntent;
   const safeVisualDirection = cleanText(visualDirection);
   const safeAvoidClaims = uniqueStrings(avoidClaims, 8);
   const safeResearchDecision = cleanResearchDecision(researchDecision);
@@ -463,6 +578,40 @@ export function compileSafeGenerationBrief({
   });
   const blockers = [];
   const warnings = [];
+
+  if (
+    countCaseInsensitive(rawScenarioIntent, AI_RESEARCH_PROVIDER_FRAGMENT_MARKER) > 0
+    || countCaseInsensitive(rawScenarioIntent, AI_RESEARCH_HUMAN_INTENT_MARKER) > 0
+  ) {
+    blockers.push({
+      code: "ai_research_prompt_reserved_marker_invalid",
+      message: "Служебные маркеры рекомендации ИИ‑центра нельзя добавлять в замысел вручную.",
+    });
+  }
+  if (selectedRecommendationRequired && !selectedProviderFragment) {
+    blockers.push({
+      code: "ai_research_prompt_binding_invalid",
+      message: "Сервер не подтвердил обязательный фрагмент выбранной рекомендации ИИ‑центра.",
+    });
+  }
+  if (selectedRecommendationRequired && !selectedHumanIntent.ready) {
+    blockers.push({
+      code: selectedHumanIntent.code || "ai_research_human_intent_invalid",
+      message: "Ручные правки рекомендации не удалось безопасно уместить в технический prompt.",
+    });
+  }
+  if (
+    selectedRecommendationRequired
+    && selectedProviderFragment
+    && selectedHumanIntent.ready
+    && textCodePointLength(selectedProviderFragment.fragment)
+      + textCodePointLength(selectedHumanIntent.line) > 390
+  ) {
+    blockers.push({
+      code: "ai_research_prompt_budget_exceeded",
+      message: "Выбранная рекомендация и ручная правка превышают безопасный лимит provider prompt.",
+    });
+  }
 
   if (
     safeGenerationReferenceFragment
@@ -523,6 +672,8 @@ export function compileSafeGenerationBrief({
     promptLines = [
       required("Создай одно квадратное товарное фото 2048 × 2048."),
       required(`Используй @${CONTENT_GENERATION_PRODUCT_REFERENCE_TAG} как главный точный референс товара; остальные выбранные ракурсы уточняют форму и детали. ${identityLine}`),
+      requiredVerbatim(selectedProviderFragment?.fragment || ""),
+      requiredVerbatim(selectedHumanIntent.line),
       required(safeResearchDecision
         ? `Решение пользователя после исследования — имеет приоритет: ${safeResearchDecision}.`
         : ""),
@@ -544,14 +695,16 @@ export function compileSafeGenerationBrief({
     promptLines = [
       required(`Создай один непрерывный вертикальный ролик длительностью ${durationSeconds} секунд.`),
       required(identityLine),
+      requiredVerbatim(selectedProviderFragment?.fragment || ""),
+      requiredVerbatim(selectedHumanIntent.line),
       required(safeResearchDecision
         ? `Решение пользователя после исследования — имеет приоритет: ${safeResearchDecision}.`
         : ""),
       required(researchCategoryRuleFragment),
       required(safeGenerationReferenceFragment),
       optional(
-        safeScenarioIntent
-          ? `Замысел пользователя (только без конфликта с ограничениями ниже): ${withTerminalPunctuation(safeScenarioIntent)}`
+        promptScenarioIntent
+          ? `Замысел пользователя (только без конфликта с ограничениями ниже): ${withTerminalPunctuation(promptScenarioIntent)}`
           : interaction.gen4Action,
       ),
       required(interaction.requirement),
@@ -578,14 +731,16 @@ export function compileSafeGenerationBrief({
     promptLines = [
       required(`Создай один непрерывный вертикальный UGC-ролик длительностью ${durationSeconds} секунд.`),
       required(identityLine),
+      requiredVerbatim(selectedProviderFragment?.fragment || ""),
+      requiredVerbatim(selectedHumanIntent.line),
       required(safeResearchDecision
         ? `Решение пользователя после исследования — имеет приоритет: ${safeResearchDecision}.`
         : ""),
       required(researchCategoryRuleFragment),
       required(safeGenerationReferenceFragment),
       optional(
-        safeScenarioIntent
-          ? `Замысел пользователя (только без конфликта с ограничениями ниже): ${withTerminalPunctuation(safeScenarioIntent)}`
+        promptScenarioIntent
+          ? `Замысел пользователя (только без конфликта с ограничениями ниже): ${withTerminalPunctuation(promptScenarioIntent)}`
           : interaction.videoAction,
       ),
       required(interaction.requirement),
@@ -607,9 +762,43 @@ export function compileSafeGenerationBrief({
   const prompt = fitPrompt(promptLines, contentGenerationPromptLimit(normalizedMode));
   if (!prompt) {
     blockers.push({
-      code: "prompt_too_long",
-      message: "Точное название товара слишком длинное для безопасного промпта.",
+      code: selectedRecommendationRequired
+        ? "ai_research_prompt_budget_exceeded"
+        : "prompt_too_long",
+      message: selectedRecommendationRequired
+        ? "Выбранная рекомендация и обязательные ограничения не помещаются в лимит модели. Платный запуск остановлен."
+        : "Точное название товара слишком длинное для безопасного промпта.",
     });
+  }
+  if (prompt) {
+    const providerMarkerCount = countCaseInsensitive(
+      prompt,
+      AI_RESEARCH_PROVIDER_FRAGMENT_MARKER,
+    );
+    const humanMarkerCount = countCaseInsensitive(
+      prompt,
+      AI_RESEARCH_HUMAN_INTENT_MARKER,
+    );
+    if (selectedRecommendationRequired && (
+      providerMarkerCount !== 1
+        || !prompt.includes(selectedProviderFragment?.fragment || "")
+        || humanMarkerCount !== 1
+        || !prompt.includes(selectedHumanIntent.line)
+    )) {
+      blockers.push({
+        code: "ai_research_prompt_binding_invalid",
+        message: "Технический prompt потерял обязательную связь с выбранной рекомендацией ИИ‑центра.",
+      });
+    }
+    if (
+      !selectedRecommendationRequired
+      && (providerMarkerCount !== 0 || humanMarkerCount !== 0)
+    ) {
+      blockers.push({
+        code: "ai_research_prompt_reserved_marker_invalid",
+        message: "Служебные маркеры рекомендации ИИ‑центра нельзя добавлять в prompt вручную.",
+      });
+    }
   }
   const inspection = inspectContentGenerationPrompt(prompt, normalizedMode, {
     productName: exactProductName,
@@ -629,6 +818,13 @@ export function compileSafeGenerationBrief({
     spokenWords,
     mode: normalizedMode,
     learningApplied: Boolean(learningDirection),
+    selectedRecommendationApplied: selectedRecommendationRequired
+      && Boolean(selectedProviderFragment),
+    selectedRecommendationFragment:
+      selectedProviderFragment?.fragment || "",
+    selectedRecommendationFragmentHash:
+      selectedProviderFragment?.fragmentHash || "",
+    selectedRecommendationHumanIntent: selectedHumanIntent.line,
   });
 }
 
@@ -1264,7 +1460,9 @@ function compactGenerationLearningDirection(value) {
   if (!direction) return "";
   const qualityFragments = [];
   const qualityReplacements = [
-    ["QA: упаковка без морфинга; постоянны этикетка, цвет, текст и пропорции.", "постоянны упаковка/этикетка/текст/цвет/пропорции; без морфинга"],
+    ["QA: точная геометрия, этикетка, текст, цвет и пропорции.", "точны геометрия/этикетка/текст/цвет/пропорции"],
+    ["QA: резкий товар, ровный свет, без пересвета и размытия.", "товар резкий; свет ровный; без пересвета/размытия"],
+    ["QA: упаковка без морфинга; постоянны этикетка, цвет, текст и пропорции.", "товар точен"],
     ["QA: стабильный проход без чёрных кадров, скачков и мерцания.", "без чёрных кадров/скачков/мерцания"],
     ["QA: слышимая чистая речь без тишины, клиппинга и рассинхронизации.", "речь чистая/слышна; без тишины/клиппинга/рассинхрона"],
     ["QA: реплика произносится дословно, без пропусков, замен и новых слов.", "реплика дословно; без пропусков/замен/новых слов"],
@@ -1279,6 +1477,8 @@ function compactGenerationLearningDirection(value) {
     qualityFragments.push(compactText);
   }
   direction = cleanText(direction)
+    .replace("Обученное направление: одно видимое действие с товаром.", "Обучен: действие.")
+    .replace("Структурный hook: одно простое действие с товаром.", "")
     .replace("Обученное направление: заметная деталь, затем товар целиком.", "Обучен: деталь→товар;")
     .replace("Структурный hook: сравнение без второго товара, цифр и обещаний.", "hook: сравнение без 2-го товара/цифр/обещаний.");
   return cleanText([
@@ -1918,6 +2118,77 @@ function truncateScenarioIntent(value, maximum) {
     ? candidate.slice(0, wordBoundary).trim()
     : candidate.slice(0, limit).trim();
   return `${wholeWords.replace(/[,:;–—-]+$/u, "")}…`;
+}
+
+function requiredVerbatim(text) {
+  const verbatim = String(text ?? "");
+  return {
+    text: cleanAiResearchHumanText(verbatim) === verbatim ? verbatim : "",
+    compactText: "",
+    required: true,
+  };
+}
+
+function aiResearchBriefSections(value) {
+  const sections = {};
+  const seen = new Set();
+  const requiredSections = new Set(
+    AI_RESEARCH_HUMAN_SECTION_KEYS.map(([section]) => section),
+  );
+  let active = "";
+  String(value || "").replace(/\r\n?/gu, "\n").split("\n").forEach((rawLine) => {
+    const line = String(rawLine || "")
+      .replace(/^ +/gu, "")
+      .replace(/ +$/gu, "");
+    if (!line) return;
+    const heading = AI_RESEARCH_BRIEF_SECTION_PATTERN.exec(line);
+    if (heading) {
+      active = heading[1].toLocaleUpperCase("ru-RU");
+      if (requiredSections.has(active) && seen.has(active)) {
+        sections.__invalid = true;
+        return;
+      }
+      if (requiredSections.has(active)) seen.add(active);
+      const inline = cleanAiResearchHumanText(heading[2]);
+      if (inline) sections[active] = inline;
+      return;
+    }
+    if (!active) return;
+    sections[active] = cleanAiResearchHumanText(
+      `${sections[active] || ""} ${line}`,
+    );
+  });
+  return sections.__invalid === true ? null : sections;
+}
+
+function boundedAiResearchText(value, maximum) {
+  const normalized = cleanAiResearchHumanText(value).replace(/\|/gu, "/");
+  const limit = Math.max(1, Number(maximum) || 1);
+  const codePoints = Array.from(normalized);
+  if (codePoints.length <= limit) return normalized;
+  if (limit === 1) return "…";
+  return `${codePoints.slice(0, limit - 1).join("").replace(/ +$/gu, "")}…`;
+}
+
+function textCodePointLength(value) {
+  return Array.from(String(value ?? "")).length;
+}
+
+function countCaseInsensitive(value, marker) {
+  return String(value ?? "").toLocaleLowerCase("en-US")
+    .split(String(marker || "").toLocaleLowerCase("en-US")).length - 1;
+}
+
+function trimAsciiWhitespace(value) {
+  return String(value ?? "")
+    .replace(/^[ \t\r\n\f\v]+/gu, "")
+    .replace(/[ \t\r\n\f\v]+$/gu, "");
+}
+
+function cleanAiResearchHumanText(value) {
+  return trimAsciiWhitespace(
+    String(value ?? "").replace(/[ \t\r\n\f\v]+/gu, " "),
+  );
 }
 
 function lines(value, maximum) {

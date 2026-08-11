@@ -611,8 +611,101 @@ def test_cache_race_prefers_newer_tombstone_across_force_reads_and_runtime() -> 
     mount_end = GENERATION.index("function scheduleMount()", mount_start)
     mount = GENERATION[mount_start:mount_end]
     assert "applySharedWorkingDraft(form, knownShared)" not in mount
+    assert "const shouldHydrate = shouldHydrateGenerationResearchWorkingDraft" in mount
+    assert "if (!shouldHydrate) return;" in mount
     assert 'setWorkingDraftAuthority(context.projectId, "unknown")' in mount
     assert "void hydrateSharedWorkingDraft(form, context)" in mount
+
+
+def test_mutation_observer_mount_does_not_restart_settled_working_draft_hydration() -> None:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is unavailable")
+    module_url = (
+        ROOT / "web" / "app" / "workspace-generation-research-recommendations.js"
+    ).as_uri()
+    script = f"""
+      const mod = await import({json.dumps(module_url)});
+      const projectId = '22222222-2222-4222-8222-222222222222';
+      const matrix = {{
+        firstForm: mod.shouldHydrateGenerationResearchWorkingDraft({{
+          formChanged: true,
+          authorityProjectId: '',
+          contextProjectId: projectId,
+        }}),
+        observerMutation: mod.shouldHydrateGenerationResearchWorkingDraft({{
+          formChanged: false,
+          authorityProjectId: projectId,
+          contextProjectId: projectId,
+          authority: 'unknown',
+          hydrating: true,
+        }}),
+        settledVerified: mod.shouldHydrateGenerationResearchWorkingDraft({{
+          formChanged: false,
+          authorityProjectId: projectId,
+          contextProjectId: projectId,
+          authority: 'verified',
+          hydrating: false,
+        }}),
+        settledFailed: mod.shouldHydrateGenerationResearchWorkingDraft({{
+          formChanged: false,
+          authorityProjectId: projectId,
+          contextProjectId: projectId,
+          authority: 'failed',
+          hydrating: false,
+        }}),
+        orphanedUnknown: mod.shouldHydrateGenerationResearchWorkingDraft({{
+          formChanged: false,
+          authorityProjectId: projectId,
+          contextProjectId: projectId,
+          authority: 'unknown',
+          hydrating: false,
+        }}),
+        replacementForm: mod.shouldHydrateGenerationResearchWorkingDraft({{
+          formChanged: true,
+          authorityProjectId: projectId,
+          contextProjectId: projectId,
+        }}),
+        projectSwitch: mod.shouldHydrateGenerationResearchWorkingDraft({{
+          formChanged: false,
+          authorityProjectId: projectId,
+          contextProjectId: '33333333-3333-4333-8333-333333333333',
+        }}),
+        unscoped: mod.shouldHydrateGenerationResearchWorkingDraft({{
+          formChanged: true,
+          authorityProjectId: '',
+          contextProjectId: '',
+        }}),
+      }};
+      console.log(JSON.stringify(matrix));
+    """
+    result = subprocess.run(
+        [node, "--input-type=module", "-e", script],
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
+    )
+    assert json.loads(result.stdout) == {
+        "firstForm": True,
+        "observerMutation": False,
+        "settledVerified": False,
+        "settledFailed": False,
+        "orphanedUnknown": True,
+        "replacementForm": True,
+        "projectSwitch": True,
+        "unscoped": False,
+    }
+
+
+def test_recommendation_panel_is_owned_by_the_runtime_dom_patcher() -> None:
+    dom_patch = (
+        ROOT / "web" / "app" / "workspace-dom-patch.js"
+    ).read_text(encoding="utf-8")
+    assert (
+        'root.dataset.ceV4Owned = "generation-research-recommendations";'
+        in GENERATION
+    )
+    assert "[data-ce-v4-owned]" in dom_patch
 
 
 def test_cross_project_inflight_work_is_origin_guarded_and_replays_latest_form() -> None:
@@ -882,8 +975,8 @@ def test_api_boundary_and_scoped_cache_edges_are_wired() -> None:
     assert '"contentengine_generation_ai_research_working_draft"' in API
     assert "generationResearchRecommendation(input = {})" in API
     assert "generationAiResearchWorkingDraft(input = {})" in API
-    assert '"workspace-ai-research-training.js":\n      "20260811.ai-working-draft.2"' in BOOTSTRAP
-    assert '"workspace-generation-research-recommendations.js":\n      "20260811.ai-working-draft.2"' in BOOTSTRAP
+    assert '"workspace-ai-research-training.js":\n      "20260811.ai-working-draft.3"' in BOOTSTRAP
+    assert '"workspace-generation-research-recommendations.js":\n      "20260811.ai-working-draft.3"' in BOOTSTRAP
     assert "generation-ai-research-working-draft.js?v=20260811.ai-working-draft.1" in APP
     assert "generation-ai-research-working-draft.js?v=20260811.ai-working-draft.1" in GENERATION
 

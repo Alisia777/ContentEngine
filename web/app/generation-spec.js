@@ -309,13 +309,48 @@ export function generationSpecCardMarkup(state = {}, { expectedScope = null } = 
       ]
     : [];
   const history = Array.isArray(envelope?.history) ? envelope.history : [];
+  const aiResearchBinding = state.aiResearchBinding;
+  const aiResearchBindingReady = Boolean(
+    !dirty
+    && spec
+    && aiResearchBinding
+    && String(aiResearchBinding.spec_id || "").toLowerCase() === spec.spec_id
+    && Number(aiResearchBinding.spec_version) === spec.spec_version
+    && String(aiResearchBinding.spec_hash || "").toLowerCase() === spec.spec_hash
+    && String(aiResearchBinding.compiled_prompt_hash || "") === spec.prompt_hash
+    && normalizedUuid(aiResearchBinding.selection_id)
+    && [1, 2, 3].includes(Number(aiResearchBinding.recommendation_position))
+    && String(aiResearchBinding.provider_prompt_fragment_version || "")
+      === "ai-research-provider-fragment-v1"
+    && SHA256_PATTERN.test(
+      String(aiResearchBinding.provider_prompt_fragment_hash || ""),
+    )
+    && String(aiResearchBinding.human_intent_fragment_version || "")
+      === "ai-research-human-intent-v1"
+    && SHA256_PATTERN.test(
+      String(aiResearchBinding.human_intent_fragment_hash || ""),
+    )
+    && SHA256_PATTERN.test(
+      String(aiResearchBinding.prompt_binding_proof_hash || ""),
+    )
+    && aiResearchBinding.legacy === false
+  );
   return `
-    <section class="generation-spec-card generation-learning-status" id="generation-spec-card" data-state="${escapeHtml(loading ? "loading" : approved ? "approved" : dirty ? "dirty" : spec?.status || "missing")}" aria-live="polite" aria-busy="${loading ? "true" : "false"}" ${state.hidden === true ? "hidden" : ""}>
+    <section class="generation-spec-card generation-learning-status" id="generation-spec-card" data-state="${escapeHtml(loading ? "loading" : approved ? "approved" : dirty ? "dirty" : spec?.status || "missing")}" aria-live="polite" aria-busy="${loading ? "true" : "false"}" style="display:block !important">
       <div class="generation-spec-card__header">
         <div><p class="eyebrow">Управляемое ТЗ</p><h3>Серверная версия перед оплатой</h3></div>
         <span class="badge ${approved ? "badge-info" : "badge-warning"}">${escapeHtml(statusLabel)}</span>
       </div>
-      <p class="muted tiny">Ваш замысел остаётся редактируемым. Каждая правка создаёт новую проверяемую версию; Runway и списание здесь не запускаются.</p>
+      <p class="muted tiny">Ваш замысел остаётся редактируемым. Подготовка и правка бесплатны — без Runway/списания. Платный рендер запускается только отдельным подтверждением человека.</p>
+      ${aiResearchBindingReady ? `
+        <dl class="generation-spec-card__meta" data-generation-spec-ai-research-binding data-selection-id="${escapeHtml(aiResearchBinding.selection_id)}" data-recommendation-position="${Number(aiResearchBinding.recommendation_position)}" data-provider-prompt-fragment-hash="${escapeHtml(aiResearchBinding.provider_prompt_fragment_hash)}">
+          <div><dt>AI selection_id</dt><dd><code>${escapeHtml(aiResearchBinding.selection_id)}</code></dd></div>
+          <div><dt>Выбранный вариант</dt><dd>${Number(aiResearchBinding.recommendation_position)}</dd></div>
+          <div><dt>Provider kernel hash</dt><dd><code>${escapeHtml(aiResearchBinding.provider_prompt_fragment_hash)}</code></dd></div>
+          <div><dt>Human intent hash</dt><dd><code>${escapeHtml(aiResearchBinding.human_intent_fragment_hash)}</code></dd></div>
+          <div><dt>Binding proof hash</dt><dd><code>${escapeHtml(aiResearchBinding.prompt_binding_proof_hash)}</code></dd></div>
+        </dl>
+      ` : ""}
       ${spec ? `
         <dl class="generation-spec-card__meta">
           <div><dt>Версия</dt><dd>${spec.spec_version}</dd></div>

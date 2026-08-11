@@ -272,7 +272,10 @@ create temporary table shared_path_context (
   human_draft_id uuid,
   receipt_id uuid,
   receipt_hash text,
-  selection_id uuid
+  selection_id uuid,
+  editable_intent text,
+  provider_fragment text,
+  human_fragment text
 ) on commit drop;
 
 insert into shared_path_context (start_result)
@@ -410,6 +413,12 @@ set completion_result = public.system_complete_product_research(
             'Show the exact package in one clear frame.'
           ),
           'goal', 'Demonstrate exact product identity.',
+          'proof_points', jsonb_build_array(
+            'Exact source image is registered.'
+          ),
+          'avoid_claims', jsonb_build_array(
+            'Do not claim 8 unverified modes.'
+          ),
           'cta', 'Review the product details.'
         ))
       ),
@@ -589,6 +598,28 @@ update shared_path_context
 set selection_id =
   (decision_result #>> '{selection,selection_id}')::uuid;
 
+update shared_path_context
+set editable_intent = 'КОНЦЕПЦИЯ:' || E'\n'
+      || 'One honest product detail' || E'\n\n'
+      || 'ХУК:' || E'\n'
+      || 'Watch one honest product detail?' || E'\n\n'
+      || 'CTA:' || E'\n'
+      || 'Review the product details.' || E'\n\n'
+      || 'ДОКАЗАТЕЛЬСТВА:' || E'\n'
+      || 'Exact source image is registered.' || E'\n\n'
+      || 'НЕ ОБЕЩАТЬ / УЧЕСТЬ:' || E'\n'
+      || 'Do not claim 8 unverified modes.';
+
+update shared_path_context context_row
+set provider_fragment = content_factory_private
+      .ai_research_provider_prompt_fragment(
+        selection.recommendations -> 0
+      ),
+    human_fragment = content_factory_private
+      .ai_research_human_intent_fragment(context_row.editable_intent)
+from content_factory.ai_research_learning_selections selection
+where selection.id = context_row.selection_id;
+
 select ok(
   (select decision_result #>> '{selection,decision}' = 'approve'
      and decision_result #> '{selection,selected_insight_keys}' =
@@ -670,13 +701,14 @@ set prepare_result = public.creator_prepare_generation_spec(
       'format', '9:16',
       'audio', true
     ),
-    'editable_intent',
-      'Show the exact product in one editable, honest vertical sequence.',
+    'editable_intent', context_row.editable_intent,
     'proposed_prompt',
       'Create one continuous eight-second vertical product video from the '
         || 'exact registered package. Preserve label, shape, colors, '
         || 'proportions, and observable facts. Do not invent performance '
-        || 'claims, text, logos, or another product.',
+        || 'claims, text, logos, or another product.' || E'\n'
+        || context_row.provider_fragment || E'\n'
+        || context_row.human_fragment,
     -- Keep preparation on the provider-free baseline contract.  The
     -- separately confirmed append-only binding below is the durable seam
     -- from the selected AI recommendation into this exact editable spec.
@@ -701,6 +733,8 @@ set prepare_result = public.creator_prepare_generation_spec(
 
 select ok(
   (select prepare_result #>> '{generation_spec,status}' = 'draft'
+     and provider_fragment like 'AIResearchSelection/v1 C=%'
+     and human_fragment like 'AIResearchHumanIntent/v1 C=%'
      and prepare_result #>>
        '{generation_spec,exact_scope,primary_media_id}' =
        'ca400000-0000-4000-8000-000000000001'
@@ -721,6 +755,18 @@ select ok(
                '{generation_spec,spec_hash}'
          and version.research_provenance is null
          and version.canonical_learning_context ->> 'source' = 'baseline'
+         and char_length(version.compiled_prompt)
+               - char_length(replace(
+                   version.compiled_prompt,
+                   'AIResearchSelection/v1',
+                   ''
+                 )) = char_length('AIResearchSelection/v1')
+         and char_length(version.compiled_prompt)
+               - char_length(replace(
+                   version.compiled_prompt,
+                   'AIResearchHumanIntent/v1',
+                   ''
+                 )) = char_length('AIResearchHumanIntent/v1')
      )
      and prepare_result -> 'automatic_approval' = 'false'::jsonb
      and prepare_result -> 'automatic_spend' = 'false'::jsonb
@@ -764,6 +810,26 @@ select ok(
        context_row.prepare_result #>> '{generation_spec,spec_hash}'
      and binding.selection_id = context_row.selection_id
      and binding.recommendation_position = 1
+     and binding.provider_prompt_fragment_version =
+       'ai-research-provider-fragment-v1'
+     and binding.provider_prompt_fragment = context_row.provider_fragment
+     and binding.provider_prompt_fragment_hash =
+       content_factory_private.raw_text_sha256(
+         context_row.provider_fragment
+       )
+     and binding.human_intent_fragment_version =
+       'ai-research-human-intent-v1'
+     and binding.human_intent_fragment = context_row.human_fragment
+     and binding.human_intent_fragment_hash =
+       content_factory_private.raw_text_sha256(
+         context_row.human_fragment
+       )
+     and binding.compiled_prompt_hash ~ '^[0-9a-f]{64}$'
+     and binding.prompt_binding_proof_hash =
+       content_factory_private.raw_text_sha256(
+         context_row.provider_fragment || E'\n'
+           || context_row.human_fragment
+       )
     join content_factory.ai_research_learning_selections selection
       on selection.organization_id = binding.organization_id
      and selection.id = binding.selection_id
@@ -772,7 +838,10 @@ select ok(
      and binding.recommendation_hash =
        content_factory_private.json_hash(selection.recommendations -> 0)
   )
-  and (select binding_result #> '{contract,provider_call_started}' =
+  and (select binding_result #>> '{version}' =
+         'generation-spec-ai-research-binding-v2'
+       and binding_result #>> '{binding,legacy}' = 'false'
+       and binding_result #> '{contract,provider_call_started}' =
          'false'::jsonb
        and binding_result #> '{contract,paid_call_started}' =
          'false'::jsonb
