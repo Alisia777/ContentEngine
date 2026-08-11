@@ -18,6 +18,7 @@ from scripts.bootstrap_supabase_owner import (
     SupabaseAuthClient,
     SupabaseManagementClient,
     _validated_email,
+    _validated_uuid,
 )
 from scripts.grant_training_access_waiver import (
     DEFAULT_REASON,
@@ -38,6 +39,28 @@ from scripts.provision_supabase_member import (
 
 class EmployeeOnboardingError(RuntimeError):
     """A non-sensitive onboarding failure safe for Actions logs."""
+
+
+_RECOVERY_PROVISIONING_MARKERS = frozenset(
+    {
+        MEMBER_PROVISION_MARKER,
+        PASSWORD_CHANGE_REQUIRED_MARKER,
+    }
+)
+
+
+def _has_exact_recovery_provisioning_markers(
+    metadata: dict[str, object] | None,
+) -> bool:
+    values = metadata or {}
+    contentengine_keys = {
+        str(key) for key in values if str(key).startswith("contentengine_")
+    }
+    return (
+        contentengine_keys == _RECOVERY_PROVISIONING_MARKERS
+        and values.get(MEMBER_PROVISION_MARKER) is True
+        and values.get(PASSWORD_CHANGE_REQUIRED_MARKER) is True
+    )
 
 
 def _create_confirmed_member_for_recovery(
@@ -66,6 +89,23 @@ def _create_confirmed_member_for_recovery(
     )
 
 
+def _confirm_provisioned_member_for_recovery(
+    auth_client: SupabaseAuthClient,
+    *,
+    user_id: str,
+) -> None:
+    """Confirm only the already-created identity; do not alter credentials."""
+
+    admin_request = getattr(auth_client, "_admin_request", None)
+    if not callable(admin_request):
+        raise EmployeeOnboardingError("Supabase Auth admin client is unavailable")
+    admin_request(
+        f"/auth/v1/admin/users/{_validated_uuid(user_id)}",
+        method="PUT",
+        payload={"email_confirm": True},
+    )
+
+
 def provision_employee_without_training(
     *,
     management_client: SupabaseManagementClient,
@@ -88,6 +128,7 @@ def provision_employee_without_training(
 
     identity_status = "existing"
     membership_status = "existing"
+    auth_client: SupabaseAuthClient | None = None
     if state.user_id is None:
         server_key = management_client.get_server_key()
         auth_client = SupabaseAuthClient(
@@ -107,11 +148,68 @@ def provision_employee_without_training(
             organization_id=authority.organization_id,
         )
 
-    if (
-        state.user_id is None
-        or not state.email_confirmed
-        or not state.auth_active
-    ):
+    if state.user_id is None:
+        raise EmployeeOnboardingError("Employee identity could not be verified")
+
+    if not state.email_confirmed:
+        unconfirmed_user_id = state.user_id
+        if not state.auth_active:
+            raise EmployeeOnboardingError(
+                "Unconfirmed employee identity is not active"
+            )
+        if state.signed_in:
+            raise EmployeeOnboardingError(
+                "Unconfirmed employee identity has already signed in"
+            )
+        if (
+            state.membership_count != 0
+            or state.membership_role is not None
+            or state.membership_status is not None
+        ):
+            raise EmployeeOnboardingError(
+                "Unconfirmed employee identity already has a membership"
+            )
+        if not _has_exact_recovery_provisioning_markers(state.app_metadata):
+            raise EmployeeOnboardingError(
+                "Unconfirmed employee identity is not owned by this provisioning flow"
+            )
+
+        if auth_client is None:
+            server_key = management_client.get_server_key()
+            auth_client = SupabaseAuthClient(
+                project_ref=os.environ.get("SUPABASE_PROJECT_REF", "").strip(),
+                server_key=server_key,
+                publishable_key=publishable_key,
+            )
+        _confirm_provisioned_member_for_recovery(
+            auth_client,
+            user_id=unconfirmed_user_id,
+        )
+        confirmed_state = read_member_state(
+            management_client,
+            email=normalized_email,
+            organization_id=authority.organization_id,
+        )
+        if (
+            confirmed_state.user_id != unconfirmed_user_id
+            or not confirmed_state.email_confirmed
+            or not confirmed_state.auth_active
+            or confirmed_state.signed_in
+            or confirmed_state.membership_count != 0
+            or confirmed_state.membership_role is not None
+            or confirmed_state.membership_status is not None
+            or not _has_exact_recovery_provisioning_markers(
+                confirmed_state.app_metadata
+            )
+        ):
+            raise EmployeeOnboardingError(
+                "Employee identity confirmation verification failed"
+            )
+        state = confirmed_state
+        identity_status = "confirmed_for_recovery"
+
+    employee_user_id = state.user_id
+    if not state.auth_active:
         raise EmployeeOnboardingError(
             "Employee identity is not active and confirmed"
         )
@@ -121,9 +219,17 @@ def provision_employee_without_training(
         )
 
     if state.membership_role is None:
-        if state.membership_count != 0:
+        if state.membership_count != 0 or state.membership_status is not None:
             raise EmployeeOnboardingError(
                 "Employee identity already belongs to another organization"
+            )
+        if state.signed_in:
+            raise EmployeeOnboardingError(
+                "Membership-free employee identity has already signed in"
+            )
+        if not _has_exact_recovery_provisioning_markers(state.app_metadata):
+            raise EmployeeOnboardingError(
+                "Membership-free employee identity is not safe for recovery onboarding"
             )
         initialize_member_membership(
             management_client,
@@ -138,16 +244,40 @@ def provision_employee_without_training(
             organization_id=authority.organization_id,
         )
 
-    if state.membership_status != "active":
-        raise EmployeeOnboardingError("Employee membership is not active")
-    if state.membership_role not in {"trainee", "operator"}:
+    if (
+        state.user_id != employee_user_id
+        or not state.email_confirmed
+        or not state.auth_active
+        or (state.app_metadata or {}).get(MEMBER_PROVISION_MARKER) is not True
+        or state.membership_count != 1
+        or state.membership_status != "active"
+        or state.membership_role not in {"trainee", "operator"}
+    ):
         raise EmployeeOnboardingError(
-            "Employee membership has an unexpected role"
+            "Employee membership verification failed"
+        )
+    if (
+        state.membership_role == "trainee"
+        and (
+            state.signed_in
+            or not _has_exact_recovery_provisioning_markers(state.app_metadata)
+        )
+    ):
+        raise EmployeeOnboardingError(
+            "Trainee membership is not safe for recovery onboarding"
+        )
+    if membership_status == "created" and (
+        state.signed_in
+        or not _has_exact_recovery_provisioning_markers(state.app_metadata)
+    ):
+        raise EmployeeOnboardingError(
+            "New employee membership is not safe for recovery onboarding"
         )
 
     role, recovery_status = grant_training_access_waiver(
         management_client=management_client,
         email=normalized_email,
+        expected_user_id=employee_user_id,
         reason=reason,
         send_recovery=True,
         publishable_key=publishable_key,

@@ -137,11 +137,17 @@ def grant_training_access_waiver(
     *,
     management_client: SupabaseManagementClient,
     email: str,
+    expected_user_id: str | None = None,
     reason: str,
     send_recovery: bool,
     publishable_key: str,
 ) -> tuple[str, str]:
     normalized_email = _validated_email(email)
+    validated_expected_user_id = (
+        _validated_uuid(expected_user_id)
+        if expected_user_id is not None
+        else None
+    )
     normalized_reason = _validated_reason(reason)
     authority = read_training_waiver_authority(management_client)
     state = read_member_state(
@@ -152,6 +158,13 @@ def grant_training_access_waiver(
     if state.user_id is None:
         raise TrainingWaiverError("Target member identity does not exist")
     user_id = _validated_uuid(state.user_id)
+    if (
+        validated_expected_user_id is not None
+        and user_id != validated_expected_user_id
+    ):
+        raise TrainingWaiverError(
+            "Target member identity changed during onboarding"
+        )
     if not state.email_confirmed or not state.auth_active:
         raise TrainingWaiverError("Target member identity is not active and confirmed")
     if state.membership_status != "active":
