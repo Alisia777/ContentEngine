@@ -40,6 +40,10 @@ export const RPC = Object.freeze({
     "contentengine_bind_generation_spec_ai_research",
   generationSpecAiResearchBinding:
     "contentengine_generation_spec_ai_research_binding",
+  generationResearchRecommendation:
+    "contentengine_generation_research_recommendation",
+  generationAiResearchWorkingDraft:
+    "contentengine_generation_ai_research_working_draft",
   bindGenerationSpecVideoReference:
     "contentengine_bind_generation_spec_video_reference",
   generationVideoReferenceLineage:
@@ -142,6 +146,22 @@ export const AI_PRODUCT_CATEGORIES = Object.freeze([
 ]);
 export const AI_KNOWLEDGE_BUCKET = "contentengine-knowledge";
 const AI_PRODUCT_CATEGORY_SET = new Set(AI_PRODUCT_CATEGORIES);
+const EXACT_YOUTUBE_RESEARCH_LIFECYCLE_ACTIONS = Object.freeze({
+  not_started: "prepare_exact_media_analysis",
+  analysis_in_progress: "open_research",
+  analysis_failed: "open_research",
+  completed_without_ai_receipt: "open_research",
+  awaiting_learning_selection: "review_ai_learning",
+  recommendations_ready: "open_generation",
+  excluded: "open_research",
+});
+const EXACT_YOUTUBE_RESEARCH_RUN_STATUS_SET = new Set([
+  "queued",
+  "processing",
+  "completed",
+  "failed",
+  "cancelled",
+]);
 const AI_KNOWLEDGE_MIME_TYPES = new Set([
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -1227,6 +1247,93 @@ export class CreatorApi {
     );
   }
 
+  generationResearchRecommendation(input = {}) {
+    const recommendationPosition = Number(input.recommendation_position);
+    if (![1, 2, 3].includes(recommendationPosition)) {
+      throw new CreatorApiError(
+        "Выбранный вариант рекомендации имеет неверную позицию.",
+        { code: "generation_research_recommendation_payload_invalid" },
+      );
+    }
+    return this.call(
+      RPC.generationResearchRecommendation,
+      this.withOrganization({
+        project_id: requiredProjectId(input.project_id || input.projectId),
+        selection_id: requireGenerationSpecUuid(
+          input.selection_id,
+          "generation_research_recommendation_payload_invalid",
+        ),
+        recommendation_position: recommendationPosition,
+      }),
+    );
+  }
+
+  generationAiResearchWorkingDraft(input = {}) {
+    const action = String(input.action || "read").trim().toLowerCase();
+    if (!["read", "save", "clear"].includes(action)) {
+      throw new CreatorApiError(
+        "Не удалось определить действие с общим черновиком.",
+        { code: "generation_ai_research_working_draft_payload_invalid" },
+      );
+    }
+    const payload = {
+      project_id: requiredProjectId(input.project_id || input.projectId),
+      action,
+    };
+    if (action === "read") {
+      return this.call(
+        RPC.generationAiResearchWorkingDraft,
+        this.withOrganization(payload),
+      );
+    }
+    const expectedRevision = Number(input.expected_revision);
+    const mutationId = String(input.mutation_id || "").trim().toLowerCase();
+    if (
+      !Number.isSafeInteger(expectedRevision)
+      || expectedRevision < 0
+      || !isUuid(mutationId)
+    ) {
+      throw new CreatorApiError(
+        "Общий черновик изменился или имеет неверную версию.",
+        { code: "generation_ai_research_working_draft_payload_invalid" },
+      );
+    }
+    Object.assign(payload, {
+      expected_revision: expectedRevision,
+      mutation_id: mutationId,
+    });
+    if (action === "clear") {
+      return this.call(
+        RPC.generationAiResearchWorkingDraft,
+        this.withOrganization(payload),
+      );
+    }
+    const position = Number(input.recommendation_position);
+    if (![1, 2, 3].includes(position)) {
+      throw new CreatorApiError(
+        "Выбранный вариант рекомендации имеет неверную позицию.",
+        { code: "generation_ai_research_working_draft_payload_invalid" },
+      );
+    }
+    Object.assign(payload, {
+      selection_id: requireGenerationSpecUuid(
+        input.selection_id,
+        "generation_ai_research_working_draft_payload_invalid",
+      ),
+      recommendation_position: position,
+      editable_fields: input.editable_fields,
+      applied_fields: input.applied_fields,
+      touched_fields: input.touched_fields,
+      previous_values: input.previous_values,
+      last_applied_values: input.last_applied_values,
+      auto_apply_disabled: input.auto_apply_disabled === true,
+    });
+    return this.call(
+      RPC.generationAiResearchWorkingDraft,
+      this.withOrganization(payload),
+    );
+  }
+
   bindGenerationSpecVideoReference(input = {}) {
     const reference = normalizeGenerationSpecReference(input);
     const videoId = String(input.video_id || "").trim();
@@ -1426,7 +1533,13 @@ export class CreatorApi {
     return this.call(RPC.workspaceBrowser, this.withOrganization(payload));
   }
 
-  createWorkspaceFolder({ name, parentId = null, colorToken = "emerald" }) {
+  createWorkspaceFolder({
+    name,
+    parentId = null,
+    colorToken = "emerald",
+    projectId = "",
+    project_id: projectIdSnake = "",
+  }) {
     const folderName = String(name || "").trim();
     const color = String(colorToken || "emerald").trim().toLowerCase();
     if (!folderName || folderName.length > 120 || /[\u0000-\u001f\u007f]/u.test(folderName)) {
@@ -1440,6 +1553,7 @@ export class CreatorApi {
       });
     }
     return this.mutate(RPC.createWorkspaceFolder, {
+      project_id: requiredProjectId(projectIdSnake || projectId),
       name: folderName,
       parent_id: parentId || null,
       color_token: color,
@@ -1585,6 +1699,7 @@ export class CreatorApi {
       });
     }
     const payload = {
+      project_id: requiredProjectId(changes.project_id || changes.projectId),
       folder_id: String(folderId),
       expected_version: expectedVersion,
     };
@@ -1604,7 +1719,7 @@ export class CreatorApi {
       payload.color_token = String(changes.colorToken || "").trim().toLowerCase();
     }
     if (changes.archive === true) payload.archive = true;
-    if (Object.keys(payload).length === 2) {
+    if (Object.keys(payload).length === 3) {
       throw new CreatorApiError("Выберите изменение папки.", {
         code: "workspace_folder_update_payload_invalid",
       });
@@ -1612,7 +1727,7 @@ export class CreatorApi {
     return this.mutate(RPC.updateWorkspaceFolder, payload);
   }
 
-  moveWorkspaceItems(items, destinationFolderId = null) {
+  moveWorkspaceItems(items, destinationFolderId = null, scope = {}) {
     const normalized = Array.isArray(items)
       ? items.map((item) => ({
           type: String(item?.type || ""),
@@ -1629,6 +1744,7 @@ export class CreatorApi {
       });
     }
     return this.mutate(RPC.moveWorkspaceItems, {
+      project_id: requiredProjectId(scope.project_id || scope.projectId),
       destination_folder_id: destinationFolderId || null,
       items: normalized,
     });
@@ -4825,6 +4941,121 @@ export class CreatorApi {
       && !Array.isArray(response.data)
       ? response.data
       : response;
+    const lifecycleProjected =
+      source?.contract?.research_lifecycle_projected === true;
+    const optionalUuidInvalid = (value) => value !== undefined
+      && value !== null
+      && !isUuid(String(value || "").trim().toLowerCase());
+    const optionalDateInvalid = (value) => value !== undefined
+      && value !== null
+      && (
+        typeof value !== "string"
+        || !Number.isFinite(Date.parse(value))
+      );
+    const lifecycleInvalid = (item) => {
+      if (!lifecycleProjected) return false;
+      if (
+        typeof item?.media_ready !== "boolean"
+        || item.media_ready !== item.analysis_ready
+      ) return true;
+      const lifecycle = item?.research_lifecycle;
+      if (!lifecycle || typeof lifecycle !== "object" || Array.isArray(lifecycle)) {
+        return true;
+      }
+      const state = String(lifecycle.state || "").trim();
+      if (
+        EXACT_YOUTUBE_RESEARCH_LIFECYCLE_ACTIONS[state]
+          !== lifecycle.next_action
+      ) return true;
+      const effective = lifecycle.effective;
+      if (
+        !effective
+        || typeof effective !== "object"
+        || Array.isArray(effective)
+        || typeof effective.has_approved_recommendations !== "boolean"
+      ) return true;
+      const effectiveHasApproval = effective.has_approved_recommendations;
+      if (effectiveHasApproval) {
+        if (
+          !isUuid(String(effective.selection_id || "").trim().toLowerCase())
+          || !isUuid(String(effective.run_id || "").trim().toLowerCase())
+          || !isUuid(String(effective.receipt_id || "").trim().toLowerCase())
+          || !effective.selected_at
+          || optionalDateInvalid(effective.selected_at)
+        ) return true;
+      } else if (
+        optionalUuidInvalid(effective.selection_id)
+        || optionalUuidInvalid(effective.run_id)
+        || optionalUuidInvalid(effective.receipt_id)
+        || optionalDateInvalid(effective.selected_at)
+      ) return true;
+
+      const latest = lifecycle.latest;
+      if (state === "not_started") {
+        return latest !== null || effectiveHasApproval;
+      }
+      if (!latest || typeof latest !== "object" || Array.isArray(latest)) {
+        return true;
+      }
+      const runStatus = String(latest.run_status || "").trim();
+      const receiptId = String(latest.receipt_id || "").trim().toLowerCase();
+      const selectionId = String(latest.learning_selection_id || "")
+        .trim()
+        .toLowerCase();
+      const dispositionDecision = String(latest.disposition_decision || "")
+        .trim();
+      const learningDecision = String(latest.learning_decision || "").trim();
+      if (
+        !isUuid(String(latest.binding_id || "").trim().toLowerCase())
+        || !isUuid(String(latest.run_id || "").trim().toLowerCase())
+        || !EXACT_YOUTUBE_RESEARCH_RUN_STATUS_SET.has(runStatus)
+        || !AI_PRODUCT_CATEGORY_SET.has(
+          String(latest.product_category || "").trim().toLowerCase(),
+        )
+        || !latest.bound_at
+        || optionalDateInvalid(latest.bound_at)
+        || optionalDateInvalid(latest.finished_at)
+        || optionalDateInvalid(latest.received_at)
+        || optionalDateInvalid(latest.selected_at)
+        || (receiptId && !isUuid(receiptId))
+        || (selectionId && !isUuid(selectionId))
+        || (receiptId && latest.receipt_status !== "awaiting_human_review")
+        || (!receiptId && latest.receipt_status !== undefined)
+        || (!receiptId && latest.received_at !== undefined)
+        || (!receiptId && dispositionDecision)
+        || (!receiptId && selectionId)
+        || (selectionId && !latest.selected_at)
+        || (dispositionDecision
+          && !new Set(["approve", "reject"]).has(dispositionDecision))
+        || (learningDecision
+          && !new Set(["approve", "reject"]).has(learningDecision))
+        || Boolean(selectionId) !== Boolean(learningDecision)
+      ) return true;
+
+      if (state === "analysis_in_progress") {
+        return !new Set(["queued", "processing"]).has(runStatus)
+          || Boolean(receiptId);
+      }
+      if (state === "analysis_failed") {
+        return !new Set(["failed", "cancelled"]).has(runStatus)
+          || Boolean(receiptId);
+      }
+      if (runStatus !== "completed") return true;
+      if (state === "completed_without_ai_receipt") {
+        return Boolean(receiptId) || Boolean(selectionId);
+      }
+      if (!receiptId) return true;
+      if (state === "awaiting_learning_selection") {
+        return Boolean(selectionId) || dispositionDecision === "reject";
+      }
+      if (state === "recommendations_ready") {
+        return learningDecision !== "approve" || !effectiveHasApproval;
+      }
+      if (state === "excluded") {
+        return learningDecision !== "reject" && dispositionDecision !== "reject";
+      }
+      return true;
+    };
     const attachedItemInvalid = (item) => {
       if (source?.version !== "exact-youtube-source-queue-v2") return false;
       if (item?.status === "awaiting_media") {
@@ -4892,6 +5123,7 @@ export class CreatorApi {
         || !isUuid(String(item.id || "").trim().toLowerCase())
         || String(item.project_id || "").trim().toLowerCase()
           !== normalizedProjectId
+        || lifecycleInvalid(item)
         || attachedItemInvalid(item)
       ))
       || source?.contract?.url_is_video_evidence !== false
@@ -4906,6 +5138,12 @@ export class CreatorApi {
         || source?.contract?.attached_source_affects_generation !== false
         || source?.contract?.attachment_starts_analysis !== false
         || source?.contract?.source_row_mutated !== false
+        || (lifecycleProjected && (
+          source?.contract?.analysis_ready_is_media_ready !== true
+          || source?.contract?.research_lifecycle_read_only !== true
+          || source?.contract?.research_lifecycle_starts_analysis !== false
+          || source?.contract?.research_lifecycle_starts_provider_call !== false
+        ))
       ))
     ) {
       throw new CreatorApiError(

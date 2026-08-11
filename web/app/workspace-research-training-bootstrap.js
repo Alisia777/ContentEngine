@@ -11,6 +11,14 @@
   "use strict";
 
   const BUILD = "20260810.research.30";
+  const ASSET_BUILD_OVERRIDES = Object.freeze({
+    "workspace-ai-exact-youtube-sources.js":
+      "20260811.exact-source-lifecycle.1",
+    "workspace-ai-research-training.js":
+      "20260811.ai-working-draft.2",
+    "workspace-generation-research-recommendations.js":
+      "20260811.ai-working-draft.2",
+  });
   const SCRIPT_URL = document.currentScript?.src || window.location.href;
   const BASE_URL = new URL(".", SCRIPT_URL);
   const loadedStyles = new Map();
@@ -83,7 +91,8 @@
   }
 
   function assetUrl(file) {
-    return new URL(`${file}?v=${BUILD}`, BASE_URL).href;
+    const build = ASSET_BUILD_OVERRIDES[file] || BUILD;
+    return new URL(`${file}?v=${build}`, BASE_URL).href;
   }
 
   function ensureStyle(file) {

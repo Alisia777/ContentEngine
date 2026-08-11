@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "web" / "app"
 
 
-def test_research_route_bootstrap_uses_one_fresh_cache_key() -> None:
+def test_research_route_bootstrap_uses_scoped_exact_source_cache_key() -> None:
     index = (APP / "index.html").read_text(encoding="utf-8")
     bootstrap = (
         APP / "workspace-research-training-bootstrap.js"
@@ -23,7 +23,11 @@ def test_research_route_bootstrap_uses_one_fresh_cache_key() -> None:
 
     assert cache_key == "20260810.research.30"
     assert (
-        f'workspace-research-training-bootstrap.js?v={cache_key}'
+        "workspace-research-training-bootstrap.js?"
+        "v=20260811.exact-source-lifecycle.1"
         in index
     )
-    assert "`${file}?v=${BUILD}`" in bootstrap
+    assert '"workspace-ai-exact-youtube-sources.js":' in bootstrap
+    assert '"20260811.exact-source-lifecycle.1"' in bootstrap
+    assert "ASSET_BUILD_OVERRIDES[file] || BUILD" in bootstrap
+    assert "`${file}?v=${build}`" in bootstrap

@@ -123,16 +123,223 @@ export function beginMediaHandoff(source) {
   });
 }
 
+function mediaReady(source) {
+  const value = typeof source?.media_ready === "boolean"
+    ? source.media_ready
+    : source?.analysis_ready;
+  return value === true;
+}
+
+function researchLifecycle(source) {
+  const value = source?.research_lifecycle;
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value
+    : null;
+}
+
+function hasEffectiveRecommendations(source) {
+  return researchLifecycle(source)?.effective
+    ?.has_approved_recommendations === true;
+}
+
+function exactResearchHash(source) {
+  const latest = researchLifecycle(source)?.latest;
+  const runId = clean(latest?.run_id, 64).toLowerCase();
+  if (UUID_PATTERN.test(runId)) {
+    return workspaceHash("/workspace/research", {
+      project_id: projectId(),
+      run: runId,
+    });
+  }
+  return workspaceHash("/workspace/research", {
+    project_id: projectId(),
+    source_url: clean(source?.canonical_url, 300),
+  });
+}
+
+function aiLearningHash(source) {
+  const latest = researchLifecycle(source)?.latest;
+  return workspaceHash("/workspace/ai", {
+    project_id: projectId(),
+    category: clean(latest?.product_category, 40).toLowerCase(),
+    research_receipt: clean(latest?.receipt_id, 64).toLowerCase(),
+  });
+}
+
+function exactReviewHash(source, attachedMediaId) {
+  return workspaceHash("/workspace/review", {
+    view: "new",
+    media: attachedMediaId,
+    project_id: projectId(),
+    youtube_source: clean(source.id, 64),
+    attachment: clean(source?.attachment?.id, 64),
+    product_name: clean(source.product_name, 300),
+    product_sku: clean(source.product_sku, 160),
+    purpose: "exact_youtube_research",
+  });
+}
+
+export function lifecyclePresentation(source, attachedMediaId) {
+  const lifecycle = researchLifecycle(source);
+  const state = clean(lifecycle?.state, 80);
+  const effective = hasEffectiveRecommendations(source);
+  const researchHref = exactResearchHash(source);
+  const aiHref = aiLearningHash(source);
+  const generationHref = workspaceHash("/workspace/generation", {
+    project_id: projectId(),
+  });
+
+  if (effective) {
+    const latestSuffix = state === "analysis_failed"
+      ? " Последний повтор исследования не завершён, но ранее одобренный отбор остаётся действующим."
+      : state === "excluded"
+        ? " Последний результат исключён, но ранее одобренный отбор остаётся действующим."
+        : "";
+    return {
+      status: latestSuffix
+        ? "Рекомендации ИИ готовы · проверьте последний запуск"
+        : "Рекомендации ИИ готовы",
+      explanation:
+        `Исследование завершено, а выбранные человеком выводы и сценарии уже доступны в «Создать».${latestSuffix} Новый анализ этого видео для применения рекомендаций не нужен.`,
+      primaryLabel: "Создать с рекомендациями",
+      primaryHref: generationHref,
+      secondaryLabel: "Открыть исследование",
+      secondaryHref: researchHref,
+    };
+  }
+
+  if (state === "not_started") {
+    return {
+      status: "MP4 готов · исследование не начато",
+      explanation:
+        "MP4 сохранён и связан с точным источником. Кадры, монтаж и визуальная механика ещё не анализировались; речь, аудио и полный видеопоток внешнему ИИ не передаются. Подготовка пяти контрольных кадров сама по себе не запускает платное исследование.",
+      primaryLabel: "Подготовить кадры для исследования",
+      primaryHref: exactReviewHash(source, attachedMediaId),
+      secondaryLabel: "Открыть Исследования",
+      secondaryHref: researchHref,
+    };
+  }
+  if (state === "analysis_in_progress") {
+    return {
+      status: "Исследование выполняется",
+      explanation:
+        "Для этого точного MP4 уже создано исследование. Его текущий запуск ещё выполняется; ИИ‑центр только показывает сохранённый сервером статус и не создаёт новый платный вызов.",
+      primaryLabel: "Открыть текущий запуск",
+      primaryHref: researchHref,
+      secondaryLabel: "Открыть ИИ‑центр",
+      secondaryHref: aiHref,
+    };
+  }
+  if (state === "analysis_failed") {
+    return {
+      status: "Исследование требует внимания",
+      explanation:
+        "Последний запуск не завершился. Откройте сохранённое исследование и проверьте его ошибку; повторный платный запуск отсюда не создаётся.",
+      primaryLabel: "Проверить исследование",
+      primaryHref: researchHref,
+      secondaryLabel: "Открыть ИИ‑центр",
+      secondaryHref: aiHref,
+    };
+  }
+  if (state === "completed_without_ai_receipt") {
+    return {
+      status: "Исследование завершено · нужна синхронизация",
+      explanation:
+        "Исследование уже завершено, но его серверная квитанция для ИИ‑центра не найдена. Новый платный запуск не нужен: откройте сохранённый результат и проверьте синхронизацию.",
+      primaryLabel: "Открыть завершённый запуск",
+      primaryHref: researchHref,
+      secondaryLabel: "Открыть ИИ‑центр",
+      secondaryHref: aiHref,
+    };
+  }
+  if (state === "awaiting_learning_selection") {
+    return {
+      status: "Исследование завершено · нужен отбор",
+      explanation:
+        "Результат исследования уже получен. Чтобы он влиял на новые генерации, в ИИ‑центре выберите минимум один вывод и один сценарий, подтвердите отбор и нажмите «Обучить на выбранном и сохранить рекомендации».",
+      primaryLabel: "Отобрать для обучения",
+      primaryHref: aiHref,
+      secondaryLabel: "Открыть исследование",
+      secondaryHref: researchHref,
+    };
+  }
+  if (state === "recommendations_ready") {
+    return {
+      status: "Рекомендации ИИ готовы",
+      explanation:
+        "Исследование завершено, а выбранные человеком выводы и сценарии уже доступны в «Создать». Новый анализ этого видео для применения рекомендаций не нужен.",
+      primaryLabel: "Создать с рекомендациями",
+      primaryHref: generationHref,
+      secondaryLabel: "Открыть исследование",
+      secondaryHref: researchHref,
+    };
+  }
+  if (state === "excluded") {
+    return {
+      status: "Не включено в обучение",
+      explanation:
+        "Исследование сохранено, но этот результат был исключён человеком и не влияет на рекомендации для новых генераций. При необходимости откройте исходный запуск; новый платный анализ отсюда не начинается.",
+      primaryLabel: "Открыть исследование",
+      primaryHref: researchHref,
+      secondaryLabel: "Открыть ИИ‑центр",
+      secondaryHref: aiHref,
+    };
+  }
+
+  // Rolling-deploy fallback: the older queue v2 knows that MP4 is ready but
+  // cannot prove whether Product Research already completed.  Never claim
+  // that analysis is absent and never route straight into another paid flow.
+  return {
+    status: "MP4 готов · статус исследования уточняется",
+    explanation:
+      "MP4 сохранён и связан с точным источником. Эта версия ответа ещё не передала жизненный цикл исследования, поэтому ИИ‑центр не делает вывод, выполнен анализ или нет, и не запускает новый вызов.",
+    primaryLabel: "Открыть Исследования",
+    primaryHref: researchHref,
+    secondaryLabel: "",
+    secondaryHref: "",
+  };
+}
+
 function renderHeader(root, sources) {
-  const attached = sources.filter(
-    (source) => source?.status === "media_attached"
-      && source?.analysis_ready === true,
+  const awaiting = sources.filter(
+    (source) => source?.status !== "media_attached",
   ).length;
   const restore = sources.filter(
-    (source) => source?.status === "media_attached"
-      && source?.analysis_ready !== true,
+    (source) => source?.status === "media_attached" && !mediaReady(source),
   ).length;
-  const awaiting = sources.length - attached - restore;
+  const readyMedia = sources.filter(
+    (source) => source?.status === "media_attached" && mediaReady(source),
+  );
+  const recommendations = readyMedia.filter((source) => (
+    hasEffectiveRecommendations(source)
+    || researchLifecycle(source)?.state === "recommendations_ready"
+  )).length;
+  const selection = readyMedia.filter((source) => (
+    !hasEffectiveRecommendations(source)
+    && researchLifecycle(source)?.state === "awaiting_learning_selection"
+  )).length;
+  const running = readyMedia.filter((source) => (
+    !hasEffectiveRecommendations(source)
+    && researchLifecycle(source)?.state === "analysis_in_progress"
+  )).length;
+  const attention = readyMedia.filter((source) => (
+    !hasEffectiveRecommendations(source)
+    && new Set([
+      "analysis_failed",
+      "completed_without_ai_receipt",
+    ]).has(researchLifecycle(source)?.state)
+  )).length;
+  const excluded = readyMedia.filter((source) => (
+    !hasEffectiveRecommendations(source)
+    && researchLifecycle(source)?.state === "excluded"
+  )).length;
+  const notStarted = readyMedia.filter((source) => (
+    !hasEffectiveRecommendations(source)
+    && researchLifecycle(source)?.state === "not_started"
+  )).length;
+  const unknown = readyMedia.length
+    - recommendations - selection - running - attention - excluded
+    - notStarted;
   const header = el("header", "ai-exact-youtube-sources__head");
   const copy = el("div");
   const eyebrow = el("p", "eyebrow", "ИСТОЧНИКИ ИЗ ИССЛЕДОВАНИЙ");
@@ -141,7 +348,7 @@ function renderHeader(root, sources) {
   const intro = el(
     "p",
     "muted",
-    "Здесь видны точные YouTube-источники ещё до анализа. URL сохраняет происхождение, но не считается просмотренным видео и не влияет на рекомендации без MP4 и отдельной квитанции разбора.",
+    "Здесь виден полный путь точного YouTube‑источника: MP4, исследование, человеческий отбор и готовые рекомендации. Готовность файла и завершение исследования показаны отдельно; одна лишь ссылка не считается просмотренным видео.",
   );
   copy.append(eyebrow, title, intro);
   const badge = el(
@@ -149,7 +356,13 @@ function renderHeader(root, sources) {
     "ai-exact-youtube-sources__count",
     [
       awaiting ? `${awaiting} ждут MP4` : "",
-      attached ? `${attached} готовы к разбору` : "",
+      notStarted ? `${notStarted} ещё не исследованы` : "",
+      running ? `${running} исследуются` : "",
+      selection ? `${selection} ждут отбора` : "",
+      recommendations ? `${recommendations} с рекомендациями` : "",
+      excluded ? `${excluded} исключены` : "",
+      attention ? `${attention} требуют внимания` : "",
+      unknown ? `${unknown} уточняют статус` : "",
       restore ? `${restore} требуют проверки файла` : "",
     ].filter(Boolean).join(" · ") || "Очередь пуста",
   );
@@ -169,17 +382,46 @@ function sourceCard(source) {
   const attachedMediaId = clean(source?.media?.id, 64).toLowerCase();
   const hasAttachment = source?.status === "media_attached";
   const attached = hasAttachment
-    && source?.analysis_ready === true
+    && mediaReady(source)
     && UUID_PATTERN.test(attachedMediaId);
   const restore = hasAttachment && !attached;
+  const presentation = attached
+    ? lifecyclePresentation(source, attachedMediaId)
+    : restore
+      ? {
+          status: "Проверьте сохранённый MP4",
+          explanation:
+            "Связь с MP4 сохранена, но сервер больше не подтверждает готовность файла. Не загружайте другой ролик вместо него: сначала проверьте исходник в Файлах.",
+          primaryLabel: "Проверить сохранённый файл",
+          primaryHref: workspaceHash("/workspace/board", {
+            project_id: projectId(),
+          }),
+          secondaryLabel: "Открыть Исследования",
+          secondaryHref: exactResearchHash(source),
+        }
+      : {
+          status: "Ждёт MP4",
+          explanation:
+            "Шаг 1 выполнен: точный ролик зарегистрирован. Кадры, монтаж и речь ещё не анализировались. Выбранный путь позже анализирует только пять контрольных JPEG и визуальную механику; речь, аудио и полный поток не передаются. Поэтому источник пока не может обучать ИИ.",
+          primaryLabel: "Загрузить MP4 и продолжить",
+          primaryHref: workspaceHash("/workspace/media", {
+            project_id: projectId(),
+            youtube_source: clean(source.id, 64),
+            video_url: clean(source.canonical_url, 300),
+            product_name: clean(source.product_name, 300),
+            product_sku: clean(source.product_sku, 160),
+            return_to: workspaceHash("/workspace/ai", {
+              project_id: projectId(),
+              youtube_source: clean(source.id, 64),
+            }),
+          }),
+          secondaryLabel: "Открыть Исследования",
+          secondaryHref: exactResearchHash(source),
+        };
   const status = el(
     "span",
     "ai-exact-youtube-source__status",
-    attached
-      ? "MP4 привязан"
-      : restore
-        ? "Проверьте сохранённый MP4"
-        : "Ждёт MP4",
+    presentation.status,
   );
   head.append(title, status);
 
@@ -191,11 +433,7 @@ function sourceCard(source) {
   const explanation = el(
     "p",
     "",
-    attached
-      ? "MP4 сохранён и связан с точным источником. Разбор пяти контрольных кадров и визуальной механики ещё не выполнен; речь, аудио и полный видеопоток внешнему ИИ не передаются. До отдельной квитанции исследования источник не влияет на рекомендации ИИ."
-      : restore
-        ? "Связь с MP4 сохранена, но сервер больше не подтверждает готовность файла. Не загружайте другой ролик вместо него: сначала проверьте исходник в Файлах."
-        : "Шаг 1 выполнен: точный ролик зарегистрирован. Кадры, монтаж и речь ещё не анализировались. Выбранный путь позже анализирует только пять контрольных JPEG и визуальную механику; речь, аудио и полный поток не передаются. Поэтому источник пока не может обучать ИИ.",
+    presentation.explanation,
   );
   const meta = el("small", "ai-exact-youtube-source__meta");
   const sku = clean(source.product_sku, 100);
@@ -209,38 +447,9 @@ function sourceCard(source) {
   const primary = el(
     "a",
     "btn btn-primary btn-small",
-    attached
-      ? "Подготовить кадры для исследования"
-      : restore
-        ? "Проверить сохранённый файл"
-        : "Загрузить MP4 и продолжить",
+    presentation.primaryLabel,
   );
-  primary.href = attached
-    ? workspaceHash("/workspace/review", {
-        view: "new",
-        media: attachedMediaId,
-        project_id: projectId(),
-        youtube_source: clean(source.id, 64),
-        attachment: clean(source?.attachment?.id, 64),
-        product_name: clean(source.product_name, 300),
-        product_sku: clean(source.product_sku, 160),
-        purpose: "exact_youtube_research",
-      })
-    : restore
-      ? workspaceHash("/workspace/board", {
-          project_id: projectId(),
-        })
-      : workspaceHash("/workspace/media", {
-        project_id: projectId(),
-        youtube_source: clean(source.id, 64),
-        video_url: clean(source.canonical_url, 300),
-        product_name: clean(source.product_name, 300),
-        product_sku: clean(source.product_sku, 160),
-        return_to: workspaceHash("/workspace/ai", {
-          project_id: projectId(),
-          youtube_source: clean(source.id, 64),
-        }),
-      });
+  primary.href = presentation.primaryHref;
   if (!attached && !restore) {
     primary.dataset.exactYoutubeQueueUpload = "true";
     primary.addEventListener("click", (event) => {
@@ -252,9 +461,20 @@ function sourceCard(source) {
         "Контекст пользователя, проекта или вкладки изменился. MP4 не выбран и не загружен; обновите ИИ-центр и снова откройте этот источник.";
     });
   }
-  const research = el("a", "btn btn-secondary btn-small", "Открыть Исследования");
-  research.href = `#/workspace/research?project_id=${encodeURIComponent(projectId())}&source_url=${encodeURIComponent(clean(source.canonical_url, 300))}`;
-  actions.append(primary, research);
+  actions.append(primary);
+  if (
+    presentation.secondaryLabel
+    && presentation.secondaryHref
+    && presentation.secondaryHref !== presentation.primaryHref
+  ) {
+    const secondary = el(
+      "a",
+      "btn btn-secondary btn-small",
+      presentation.secondaryLabel,
+    );
+    secondary.href = presentation.secondaryHref;
+    actions.append(secondary);
+  }
 
   card.append(head, link, explanation, meta, actions);
   return card;

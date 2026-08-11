@@ -383,6 +383,8 @@ body.ce-v4-finder-route .workspace-board__drag-handle { position: absolute; righ
 .ce-v4-finder-kind[data-kind="reference"] { color: #c3b0e4; }
 .ce-v4-finder-kind[data-kind="video"] { color: #a6c8e7; }
 .ce-v4-finder-kind[data-kind="task"] { color: var(--ce-v4-warning); }
+.ce-v4-finder-kind[data-kind="source"] { color: var(--ce-v4-copper-bright); border-color: rgba(236,136,75,.3); }
+.ce-v4-finder-kind[data-kind="result"] { color: #c3b0e4; border-color: rgba(195,176,228,.3); }
 
 body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] .workspace-board__item {
   margin-bottom: 6px;

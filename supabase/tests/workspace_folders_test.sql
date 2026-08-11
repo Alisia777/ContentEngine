@@ -174,7 +174,7 @@ begin
 end;
 $final_gate_fixture$;
 
-select plan(69);
+select plan(77);
 
 select has_table(
   'content_factory',
@@ -497,6 +497,18 @@ insert into content_factory.workspace_folders (
     10000,
     '94000000-0000-4000-8000-000000000005',
     '94000000-0000-4000-8000-000000000005'
+  ),
+  (
+    '94400000-0000-4000-8000-000000000101',
+    '94100000-0000-4000-8000-000000000001',
+    null,
+    'Sibling exact-project boundary',
+    'violet',
+    'project',
+    'active',
+    9000,
+    '94000000-0000-4000-8000-000000000001',
+    '94000000-0000-4000-8000-000000000001'
   );
 
 -- Organization membership alone no longer grants project access.  Both
@@ -732,6 +744,23 @@ create temporary table workspace_test_context (
   operator_location_before uuid
 ) on commit drop;
 
+select is(
+  content_factory_private.repair_workspace_project_system_folders(
+    '94100000-0000-4000-8000-000000000001',
+    '94400000-0000-4000-8000-000000000100'
+  ),
+  5,
+  'legacy project repair creates all five missing lifecycle folders'
+);
+select is(
+  content_factory_private.repair_workspace_project_system_folders(
+    '94100000-0000-4000-8000-000000000001',
+    '94400000-0000-4000-8000-000000000100'
+  ),
+  0,
+  'legacy project folder repair is idempotent'
+);
+
 insert into workspace_test_context (
   original_media_object_name,
   original_media_sha,
@@ -754,6 +783,7 @@ update workspace_test_context
 set root_result = public.creator_create_workspace_folder(
   jsonb_build_object(
     'organization_id', '94100000-0000-4000-8000-000000000001',
+    'project_id', '94400000-0000-4000-8000-000000000100',
     'idempotency_key', 'workspace-create-root-0001',
     'name', 'Campaign assets',
     'color_token', 'gold',
@@ -782,6 +812,7 @@ select is(
   (
     public.creator_create_workspace_folder(jsonb_build_object(
       'organization_id', '94100000-0000-4000-8000-000000000001',
+      'project_id', '94400000-0000-4000-8000-000000000100',
       'idempotency_key', 'workspace-create-root-0001',
       'name', 'Campaign assets',
       'color_token', 'gold',
@@ -819,9 +850,88 @@ select is(
   'folder creation emits one durable event'
 );
 
+delete from content_factory.workspace_media_locations location
+where location.organization_id =
+    '94100000-0000-4000-8000-000000000001'
+  and location.media_object_id =
+    '94200000-0000-4000-8000-000000000001';
+
+select is(
+  (
+    public.creator_move_workspace_items(jsonb_build_object(
+      'organization_id', '94100000-0000-4000-8000-000000000001',
+      'project_id', '94400000-0000-4000-8000-000000000100',
+      'idempotency_key', 'workspace-no-location-move-0001',
+      'destination_folder_id', (
+        select root_folder_id from workspace_test_context
+      ),
+      'items', jsonb_build_array(jsonb_build_object(
+        'type', 'media',
+        'id', '94200000-0000-4000-8000-000000000001'
+      ))
+    )) ->> 'moved_count'
+  )::integer,
+  1,
+  'an exact-project legacy media row can be filed without a preexisting location'
+);
+select is(
+  (
+    select location.folder_id
+    from content_factory.workspace_media_locations location
+    where location.organization_id =
+        '94100000-0000-4000-8000-000000000001'
+      and location.media_object_id =
+        '94200000-0000-4000-8000-000000000001'
+  ),
+  (select root_folder_id from workspace_test_context),
+  'the missing location is materialized at the requested custom destination'
+);
+
+select throws_ok(
+  $$select public.creator_move_workspace_items(jsonb_build_object(
+    'organization_id', '94100000-0000-4000-8000-000000000001',
+    'project_id', '94400000-0000-4000-8000-000000000100',
+    'idempotency_key', 'workspace-system-destination-denied-0001',
+    'destination_folder_id', (
+      select folder.id
+      from content_factory.workspace_folders folder
+      where folder.organization_id =
+          '94100000-0000-4000-8000-000000000001'
+        and folder.parent_id =
+          '94400000-0000-4000-8000-000000000100'
+        and folder.system_role = 'sources'
+        and folder.status = 'active'
+    ),
+    'items', jsonb_build_array(jsonb_build_object(
+      'type', 'media',
+      'id', '94200000-0000-4000-8000-000000000001'
+    ))
+  ))$$,
+  '55000',
+  'workspace_system_folder_manual_destination_forbidden',
+  'manual moves cannot target server-owned lifecycle folders'
+);
+
+select throws_ok(
+  $$select public.creator_move_workspace_items(jsonb_build_object(
+    'organization_id', '94100000-0000-4000-8000-000000000001',
+    'project_id', '94400000-0000-4000-8000-000000000100',
+    'idempotency_key', 'workspace-sibling-project-destination-0001',
+    'destination_folder_id', '94400000-0000-4000-8000-000000000101',
+    'items', jsonb_build_array(jsonb_build_object(
+      'type', 'media',
+      'id', '94200000-0000-4000-8000-000000000001'
+    ))
+  ))$$,
+  '42501',
+  'workspace_folder_project_mismatch',
+  'an authorized sibling project is still not a valid destination'
+);
+
 select throws_ok(
   $$select public.creator_create_workspace_folder(jsonb_build_object(
     'organization_id', '94100000-0000-4000-8000-000000000001',
+    'project_id', '94400000-0000-4000-8000-000000000100',
     'idempotency_key', 'workspace-create-root-0001',
     'name', 'Changed retry',
     'parent_id', '94400000-0000-4000-8000-000000000100'
@@ -833,6 +943,7 @@ select throws_ok(
 select throws_ok(
   $$select public.creator_create_workspace_folder(jsonb_build_object(
     'organization_id', '94100000-0000-4000-8000-000000000001',
+    'project_id', '94400000-0000-4000-8000-000000000100',
     'idempotency_key', 'workspace-create-duplicate-0001',
     'name', '  CAMPAIGN ASSETS  ',
     'parent_id', '94400000-0000-4000-8000-000000000100'
@@ -846,6 +957,7 @@ update workspace_test_context
 set nested_result = public.creator_create_workspace_folder(
   jsonb_build_object(
     'organization_id', '94100000-0000-4000-8000-000000000001',
+    'project_id', '94400000-0000-4000-8000-000000000100',
     'idempotency_key', 'workspace-create-nested-0001',
     'name', 'Ready videos',
     'parent_id', root_folder_id
@@ -870,6 +982,7 @@ select ok(
   (
     public.creator_create_workspace_folder(jsonb_build_object(
       'organization_id', '94100000-0000-4000-8000-000000000001',
+      'project_id', '94400000-0000-4000-8000-000000000100',
       'idempotency_key', 'workspace-create-same-name-nested-0001',
       'name', 'Campaign assets',
       'parent_id', (
@@ -1027,6 +1140,7 @@ insert into content_factory.workspace_folders (
 select throws_ok(
   $$select public.creator_create_workspace_folder(jsonb_build_object(
     'organization_id', '94100000-0000-4000-8000-000000000001',
+    'project_id', '94400000-0000-4000-8000-000000000100',
     'idempotency_key', 'workspace-cross-org-parent-0001',
     'name', 'Invalid cross org child',
     'parent_id', '94400000-0000-4000-8000-000000000010'
@@ -1036,10 +1150,28 @@ select throws_ok(
   'cross-organization parent is indistinguishable from missing'
 );
 
+select throws_ok(
+  $$select public.creator_update_workspace_folder(jsonb_build_object(
+    'organization_id', '94100000-0000-4000-8000-000000000001',
+    'project_id', '94400000-0000-4000-8000-000000000100',
+    'idempotency_key', 'workspace-update-cross-org-parent-0001',
+    'folder_id', (
+      select root_folder_id
+      from workspace_test_context
+    ),
+    'expected_version', 1,
+    'parent_id', '94400000-0000-4000-8000-000000000010'
+  ))$$,
+  'P0002',
+  'workspace_folder_parent_not_found',
+  'folder update hides a cross-organization parent as missing'
+);
+
 select is(
   (
     public.creator_update_workspace_folder(jsonb_build_object(
       'organization_id', '94100000-0000-4000-8000-000000000001',
+      'project_id', '94400000-0000-4000-8000-000000000100',
       'idempotency_key', 'workspace-rename-root-0001',
       'folder_id', (
         select root_folder_id
@@ -1056,6 +1188,7 @@ select is(
 select throws_ok(
   $$select public.creator_update_workspace_folder(jsonb_build_object(
     'organization_id', '94100000-0000-4000-8000-000000000001',
+    'project_id', '94400000-0000-4000-8000-000000000100',
     'idempotency_key', 'workspace-stale-version-0001',
     'folder_id', (
       select root_folder_id
@@ -1073,6 +1206,7 @@ select is(
   (
     public.creator_move_workspace_items(jsonb_build_object(
       'organization_id', '94100000-0000-4000-8000-000000000001',
+      'project_id', '94400000-0000-4000-8000-000000000100',
       'idempotency_key', 'workspace-owner-mixed-move-0001',
       'destination_folder_id', (
         select nested_folder_id
@@ -1119,6 +1253,7 @@ select is(
   (
     public.creator_move_workspace_items(jsonb_build_object(
       'organization_id', '94100000-0000-4000-8000-000000000001',
+      'project_id', '94400000-0000-4000-8000-000000000100',
       'idempotency_key', 'workspace-owner-mixed-move-0001',
       'destination_folder_id', (
         select nested_folder_id
@@ -1326,6 +1461,7 @@ select is(
 select throws_ok(
   $$select public.creator_update_workspace_folder(jsonb_build_object(
     'organization_id', '94100000-0000-4000-8000-000000000001',
+    'project_id', '94400000-0000-4000-8000-000000000100',
     'idempotency_key', 'workspace-archive-nonempty-0001',
     'folder_id', (
       select nested_folder_id
@@ -1343,6 +1479,7 @@ update workspace_test_context
 set empty_result = public.creator_create_workspace_folder(
   jsonb_build_object(
     'organization_id', '94100000-0000-4000-8000-000000000001',
+    'project_id', '94400000-0000-4000-8000-000000000100',
     'idempotency_key', 'workspace-create-empty-0001',
     'name', 'Empty archive candidate',
     'parent_id', '94400000-0000-4000-8000-000000000100'
@@ -1355,6 +1492,7 @@ select is(
   (
     public.creator_update_workspace_folder(jsonb_build_object(
       'organization_id', '94100000-0000-4000-8000-000000000001',
+      'project_id', '94400000-0000-4000-8000-000000000100',
       'idempotency_key', 'workspace-archive-empty-0001',
       'folder_id', (
         select empty_folder_id
@@ -1370,6 +1508,7 @@ select is(
 select throws_ok(
   $$select public.creator_move_workspace_items(jsonb_build_object(
     'organization_id', '94100000-0000-4000-8000-000000000001',
+    'project_id', '94400000-0000-4000-8000-000000000100',
     'idempotency_key', 'workspace-move-archived-0001',
     'destination_folder_id', (
       select empty_folder_id
@@ -1389,6 +1528,7 @@ select is(
   (
     public.creator_move_workspace_items(jsonb_build_object(
       'organization_id', '94100000-0000-4000-8000-000000000001',
+      'project_id', '94400000-0000-4000-8000-000000000100',
       'idempotency_key', 'workspace-move-root-0001',
       'items', jsonb_build_array(jsonb_build_object(
         'type', 'media',
@@ -1504,9 +1644,15 @@ select ok(
         'project_id', '94400000-0000-4000-8000-000000000100'
       )) -> 'folders'
     ) folder(value)
-    where (folder.value ->> 'can_edit')::boolean is distinct from true
+    where (
+      nullif(folder.value ->> 'system_role', '') is null
+      and (folder.value ->> 'can_edit')::boolean is distinct from true
+    ) or (
+      nullif(folder.value ->> 'system_role', '') is not null
+      and (folder.value ->> 'can_edit')::boolean is distinct from false
+    )
   ),
-  'owner receives editable folder records'
+  'owner can edit custom folders while lifecycle folders remain server-owned'
 );
 
 do $$
@@ -1534,6 +1680,7 @@ select is(
   (
     public.creator_move_workspace_items(jsonb_build_object(
       'organization_id', '94100000-0000-4000-8000-000000000001',
+      'project_id', '94400000-0000-4000-8000-000000000100',
       'idempotency_key', 'workspace-operator-own-move-0001',
       'destination_folder_id', (
         select nested_folder_id
@@ -1566,6 +1713,7 @@ set operator_location_before = (
 select throws_ok(
   $$select public.creator_move_workspace_items(jsonb_build_object(
     'organization_id', '94100000-0000-4000-8000-000000000001',
+    'project_id', '94400000-0000-4000-8000-000000000100',
     'idempotency_key', 'workspace-operator-foreign-batch-0001',
     'items', jsonb_build_array(
       jsonb_build_object(
@@ -1598,6 +1746,7 @@ select is(
 select throws_ok(
   $$select public.creator_create_workspace_folder(jsonb_build_object(
     'organization_id', '94100000-0000-4000-8000-000000000001',
+    'project_id', '94400000-0000-4000-8000-000000000100',
     'idempotency_key', 'workspace-operator-create-denied-0001',
     'name', 'Operator cannot create',
     'parent_id', '94400000-0000-4000-8000-000000000100'
@@ -1660,6 +1809,7 @@ $$;
 select throws_ok(
   $$select public.creator_move_workspace_items(jsonb_build_object(
     'organization_id', '94100000-0000-4000-8000-000000000001',
+    'project_id', '94400000-0000-4000-8000-000000000100',
     'idempotency_key', 'workspace-cross-org-item-0001',
     'items', jsonb_build_array(jsonb_build_object(
       'type', 'media',
@@ -1673,6 +1823,7 @@ select throws_ok(
 select throws_ok(
   $$select public.creator_move_workspace_items(jsonb_build_object(
     'organization_id', '94100000-0000-4000-8000-000000000001',
+    'project_id', '94400000-0000-4000-8000-000000000100',
     'idempotency_key', 'workspace-duplicate-items-0001',
     'items', jsonb_build_array(
       jsonb_build_object(
@@ -1692,6 +1843,7 @@ select throws_ok(
 select throws_ok(
   $$select public.creator_move_workspace_items(jsonb_build_object(
     'organization_id', '94100000-0000-4000-8000-000000000001',
+    'project_id', '94400000-0000-4000-8000-000000000100',
     'idempotency_key', 'workspace-invalid-type-0001',
     'items', jsonb_build_array(jsonb_build_object(
       'type', 'placement',
@@ -1715,6 +1867,7 @@ select throws_ok(
 select throws_ok(
   $$select public.creator_create_workspace_folder(jsonb_build_object(
     'organization_id', '94100000-0000-4000-8000-000000000001',
+    'project_id', '94400000-0000-4000-8000-000000000100',
     'idempotency_key', 'workspace-unknown-field-0001',
     'name', 'Strict payload',
     'parent_id', '94400000-0000-4000-8000-000000000100',
@@ -1723,6 +1876,41 @@ select throws_ok(
   '22023',
   'workspace_folder_create_payload_invalid',
   'folder creation rejects unknown payload fields'
+);
+
+update content_factory.workspace_project_memberships project_member
+set status = 'revoked',
+    updated_by = '94000000-0000-4000-8000-000000000001'
+where project_member.organization_id =
+    '94100000-0000-4000-8000-000000000001'
+  and project_member.project_id =
+    '94400000-0000-4000-8000-000000000100'
+  and project_member.profile_id =
+    '94000000-0000-4000-8000-000000000002';
+
+do $$
+begin
+  perform set_config(
+    'request.jwt.claim.sub',
+    '94000000-0000-4000-8000-000000000002',
+    true
+  );
+end;
+$$;
+
+select throws_ok(
+  $$select public.creator_move_workspace_items(jsonb_build_object(
+    'organization_id', '94100000-0000-4000-8000-000000000001',
+    'project_id', '94400000-0000-4000-8000-000000000100',
+    'idempotency_key', 'workspace-revoked-project-move-0001',
+    'items', jsonb_build_array(jsonb_build_object(
+      'type', 'media',
+      'id', '94200000-0000-4000-8000-000000000003'
+    ))
+  ))$$,
+  '42501',
+  'workspace_project_access_required',
+  'a revoked project collaborator cannot move even their own project media'
 );
 
 select * from finish();

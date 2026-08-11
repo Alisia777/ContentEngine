@@ -3,7 +3,7 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260811.os4.28";
+} from "./supabase-api.js?v=20260811.os4.29";
 import {
   clearExactYoutubeMediaHandoff,
   exactYoutubeRegisteredMediaId,
@@ -24,8 +24,8 @@ import {
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
 } from "./generation-spec.js?v=20260803.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260811.os4.28";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260811.os4.28";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260811.os4.29";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260811.os4.29";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -88,7 +88,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260811.os4.28";
+} from "./product-research-view.js?v=20260811.os4.29";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -99,7 +99,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260811.os4.28";
+} from "./ai-learning-control-room.js?v=20260811.os4.29";
 import {
   compileContentGenerationPrompt,
   compileSafeGenerationBrief,
@@ -112,7 +112,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260811.os4.28";
+} from "./content-generation-handoff.js?v=20260811.os4.29";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -125,13 +125,17 @@ import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
   normalizeGenerationVideoReferenceContext,
-} from "./generation-video-reference.js?v=20260811.os4.28";
+} from "./generation-video-reference.js?v=20260811.os4.29";
 import {
   buildGenerationFormDraft,
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260811.os4.28";
+} from "./generation-form-draft.js?v=20260811.os4.29";
+import {
+  readGenerationAiResearchWorkingDraft,
+  resolveGenerationAiResearchProductIdentity,
+} from "./generation-ai-research-working-draft.js?v=20260811.ai-working-draft.1";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -143,7 +147,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260811.os4.28";
+} from "./generation-autopilot.js?v=20260811.os4.29";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -164,7 +168,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260811.os4.28";
+} from "./content-review-view.js?v=20260811.os4.29";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -193,7 +197,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260811.os4.28";
+} from "./workspace-board-view.js?v=20260811.os4.29";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -222,7 +226,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260811.os4.28";
+} from "./training-journey.js?v=20260811.os4.29";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -241,7 +245,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260811.os4.28";
+} from "./training-practical-review.js?v=20260811.os4.29";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -260,7 +264,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260811.os4.28";
+} from "./my-work-view.js?v=20260811.os4.29";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -1907,7 +1911,7 @@ function persistGenerationFormDraft(form, { manual = false } = {}) {
   const status = form.querySelector("#generation-draft-status");
   if (status) {
     status.textContent = saved
-      ? "Черновик сохраняется в этой вкладке. Подтверждение оплаты никогда не сохраняется."
+      ? "Локальная резервная копия обновлена. Выбранная рекомендация и творческие правки отдельно синхронизируются с проектом; подтверждение оплаты никогда не сохраняется."
       : "Браузер не сохранил черновик. Не закрывайте вкладку до запуска.";
   }
   return saved;
@@ -1929,10 +1933,100 @@ function scheduleGenerationFormDraftSave(form, options = {}) {
   }, 180);
 }
 
-function restoreGenerationFormDraft(form) {
+function generationAiResearchSessionPrefix() {
+  const projectId = currentWorkspaceProjectId();
+  return isWorkspaceProjectId(projectId)
+    ? `contentengine.generation.research-recommendation.v3:${projectId}:`
+    : "";
+}
+
+function storedGenerationAiResearchSelectionHint() {
+  const prefix = generationAiResearchSessionPrefix();
+  if (!prefix) return null;
+  try {
+    for (let index = 0; index < window.sessionStorage.length; index += 1) {
+      const key = window.sessionStorage.key(index);
+      if (!key?.startsWith(prefix)) continue;
+      const value = JSON.parse(window.sessionStorage.getItem(key) || "{}");
+      const selectionId = String(value?.selectionId || "").trim().toLowerCase();
+      const position = Number(value?.recommendationPosition);
+      if (
+        contentReviewUuid(selectionId)
+        && [1, 2, 3].includes(position)
+        && Array.isArray(value?.appliedFields)
+        && value.appliedFields.length > 0
+        && value?.optedOut !== true
+      ) return { selectionId, recommendationPosition: position };
+    }
+  } catch {
+    // A hint can only tighten verification; absence leaves a manual draft alone.
+  }
+  return null;
+}
+
+function clearStoredGenerationAiResearchSelectionHints() {
+  const prefix = generationAiResearchSessionPrefix();
+  if (!prefix) return;
+  try {
+    const keys = [];
+    for (let index = 0; index < window.sessionStorage.length; index += 1) {
+      const key = window.sessionStorage.key(index);
+      if (key?.startsWith(prefix)) keys.push(key);
+    }
+    keys.forEach((key) => window.sessionStorage.removeItem(key));
+  } catch {
+    // Server tombstone remains authoritative even if browser cleanup fails.
+  }
+}
+
+function requireGenerationAiResearchSelectionVerification(
+  form,
+  hint,
+  stateValue = "pending",
+) {
+  if (!form || !hint) return false;
+  form.dataset.generationAiResearchWorkingSelectionId = hint.selectionId;
+  form.dataset.generationAiResearchWorkingPosition = String(
+    hint.recommendationPosition,
+  );
+  form.dataset.researchRecommendationVerificationRequired = "true";
+  form.dataset.researchRecommendationVerificationState = stateValue;
+  form.dataset.researchRecommendationVerificationSelectionId = hint.selectionId;
+  form.dataset.researchRecommendationVerificationPosition = String(
+    hint.recommendationPosition,
+  );
+  return true;
+}
+
+function clearGenerationAiResearchLineageFromForm(form) {
+  state.aiResearchRecommendation = null;
+  for (const key of [
+    "generationAiResearchWorkingSelectionId",
+    "generationAiResearchWorkingPosition",
+    "researchRecommendationLineage",
+    "researchRecommendationSelectionId",
+    "researchRecommendationPosition",
+    "researchRecommendationAppliedFields",
+    "researchRecommendationProductId",
+    "researchRecommendationProductCategory",
+    "researchRecommendationVerificationRequired",
+    "researchRecommendationVerificationState",
+    "researchRecommendationVerificationFailure",
+    "researchRecommendationVerificationSelectionId",
+    "researchRecommendationVerificationPosition",
+  ]) delete form.dataset[key];
+  form.querySelectorAll("[data-research-recommendation-applied]").forEach(
+    (control) => {
+      delete control.dataset.researchRecommendationApplied;
+      delete control.dataset.researchRecommendationField;
+      delete control.dataset.researchRecommendationEdited;
+    },
+  );
+}
+
+function restoreLocalGenerationFormDraft(form, { operationalOnly = false } = {}) {
   const key = generationFormDraftStorageKey();
-  if (!key || !form || form.dataset.generationDraftRestored === "true") return false;
-  form.dataset.generationDraftRestored = "true";
+  if (!key || !form) return false;
   let raw;
   try {
     const serialized = safeStorageGet(window.sessionStorage, key);
@@ -1951,11 +2045,13 @@ function restoreGenerationFormDraft(form) {
     return false;
   }
   const values = draft.values;
-  const mode = form.elements.generation_mode;
-  const modeOption = Array.from(mode?.options || []).find((option) => (
-    option.value === values.generation_mode && !option.disabled
-  ));
-  if (modeOption) mode.value = modeOption.value;
+  if (!operationalOnly) {
+    const mode = form.elements.generation_mode;
+    const modeOption = Array.from(mode?.options || []).find((option) => (
+      option.value === values.generation_mode && !option.disabled
+    ));
+    if (modeOption) mode.value = modeOption.value;
+  }
   const campaign = form.elements.campaign_id;
   const campaignOption = Array.from(campaign?.options || []).find((option) => (
     option.value === values.campaign_id && !option.disabled
@@ -1988,22 +2084,32 @@ function restoreGenerationFormDraft(form) {
     }
     field.value = String(value);
   };
-  for (const name of [
-    "product_category",
-    "duration_seconds",
-    "platform",
-    "destination_ref",
-    "assignee_id",
-    "payout_rub",
-    "count",
-    "format",
-    "brief",
-    "generation_reference_url",
-    "generation_reference_mechanics",
-  ]) {
+  const restoredFieldNames = operationalOnly
+    ? [
+      "destination_ref",
+      "assignee_id",
+      "payout_rub",
+      "count",
+      "generation_reference_url",
+      "generation_reference_mechanics",
+    ]
+    : [
+      "product_category",
+      "duration_seconds",
+      "platform",
+      "destination_ref",
+      "assignee_id",
+      "payout_rub",
+      "count",
+      "format",
+      "brief",
+      "generation_reference_url",
+      "generation_reference_mechanics",
+    ];
+  for (const name of restoredFieldNames) {
     setValue(name, values[name]);
   }
-  if (values.scenario_intent) {
+  if (!operationalOnly && values.scenario_intent) {
     form.dataset.generationScenarioIntent = values.scenario_intent;
   }
   if (form.elements.generation_reference_source_access_confirmed) {
@@ -2014,7 +2120,7 @@ function restoreGenerationFormDraft(form) {
     form.elements.generation_reference_transformative_use_confirmed.checked =
       values.generation_reference_transformative_use_confirmed === true;
   }
-  if (!restoredMediaCount) {
+  if (!restoredMediaCount && !operationalOnly) {
     setValue("sku", values.sku);
     setValue("product_name", values.product_name);
   } else {
@@ -2029,9 +2135,266 @@ function restoreGenerationFormDraft(form) {
   syncGenerationFormReadiness(form);
   const status = form.querySelector("#generation-draft-status");
   if (status) {
-    status.textContent = "Черновик восстановлен. Проверьте ТЗ; подтверждение оплаты нужно поставить заново.";
+    status.textContent = operationalOnly
+      ? "Рабочие настройки этой вкладки восстановлены. Подтверждение оплаты никогда не сохраняется."
+      : "Черновик восстановлен. Проверьте ТЗ. Подтверждение оплаты никогда не сохраняется.";
   }
   return true;
+}
+
+function applyGenerationAiResearchWorkingDraft(form, shared) {
+  const draft = shared?.draft;
+  const values = draft?.editableFields;
+  const recommendation = draft?.recommendation;
+  if (!form || !values || !recommendation) return false;
+  const setValue = (name, value, { allowEmpty = true } = {}) => {
+    const field = form.elements?.[name];
+    if (
+      !field
+      || value === null
+      || value === undefined
+      || (!allowEmpty && value === "")
+    ) return false;
+    if (field instanceof HTMLSelectElement) {
+      const option = Array.from(field.options).find((candidate) => (
+        candidate.value === String(value) && !candidate.disabled
+      ));
+      if (!option) return false;
+    }
+    field.value = String(value);
+    return true;
+  };
+
+  const verifiedProductId = String(recommendation.product_id || "")
+    .trim().toLowerCase();
+  const selectedMediaProductId = String(form.dataset.identityProductId || "")
+    .trim().toLowerCase();
+  const productIdentity = resolveGenerationAiResearchProductIdentity(
+    verifiedProductId,
+    selectedMediaProductId,
+  );
+  if (!productIdentity.ok && productIdentity.code === "product_mismatch") {
+    form.dataset.generationAiResearchWorkingRevision = String(shared.revision);
+    form.dataset.generationAiResearchWorkingSelectionId = draft.selectionId;
+    form.dataset.generationAiResearchWorkingPosition = String(
+      draft.recommendationPosition,
+    );
+    form.dataset.researchRecommendationProductId = verifiedProductId;
+    form.dataset.researchRecommendationProductCategory = String(
+      recommendation.product_category || "",
+    ).trim().toLowerCase();
+    form.dataset.researchRecommendationVerificationRequired = "true";
+    form.dataset.researchRecommendationVerificationState = "failed";
+    form.dataset.researchRecommendationVerificationFailure = "product_mismatch";
+    form.dataset.researchRecommendationVerificationSelectionId = draft.selectionId;
+    form.dataset.researchRecommendationVerificationPosition = String(
+      draft.recommendationPosition,
+    );
+    state.aiResearchRecommendation = null;
+    state.generationSpec.aiResearchBinding = null;
+    state.generationSpec.videoReferenceBinding = null;
+    if (form.elements.real_spend_confirmation) {
+      form.elements.real_spend_confirmation.checked = false;
+    }
+    const status = form.querySelector("#generation-draft-status");
+    if (status) {
+      status.textContent =
+        "Общий вариант ИИ‑центра относится к другому товару, чем выбранные медиа. Его творческие поля не применены; техническое ТЗ и платный запуск заблокированы.";
+    }
+    return true;
+  }
+  if (productIdentity.ok) {
+    setValue("sku", recommendation.source_product_sku || "");
+    setValue("product_name", recommendation.source_product_name || "");
+    form.dataset.researchRecommendationProductId = verifiedProductId;
+    form.dataset.researchRecommendationProductCategory = String(
+      recommendation.product_category || "",
+    ).trim().toLowerCase();
+  }
+
+  setValue("generation_mode", values.generation_mode);
+  syncGenerationModeForm(form);
+  setValue("product_category", values.product_category);
+  setValue("platform", values.platform);
+  if (values.duration_seconds !== null) {
+    setValue("duration_seconds", values.duration_seconds);
+  }
+  setValue("format", values.format);
+  setValue("brief", values.brief);
+  form.dataset.generationScenarioIntent = String(values.brief || "")
+    .trim().slice(0, 1_200);
+  form.dataset.generationAiResearchWorkingRevision = String(shared.revision);
+  form.dataset.generationAiResearchWorkingSelectionId = draft.selectionId;
+  form.dataset.generationAiResearchWorkingPosition = String(
+    draft.recommendationPosition,
+  );
+  form.dataset.researchRecommendationVerificationRequired = "true";
+  form.dataset.researchRecommendationVerificationState = "pending";
+  delete form.dataset.researchRecommendationVerificationFailure;
+  form.dataset.researchRecommendationVerificationSelectionId =
+    draft.selectionId;
+  form.dataset.researchRecommendationVerificationPosition = String(
+    draft.recommendationPosition,
+  );
+  form.dataset.researchRecommendationLineage = "active";
+  form.dataset.researchRecommendationSelectionId = draft.selectionId;
+  form.dataset.researchRecommendationPosition = String(
+    draft.recommendationPosition,
+  );
+  form.dataset.researchRecommendationAppliedFields =
+    draft.appliedFields.join(",");
+  draft.appliedFields.forEach((field) => {
+    const controlName = field === "mode" ? "generation_mode" : field;
+    const control = form.elements?.[controlName];
+    if (!control?.dataset) return;
+    control.dataset.researchRecommendationApplied = draft.selectionId;
+    control.dataset.researchRecommendationField = field;
+    if (draft.touchedFields.includes(field)) {
+      control.dataset.researchRecommendationEdited = "true";
+    }
+  });
+
+  state.aiResearchRecommendation = {
+    projectId: shared.projectId,
+    productCategory: String(recommendation.product_category || "")
+      .trim().toLowerCase(),
+    selectionId: draft.selectionId,
+    recommendationPosition: draft.recommendationPosition,
+    productId: verifiedProductId,
+    appliedFields: [...draft.appliedFields],
+    touchedFields: [...draft.touchedFields],
+    previousValues: { ...draft.previousValues },
+    lastAppliedValues: { ...draft.lastAppliedValues },
+    autoApplyDisabled: draft.autoApplyDisabled === true,
+    preset: recommendation.preset && typeof recommendation.preset === "object"
+      ? { ...recommendation.preset }
+      : {},
+    receivedAt: Date.now(),
+  };
+  state.generationSpec.aiResearchBinding = null;
+  state.generationSpec.videoReferenceBinding = null;
+  if (form.elements.real_spend_confirmation) {
+    form.elements.real_spend_confirmation.checked = false;
+  }
+  form.dataset.dirty = "true";
+  syncGenerationModeForm(form);
+  syncContentGenerationHandoff(form);
+  syncGenerationFormReadiness(form);
+  const status = form.querySelector("#generation-draft-status");
+  if (status) {
+    status.textContent =
+      "Общий черновик проекта восстановлен с сервера. Проверьте правки; кампания, медиа и подтверждение оплаты не сохранялись.";
+  }
+  return true;
+}
+
+async function restoreGenerationFormDraft(form) {
+  if (
+    !form
+    || form.dataset.generationDraftRestored === "true"
+    || form.dataset.generationDraftHydration === "loading"
+  ) return false;
+  form.dataset.generationDraftHydration = "loading";
+  const projectId = currentWorkspaceProjectId();
+  const initialCreativeValues = Object.fromEntries([
+    "generation_mode", "product_category", "platform",
+    "duration_seconds", "format", "brief",
+  ].map((name) => [name, String(form.elements?.[name]?.value ?? "")]));
+  let restored = false;
+  let serverUnavailable = false;
+  let authoritativeEmptyHandled = false;
+  try {
+    if (isWorkspaceProjectId(projectId)) {
+      const shared = await readGenerationAiResearchWorkingDraft(
+        state.api,
+        projectId,
+        { force: true },
+      );
+      if (!form.isConnected || currentWorkspaceProjectId() !== projectId) {
+        return false;
+      }
+      if (shared?.draft) {
+        // Local storage remains the authority only for operational choices.
+        // The server immediately overwrites all six creative fields below.
+        restoreLocalGenerationFormDraft(form, { operationalOnly: true });
+        restored = applyGenerationAiResearchWorkingDraft(form, shared);
+      } else if (Number(shared?.revision) > 0) {
+        // A positive empty revision is a server tombstone created by another
+        // participant (or this user) after an explicit opt-out. Restore only
+        // operational local choices, then remove the six stale AI fields.
+        const localOperationalRestored = restoreLocalGenerationFormDraft(
+          form,
+          { operationalOnly: true },
+        );
+        form.dataset.generationAiResearchWorkingRevision = String(
+          shared.revision,
+        );
+        const setInitial = (name) => {
+          const field = form.elements?.[name];
+          if (!field) return;
+          const value = initialCreativeValues[name];
+          if (field instanceof HTMLSelectElement) {
+            const option = Array.from(field.options).find((candidate) => (
+              candidate.value === value && !candidate.disabled
+            ));
+            if (!option) return;
+          }
+          field.value = value;
+        };
+        setInitial("generation_mode");
+        syncGenerationModeForm(form);
+        for (const name of [
+          "product_category", "platform", "duration_seconds", "format", "brief",
+        ]) setInitial(name);
+        form.dataset.generationScenarioIntent = String(
+          initialCreativeValues.brief || "",
+        ).trim().slice(0, 1_200);
+        clearStoredGenerationAiResearchSelectionHints();
+        clearGenerationAiResearchLineageFromForm(form);
+        if (form.elements.real_spend_confirmation) {
+          form.elements.real_spend_confirmation.checked = false;
+        }
+        syncGenerationModeForm(form);
+        syncGenerationFormReadiness(form);
+        const status = form.querySelector("#generation-draft-status");
+        if (status) {
+          status.textContent =
+            "Общий выбор ИИ‑центра был очищен другим участником. Старая локальная рекомендация не восстановлена; кампания и выбранные исходники этой вкладки сохранены без подтверждения оплаты.";
+        }
+        restored = localOperationalRestored;
+        authoritativeEmptyHandled = true;
+      }
+    }
+  } catch (error) {
+    serverUnavailable = true;
+    console.warn("Shared AI recommendation draft unavailable", error);
+  }
+  if (!restored && !authoritativeEmptyHandled && form.isConnected) {
+    restored = restoreLocalGenerationFormDraft(form);
+    const localAiHint = storedGenerationAiResearchSelectionHint();
+    if (localAiHint) {
+      requireGenerationAiResearchSelectionVerification(
+        form,
+        localAiHint,
+        serverUnavailable ? "failed" : "pending",
+      );
+    }
+    if (serverUnavailable) {
+      const status = form.querySelector("#generation-draft-status");
+      if (status) {
+        status.textContent = restored && localAiHint
+          ? "Серверный черновик временно недоступен. Локальный ИИ‑замысел показан, но техническое ТЗ и платный запуск заблокированы до серверной проверки точного отбора."
+          : restored
+            ? "Серверный черновик временно недоступен; восстановлен ручной черновик этой вкладки. Подтверждение оплаты не сохранялось."
+          : "Серверный черновик временно недоступен. Текущие поля не отправлены и подтверждение оплаты не сохранялось.";
+      }
+    }
+  }
+  if (form.isConnected) {
+    form.dataset.generationDraftHydration = restored ? "restored" : "empty";
+    form.dataset.generationDraftRestored = "true";
+  }
+  return restored;
 }
 
 function clearGenerationFormDraft() {
@@ -2482,6 +2845,12 @@ function normalizeGenerationResearchPresetEvent(event) {
   const preset = Object.fromEntries(
     Object.entries(presetSource).filter(([field]) => allowedFields.has(field)),
   );
+  const authoritativeProductId = String(
+    detail?.authoritative_product_id
+      || form.dataset.researchRecommendationProductId
+      || "",
+  ).trim().toLowerCase();
+  if (!contentReviewUuid(authoritativeProductId)) return null;
   return {
     form,
     selection: {
@@ -2493,6 +2862,7 @@ function normalizeGenerationResearchPresetEvent(event) {
       ).trim().toLowerCase(),
       selectionId,
       recommendationPosition,
+      productId: authoritativeProductId,
       appliedFields,
       preset,
       receivedAt: Date.now(),
@@ -2504,6 +2874,8 @@ function handleGenerationResearchPresetApplied(event) {
   const normalized = normalizeGenerationResearchPresetEvent(event);
   if (!normalized || normalized.selection.appliedFields.length < 1) return;
   state.aiResearchRecommendation = normalized.selection;
+  normalized.form.dataset.researchRecommendationProductCategory =
+    normalized.selection.productCategory;
   state.generationSpec.aiResearchBinding = null;
   state.generationSpec.videoReferenceBinding = null;
   normalized.form.dataset.dirty = "true";
@@ -2518,13 +2890,43 @@ function handleGenerationResearchPresetApplied(event) {
 function handleGenerationResearchPresetOptOut(event) {
   const form = event?.target?.closest?.("#mock-batch-form");
   if (!form) return;
-  state.aiResearchRecommendation = null;
+  const detail = event?.detail && typeof event.detail === "object"
+    ? event.detail
+    : {};
+  const retainedFields = [...new Set(
+    (Array.isArray(detail.retained_fields) ? detail.retained_fields : [])
+      .map((field) => String(field || "").trim())
+      .filter((field) => [
+        "product_category", "platform", "mode", "duration_seconds",
+        "format", "brief",
+      ].includes(field)),
+  )];
+  const lineageRetained = detail.lineage_retained === true
+    && contentReviewUuid(String(detail.selection_id || "").toLowerCase())
+    && [1, 2, 3].includes(Number(detail.recommendation_position))
+    && retainedFields.length > 0;
+  if (lineageRetained) {
+    state.aiResearchRecommendation = {
+      ...(state.aiResearchRecommendation || {}),
+      projectId: currentWorkspaceProjectId(),
+      selectionId: String(detail.selection_id).toLowerCase(),
+      recommendationPosition: Number(detail.recommendation_position),
+      appliedFields: retainedFields,
+      touchedFields: retainedFields,
+      autoApplyDisabled: true,
+      receivedAt: Date.now(),
+    };
+  } else {
+    state.aiResearchRecommendation = null;
+  }
   state.generationSpec.aiResearchBinding = null;
   state.generationSpec.videoReferenceBinding = null;
   form.dataset.dirty = "true";
   invalidateGenerationSpec(
     form,
-    "Включён ручной режим. Рекомендация ИИ‑центра больше не привязывается к замыслу.",
+    lineageRetained
+      ? "Автоподстановка отключена; сохранённые ручные правки по‑прежнему связаны с выбранной рекомендацией ИИ‑центра."
+      : "Включён ручной режим. Нетронутые автополя возвращены, и рекомендация ИИ‑центра больше не привязывается к замыслу.",
   );
   persistGenerationFormDraft(form, { manual: true });
   syncGenerationFormReadiness(form);
@@ -6637,6 +7039,14 @@ async function submitWorkspaceFolderCreate(form) {
     renderWorkspace("board");
     return;
   }
+  const parentFolder = currentWorkspaceBoard().folders.find(
+    (folder) => folder.id === rawParentId,
+  );
+  if (parentFolder?.systemRole) {
+    state.workspaceBoard.error = "Пользовательские папки нельзя создавать внутри служебного этапа. Выберите проект или обычную папку.";
+    renderWorkspace("board");
+    return;
+  }
   state.workspaceBoard.busy = true;
   state.workspaceBoard.error = "";
   state.workspaceBoard.notice = "";
@@ -6644,6 +7054,7 @@ async function submitWorkspaceFolderCreate(form) {
   try {
     const response = await state.api.createWorkspaceFolder({
       name,
+      projectId: currentWorkspaceProjectId(),
       parentId: rawParentId === "root" ? currentWorkspaceProjectId() : rawParentId,
     });
     const source = response?.data ?? response ?? {};
@@ -6681,6 +7092,7 @@ async function submitWorkspaceFolderEdit(form) {
   renderWorkspace("board");
   try {
     await state.api.updateWorkspaceFolder(folderId, {
+      projectId: currentWorkspaceProjectId(),
       expectedVersion,
       name,
     });
@@ -6754,6 +7166,7 @@ async function archiveWorkspaceBoardFolder(folderId, expectedVersion, { confirme
       return;
     }
     await state.api.updateWorkspaceFolder(folder.id, {
+      projectId: currentWorkspaceProjectId(),
       expectedVersion: Math.max(1, Number(expectedVersion) || folder.version || 1),
       archive: true,
     });
@@ -6793,6 +7206,13 @@ async function moveWorkspaceBoardItem({
     renderWorkspace("board");
     return;
   }
+  const destinationFolder = board.folders.find((folder) => folder.id === destination);
+  if (destinationFolder?.systemRole) {
+    state.workspaceBoard.error = "Этапы «Исходники» и «Результаты» заполняются автоматически. Выберите пользовательскую папку или «Без папки».";
+    state.workspaceBoard.notice = "";
+    renderWorkspace("board");
+    return;
+  }
   const destinationId = destination === "root" ? null : destination;
   if ((item.folderId || null) === destinationId) {
     state.workspaceBoard.notice = "Объект уже находится в этой папке.";
@@ -6808,6 +7228,7 @@ async function moveWorkspaceBoardItem({
     await state.api.moveWorkspaceItems(
       [{ type: item.entityType, id: item.id }],
       destinationId,
+      { projectId: currentWorkspaceProjectId() },
     );
     const destinationName = destinationId
       ? board.folders.find((folder) => folder.id === destinationId)?.name || "выбранную папку"
@@ -7645,7 +8066,7 @@ function captureWorkspaceFocus(container) {
 
 function restoreWorkspaceFocus(container, identity, section) {
   if (!identity) return;
-  window.queueMicrotask(() => {
+  window.queueMicrotask(async () => {
     if (identity.actionKey !== workspaceActionKey(state.route)) return;
     const candidates = Array.from(container.querySelectorAll("button, a, input, select, textarea, [tabindex]"));
     let target = identity.id ? candidates.find((item) => item.id === identity.id) : null;
@@ -10850,7 +11271,7 @@ function renderGenerationSection(sectionState) {
   const activeRealJobs = realGenerationJobsFromBatches(batches);
   const reconciliationRealJobs = realGenerationReconciliationJobsFromBatches(batches);
   const startingRealJobs = activeRealJobs.filter((item) => item.status === "starting");
-  window.queueMicrotask(() => {
+  window.queueMicrotask(async () => {
     scheduleRealGenerationPolling();
     resumeGeneratedVideoQaRecovery();
     resumeGeneratedVideoTechnicalQa();
@@ -10862,7 +11283,8 @@ function renderGenerationSection(sectionState) {
     if (generationForm) {
       const restored = liveSnapshotRestored
         ? false
-        : restoreGenerationFormDraft(generationForm);
+        : await restoreGenerationFormDraft(generationForm);
+      if (!generationForm.isConnected) return;
       delete generationForm.dataset.workspaceSnapshotRestored;
       if (!restored) {
         syncGenerationModeForm(generationForm);
@@ -10921,7 +11343,7 @@ function renderGenerationSection(sectionState) {
           ${startingRealJobs.length ? alertMarkup("Платный запуск сейчас сверяется с видеосервисом. Не запускайте его повторно: сначала дождитесь проверки статуса — так мы исключаем двойное списание.", "warning") : ""}
           ${reconciliationRealJobs.length ? alertMarkup("Автопроверка одного или нескольких запусков остановлена безопасно: исход запроса к Runway неизвестен. Не создавайте новый платный запуск, пока владелец или администратор не выполнит ручную сверку в очереди.", "warning") : ""}
           <form id="mock-batch-form" class="form-stack" style="margin-top:18px" novalidate>
-            <p id="generation-draft-status" class="muted tiny" role="status">Черновик сохраняется в этой вкладке. Подтверждение оплаты никогда не сохраняется.</p>
+            <p id="generation-draft-status" class="muted tiny" role="status">Сначала проверяем общий творческий черновик проекта, затем резервную копию этой вкладки. Кампания, медиа и подтверждение оплаты в общий черновик не входят.</p>
             ${generationReadinessMarkup(initialGenerationReadiness)}
             ${generationSpecCardMarkup({
               ...state.generationSpec,
@@ -20428,18 +20850,25 @@ function generationSpecRepairProvenance(form, identity = null) {
 
 function generationSpecAiResearchSelection(payload = null) {
   const selection = state.aiResearchRecommendation;
+  const form = document.querySelector("#mock-batch-form");
+  const identity = selectedGenerationProductIdentity(form);
+  const selectionProductId = String(
+    selection?.productId || form?.dataset?.researchRecommendationProductId || "",
+  ).trim().toLowerCase();
   if (
     !selection
     || !contentReviewUuid(selection.selectionId)
     || ![1, 2, 3].includes(Number(selection.recommendationPosition))
+    || !contentReviewUuid(selectionProductId)
+    || !contentReviewUuid(identity?.productId)
+    || selectionProductId !== String(identity.productId).trim().toLowerCase()
   ) return null;
   const projectId = String(
     payload?.project_id || currentWorkspaceProjectId() || "",
   ).trim().toLowerCase();
   const productCategory = String(
     payload?.exact_scope?.product_category
-      || document.querySelector("#mock-batch-form")?.elements
-        ?.product_category?.value
+      || form?.elements?.product_category?.value
       || "",
   ).trim().toLowerCase();
   if (
@@ -20458,7 +20887,10 @@ function generationSpecAiResearchBindingMatches(
   spec,
   selection = generationSpecAiResearchSelection(),
 ) {
-  if (!selection) return true;
+  if (!selection) {
+    const form = document.querySelector("#mock-batch-form");
+    return !generationAiResearchLineageActive(form);
+  }
   const binding = state.generationSpec.aiResearchBinding;
   return Boolean(
     binding
@@ -20508,6 +20940,16 @@ async function bindGenerationSpecAiResearch(spec, preparedPayload) {
   const selection = generationSpecAiResearchSelection(preparedPayload);
   if (!selection) {
     state.generationSpec.aiResearchBinding = null;
+    const form = document.querySelector("#mock-batch-form");
+    if (generationAiResearchLineageActive(form)) {
+      if (form?.elements?.real_spend_confirmation) {
+        form.elements.real_spend_confirmation.checked = false;
+      }
+      throw new CreatorApiError(
+        "Рекомендация ИИ‑центра больше не совпадает с товаром или категорией. Полностью отключите её либо восстановите исходные значения.",
+        { code: "generation_spec_ai_research_selection_unverified" },
+      );
+    }
     return null;
   }
   try {
@@ -20722,8 +21164,108 @@ async function bindGenerationSpecVideoReference(spec, form) {
   });
 }
 
+function generationAiResearchLineageActive(form) {
+  return Boolean(
+    form?.dataset?.researchRecommendationLineage === "active"
+    || form?.dataset?.researchRecommendationVerificationRequired === "true"
+    || state.aiResearchRecommendation,
+  );
+}
+
+function blockGenerationAiResearchVerification(form, reason, message) {
+  if (!form) return false;
+  form.dataset.researchRecommendationVerificationRequired = "true";
+  form.dataset.researchRecommendationVerificationState = "failed";
+  form.dataset.researchRecommendationVerificationFailure = reason;
+  state.generationSpec.aiResearchBinding = null;
+  state.generationSpec.videoReferenceBinding = null;
+  if (form.elements.real_spend_confirmation) {
+    form.elements.real_spend_confirmation.checked = false;
+  }
+  const status = form.querySelector("#generation-draft-status");
+  if (status) status.textContent = message;
+  return false;
+}
+
+function generationAiResearchSelectionContextMatches(form) {
+  if (!generationAiResearchLineageActive(form)) return true;
+  const selection = state.aiResearchRecommendation;
+  const authoritativeCategory = String(
+    selection?.productCategory
+      || form?.dataset?.researchRecommendationProductCategory
+      || "",
+  ).trim().toLowerCase();
+  const currentCategory = String(
+    form?.elements?.product_category?.value || "",
+  ).trim().toLowerCase();
+  if (
+    !selection
+    || !contentReviewUuid(selection.selectionId)
+    || ![1, 2, 3].includes(Number(selection.recommendationPosition))
+    || selection.projectId !== currentWorkspaceProjectId()
+  ) {
+    return blockGenerationAiResearchVerification(
+      form,
+      "selection_context_unverified",
+      "ИИ‑поля не имеют подтверждённой серверной привязки к выбранному варианту. Техническое ТЗ и платный запуск заблокированы до точной проверки или полного перехода в ручной режим.",
+    );
+  }
+  if (!authoritativeCategory || authoritativeCategory !== currentCategory) {
+    return blockGenerationAiResearchVerification(
+      form,
+      "category_mismatch",
+      "Категория изменена после применения рекомендации ИИ‑центра. Техническое ТЗ и привязка заблокированы: верните исходную категорию либо полностью отключите рекомендацию.",
+    );
+  }
+  if (form.dataset.researchRecommendationVerificationRequired !== "true") {
+    return blockGenerationAiResearchVerification(
+      form,
+      "selection_verification_missing",
+      "ИИ‑поля нельзя использовать без точной серверной проверки выбранного варианта. Техническое ТЗ и платный запуск заблокированы.",
+    );
+  }
+  return true;
+}
+
+function generationAiResearchProductIdentityMatches(
+  form,
+  identity = selectedGenerationProductIdentity(form),
+) {
+  if (form?.dataset?.researchRecommendationVerificationRequired !== "true") {
+    return true;
+  }
+  const recommendationProductId = String(
+    form.dataset.researchRecommendationProductId
+      || state.aiResearchRecommendation?.productId
+      || "",
+  ).trim().toLowerCase();
+  const selectedProductId = String(
+    identity?.productId || form.dataset.identityProductId || "",
+  ).trim().toLowerCase();
+  const productIdentity = resolveGenerationAiResearchProductIdentity(
+    recommendationProductId,
+    selectedProductId,
+    { requireSelectedMedia: true },
+  );
+  if (productIdentity.ok) return true;
+
+  return blockGenerationAiResearchVerification(
+    form,
+    productIdentity.code,
+    productIdentity.code === "product_mismatch"
+      ? "Выбранные медиа относятся к другому товару, чем рекомендация ИИ‑центра. Техническое ТЗ и платный запуск заблокированы."
+      : "Товар выбранной рекомендации ИИ‑центра ещё не подтверждён медиа. Техническое ТЗ и платный запуск заблокированы.",
+  );
+}
+
 function generationSpecPreparePayload(form) {
   const identity = selectedGenerationProductIdentity(form);
+  if (!generationAiResearchSelectionContextMatches(form)) return null;
+  if (!generationAiResearchProductIdentityMatches(form, identity)) return null;
+  if (
+    form?.dataset?.researchRecommendationVerificationRequired === "true"
+    && form.dataset.researchRecommendationVerificationState !== "verified"
+  ) return null;
   const projectId = currentWorkspaceProjectId();
   const exactScope = generationSpecExactScope(form, identity);
   const compiled = automaticGenerationBriefCandidate(form, identity);
@@ -21370,6 +21912,7 @@ function syncGenerationProductIdentity(form) {
     sku,
     productName,
   };
+  generationAiResearchProductIdentityMatches(form, identity);
   syncAutomaticGenerationBrief(form, { identity });
   syncGenerationRepairStatus(form);
   window.queueMicrotask(() => {

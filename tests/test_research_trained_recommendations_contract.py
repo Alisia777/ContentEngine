@@ -168,7 +168,7 @@ def test_generation_is_ai_first_but_never_overwrites_human_edits() -> None:
         text=True,
     )
     value = json.loads(result.stdout)
-    assert value["auto"] is True
+    assert value["auto"] is False
     assert value["protectedEdit"] is False
     for section in (
         "ТОВАР:",
@@ -563,7 +563,10 @@ def test_generation_preset_restore_and_duration_contract() -> None:
     assert value["seedance"]["duration_seconds"] == 8
     assert "duration_seconds" not in value["photo"]
     assert "const restoredIndex = recommendations.findIndex" in GENERATION
-    assert "runtime.activeIndex = restoredIndex >= 0 ? restoredIndex : 0" in GENERATION
+    assert "const targetIndex = target" in GENERATION
+    assert "runtime.activeIndex = targetIndex >= 0" in GENERATION
+    assert "restoredIndex >= 0" in GENERATION
+    assert ": -1;" in GENERATION
     assert "restoreResearchRecommendationPresetLineage(form, selected" in GENERATION
     assert "formChanged\n    && runtime.response" in GENERATION
 
