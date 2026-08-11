@@ -51,6 +51,7 @@ jobs:
           python - <<'PY'
           import json
           import os
+          import re
           from urllib import error, parse, request
 
           from scripts.deploy_supabase_management_api import (
@@ -145,7 +146,28 @@ jobs:
           elif provider_code == "bio_policy":
               safe_code = "bio_policy"
           else:
-              safe_code = "other_unrecognized"
+              semantic_fragments = (
+                  "background", "billing", "capacity", "content", "image",
+                  "input", "invalid", "limit", "model", "moderation",
+                  "output", "policy", "quota", "rate", "residency",
+                  "safety", "schema", "search", "server", "store", "tool",
+                  "unsupported", "web",
+              )
+              code_is_safe_identifier = bool(
+                  isinstance(provider_code, str)
+                  and re.fullmatch(r"[a-z][a-z0-9_]{2,63}", provider_code)
+                  and any(part in provider_code for part in semantic_fragments)
+                  and not re.search(r"[0-9a-f]{12,}|[0-9]{6,}", provider_code)
+                  and not any(
+                      secret_part in provider_code
+                      for secret_part in ("api_key", "secret", "session", "token")
+                  )
+              )
+              safe_code = (
+                  provider_code
+                  if code_is_safe_identifier
+                  else "other_unrecognized"
+              )
           print(
               json.dumps(
                   {
