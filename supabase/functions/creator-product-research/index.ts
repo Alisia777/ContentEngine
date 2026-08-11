@@ -7,6 +7,8 @@ import {
 
 const PUBLIC_APP_ORIGIN = "https://alisia777.github.io";
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
+const OPENAI_RESPONSE_SOURCES_INCLUDE =
+  "include%5B%5D=web_search_call.action.sources";
 const RESEARCH_PROVIDER_KEY = "openai_web_search";
 const RESEARCH_PROVIDER_ADAPTER_VERSION = "openai-responses-web-search-v1";
 const STORAGE_BUCKET = "contentengine-private";
@@ -37,6 +39,12 @@ const UUID_PATTERN =
 const SOURCE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/u;
 const UNATTACHED_YOUTUBE_URL_PATTERN =
   /https?:\/\/(?:[a-z0-9-]+\.)*(?:youtube(?:-nocookie)?\.com|youtu\.be)(?:[/?#:]|$)/iu;
+
+export function providerResponseRetrieveUrl(responseId: string): string {
+  return `${OPENAI_RESPONSES_URL}/${
+    encodeURIComponent(responseId)
+  }?${OPENAI_RESPONSE_SOURCES_INCLUDE}`;
+}
 const PROVIDER_FAILURE_CODES = new Set([
   "provider_configuration_error",
   "provider_authentication_failed",
@@ -1718,6 +1726,28 @@ function hasExactKeys(
     keys.every((key) => Object.hasOwn(value, key));
 }
 
+function removeUnsupportedSourceReferences(
+  value: unknown,
+  unsupportedSourceIds: ReadonlySet<string>,
+): void {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      removeUnsupportedSourceReferences(item, unsupportedSourceIds);
+    }
+    return;
+  }
+  if (!isRecord(value)) return;
+  for (const [key, nested] of Object.entries(value)) {
+    if (key === "source_ids" && Array.isArray(nested)) {
+      value[key] = nested.filter((sourceId) =>
+        typeof sourceId !== "string" || !unsupportedSourceIds.has(sourceId)
+      );
+      continue;
+    }
+    removeUnsupportedSourceReferences(nested, unsupportedSourceIds);
+  }
+}
+
 export function readResearchResult(
   value: unknown,
   providerSources: ReadonlyMap<string, string>,
@@ -1757,7 +1787,10 @@ export function readResearchResult(
     !Array.isArray(value.sources) || value.sources.length < 1 ||
     value.sources.length > 24
   ) return null;
+  const seenSourceIds = new Set<string>();
   const sourceIds = new Set<string>();
+  const acceptedSources: Json[] = [];
+  const unsupportedSourceIds = new Set<string>();
   const sourcePublishers = new Map<string, string>();
   const sourcePublishedAt = new Map<string, string | null>();
   let citedWebSources = 0;
@@ -1780,7 +1813,7 @@ export function readResearchResult(
     ) return null;
     if (
       typeof source.id !== "string" || !SOURCE_ID_PATTERN.test(source.id) ||
-      sourceIds.has(source.id) || !isBoundedText(source.title, 2, 300) ||
+      seenSourceIds.has(source.id) || !isBoundedText(source.title, 2, 300) ||
       !isBoundedText(source.publisher, 1, 160) ||
       !isBoundedText(source.accessed_at, 10, 64) ||
       !Number.isFinite(Date.parse(source.accessed_at)) ||
@@ -1796,7 +1829,7 @@ export function readResearchResult(
       accessedTimestamp > Date.now() + 300_000 ||
       (publishedTimestamp !== null && publishedTimestamp > accessedTimestamp)
     ) return null;
-    sourceIds.add(source.id);
+    seenSourceIds.add(source.id);
     if (source.source_type === "input_photo") {
       const match = /^photo:([1-9][0-9]*)$/u.exec(source.id);
       if (
@@ -1805,6 +1838,8 @@ export function readResearchResult(
       ) return null;
       sourcePublishers.set(source.id, "input_photo");
       sourcePublishedAt.set(source.id, null);
+      sourceIds.add(source.id);
+      acceptedSources.push(source as Json);
       inputPhotoSources += 1;
       continue;
     }
@@ -1818,10 +1853,15 @@ export function readResearchResult(
       exactVideoSourceId = source.id;
       sourcePublishers.set(source.id, "exact_video_input");
       sourcePublishedAt.set(source.id, null);
+      sourceIds.add(source.id);
+      acceptedSources.push(source as Json);
       continue;
     }
     const trustedUrl = key === null ? undefined : providerSources.get(key);
-    if (trustedUrl === undefined) return null;
+    if (trustedUrl === undefined) {
+      unsupportedSourceIds.add(source.id);
+      continue;
+    }
     // Persist the exact URL disclosed by the Responses API, never a URL merely
     // authored inside model JSON (even when its canonical form matches).
     source.url = trustedUrl;
@@ -1837,7 +1877,13 @@ export function readResearchResult(
         ? null
         : new Date(publishedTimestamp).toISOString().slice(0, 10),
     );
+    sourceIds.add(source.id);
+    acceptedSources.push(source as Json);
     citedWebSources += 1;
+  }
+  if (unsupportedSourceIds.size > 0) {
+    value.sources = acceptedSources;
+    removeUnsupportedSourceReferences(value, unsupportedSourceIds);
   }
   if (citedWebSources < 1 || providerSources.size < 1) return null;
   if (inputPhotoSources > photoCount) return null;
@@ -3768,9 +3814,7 @@ async function handleCreatorProductResearch(
     const responseAge = providerResponseAgeMs(continuation.acceptedAt);
     try {
       providerResponse = await fetchWithTimeout(
-        `${OPENAI_RESPONSES_URL}/${
-          encodeURIComponent(continuation.responseId)
-        }`,
+        providerResponseRetrieveUrl(continuation.responseId),
         {
           method: "GET",
           redirect: "manual",

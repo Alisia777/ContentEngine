@@ -83,8 +83,10 @@ def test_processing_observers_retrieve_by_saved_id_and_never_submit_again() -> N
 
     assert "await readProviderResponse()" in edge
     assert '"system_read_research_provider_response"' in edge
-    assert "`${OPENAI_RESPONSES_URL}/${" in observer
-    assert "encodeURIComponent(continuation.responseId)" in observer
+    assert "providerResponseRetrieveUrl(continuation.responseId)" in observer
+    assert "export function providerResponseRetrieveUrl(responseId: string)" in edge
+    assert "encodeURIComponent(responseId)" in edge
+    assert '"include%5B%5D=web_search_call.action.sources"' in edge
     assert 'method: "GET"' in observer
     assert 'method: "POST"' not in observer
     assert "openAiRequestBody(" not in observer
