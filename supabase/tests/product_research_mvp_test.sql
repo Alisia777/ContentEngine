@@ -213,10 +213,13 @@ select is(
    where namespace.nspname = 'public'
      and procedure.proname in (
        'system_claim_product_research', 'system_complete_product_research',
-       'system_revalidate_product_research_response'
+       'system_revalidate_product_research_response',
+       'system_claim_product_research_response_recovery',
+       'system_read_product_research_response_recovery_reservation',
+       'system_record_product_research_response_recovery_outcome'
      )),
-  3,
-  'three worker RPCs exist'
+  6,
+  'six worker RPCs exist'
 );
 
 select is(
@@ -225,9 +228,12 @@ select is(
    where namespace.nspname = 'public'
      and procedure.proname in (
        'system_claim_product_research', 'system_complete_product_research',
-       'system_revalidate_product_research_response'
+       'system_revalidate_product_research_response',
+       'system_claim_product_research_response_recovery',
+       'system_read_product_research_response_recovery_reservation',
+       'system_record_product_research_response_recovery_outcome'
      ) and has_function_privilege('service_role', procedure.oid, 'execute')),
-  3,
+  6,
   'service role can execute all worker RPCs'
 );
 
@@ -237,7 +243,10 @@ select is(
    where namespace.nspname = 'public'
      and procedure.proname in (
        'system_claim_product_research', 'system_complete_product_research',
-       'system_revalidate_product_research_response'
+       'system_revalidate_product_research_response',
+       'system_claim_product_research_response_recovery',
+       'system_read_product_research_response_recovery_reservation',
+       'system_record_product_research_response_recovery_outcome'
      ) and has_function_privilege('authenticated', procedure.oid, 'execute')),
   0,
   'browser sessions cannot claim or complete worker jobs'
