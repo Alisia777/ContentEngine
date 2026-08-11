@@ -1,0 +1,82 @@
+name: Official Wordstat credential probe
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  probe:
+    if: github.event.issue.title == '[research] ContentEngine official Wordstat probe 2026-08-11'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      KEY_1: ${{ secrets.YANDEX_SEARCH_API_KEY }}
+      KEY_2: ${{ secrets.YC_SEARCH_API_KEY }}
+      KEY_3: ${{ secrets.YANDEX_CLOUD_API_KEY }}
+      KEY_4: ${{ secrets.YC_API_KEY }}
+      FOLDER_1: ${{ secrets.YANDEX_CLOUD_FOLDER_ID }}
+      FOLDER_2: ${{ secrets.YC_FOLDER_ID }}
+      FOLDER_3: ${{ secrets.YANDEX_FOLDER_ID }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Probe credentials and official endpoint
+        shell: bash
+        run: |
+          python <<'PY'
+          import json, os, urllib.request, urllib.error
+
+          key_names = ['KEY_1','KEY_2','KEY_3','KEY_4']
+          folder_names = ['FOLDER_1','FOLDER_2','FOLDER_3']
+          key = next((os.environ[name].strip() for name in key_names if os.environ.get(name, '').strip()), '')
+          folder = next((os.environ[name].strip() for name in folder_names if os.environ.get(name, '').strip()), '')
+          result = {
+              'api_key_present': bool(key),
+              'folder_id_present': bool(folder),
+              'official_request_started': False,
+              'status': 'missing_credentials',
+          }
+          if key and folder:
+              body = json.dumps({
+                  'phrase': 'продвижение на маркетплейсах',
+                  'numPhrases': 20,
+                  'regions': ['225'],
+                  'devices': ['DEVICE_ALL'],
+                  'folderId': folder,
+              }, ensure_ascii=False).encode('utf-8')
+              request = urllib.request.Request(
+                  'https://searchapi.api.cloud.yandex.net/v2/wordstat/topRequests',
+                  data=body,
+                  method='POST',
+                  headers={
+                      'Authorization': 'Api-Key ' + key,
+                      'Content-Type': 'application/json',
+                      'Accept': 'application/json',
+                  },
+              )
+              result['official_request_started'] = True
+              try:
+                  with urllib.request.urlopen(request, timeout=60) as response:
+                      payload = json.loads(response.read().decode('utf-8'))
+                  result['status'] = 'success'
+                  result['results_count'] = len(payload.get('results') or [])
+                  result['associations_count'] = len(payload.get('associations') or [])
+                  result['top_results'] = [
+                      {'phrase': item.get('phrase'), 'count': item.get('count')}
+                      for item in (payload.get('results') or [])[:10]
+                  ]
+              except urllib.error.HTTPError as error:
+                  result['status'] = 'http_error'
+                  result['http_code'] = error.code
+                  result['error_body'] = error.read().decode('utf-8', errors='replace')[:500]
+              except Exception as error:
+                  result['status'] = 'request_error'
+                  result['error'] = str(error)[:500]
+
+          with open('/tmp/wordstat_probe.json','w',encoding='utf-8') as handle:
+              json.dump(result, handle, ensure_ascii=False, indent=2)
+          print(json.dumps(result, ensure_ascii=False))
+          PY
+          gh issue comment "${{ github.event.issue.number }}" --repo "${{ github.repository }}" --body "$(printf 'official-wordstat-probe\n```json\n'; cat /tmp/wordstat_probe.json; printf '\n```')"
