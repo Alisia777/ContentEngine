@@ -113,5 +113,5 @@ def test_generation_repair_and_recurring_learning_surface_targeted_training() ->
     assert ".quality-training-arrival" in STYLES
     assert "@media (max-width: 760px)" in STYLES
     assert "min-width: 0;" in STYLES
-    assert "app.js?v=20260811.os4.29" in INDEX
+    assert "app.js?v=20260811.os4.30" in INDEX
     assert "styles.css?v=20260730.4" in INDEX

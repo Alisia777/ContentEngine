@@ -15,9 +15,9 @@
     "workspace-ai-exact-youtube-sources.js":
       "20260811.exact-source-lifecycle.1",
     "workspace-ai-research-training.js":
-      "20260811.ai-working-draft.2",
+      "20260811.ai-working-draft.3",
     "workspace-generation-research-recommendations.js":
-      "20260811.ai-working-draft.2",
+      "20260811.ai-working-draft.3",
   });
   const SCRIPT_URL = document.currentScript?.src || window.location.href;
   const BASE_URL = new URL(".", SCRIPT_URL);

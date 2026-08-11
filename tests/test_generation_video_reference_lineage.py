@@ -407,7 +407,7 @@ def test_client_edge_and_archive_use_exact_context_without_provider_url() -> Non
     assert "canonical_url" not in provider_body
     assert "promptText: startJob.promptText" in provider_body
     assert (
-        'from "./generation-video-reference.js?v=20260811.os4.29"'
+        'from "./generation-video-reference.js?v=20260811.os4.30"'
         in APP
     )
 

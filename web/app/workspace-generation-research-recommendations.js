@@ -1896,6 +1896,7 @@ function renderRecommendationPanel() {
 
 function buildRoot() {
   const root = el("section", "generation-research-recommendations");
+  root.dataset.ceV4Owned = "generation-research-recommendations";
   root.setAttribute(ROOT_ATTRIBUTE, "true");
   const header = el("header", "generation-research-recommendations__header");
   const copy = el("div");
@@ -2348,6 +2349,20 @@ function inferTouchedFields(form, state) {
   return touched;
 }
 
+export function shouldHydrateGenerationResearchWorkingDraft({
+  formChanged = false,
+  authorityProjectId = "",
+  contextProjectId = "",
+  authority = "unknown",
+  hydrating = false,
+} = {}) {
+  const projectId = normalizedUuid(contextProjectId);
+  if (!projectId) return false;
+  return formChanged
+    || normalizedUuid(authorityProjectId) !== projectId
+    || (!hydrating && authority === "unknown");
+}
+
 function mount() {
   if (routePath() !== ROUTE) {
     window.clearTimeout(runtime.workingDraftSaveTimer);
@@ -2364,6 +2379,13 @@ function mount() {
   bindForm(form);
   updateGuidedHint(form);
   const context = formContext(form);
+  const shouldHydrate = shouldHydrateGenerationResearchWorkingDraft({
+    formChanged,
+    authorityProjectId: runtime.workingDraftAuthorityProjectId,
+    contextProjectId: context.projectId,
+    authority: runtime.workingDraftAuthority,
+    hydrating: runtime.workingDraftHydrating,
+  });
   const state = readState(context);
   const touched = inferTouchedFields(form, state);
   if (touched.size) {
@@ -2401,6 +2423,12 @@ function mount() {
     runtime.workingDraft = knownShared;
     runtime.workingDraftProjectId = context.projectId;
   }
+  // The desktop adapter is invoked by a MutationObserver. Hydration itself
+  // updates the status and form, so rehydrating the same connected form on
+  // every observer callback creates a self-sustaining checking loop and never
+  // reaches the recommendation resolver. A new form or project still starts a
+  // fresh authoritative read; ordinary DOM mutations keep the settled state.
+  if (!shouldHydrate) return;
   // A cached value can be the previous side of an app-level force refresh.
   // Never mark it verified or exact-resolve it before the shared read settles;
   // readGenerationAiResearchWorkingDraft joins that in-flight promise.
