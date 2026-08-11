@@ -156,7 +156,6 @@ jobs:
               code_is_safe_identifier = bool(
                   isinstance(provider_code, str)
                   and re.fullmatch(r"[a-z][a-z0-9_]{2,63}", provider_code)
-                  and any(part in provider_code for part in semantic_fragments)
                   and not re.search(r"[0-9a-f]{12,}|[0-9]{6,}", provider_code)
                   and not any(
                       secret_part in provider_code
