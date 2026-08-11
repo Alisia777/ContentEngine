@@ -174,7 +174,7 @@ begin
 end;
 $final_gate_fixture$;
 
-select plan(76);
+select plan(77);
 
 select has_table(
   'content_factory',
@@ -1148,6 +1148,23 @@ select throws_ok(
   'P0002',
   'workspace_folder_parent_not_found',
   'cross-organization parent is indistinguishable from missing'
+);
+
+select throws_ok(
+  $$select public.creator_update_workspace_folder(jsonb_build_object(
+    'organization_id', '94100000-0000-4000-8000-000000000001',
+    'project_id', '94400000-0000-4000-8000-000000000100',
+    'idempotency_key', 'workspace-update-cross-org-parent-0001',
+    'folder_id', (
+      select root_folder_id
+      from workspace_test_context
+    ),
+    'expected_version', 1,
+    'parent_id', '94400000-0000-4000-8000-000000000010'
+  ))$$,
+  'P0002',
+  'workspace_folder_parent_not_found',
+  'folder update hides a cross-organization parent as missing'
 );
 
 select is(

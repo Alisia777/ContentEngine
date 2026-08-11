@@ -86,6 +86,7 @@ def test_folder_write_adapters_require_exact_project_acl_and_targets() -> None:
         assert "pg_advisory_xact_lock" in body
 
     assert SQL.count("workspace_folder_project_mismatch") >= 3
+    assert SQL.count("message = 'workspace_folder_parent_not_found'") >= 2
     assert SQL.count("workspace_system_folder_manual_destination_forbidden") >= 3
     assert "workspace_system_folder_read_only" in SQL
 

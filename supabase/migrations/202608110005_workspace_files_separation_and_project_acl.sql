@@ -380,7 +380,7 @@ begin
   for update;
   if parent_row.id is null then
     raise exception using
-      errcode = 'P0002', message = 'workspace_folder_not_found';
+      errcode = 'P0002', message = 'workspace_folder_parent_not_found';
   end if;
   if content_factory_private.workspace_project_for_folder(
        organization_id, parent_row.id
@@ -488,7 +488,7 @@ begin
     for update;
     if parent_row.id is null then
       raise exception using
-        errcode = 'P0002', message = 'workspace_folder_not_found';
+        errcode = 'P0002', message = 'workspace_folder_parent_not_found';
     end if;
     if content_factory_private.workspace_project_for_folder(
          organization_id, parent_row.id
