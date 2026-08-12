@@ -1,4 +1,4 @@
-import { CreatorApi } from "./supabase-api.js?v=20260811.os4.32";
+import { CreatorApi } from "./supabase-api.js?v=20260812.os4.33";
 
 /*
  * Desktop Trash is intentionally outside the frozen creator_* RPC count.
