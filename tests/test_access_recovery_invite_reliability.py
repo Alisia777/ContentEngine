@@ -389,13 +389,16 @@ def test_invite_attempts_are_reasoned_and_persisted_server_side() -> None:
     migration = _text(
         "supabase/migrations/202607150002_access_recovery_invite_reliability.sql"
     ).casefold()
+    admin_migration = _text(
+        "supabase/migrations/202608120003_employee_account_admin.sql"
+    ).casefold()
     api = _text("web/app/supabase-api.js")
     app = _text("web/app/app.js")
 
     assert "reason_code" in edge
     assert "delivery_status" in edge
     assert 'const requestId = crypto.randomUUID()' in edge
-    assert '"system_record_invite_delivery_attempts"' in edge
+    assert '"system_admin_record_invite_delivery_attempts"' in edge
     assert "create table if not exists content_factory.invite_delivery_attempts" in migration
     assert "create or replace function public.system_record_invite_delivery_attempts" in migration
     assert "create or replace function public.creator_invite_delivery_attempts" in migration
@@ -404,6 +407,16 @@ def test_invite_attempts_are_reasoned_and_persisted_server_side() -> None:
         in migration
     )
     assert "to service_role" in migration
+    assert (
+        "create or replace function public.system_admin_record_invite_delivery_attempts"
+        in admin_migration
+    )
+    assert "array['owner', 'admin']" in admin_migration
+    assert "operator_final_exam" not in admin_migration[
+        admin_migration.index(
+            "create or replace function public.system_admin_record_invite_delivery_attempts"
+        ) :
+    ]
     assert (
         "grant execute on function public.creator_invite_delivery_attempts(jsonb)"
         in migration

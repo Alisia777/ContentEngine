@@ -317,7 +317,9 @@ def test_spa_payload_and_workspace_fields_match_the_creator_rpc_migration() -> N
         for name in re.findall(r'"(creator_[a-z0-9_]+)"', adapter)
         if name != "creator_api_error"
     ]
-    assert len(set(rpc_names)) == 99
+    assert len(set(rpc_names)) == 101
+    assert "creator_admin_snapshot" in rpc_names
+    assert "creator_admin_mutate" in rpc_names
     assert "creator_operational_health" in rpc_names
     assert "creator_generation_learning_policy" in rpc_names
     assert "creator_generation_repair_policy" in rpc_names
@@ -528,7 +530,7 @@ def test_team_invites_are_owner_admin_only_and_use_the_edge_function() -> None:
     assert 'split(/\\r?\\n/)' in app
     assert "emails.length > 50" in app
     assert 'functions.invoke("creator-invite"' in app
-    assert "body: { emails }" in app
+    assert "body: { emails, organization_id: requestOrganizationId }" in app
     for status in ("invited", "already_exists", "rate_limited", "smtp_required"):
         assert status in app
     assert "Каждый новый участник входит как trainee" in app
