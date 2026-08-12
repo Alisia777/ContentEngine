@@ -7,7 +7,7 @@ from pglast import parse_sql
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = (
-    ROOT / "supabase/migrations/202608120004_operator_self_content_review.sql"
+    ROOT / "supabase/migrations/202608120006_operator_self_content_review.sql"
 ).read_text(encoding="utf-8")
 PGTAP = (
     ROOT / "supabase/tests/operator_self_content_review_test.sql"

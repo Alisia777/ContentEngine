@@ -16,7 +16,7 @@ API = (APP_DIR / "supabase-api.js").read_text(encoding="utf-8")
 VIEW = (APP_DIR / "content-review-view.js").read_text(encoding="utf-8")
 MIGRATION_PATH = (
     ROOT
-    / "supabase/migrations/202608120003_content_review_sound_atomic_recovery.sql"
+    / "supabase/migrations/202608120005_content_review_sound_atomic_recovery.sql"
 )
 PROJECT_SCOPE_PATH = (
     ROOT / "supabase/migrations/202608040005_project_scoped_workflow.sql"
