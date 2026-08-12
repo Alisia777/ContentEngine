@@ -771,6 +771,192 @@ def test_partial_or_nonempty_missing_name_state_fails_closed(
         )
 
 
+_DIAGNOSTIC_SENTINELS = (
+    "ultra_private_employee@example.invalid",
+    "ULTRA_PRIVATE_EXPECTED_NAME",
+    "ULTRA_PRIVATE_AUTH_NAME",
+    "ULTRA_PRIVATE_PROFILE_NAME",
+    "ultra_private_metadata_key",
+    "ultra_private_metadata_value",
+    "ultra_private_wrong_type",
+)
+
+
+@pytest.mark.parametrize(
+    (
+        "unsafe",
+        "expected_display_name",
+        "metadata_shape",
+        "auth_name",
+        "profile_name",
+        "confirmed",
+    ),
+    [
+        (
+            _snapshot(raw_user_meta_data={}),
+            DISPLAY_NAME,
+            "empty",
+            "expected",
+            "expected",
+            "false",
+        ),
+        (
+            _snapshot(
+                raw_user_meta_data={
+                    "display_name": "ultra_private_metadata_value"
+                },
+                auth_display_name="",
+            ),
+            DISPLAY_NAME,
+            "display_only",
+            "missing",
+            "expected",
+            "false",
+        ),
+        (
+            _confirmed_trainee(
+                raw_user_meta_data={"email_verified": False},
+                auth_display_name="ULTRA_PRIVATE_AUTH_NAME",
+                profile_display_name="",
+            ),
+            DISPLAY_NAME,
+            "verified_only",
+            "other",
+            "missing",
+            "true",
+        ),
+        (
+            _snapshot(
+                raw_user_meta_data={
+                    "display_name": DISPLAY_NAME,
+                    "email_verified": True,
+                }
+            ),
+            DISPLAY_NAME,
+            "display_and_verified",
+            "expected",
+            "expected",
+            "false",
+        ),
+        (
+            _snapshot(
+                auth_email="ultra_private_employee@example.invalid",
+                profile_email="ultra_private_employee@example.invalid",
+                raw_user_meta_data={
+                    "ultra_private_metadata_key": (
+                        "ultra_private_metadata_value"
+                    )
+                },
+                auth_display_name="ULTRA_PRIVATE_EXPECTED_NAME",
+                profile_display_name="ULTRA_PRIVATE_EXPECTED_NAME",
+            ),
+            "ULTRA_PRIVATE_EXPECTED_NAME",
+            "other",
+            "expected",
+            "expected",
+            "false",
+        ),
+        (
+            replace(
+                _snapshot(),
+                raw_user_meta_data=None,  # type: ignore[arg-type]
+                auth_display_name=[  # type: ignore[arg-type]
+                    "ULTRA_PRIVATE_AUTH_NAME"
+                ],
+                profile_display_name={  # type: ignore[arg-type]
+                    "ULTRA_PRIVATE_PROFILE_NAME": True
+                },
+                email_confirmed="ultra_private_wrong_type",  # type: ignore[arg-type]
+            ),
+            DISPLAY_NAME,
+            "other",
+            "other",
+            "other",
+            "false",
+        ),
+        (
+            replace(
+                _snapshot(),
+                raw_user_meta_data=[  # type: ignore[arg-type]
+                    "ultra_private_metadata_value"
+                ],
+                auth_display_name=0,  # type: ignore[arg-type]
+                profile_display_name=False,  # type: ignore[arg-type]
+            ),
+            DISPLAY_NAME,
+            "other",
+            "other",
+            "other",
+            "false",
+        ),
+        (
+            _snapshot(
+                raw_user_meta_data={
+                    "display_name": ["ultra_private_metadata_value"]
+                },
+                profile_display_name="ULTRA_PRIVATE_PROFILE_NAME",
+            ),
+            DISPLAY_NAME,
+            "display_only",
+            "expected",
+            "other",
+            "false",
+        ),
+        (
+            _confirmed_trainee(
+                raw_user_meta_data={
+                    "email_verified": {
+                        "value": "ultra_private_metadata_value"
+                    }
+                },
+                auth_display_name="",
+                profile_display_name="ULTRA_PRIVATE_PROFILE_NAME",
+            ),
+            DISPLAY_NAME,
+            "verified_only",
+            "missing",
+            "other",
+            "true",
+        ),
+    ],
+)
+def test_display_name_failure_emits_only_allowlisted_categories(
+    unsafe: adoption.PartialAdoptionSnapshot,
+    expected_display_name: str,
+    metadata_shape: str,
+    auth_name: str,
+    profile_name: str,
+    confirmed: str,
+) -> None:
+    with pytest.raises(adoption.KlimovPartialAdoptionError) as caught:
+        adoption._display_name_state(
+            unsafe,
+            display_name=expected_display_name,
+        )
+
+    message = str(caught.value)
+    assert message == (
+        "Partial-adoption snapshot is invalid: "
+        "field=display_name_state "
+        f"metadata_shape={metadata_shape} "
+        f"auth_name={auth_name} "
+        f"profile_name={profile_name} "
+        f"confirmed={confirmed}"
+    )
+    assert metadata_shape in {
+        "empty",
+        "display_only",
+        "verified_only",
+        "display_and_verified",
+        "other",
+    }
+    assert auth_name in {"missing", "expected", "other"}
+    assert profile_name in {"missing", "expected", "other"}
+    assert confirmed in {"true", "false"}
+    for sentinel in _DIAGNOSTIC_SENTINELS:
+        assert sentinel not in message
+
+
 def test_operator_phase_requires_exact_prior_one_off_reason() -> None:
     with pytest.raises(
         adoption.KlimovPartialAdoptionError,
