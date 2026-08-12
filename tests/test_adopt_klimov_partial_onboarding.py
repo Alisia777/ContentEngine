@@ -778,6 +778,7 @@ _DIAGNOSTIC_SENTINELS = (
     "ULTRA_PRIVATE_PROFILE_NAME",
     "ultra_private_metadata_key",
     "ultra_private_metadata_value",
+    "ULTRA_PRIVATE_SUBJECT_VALUE",
     "ultra_private_wrong_type",
 )
 
@@ -787,6 +788,7 @@ _DIAGNOSTIC_SENTINELS = (
         "unsafe",
         "expected_display_name",
         "metadata_shape",
+        "metadata_contract",
         "auth_name",
         "profile_name",
         "confirmed",
@@ -796,6 +798,7 @@ _DIAGNOSTIC_SENTINELS = (
             _snapshot(raw_user_meta_data={}),
             DISPLAY_NAME,
             "empty",
+            "unknown_or_mixed",
             "expected",
             "expected",
             "false",
@@ -809,6 +812,7 @@ _DIAGNOSTIC_SENTINELS = (
             ),
             DISPLAY_NAME,
             "display_only",
+            "unknown_or_mixed",
             "missing",
             "expected",
             "false",
@@ -821,6 +825,7 @@ _DIAGNOSTIC_SENTINELS = (
             ),
             DISPLAY_NAME,
             "verified_only",
+            "unknown_or_mixed",
             "other",
             "missing",
             "true",
@@ -834,6 +839,7 @@ _DIAGNOSTIC_SENTINELS = (
             ),
             DISPLAY_NAME,
             "display_and_verified",
+            "unknown_or_mixed",
             "expected",
             "expected",
             "false",
@@ -852,6 +858,7 @@ _DIAGNOSTIC_SENTINELS = (
             ),
             "ULTRA_PRIVATE_EXPECTED_NAME",
             "other",
+            "unknown_or_mixed",
             "expected",
             "expected",
             "false",
@@ -870,6 +877,7 @@ _DIAGNOSTIC_SENTINELS = (
             ),
             DISPLAY_NAME,
             "other",
+            "invalid_type",
             "other",
             "other",
             "false",
@@ -885,6 +893,7 @@ _DIAGNOSTIC_SENTINELS = (
             ),
             DISPLAY_NAME,
             "other",
+            "invalid_type",
             "other",
             "other",
             "false",
@@ -898,6 +907,7 @@ _DIAGNOSTIC_SENTINELS = (
             ),
             DISPLAY_NAME,
             "display_only",
+            "unknown_or_mixed",
             "expected",
             "other",
             "false",
@@ -914,9 +924,48 @@ _DIAGNOSTIC_SENTINELS = (
             ),
             DISPLAY_NAME,
             "verified_only",
+            "unknown_or_mixed",
             "missing",
             "other",
             "true",
+        ),
+        (
+            _snapshot(
+                raw_user_meta_data={
+                    "sub": USER_ID,
+                    "email": EMAIL,
+                    "email_verified": False,
+                    "phone_verified": False,
+                },
+                auth_display_name="",
+                profile_display_name="",
+            ),
+            DISPLAY_NAME,
+            "other",
+            "email_identity_exact_consistent",
+            "missing",
+            "missing",
+            "false",
+        ),
+        (
+            _snapshot(
+                raw_user_meta_data={
+                    "sub": "ULTRA_PRIVATE_SUBJECT_VALUE",
+                    "email": "ultra_private_employee@example.invalid",
+                    "email_verified": "ultra_private_wrong_type",
+                    "phone_verified": {
+                        "value": "ultra_private_metadata_value"
+                    },
+                },
+                auth_display_name="",
+                profile_display_name="",
+            ),
+            DISPLAY_NAME,
+            "other",
+            "email_identity_exact_inconsistent",
+            "missing",
+            "missing",
+            "false",
         ),
     ],
 )
@@ -924,6 +973,7 @@ def test_display_name_failure_emits_only_allowlisted_categories(
     unsafe: adoption.PartialAdoptionSnapshot,
     expected_display_name: str,
     metadata_shape: str,
+    metadata_contract: str,
     auth_name: str,
     profile_name: str,
     confirmed: str,
@@ -939,6 +989,7 @@ def test_display_name_failure_emits_only_allowlisted_categories(
         "Partial-adoption snapshot is invalid: "
         "field=display_name_state "
         f"metadata_shape={metadata_shape} "
+        f"metadata_contract={metadata_contract} "
         f"auth_name={auth_name} "
         f"profile_name={profile_name} "
         f"confirmed={confirmed}"
@@ -953,6 +1004,265 @@ def test_display_name_failure_emits_only_allowlisted_categories(
     assert auth_name in {"missing", "expected", "other"}
     assert profile_name in {"missing", "expected", "other"}
     assert confirmed in {"true", "false"}
+    assert metadata_contract in {
+        "email_identity_exact_consistent",
+        "email_identity_exact_inconsistent",
+        "unknown_or_mixed",
+        "invalid_type",
+    }
+    for sentinel in _DIAGNOSTIC_SENTINELS:
+        assert sentinel not in message
+
+
+def _email_identity_metadata(*, confirmed: bool = False) -> dict[str, object]:
+    return {
+        "sub": USER_ID,
+        "email": EMAIL,
+        "email_verified": confirmed,
+        "phone_verified": False,
+    }
+
+
+class _HostileDiagnosticValue:
+    __hash__ = object.__hash__
+
+    def __eq__(self, other: object) -> bool:
+        raise AssertionError("diagnostic must not compare hostile values")
+
+    def __repr__(self) -> str:
+        return "ultra_private_metadata_value"
+
+    def __str__(self) -> str:
+        return "ultra_private_metadata_value"
+
+
+class _MetadataDictSubclass(dict[str, object]):
+    pass
+
+
+@pytest.mark.parametrize(
+    ("snapshot", "expected"),
+    [
+        (
+            _snapshot(raw_user_meta_data=_email_identity_metadata()),
+            "email_identity_exact_consistent",
+        ),
+        (
+            _snapshot(
+                email_confirmed=True,
+                raw_user_meta_data=_email_identity_metadata(confirmed=True),
+            ),
+            "email_identity_exact_consistent",
+        ),
+        (
+            _snapshot(
+                raw_user_meta_data={
+                    **_email_identity_metadata(),
+                    "sub": "ULTRA_PRIVATE_SUBJECT_VALUE",
+                }
+            ),
+            "email_identity_exact_inconsistent",
+        ),
+        (
+            _snapshot(
+                raw_user_meta_data={
+                    **_email_identity_metadata(),
+                    "email": "ultra_private_employee@example.invalid",
+                }
+            ),
+            "email_identity_exact_inconsistent",
+        ),
+        (
+            _snapshot(
+                raw_user_meta_data={
+                    **_email_identity_metadata(),
+                    "email_verified": True,
+                }
+            ),
+            "email_identity_exact_inconsistent",
+        ),
+        (
+            _snapshot(
+                raw_user_meta_data={
+                    **_email_identity_metadata(),
+                    "email_verified": 0,
+                }
+            ),
+            "email_identity_exact_inconsistent",
+        ),
+        (
+            _snapshot(
+                raw_user_meta_data={
+                    **_email_identity_metadata(),
+                    "phone_verified": True,
+                }
+            ),
+            "email_identity_exact_inconsistent",
+        ),
+        (
+            _snapshot(
+                raw_user_meta_data={
+                    **_email_identity_metadata(),
+                    "phone_verified": "ultra_private_wrong_type",
+                }
+            ),
+            "email_identity_exact_inconsistent",
+        ),
+        (
+            _snapshot(
+                raw_user_meta_data=_email_identity_metadata(),
+                auth_provider="ultra_private_metadata_value",
+            ),
+            "email_identity_exact_inconsistent",
+        ),
+        (
+            replace(
+                _snapshot(raw_user_meta_data=_email_identity_metadata()),
+                auth_providers=[  # type: ignore[arg-type]
+                    "ultra_private_metadata_value"
+                ],
+            ),
+            "email_identity_exact_inconsistent",
+        ),
+        (
+            replace(
+                _snapshot(raw_user_meta_data=_email_identity_metadata()),
+                auth_providers=(  # type: ignore[arg-type]
+                    _HostileDiagnosticValue(),
+                ),
+            ),
+            "email_identity_exact_inconsistent",
+        ),
+        (
+            replace(
+                _snapshot(raw_user_meta_data=_email_identity_metadata()),
+                email_confirmed="ultra_private_wrong_type",  # type: ignore[arg-type]
+            ),
+            "email_identity_exact_inconsistent",
+        ),
+        (
+            replace(
+                _snapshot(raw_user_meta_data=_email_identity_metadata()),
+                user_id=["ULTRA_PRIVATE_SUBJECT_VALUE"],  # type: ignore[arg-type]
+            ),
+            "email_identity_exact_inconsistent",
+        ),
+        (
+            replace(
+                _snapshot(raw_user_meta_data=_email_identity_metadata()),
+                auth_email={  # type: ignore[arg-type]
+                    "ultra_private_employee@example.invalid": True
+                },
+            ),
+            "email_identity_exact_inconsistent",
+        ),
+        (
+            _snapshot(
+                raw_user_meta_data={
+                    **_email_identity_metadata(),
+                    "sub": _HostileDiagnosticValue(),
+                }
+            ),
+            "email_identity_exact_inconsistent",
+        ),
+        (_snapshot(raw_user_meta_data={}), "unknown_or_mixed"),
+        (
+            _snapshot(
+                raw_user_meta_data={
+                    "display_name": "ultra_private_metadata_value"
+                }
+            ),
+            "unknown_or_mixed",
+        ),
+        (
+            _snapshot(
+                raw_user_meta_data={
+                    **_email_identity_metadata(),
+                    "ultra_private_metadata_key": (
+                        "ultra_private_metadata_value"
+                    ),
+                }
+            ),
+            "unknown_or_mixed",
+        ),
+        (
+            _snapshot(
+                raw_user_meta_data={
+                    key: value
+                    for key, value in _email_identity_metadata().items()
+                    if key != "phone_verified"
+                }
+            ),
+            "unknown_or_mixed",
+        ),
+        (
+            _snapshot(
+                raw_user_meta_data={
+                    **_email_identity_metadata(),
+                    7: "ultra_private_metadata_value",
+                }
+            ),
+            "unknown_or_mixed",
+        ),
+        (
+            _snapshot(
+                raw_user_meta_data={
+                    **_email_identity_metadata(),
+                    _HostileDiagnosticValue(): (
+                        "ultra_private_metadata_value"
+                    ),
+                }
+            ),
+            "unknown_or_mixed",
+        ),
+        (
+            replace(
+                _snapshot(),
+                raw_user_meta_data=None,  # type: ignore[arg-type]
+            ),
+            "invalid_type",
+        ),
+        (
+            replace(
+                _snapshot(),
+                raw_user_meta_data=[  # type: ignore[arg-type]
+                    "ultra_private_metadata_value"
+                ],
+            ),
+            "invalid_type",
+        ),
+        (
+            _snapshot(
+                raw_user_meta_data=_MetadataDictSubclass(
+                    _email_identity_metadata()
+                )
+            ),
+            "invalid_type",
+        ),
+    ],
+)
+def test_email_identity_metadata_contract_is_finite_and_non_sensitive(
+    snapshot: adoption.PartialAdoptionSnapshot,
+    expected: str,
+) -> None:
+    category = adoption._email_identity_metadata_contract(snapshot)
+
+    assert category == expected
+    assert category in {
+        "email_identity_exact_consistent",
+        "email_identity_exact_inconsistent",
+        "unknown_or_mixed",
+        "invalid_type",
+    }
+    message = str(
+        adoption._invalid_display_name_state(
+            snapshot,
+            display_name=DISPLAY_NAME,
+        )
+    )
+    assert f"metadata_contract={expected}" in message
+    assert EMAIL not in message
+    assert USER_ID not in message
     for sentinel in _DIAGNOSTIC_SENTINELS:
         assert sentinel not in message
 
