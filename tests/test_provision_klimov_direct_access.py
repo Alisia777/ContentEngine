@@ -32,6 +32,7 @@ EMAIL = direct.EXPECTED_EMAIL
 OWNER_EMAIL = "owner@example.com"
 DISPLAY_NAME = "\u0412. \u041a\u043b\u0438\u043c\u043e\u0432"
 TEMPORARY_PASSWORD = "TemporaryKlimov77!"
+CHANGED_TEMPORARY_PASSWORD = "DifferentTemporary88!"
 DISPATCH_ID = "klimov-direct-access-v1"
 AUTHORITY = ProvisioningAuthority(ORGANIZATION_ID, OWNER_ID)
 
@@ -525,6 +526,69 @@ def test_dispatch_state_accepts_only_reviewed_phase_transitions(
     direct._validate_dispatch_for_phase(state, phase=phase)
 
 
+def test_dispatch_binding_verification_uses_exact_hmacs_without_raw_secrets() -> None:
+    class BindingManagement:
+        def __init__(self) -> None:
+            self.queries: list[tuple[str, bool]] = []
+
+        def execute(self, sql: str, *, read_only: bool = False) -> Any:
+            self.queries.append((sql, read_only))
+            return [{"dispatch_record_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}]
+
+    management = BindingManagement()
+    server_key = "sb_secret_test_service_role_key"
+    direct._verify_password_dispatch_binding(
+        management,
+        dispatch=PasswordDispatch(DISPATCH_ID, direct.ACCOUNT_SLOT),
+        email=EMAIL,
+        password=TEMPORARY_PASSWORD,
+        server_key=server_key,
+        allowed_statuses=frozenset({"reserved", "identity_applied"}),
+    )
+
+    assert len(management.queries) == 1
+    sql, read_only = management.queries[0]
+    assert read_only is True
+    assert DISPATCH_ID in sql
+    assert "account_slot = 'klimov'" in sql
+    assert "status in ('identity_applied', 'reserved')" in sql
+    assert direct._keyed_fingerprint(
+        server_key,
+        "member-email",
+        EMAIL,
+    ) in sql
+    assert direct._keyed_fingerprint(
+        server_key,
+        "member-temp-password",
+        TEMPORARY_PASSWORD,
+    ) in sql
+    assert EMAIL not in sql
+    assert TEMPORARY_PASSWORD not in sql
+    assert server_key not in sql
+
+
+@pytest.mark.parametrize(
+    "allowed_statuses",
+    [frozenset(), frozenset({"failed"}), frozenset({"reserved", "failed"})],
+)
+def test_dispatch_binding_rejects_unreviewed_status_sets_without_query(
+    allowed_statuses: frozenset[str],
+) -> None:
+    management = RecordingManagement()
+
+    with pytest.raises(MemberProvisionError, match="status is invalid"):
+        direct._verify_password_dispatch_binding(
+            management,
+            dispatch=PasswordDispatch(DISPATCH_ID, direct.ACCOUNT_SLOT),
+            email=EMAIL,
+            password=TEMPORARY_PASSWORD,
+            server_key="sb_secret_test_service_role_key",
+            allowed_statuses=allowed_statuses,
+        )
+
+    assert management.queries == []
+
+
 def test_completed_database_phase_reconciles_open_password_dispatch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -532,6 +596,7 @@ def test_completed_database_phase_reconciles_open_password_dispatch(
     completed = _complete()
     transitions: list[tuple[str, str]] = []
     resume_calls: list[PasswordDispatch] = []
+    verification_calls: list[dict[str, Any]] = []
     monkeypatch.setattr(direct, "_read_exact_owner_authority", lambda *_a, **_k: AUTHORITY)
     monkeypatch.setattr(direct, "_read_snapshot", lambda *_a, **_k: completed)
     monkeypatch.setattr(
@@ -548,6 +613,18 @@ def test_completed_database_phase_reconciles_open_password_dispatch(
         direct,
         "_read_dispatch_state",
         lambda *_a, **_k: _dispatch_state("identity_applied"),
+    )
+
+    def verify_binding(
+        _client: Any,
+        **kwargs: Any,
+    ) -> None:
+        verification_calls.append(dict(kwargs))
+
+    monkeypatch.setattr(
+        direct,
+        "_verify_password_dispatch_binding",
+        verify_binding,
     )
 
     def resume(_client: Any, *, dispatch: PasswordDispatch) -> PasswordDispatch:
@@ -569,12 +646,21 @@ def test_completed_database_phase_reconciles_open_password_dispatch(
         email=EMAIL,
         display_name=DISPLAY_NAME,
         owner_email=OWNER_EMAIL,
-        temporary_password="",
+        temporary_password=TEMPORARY_PASSWORD,
         password_dispatch_id=DISPATCH_ID,
     )
 
     assert result.identity_status == "existing"
-    assert management.server_key_calls == 0
+    assert management.server_key_calls == 1
+    assert verification_calls == [
+        {
+            "dispatch": PasswordDispatch(DISPATCH_ID, direct.ACCOUNT_SLOT),
+            "email": EMAIL,
+            "password": TEMPORARY_PASSWORD,
+            "server_key": "sb_secret_test_service_role_key",
+            "allowed_statuses": frozenset({"identity_applied", "completed"}),
+        }
+    ]
     assert resume_calls == [PasswordDispatch(DISPATCH_ID, direct.ACCOUNT_SLOT)]
     assert transitions == [("identity_applied", "completed")]
 
@@ -748,6 +834,7 @@ def test_identity_applied_saga_resumes_without_password_reset(
     }
     transitions: list[tuple[str, str]] = []
     resume_calls: list[PasswordDispatch] = []
+    verification_calls: list[dict[str, Any]] = []
 
     class ResumeAuth(RecordingAuth):
         def _admin_request(
@@ -788,6 +875,18 @@ def test_identity_applied_saga_resumes_without_password_reset(
         lambda *_a, **_k: _dispatch_state(state["dispatch_status"]),
     )
 
+    def verify_binding(
+        _client: Any,
+        **kwargs: Any,
+    ) -> None:
+        verification_calls.append(dict(kwargs))
+
+    monkeypatch.setattr(
+        direct,
+        "_verify_password_dispatch_binding",
+        verify_binding,
+    )
+
     def resume(_client: Any, *, dispatch: PasswordDispatch) -> PasswordDispatch:
         resume_calls.append(dispatch)
         if state["dispatch_status"] == "reserved":
@@ -816,16 +915,253 @@ def test_identity_applied_saga_resumes_without_password_reset(
         email=EMAIL,
         display_name=DISPLAY_NAME,
         owner_email=OWNER_EMAIL,
-        temporary_password="",
+        temporary_password=TEMPORARY_PASSWORD,
         password_dispatch_id=DISPATCH_ID,
     )
 
     assert result.identity_status == "password_existing"
     assert resume_calls == [PasswordDispatch(DISPATCH_ID, direct.ACCOUNT_SLOT)]
+    assert verification_calls == [
+        {
+            "dispatch": PasswordDispatch(DISPATCH_ID, direct.ACCOUNT_SLOT),
+            "email": EMAIL,
+            "password": TEMPORARY_PASSWORD,
+            "server_key": "sb_secret_test_service_role_key",
+            "allowed_statuses": frozenset({"reserved", "identity_applied"}),
+        }
+    ]
     assert transitions == expected_transitions
     assert [call["path"] for call in auth.calls] == [
         "/rest/v1/rpc/system_admin_finalize_employee_access"
     ]
+
+
+@pytest.mark.parametrize("dispatch_status", ["reserved", "identity_applied"])
+def test_identity_applied_retry_rejects_changed_temporary_password_before_resume(
+    monkeypatch: pytest.MonkeyPatch,
+    dispatch_status: str,
+) -> None:
+    management = RecordingManagement()
+    snapshot = _identity_applied()
+    auth = RecordingAuth()
+    verification_calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        direct,
+        "_read_exact_owner_authority",
+        lambda *_a, **_k: AUTHORITY,
+    )
+    monkeypatch.setattr(direct, "_read_snapshot", lambda *_a, **_k: snapshot)
+    monkeypatch.setattr(
+        direct,
+        "_read_project_coverage",
+        lambda *_a, **_k: direct.ProjectCoverage(2, 0),
+    )
+    monkeypatch.setattr(
+        direct,
+        "_read_auth_credential_boundary",
+        lambda *_a, **_k: _auth_boundary(),
+    )
+    monkeypatch.setattr(
+        direct,
+        "_read_dispatch_state",
+        lambda *_a, **_k: _dispatch_state(dispatch_status),
+    )
+
+    def reject_changed_binding(
+        _client: Any,
+        *,
+        dispatch: PasswordDispatch,
+        email: str,
+        password: str,
+        server_key: str,
+        allowed_statuses: frozenset[str],
+    ) -> None:
+        verification_calls.append(
+            {
+                "dispatch": dispatch,
+                "email": email,
+                "password": password,
+                "server_key": server_key,
+                "allowed_statuses": allowed_statuses,
+            }
+        )
+        raise MemberProvisionError(
+            "Member password dispatch credential binding does not match"
+        )
+
+    # `raising=False` keeps this regression executable before the helper lands:
+    # without an actual production call to it, the test proceeds to the
+    # forbidden resume assertion below and fails.
+    monkeypatch.setattr(
+        direct,
+        "_verify_password_dispatch_binding",
+        reject_changed_binding,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        direct,
+        "_resume_password_dispatch",
+        lambda *_a, **_k: pytest.fail(
+            "changed temporary password must fail before dispatch resume"
+        ),
+    )
+
+    with pytest.raises(
+        MemberProvisionError,
+        match="credential binding does not match",
+    ):
+        direct.provision_klimov_direct_access(
+            management_client=management,
+            auth_client_factory=lambda _key: auth,
+            email=EMAIL,
+            display_name=DISPLAY_NAME,
+            owner_email=OWNER_EMAIL,
+            temporary_password=CHANGED_TEMPORARY_PASSWORD,
+            password_dispatch_id=DISPATCH_ID,
+        )
+
+    assert verification_calls == [
+        {
+            "dispatch": PasswordDispatch(DISPATCH_ID, direct.ACCOUNT_SLOT),
+            "email": EMAIL,
+            "password": CHANGED_TEMPORARY_PASSWORD,
+            "server_key": "sb_secret_test_service_role_key",
+            "allowed_statuses": frozenset({"reserved", "identity_applied"}),
+        }
+    ]
+    assert management.server_key_calls == 1
+    assert auth.calls == []
+
+
+@pytest.mark.parametrize("dispatch_status", ["identity_applied", "completed"])
+def test_completed_retry_rejects_changed_temporary_password_before_success(
+    monkeypatch: pytest.MonkeyPatch,
+    dispatch_status: str,
+) -> None:
+    management = RecordingManagement()
+    snapshot = _complete()
+    verification_calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        direct,
+        "_read_exact_owner_authority",
+        lambda *_a, **_k: AUTHORITY,
+    )
+    monkeypatch.setattr(direct, "_read_snapshot", lambda *_a, **_k: snapshot)
+    monkeypatch.setattr(
+        direct,
+        "_read_project_coverage",
+        lambda *_a, **_k: direct.ProjectCoverage(3, 3),
+    )
+    monkeypatch.setattr(
+        direct,
+        "_read_auth_credential_boundary",
+        lambda *_a, **_k: _auth_boundary(),
+    )
+    monkeypatch.setattr(
+        direct,
+        "_read_dispatch_state",
+        lambda *_a, **_k: _dispatch_state(dispatch_status),
+    )
+
+    def reject_changed_binding(
+        _client: Any,
+        **kwargs: Any,
+    ) -> None:
+        verification_calls.append(dict(kwargs))
+        raise MemberProvisionError(
+            "Member password dispatch credential binding does not match"
+        )
+
+    monkeypatch.setattr(
+        direct,
+        "_verify_password_dispatch_binding",
+        reject_changed_binding,
+    )
+    monkeypatch.setattr(
+        direct,
+        "_resume_password_dispatch",
+        lambda *_a, **_k: pytest.fail(
+            "changed temporary password must fail before completed resume"
+        ),
+    )
+
+    with pytest.raises(
+        MemberProvisionError,
+        match="credential binding does not match",
+    ):
+        direct.provision_klimov_direct_access(
+            management_client=management,
+            auth_client_factory=lambda _key: pytest.fail(
+                "complete phase must not build Auth client"
+            ),
+            email=EMAIL,
+            display_name=DISPLAY_NAME,
+            owner_email=OWNER_EMAIL,
+            temporary_password=CHANGED_TEMPORARY_PASSWORD,
+            password_dispatch_id=DISPATCH_ID,
+        )
+
+    assert verification_calls == [
+        {
+            "dispatch": PasswordDispatch(DISPATCH_ID, direct.ACCOUNT_SLOT),
+            "email": EMAIL,
+            "password": CHANGED_TEMPORARY_PASSWORD,
+            "server_key": "sb_secret_test_service_role_key",
+            "allowed_statuses": frozenset({"identity_applied", "completed"}),
+        }
+    ]
+    assert management.server_key_calls == 1
+
+
+def test_identity_applied_marker_must_match_requested_dispatch_before_secret_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    different_dispatch_id = "klimov-direct-access-different-v1"
+    snapshot = replace(
+        _identity_applied(),
+        app_metadata={
+            **_direct_app_metadata(),
+            PASSWORD_DISPATCH_ID_MARKER: different_dispatch_id,
+        },
+    )
+    management = RecordingManagement()
+    monkeypatch.setattr(
+        direct,
+        "_read_exact_owner_authority",
+        lambda *_a, **_k: AUTHORITY,
+    )
+    monkeypatch.setattr(direct, "_read_snapshot", lambda *_a, **_k: snapshot)
+    monkeypatch.setattr(
+        direct,
+        "_read_project_coverage",
+        lambda *_a, **_k: direct.ProjectCoverage(2, 0),
+    )
+    monkeypatch.setattr(
+        direct,
+        "_read_auth_credential_boundary",
+        lambda *_a, **_k: _auth_boundary(),
+    )
+    monkeypatch.setattr(
+        direct,
+        "_read_dispatch_state",
+        lambda *_a, **_k: _dispatch_state("identity_applied"),
+    )
+
+    with pytest.raises(
+        direct.KlimovDirectAccessError,
+        match="does not match the requested saga",
+    ):
+        direct.provision_klimov_direct_access(
+            management_client=management,
+            auth_client_factory=lambda _key: pytest.fail("must not build Auth client"),
+            email=EMAIL,
+            display_name=DISPLAY_NAME,
+            owner_email=OWNER_EMAIL,
+            temporary_password=TEMPORARY_PASSWORD,
+            password_dispatch_id=DISPATCH_ID,
+        )
+
+    assert management.server_key_calls == 0
 
 
 def test_workflow_is_manual_exact_main_production_and_has_no_mail_or_recovery() -> None:

@@ -48,6 +48,7 @@ from scripts.provision_supabase_member import (
     _reserve_password_dispatch,
     _resume_password_dispatch,
     _transition_password_dispatch,
+    _keyed_fingerprint,
     _validated_display_name,
     _validated_password_dispatch,
     _validated_temp_password,
@@ -231,6 +232,54 @@ limit 2
     if status not in {"reserved", "identity_applied", "completed", "failed"}:
         raise KlimovDirectAccessError("Klimov password dispatch state is invalid")
     return DispatchState(status=status, account_slot=account_slot)
+
+
+def _verify_password_dispatch_binding(
+    client: ManagementClient,
+    *,
+    dispatch: PasswordDispatch,
+    email: str,
+    password: str,
+    server_key: str,
+    allowed_statuses: frozenset[str],
+) -> None:
+    """Fail closed unless this secret is the credential recorded for the saga."""
+
+    permitted_statuses = frozenset({"reserved", "identity_applied", "completed"})
+    if not allowed_statuses or not allowed_statuses <= permitted_statuses:
+        raise MemberProvisionError("Member password dispatch status is invalid")
+    normalized_email = _validated_email(email)
+    validated_password = _validated_temp_password(password)
+    status_sql = ", ".join(
+        _sql_literal(status) for status in sorted(allowed_statuses)
+    )
+    email_fingerprint = _sql_literal(
+        _keyed_fingerprint(server_key, "member-email", normalized_email)
+    )
+    password_fingerprint = _sql_literal(
+        _keyed_fingerprint(
+            server_key,
+            "member-temp-password",
+            validated_password,
+        )
+    )
+    payload = client.execute(
+        f"""
+select id::text as dispatch_record_id
+from content_factory.member_password_dispatches
+where dispatch_id = {_sql_literal(dispatch.dispatch_id)}
+  and account_slot = {_sql_literal(dispatch.account_slot)}
+  and email_fingerprint = {email_fingerprint}
+  and password_fingerprint = {password_fingerprint}
+  and status in ({status_sql})
+limit 2
+""".strip(),
+        read_only=True,
+    )
+    if len(_rows_from_response(payload)) != 1:
+        raise MemberProvisionError(
+            "Member password dispatch credential binding does not match"
+        )
 
 
 def _validate_dispatch_for_phase(
@@ -815,14 +864,32 @@ def provision_klimov_direct_access(
         raise KlimovDirectAccessError(
             "Klimov direct-access state changed during preflight"
         )
-    if initial_phase == PHASE_COMPLETE:
-        completed_dispatch = _validated_password_dispatch(
+
+    recorded_dispatch = requested_dispatch
+    if initial_phase in {PHASE_IDENTITY_APPLIED, PHASE_COMPLETE}:
+        recorded_dispatch = _validated_password_dispatch(
             str(initial.app_metadata.get(PASSWORD_DISPATCH_ID_MARKER) or ""),
             ACCOUNT_SLOT,
         )
+        if recorded_dispatch != requested_dispatch:
+            raise KlimovDirectAccessError(
+                "Klimov password dispatch does not match the requested saga"
+            )
+
+    password = _validated_temp_password(temporary_password)
+    server_key = management_client.get_server_key()
+    if initial_phase == PHASE_COMPLETE:
+        _verify_password_dispatch_binding(
+            management_client,
+            dispatch=recorded_dispatch,
+            email=normalized_email,
+            password=password,
+            server_key=server_key,
+            allowed_statuses=frozenset({"identity_applied", "completed"}),
+        )
         resumable_dispatch = _resume_password_dispatch(
             management_client,
-            dispatch=completed_dispatch,
+            dispatch=recorded_dispatch,
         )
         if resumable_dispatch is not None:
             _transition_password_dispatch(
@@ -838,7 +905,6 @@ def provision_klimov_direct_access(
             active_projects=initial_coverage.active_projects,
         )
 
-    server_key = management_client.get_server_key()
     auth_client = auth_client_factory(server_key)
     saga_dispatch: PasswordDispatch | None = None
     current = repeated
@@ -846,7 +912,6 @@ def provision_klimov_direct_access(
     identity_status = "existing"
 
     if initial_phase == PHASE_NEEDS_PASSWORD:
-        password = _validated_temp_password(temporary_password)
         dispatch = requested_dispatch
         expected_metadata = _expected_direct_metadata(
             current.app_metadata,
@@ -925,9 +990,13 @@ def provision_klimov_direct_access(
         current = after_auth
         identity_status = "password_set"
     else:
-        recorded_dispatch = _validated_password_dispatch(
-            str(current.app_metadata.get(PASSWORD_DISPATCH_ID_MARKER) or ""),
-            ACCOUNT_SLOT,
+        _verify_password_dispatch_binding(
+            management_client,
+            dispatch=recorded_dispatch,
+            email=normalized_email,
+            password=password,
+            server_key=server_key,
+            allowed_statuses=frozenset({"reserved", "identity_applied"}),
         )
         saga_dispatch = _resume_password_dispatch(
             management_client,
