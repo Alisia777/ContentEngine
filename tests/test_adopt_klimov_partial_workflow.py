@@ -43,6 +43,7 @@ def test_workflow_is_manual_only_with_a_distinct_exact_token() -> None:
     assert confirmation["type"] == "string"
     assert "default" not in confirmation
     assert EXACT_CONFIRMATION in confirmation["description"]
+    assert "one-off name repair and adoption" in confirmation["description"]
     assert EXACT_CONFIRMATION != OLD_CONFIRMATION
     assert OLD_CONFIRMATION not in _source()
 
@@ -53,6 +54,9 @@ def test_job_is_bound_to_manual_main_production_and_exact_token() -> None:
     normalized = re.sub(r"\s+", " ", job["if"]).strip()
 
     assert set(workflow["jobs"]) == {"adopt"}
+    assert job["name"] == (
+        "Repair exact identity name, adopt, waive training and send recovery"
+    )
     assert normalized == (
         "github.event_name == 'workflow_dispatch' && "
         "github.ref == 'refs/heads/main' && "

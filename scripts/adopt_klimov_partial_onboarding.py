@@ -8,9 +8,11 @@ authority, and provenance boundary still matches the reviewed incident.
 
 The default mode is a read-only preflight.  ``--apply`` is accepted only from
 the dedicated protected GitHub Actions workflow on ``main``.  Apply mode reads
-the complete snapshot a second time before revealing a server key, confirms
-that exact Auth UUID with an email-confirm-only PUT, verifies the post-state,
-then grants the audited waiver and sends the standard recovery email.
+the complete snapshot a second time before revealing a server key, repairs the
+single reviewed missing-name state with a display-name-only PUT when needed,
+confirms that exact Auth UUID with a separate email-confirm-only PUT, verifies
+each post-state, then grants the audited waiver and sends the standard recovery
+email.
 """
 
 from __future__ import annotations
@@ -64,9 +66,18 @@ CLASS_LIMITED_PROVENANCE = (
 CLASS_INVITED_PROVENANCE = (
     "one_off_adoption_verified_invited_member_provenance"
 )
+PHASE_UNCONFIRMED_TRAINEE_MISSING_NAME = (
+    "unconfirmed_trainee_missing_display_name"
+)
+PHASE_CONFIRMED_TRAINEE_MISSING_NAME = (
+    "confirmed_trainee_missing_display_name"
+)
 PHASE_UNCONFIRMED_TRAINEE = "unconfirmed_trainee_without_waiver"
 PHASE_CONFIRMED_TRAINEE = "confirmed_trainee_without_waiver"
 PHASE_CONFIRMED_OPERATOR = "confirmed_operator_with_one_off_waiver"
+NAME_STATE_NEEDS_AUTH_NAME = "needs_auth_name"
+NAME_STATE_RETRY_PROFILE_SYNC = "retry_profile_sync"
+NAME_STATE_READY = "ready"
 
 
 class KlimovPartialAdoptionError(RuntimeError):
@@ -110,6 +121,7 @@ class PartialAdoptionSnapshot:
     signed_in: bool
     no_encrypted_password: bool
     app_metadata: dict[str, Any]
+    raw_user_meta_data: dict[str, Any]
     auth_display_name: str
     auth_provider: str
     auth_providers: tuple[str, ...]
@@ -433,6 +445,7 @@ select
   nullif(btrim(coalesce(auth_user.encrypted_password, '')), '') is null
     as no_encrypted_password,
   coalesce(auth_user.raw_app_meta_data, '{{}}'::jsonb) as app_metadata,
+  auth_user.raw_user_meta_data as raw_user_meta_data,
   coalesce(auth_user.raw_user_meta_data ->> 'display_name', '')
     as auth_display_name,
   coalesce(auth_user.raw_app_meta_data ->> 'provider', '') as auth_provider,
@@ -590,6 +603,7 @@ limit 2
         )
     row = rows[0]
     app_metadata = _required_dict(row, "app_metadata")
+    raw_user_meta_data = _required_dict(row, "raw_user_meta_data")
     auth_providers = _required_list(row, "auth_providers")
     membership_permissions = _required_list(row, "membership_permissions")
     events = tuple(
@@ -619,12 +633,13 @@ limit 2
         signed_in=_required_bool(row, "signed_in"),
         no_encrypted_password=_required_bool(row, "no_encrypted_password"),
         app_metadata=app_metadata,
-        auth_display_name=_required_text(row, "auth_display_name"),
+        raw_user_meta_data=raw_user_meta_data,
+        auth_display_name=_text(row, "auth_display_name"),
         auth_provider=_required_text(row, "auth_provider"),
         auth_providers=tuple(auth_providers),
         profile_id=_required_uuid(row, "profile_id"),
         profile_email=_required_text(row, "profile_email"),
-        profile_display_name=_required_text(row, "profile_display_name"),
+        profile_display_name=_text(row, "profile_display_name"),
         profile_status=_required_text(row, "profile_status"),
         organization_id=_required_uuid(row, "organization_id"),
         organization_slug=_required_text(row, "organization_slug"),
@@ -849,6 +864,39 @@ def _matches_prior_one_off_reason(reason: str, classification: str) -> bool:
     )
 
 
+def _display_name_state(
+    snapshot: PartialAdoptionSnapshot,
+    *,
+    display_name: str,
+) -> str:
+    verification_metadata = (
+        {"email_verified": True} if snapshot.email_confirmed else {}
+    )
+    named_metadata = {
+        "display_name": display_name,
+        **verification_metadata,
+    }
+    if (
+        snapshot.raw_user_meta_data == named_metadata
+        and snapshot.auth_display_name == display_name
+        and snapshot.profile_display_name == display_name
+    ):
+        return NAME_STATE_READY
+    if (
+        snapshot.raw_user_meta_data == verification_metadata
+        and snapshot.auth_display_name == ""
+        and snapshot.profile_display_name in {"", display_name}
+    ):
+        return NAME_STATE_NEEDS_AUTH_NAME
+    if (
+        snapshot.raw_user_meta_data == named_metadata
+        and snapshot.auth_display_name == display_name
+        and snapshot.profile_display_name == ""
+    ):
+        return NAME_STATE_RETRY_PROFILE_SYNC
+    raise _invalid_snapshot_field("display_name_state")
+
+
 def _validate_snapshot(
     snapshot: PartialAdoptionSnapshot,
     *,
@@ -862,6 +910,10 @@ def _validate_snapshot(
     normalized_owner_email = _validated_email(owner_email)
     validated_display_name = _validated_display_name(display_name)
     created_at = _parsed_utc(snapshot.auth_created_at)
+    display_name_state = _display_name_state(
+        snapshot,
+        display_name=validated_display_name,
+    )
     if (
         snapshot.auth_match_count != 1
         or snapshot.auth_email != normalized_email
@@ -873,10 +925,8 @@ def _validate_snapshot(
         or not _has_exact_contentengine_markers(snapshot.app_metadata)
         or snapshot.auth_provider != "email"
         or snapshot.auth_providers != ("email",)
-        or snapshot.auth_display_name != validated_display_name
         or snapshot.profile_id != snapshot.user_id
         or snapshot.profile_email != normalized_email
-        or snapshot.profile_display_name != validated_display_name
         or snapshot.profile_status != "active"
         or snapshot.organization_id != authority.organization_id
         or snapshot.organization_slug != OWNER_ORGANIZATION_SLUG
@@ -918,13 +968,24 @@ def _validate_snapshot(
         and snapshot.waiver_count == 0
         and empty_waiver
     ):
-        phase = (
-            PHASE_CONFIRMED_TRAINEE
-            if snapshot.email_confirmed
-            else PHASE_UNCONFIRMED_TRAINEE
-        )
+        if display_name_state in {
+            NAME_STATE_NEEDS_AUTH_NAME,
+            NAME_STATE_RETRY_PROFILE_SYNC,
+        }:
+            phase = (
+                PHASE_CONFIRMED_TRAINEE_MISSING_NAME
+                if snapshot.email_confirmed
+                else PHASE_UNCONFIRMED_TRAINEE_MISSING_NAME
+            )
+        else:
+            phase = (
+                PHASE_CONFIRMED_TRAINEE
+                if snapshot.email_confirmed
+                else PHASE_UNCONFIRMED_TRAINEE
+            )
     elif (
         snapshot.email_confirmed
+        and display_name_state == NAME_STATE_READY
         and snapshot.membership_role == "operator"
         and snapshot.waiver_count == 1
         and _validated_uuid(snapshot.waiver_id)
@@ -1040,6 +1101,28 @@ def _confirm_exact_identity(
     )
 
 
+def _set_exact_display_name(
+    auth_client: SupabaseAuthClient,
+    *,
+    user_id: str,
+    display_name: str,
+) -> None:
+    admin_request = getattr(auth_client, "_admin_request", None)
+    if not callable(admin_request):
+        raise KlimovPartialAdoptionError(
+            "Supabase Auth admin client is unavailable"
+        )
+    # Keep the one-off name repair separate from confirmation.  The caller
+    # treats only the authoritative database reread as proof and permits only
+    # the complete Auth metadata/name plus trigger-synchronised profile name
+    # to change.
+    admin_request(
+        f"/auth/v1/admin/users/{_validated_uuid(user_id)}",
+        method="PUT",
+        payload={"user_metadata": {"display_name": display_name}},
+    )
+
+
 def adopt_klimov_partial_onboarding(
     *,
     management_client: SupabaseManagementClient,
@@ -1108,14 +1191,86 @@ def adopt_klimov_partial_onboarding(
     current_phase = initial_phase
     auth_client: SupabaseAuthClient | None = None
     identity_status = "confirmation_already_complete"
+    display_name_repaired = False
 
-    if current_phase == PHASE_UNCONFIRMED_TRAINEE:
+    if current_phase in {
+        PHASE_UNCONFIRMED_TRAINEE_MISSING_NAME,
+        PHASE_CONFIRMED_TRAINEE_MISSING_NAME,
+    }:
         server_key = management_client.get_server_key()
         auth_client = SupabaseAuthClient(
             project_ref=os.environ.get("SUPABASE_PROJECT_REF", "").strip(),
             server_key=server_key,
             publishable_key=publishable_key,
         )
+        _set_exact_display_name(
+            auth_client,
+            user_id=current.user_id,
+            display_name=validated_display_name,
+        )
+        expected_name_phase = (
+            PHASE_CONFIRMED_TRAINEE
+            if current.email_confirmed
+            else PHASE_UNCONFIRMED_TRAINEE
+        )
+        after_name_repair = _read_snapshot(
+            management_client,
+            email=normalized_email,
+            organization_id=authority.organization_id,
+            authority_id=authority.invited_by,
+        )
+        if (
+            _display_name_state(
+                after_name_repair,
+                display_name=validated_display_name,
+            )
+            != NAME_STATE_READY
+        ):
+            raise KlimovPartialAdoptionError(
+                "Display-name repair did not reach the ready state"
+            )
+        post_classification, current_phase = _validate_snapshot(
+            after_name_repair,
+            email=normalized_email,
+            display_name=validated_display_name,
+            owner_email=normalized_owner_email,
+            authority=authority,
+            expected_phase=expected_name_phase,
+        )
+        if (
+            after_name_repair
+            != replace(
+                current,
+                raw_user_meta_data={
+                    "display_name": validated_display_name,
+                    **(
+                        {"email_verified": True}
+                        if current.email_confirmed
+                        else {}
+                    ),
+                },
+                auth_display_name=validated_display_name,
+                profile_display_name=validated_display_name,
+            )
+            or post_classification != classification
+        ):
+            raise KlimovPartialAdoptionError(
+                "Display-name repair post-verification failed"
+            )
+        current = after_name_repair
+        display_name_repaired = True
+        identity_status = "display_name_repaired"
+
+    if current_phase == PHASE_UNCONFIRMED_TRAINEE:
+        if auth_client is None:
+            server_key = management_client.get_server_key()
+            auth_client = SupabaseAuthClient(
+                project_ref=os.environ.get(
+                    "SUPABASE_PROJECT_REF", ""
+                ).strip(),
+                server_key=server_key,
+                publishable_key=publishable_key,
+            )
         _confirm_exact_identity(auth_client, user_id=current.user_id)
         after_confirmation = _read_snapshot(
             management_client,
@@ -1133,14 +1288,25 @@ def adopt_klimov_partial_onboarding(
         )
         if (
             after_confirmation
-            != replace(current, email_confirmed=True)
+            != replace(
+                current,
+                email_confirmed=True,
+                raw_user_meta_data={
+                    "display_name": validated_display_name,
+                    "email_verified": True,
+                },
+            )
             or post_classification != classification
         ):
             raise KlimovPartialAdoptionError(
                 "Auth confirmation post-verification failed"
             )
         current = after_confirmation
-        identity_status = "confirmed_by_one_off_adoption"
+        identity_status = (
+            "display_name_repaired_and_confirmed_by_one_off_adoption"
+            if display_name_repaired
+            else "confirmed_by_one_off_adoption"
+        )
     elif current_phase == PHASE_CONFIRMED_OPERATOR:
         identity_status = "waiver_already_complete"
 
