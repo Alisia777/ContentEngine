@@ -166,6 +166,18 @@ values (
   '9a000000-0000-4000-8000-000000000001'
 );
 
+insert into content_factory.generation_spend_policies (
+  organization_id, paid_generation_enabled,
+  daily_limit_minor, monthly_limit_minor, per_request_limit_minor,
+  currency, timezone, version, reason, updated_by
+)
+values (
+  '9a100000-0000-4000-8000-000000000001', true,
+  2500, 10000, 500, 'USD', 'Europe/Moscow', 1,
+  'Sound recovery deterministic generation fixture policy.',
+  '9a000000-0000-4000-8000-000000000001'
+);
+
 insert into content_factory.generation_batches (
   id, organization_id, product_id, created_by, project_id, name,
   mode, allow_real_spend, status, total_requested, total_created,
@@ -182,10 +194,19 @@ values (
   'Sound recovery generation fixture',
   'real', true, 'succeeded', 1, 1,
   jsonb_build_object(
+    'job_id', '9a140000-0000-4000-8000-000000000001',
     'provider', 'runway',
     'model', 'gen4_turbo',
     'duration_seconds', 5,
-    'audio', false
+    'audio', false,
+    'format', '9:16',
+    'ratio', '720:1280',
+    'spend_confirmation', 'RUNWAY_GEN4_TURBO_5S_USD_0.25',
+    'billing', jsonb_build_object(
+      'currency', 'USD',
+      'estimated_cost_minor', 25,
+      'estimated_credits', 25
+    )
   ),
   repeat('1', 64),
   'sound-recovery-batch-0001',
@@ -212,15 +233,35 @@ values (
   '9a110000-0000-4000-8000-000000000001',
   'real', 'runway', true, 25, 25, 'succeeded',
   jsonb_build_object(
+    'sku', 'SOUND-RECOVERY-SKU',
+    'product_name', 'Sound recovery fixture',
+    'provider', 'runway',
     'platform', 'instagram',
     'model', 'gen4_turbo',
     'duration_seconds', 5,
     'audio', false,
-    'prompt_text', 'Test-only sound recovery generation prompt'
+    'format', '9:16',
+    'ratio', '720:1280',
+    'input_object_name',
+      '9a100000-0000-4000-8000-000000000001/9a000000-0000-4000-8000-000000000001/uploads/sound-recovery.webp',
+    'output_object_name',
+      '9a100000-0000-4000-8000-000000000001/9a000000-0000-4000-8000-000000000001/generated/sound-recovery.mp4',
+    'destination_ref', 'instagram-sound-recovery-fixture',
+    'prompt_text', 'Test-only sound recovery generation prompt',
+    'spend_confirmation', 'RUNWAY_GEN4_TURBO_5S_USD_0.25',
+    'billing', jsonb_build_object(
+      'currency', 'USD',
+      'estimated_cost_minor', 25,
+      'estimated_credits', 25
+    )
   ),
   jsonb_build_object(
     'provider_task_id', 'sound-recovery-provider-task',
-    'output_media_id', '9a150000-0000-4000-8000-000000000001'
+    'output_object_name',
+      '9a100000-0000-4000-8000-000000000001/9a000000-0000-4000-8000-000000000001/generated/sound-recovery.mp4',
+    'output_media_id', '9a150000-0000-4000-8000-000000000001',
+    'mime_type', 'video/mp4',
+    'sha256', repeat('5', 64)
   ),
   repeat('2', 64),
   'sound-recovery-job-0001'

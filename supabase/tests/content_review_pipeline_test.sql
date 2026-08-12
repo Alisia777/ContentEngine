@@ -1126,6 +1126,7 @@ select throws_ok(
     'project_id', '95100000-0000-4000-8000-000000000101',
     'idempotency_key', 'content-review-self-decision',
     'decision', 'needs_changes',
+    'media_watched_confirmed', true,
     'comment', 'Нужно исправить лечебное обещание перед публикацией.'
   ))$$,
   '42501',
@@ -1381,7 +1382,7 @@ select throws_ok(
   ))$$,
   '42501',
   'role_not_allowed',
-  'operators cannot issue human approval decisions'
+  'operator cannot decide low-risk source media without exact generated lineage'
 );
 
 do $$

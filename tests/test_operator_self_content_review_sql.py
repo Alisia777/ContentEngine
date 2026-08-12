@@ -89,6 +89,35 @@ def test_decision_context_and_repair_keep_exact_predicate() -> None:
     assert "provider_spend_requires_separate_confirmation" in REPAIR_SOURCE
 
 
+def test_operator_role_is_unconditionally_bound_to_exact_lineage() -> None:
+    decision_patch = MIGRATION[
+        MIGRATION.index("$patch_operator_self_decision_gates$") :
+        MIGRATION.index("$patch_operator_catalog_decision_eligibility$")
+    ]
+    for token in (
+        "if actor_role = 'operator'",
+        "review_row.project_id",
+        "message = 'role_not_allowed'",
+        "operator_exact_decision_gate_target_missing",
+    ):
+        assert token in decision_patch
+
+    context_patch = MIGRATION[
+        MIGRATION.index("$patch_operator_context_exact_gates$") :
+        MIGRATION.index("$patch_operator_context_independence$")
+    ]
+    for function_name in (
+        "creator_approve_generated_photo_review_with_context_pre_project_v47",
+        "creator_approve_generated_video_review_with_context_pre_project_v47",
+        "creator_approve_generated_video_review_pre_sound_gate_v1",
+    ):
+        assert function_name in context_patch
+    assert context_patch.count("message = 'role_not_allowed'") >= 2
+    assert context_patch.count(
+        "qualified_operator_content_review_command_allowed("
+    ) >= 2
+
+
 def test_external_ai_true_and_false_are_typed_not_truthy() -> None:
     for token in (
         "jsonb_typeof(review.input -> ''external_ai_processing_confirmed'') = ''boolean''",
@@ -148,7 +177,7 @@ def test_public_project_sound_and_assignment_topology_is_preserved() -> None:
 
 
 def test_pgtap_has_behavioral_auth_and_public_decision_coverage() -> None:
-    assert "select plan(28)" in PGTAP
+    assert "select plan(35)" in PGTAP
     for token in (
         "qualified exact operator owns this review lineage",
         "same-project qualified non-participant cannot self review",
@@ -156,8 +185,13 @@ def test_pgtap_has_behavioral_auth_and_public_decision_coverage() -> None:
         "revoked waiver is not a current qualification",
         "foreign project cannot reuse exact review lineage",
         "qualified operator is assigned their exact review first",
+        "same-project peer operator cannot approve teammate photo context",
+        "same-project peer operator cannot approve teammate video context",
         "public exact operator decision rejects an unwatched render",
         "exact qualified operator can return their watched render for changes through the public project wrapper",
         "operator self decision remains immutable",
+        "all five operator-enabled commands fail closed through the exact command predicate",
+        "immutable context child routes to the exact qualified source operator",
+        "immutable context child cannot confer authority on a teammate operator",
     ):
         assert token in PGTAP

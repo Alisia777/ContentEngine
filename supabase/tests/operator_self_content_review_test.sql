@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
-select plan(28);
+select plan(35);
 
 select ok(
   to_regprocedure(
@@ -42,6 +42,43 @@ select ok(
 );
 
 select ok(
+  to_regprocedure(
+    'content_factory_private.qualified_operator_content_review_command_allowed(uuid,uuid,uuid,uuid)'
+  ) is not null,
+  'context-aware exact operator command predicate exists'
+);
+
+select ok(
+  not has_function_privilege(
+    'authenticated',
+    'content_factory_private.qualified_operator_content_review_command_allowed(uuid,uuid,uuid,uuid)',
+    'execute'
+  ),
+  'browser users cannot probe the context-aware command predicate'
+);
+
+select is(
+  (
+    select count(*)
+    from unnest(array[
+      'content_factory_private.creator_decide_content_review_pre_project_v47(jsonb)'::regprocedure,
+      'content_factory_private.creator_decide_content_review_without_sound_release_gate(jsonb)'::regprocedure,
+      'content_factory_private.creator_approve_generated_photo_review_with_context_pre_project_v47(jsonb)'::regprocedure,
+      'content_factory_private.creator_approve_generated_video_review_with_context_pre_project_v47(jsonb)'::regprocedure,
+      'content_factory_private.creator_approve_generated_video_review_pre_sound_gate_v1(jsonb)'::regprocedure
+    ]) function_signature
+    where pg_get_functiondef(function_signature)
+            like '%if actor_role = ''operator''%'
+      and pg_get_functiondef(function_signature)
+            like '%qualified_operator_content_review_command_allowed(%'
+      and pg_get_functiondef(function_signature)
+            like '%message = ''role_not_allowed''%'
+  ),
+  5::bigint,
+  'all five operator-enabled commands fail closed through the exact command predicate'
+);
+
+select ok(
   pg_get_functiondef(
     'content_factory_private.assign_generated_media_review(uuid,uuid)'::regprocedure
   ) like '%qualified_operator_own_content_review_allowed%',
@@ -58,8 +95,14 @@ select ok(
 select ok(
   pg_get_functiondef(
     'content_factory_private.creator_decide_content_review_without_sound_release_gate(jsonb)'::regprocedure
-  ) like '%qualified_operator_own_content_review_allowed%',
-  'decision independence uses the exact operator predicate'
+  ) like '%if actor_role = ''operator''%'
+  and pg_get_functiondef(
+    'content_factory_private.creator_decide_content_review_without_sound_release_gate(jsonb)'::regprocedure
+  ) like '%message = ''role_not_allowed''%'
+  and pg_get_functiondef(
+    'content_factory_private.creator_decide_content_review_without_sound_release_gate(jsonb)'::regprocedure
+  ) like '%qualified_operator_content_review_command_allowed%',
+  'every operator decision is unconditionally bound to the exact predicate'
 );
 
 select ok(
@@ -72,15 +115,30 @@ select ok(
 select ok(
   pg_get_functiondef(
     'content_factory_private.creator_approve_generated_photo_review_with_context_pre_project_v47(jsonb)'::regprocedure
+  ) like '%if actor_role = ''operator''%'
+  and pg_get_functiondef(
+    'content_factory_private.creator_approve_generated_photo_review_with_context_pre_project_v47(jsonb)'::regprocedure
+  ) like '%message = ''role_not_allowed''%'
+  and pg_get_functiondef(
+    'content_factory_private.creator_approve_generated_photo_review_with_context_pre_project_v47(jsonb)'::regprocedure
   ) like '%qualified_operator_own_content_review_allowed%',
-  'photo context approval uses the exact predicate'
+  'photo context approval unconditionally gates operators by exact lineage'
 );
 
 select ok(
   pg_get_functiondef(
     'content_factory_private.creator_approve_generated_video_review_pre_sound_gate_v1(jsonb)'::regprocedure
-  ) like '%qualified_operator_own_content_review_allowed%',
-  'video context approval uses the exact predicate'
+  ) like '%message = ''role_not_allowed''%'
+  and pg_get_functiondef(
+    'content_factory_private.creator_approve_generated_video_review_pre_sound_gate_v1(jsonb)'::regprocedure
+  ) like '%qualified_operator_own_content_review_allowed%'
+  and pg_get_functiondef(
+    'content_factory_private.creator_approve_generated_video_review_with_context_pre_project_v47(jsonb)'::regprocedure
+  ) like '%message = ''role_not_allowed''%'
+  and pg_get_functiondef(
+    'content_factory_private.creator_approve_generated_video_review_with_context_pre_project_v47(jsonb)'::regprocedure
+  ) like '%qualified_operator_content_review_command_allowed%',
+  'video context wrapper and inner command gate operators by exact lineage'
 );
 
 select ok(
@@ -229,6 +287,18 @@ values (
   '9b000000-0000-4000-8000-000000000001'
 );
 
+insert into content_factory.generation_spend_policies (
+  organization_id, paid_generation_enabled,
+  daily_limit_minor, monthly_limit_minor, per_request_limit_minor,
+  currency, timezone, version, reason, updated_by
+)
+values (
+  '9b100000-0000-4000-8000-000000000001', true,
+  2500, 10000, 500, 'USD', 'Europe/Moscow', 1,
+  'Operator self-review deterministic generation fixture policy.',
+  '9b000000-0000-4000-8000-000000000001'
+);
+
 insert into content_factory.generation_batches (
   id, organization_id, product_id, created_by, project_id, name,
   mode, allow_real_spend, status, total_requested, total_created,
@@ -243,7 +313,23 @@ values (
   '9b000000-0000-4000-8000-000000000001',
   '9b110000-0000-4000-8000-000000000001', 'Self QA generation',
   'real', true, 'succeeded', 1, 1,
-  jsonb_build_object('provider','runway','model','seedance2_fast','audio',true),
+  jsonb_build_object(
+    'job_id', '9b140000-0000-4000-8000-000000000001',
+    'provider', 'runway',
+    'model', 'seedance2_fast',
+    'duration_seconds', 8,
+    'audio', true,
+    'format', '9:16',
+    'ratio', '720:1280',
+    'spend_confirmation',
+      'RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32',
+    'billing', jsonb_build_object(
+      'currency', 'USD',
+      'estimated_cost_minor', 232,
+      'estimated_credits', 232,
+      'credit_unit_usd_minor', 1
+    )
+  ),
   repeat('1',64), 'operator-self-batch-0001',
   'runway', 'seedance2_fast', 8, true, 232, 232, 'USD'
 );
@@ -265,9 +351,38 @@ values (
   '9b000000-0000-4000-8000-000000000001',
   '9b110000-0000-4000-8000-000000000001',
   'real', 'runway', true, 232, 232, 'succeeded',
-  jsonb_build_object('platform','youtube','model','seedance2_fast','audio',true),
   jsonb_build_object(
+    'sku', 'SELF-QA-SKU',
+    'product_name', 'Self QA fixture',
+    'prompt_text',
+      'Кадр. Реплика героя дословно: «Показываю точный товар крупно». Финал.',
+    'provider', 'runway',
+    'platform', 'youtube',
+    'model', 'seedance2_fast',
+    'duration_seconds', 8,
+    'audio', true,
+    'format', '9:16',
+    'ratio', '720:1280',
+    'input_object_name',
+      '9b100000-0000-4000-8000-000000000001/9b000000-0000-4000-8000-000000000001/uploads/self-qa.webp',
+    'output_object_name',
+      '9b100000-0000-4000-8000-000000000001/9b000000-0000-4000-8000-000000000001/generated/self-qa.mp4',
+    'destination_ref', 'youtube-operator-self-fixture',
+    'spend_confirmation',
+      'RUNWAY_SEEDANCE2_FAST_8S_AUDIO_USD_2.32',
+    'billing', jsonb_build_object(
+      'currency', 'USD',
+      'estimated_cost_minor', 232,
+      'estimated_credits', 232,
+      'credit_unit_usd_minor', 1
+    )
+  ),
+  jsonb_build_object(
+    'provider_task_id', 'provider-operator-self-fixture',
+    'output_object_name',
+      '9b100000-0000-4000-8000-000000000001/9b000000-0000-4000-8000-000000000001/generated/self-qa.mp4',
     'output_media_id','9b150000-0000-4000-8000-000000000001',
+    'mime_type', 'video/mp4',
     'sha256',repeat('5',64)
   ), repeat('2',64), 'operator-self-job-0001'
 );
@@ -309,7 +424,8 @@ values (
   '9b000000-0000-4000-8000-000000000001', 'completed', repeat('5',64),
   jsonb_build_object(
     'generation_job_id','9b140000-0000-4000-8000-000000000001',
-    'ai_generated',true,'external_ai_processing_confirmed',false
+    'ai_generated',true,'external_ai_processing_confirmed',false,
+    'script_text','Показываю точный товар крупно'
   ),
   jsonb_build_object(
     'overall_score',73,'scores','{}'::jsonb,'compliance_status','human_review',
@@ -390,6 +506,37 @@ select is(
   ),
   '9b000000-0000-4000-8000-000000000001'::uuid,
   'operator-first assignment is durable and active'
+);
+
+select set_config(
+  'request.jwt.claim.sub',
+  '9b000000-0000-4000-8000-000000000002', true
+);
+select set_config('request.jwt.claim.role', 'authenticated', true);
+
+select throws_ok(
+  $$select public.creator_approve_generated_photo_review_with_context(
+    jsonb_build_object(
+      'organization_id','9b100000-0000-4000-8000-000000000001',
+      'project_id','9b110000-0000-4000-8000-000000000001',
+      'review_id','9b160000-0000-4000-8000-000000000001'
+    )
+  )$$,
+  '42501', 'role_not_allowed',
+  'same-project peer operator cannot approve teammate photo context'
+);
+
+select throws_ok(
+  $$select public.creator_approve_generated_video_review_with_context(
+    jsonb_build_object(
+      'organization_id','9b100000-0000-4000-8000-000000000001',
+      'project_id','9b110000-0000-4000-8000-000000000001',
+      'review_id','9b160000-0000-4000-8000-000000000001',
+      'sound_assessment','{}'::jsonb
+    )
+  )$$,
+  '42501', 'role_not_allowed',
+  'same-project peer operator cannot approve teammate video context'
 );
 
 select set_config(
@@ -499,6 +646,83 @@ select throws_ok(
       and review_id = '9b160000-0000-4000-8000-000000000001'$$,
   '55000', 'content_review_decision_immutable',
   'operator self decision remains immutable'
+);
+
+insert into content_factory.content_review_runs (
+  id, organization_id, project_id, media_object_id, requested_by,
+  parent_review_id, status, media_sha256_snapshot, input, result,
+  moderation, ruleset_version, model_provider, model_version,
+  request_hash, completion_hash, idempotency_key, started_at, finished_at
+)
+select
+  '9b160000-0000-4000-8000-000000000002'::uuid,
+  source.organization_id,
+  source.project_id,
+  source.media_object_id,
+  source.requested_by,
+  source.id,
+  'completed',
+  source.media_sha256_snapshot,
+  source.input || jsonb_build_object(
+    'context_amendment', jsonb_build_object(
+      'version','generated-video-context-v1',
+      'source_review_id',source.id,
+      'source_completion_hash',source.completion_hash,
+      'external_ai_invoked',false
+    )
+  ),
+  source.result,
+  source.moderation,
+  source.ruleset_version,
+  source.model_provider,
+  source.model_version,
+  repeat('8',64),
+  repeat('9',64),
+  'operator-self-context-child-0001',
+  now(),
+  now()
+from content_factory.content_review_runs source
+where source.organization_id = '9b100000-0000-4000-8000-000000000001'
+  and source.id = '9b160000-0000-4000-8000-000000000001';
+
+insert into content_factory.content_review_context_amendments (
+  organization_id, source_review_id, amended_review_id,
+  generation_job_id, media_object_id, product_id,
+  source_completion_hash, amended_completion_hash,
+  context_snapshot, created_by
+)
+values (
+  '9b100000-0000-4000-8000-000000000001',
+  '9b160000-0000-4000-8000-000000000001',
+  '9b160000-0000-4000-8000-000000000002',
+  '9b140000-0000-4000-8000-000000000001',
+  '9b150000-0000-4000-8000-000000000001',
+  '9b120000-0000-4000-8000-000000000001',
+  repeat('7',64), repeat('9',64),
+  jsonb_build_object('version','generated-video-context-v1'),
+  '9b000000-0000-4000-8000-000000000001'
+);
+
+select is(
+  content_factory_private.qualified_operator_content_review_command_allowed(
+    '9b100000-0000-4000-8000-000000000001',
+    '9b110000-0000-4000-8000-000000000001',
+    '9b160000-0000-4000-8000-000000000002',
+    '9b000000-0000-4000-8000-000000000001'
+  ),
+  true,
+  'immutable context child routes to the exact qualified source operator'
+);
+
+select is(
+  content_factory_private.qualified_operator_content_review_command_allowed(
+    '9b100000-0000-4000-8000-000000000001',
+    '9b110000-0000-4000-8000-000000000001',
+    '9b160000-0000-4000-8000-000000000002',
+    '9b000000-0000-4000-8000-000000000002'
+  ),
+  false,
+  'immutable context child cannot confer authority on a teammate operator'
 );
 
 select * from finish();

@@ -123,6 +123,68 @@ revoke all on function
     uuid, uuid, uuid, uuid
   ) from public, anon, authenticated, service_role;
 
+-- Direct decisions and the generated-video context command share one actor
+-- gate.  The latter creates an immutable amended child before delegating to
+-- the generic decision implementation, so map only a fully bound child back
+-- to its exact immutable source.  Every other review is evaluated directly.
+create or replace function
+  content_factory_private.qualified_operator_content_review_command_allowed(
+    p_organization_id uuid,
+    p_project_id uuid,
+    p_review_id uuid,
+    p_profile_id uuid
+  )
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select content_factory_private.qualified_operator_own_content_review_allowed(
+    p_organization_id,
+    p_project_id,
+    coalesce(
+      (
+        select amendment.source_review_id
+        from content_factory.content_review_context_amendments amendment
+        join content_factory.content_review_runs child
+          on child.organization_id = amendment.organization_id
+         and child.id = amendment.amended_review_id
+         and child.project_id = p_project_id
+         and child.parent_review_id = amendment.source_review_id
+         and child.media_object_id = amendment.media_object_id
+         and child.completion_hash = amendment.amended_completion_hash
+         and child.input #>> '{context_amendment,source_review_id}' =
+               amendment.source_review_id::text
+         and child.input #>> '{context_amendment,source_completion_hash}' =
+               amendment.source_completion_hash
+         and child.input #>> '{context_amendment,external_ai_invoked}' = 'false'
+         and child.input #>> '{context_amendment,version}' in (
+               'generated-photo-context-v1',
+               'generated-video-context-v1'
+             )
+        join content_factory.content_review_runs source_review
+          on source_review.organization_id = amendment.organization_id
+         and source_review.id = amendment.source_review_id
+         and source_review.project_id = child.project_id
+         and source_review.media_object_id = amendment.media_object_id
+         and source_review.completion_hash = amendment.source_completion_hash
+         and source_review.media_sha256_snapshot = child.media_sha256_snapshot
+        where amendment.organization_id = p_organization_id
+          and amendment.amended_review_id = p_review_id
+          and amendment.created_by = p_profile_id
+      ),
+      p_review_id
+    ),
+    p_profile_id
+  )
+$$;
+
+revoke all on function
+  content_factory_private.qualified_operator_content_review_command_allowed(
+    uuid, uuid, uuid, uuid
+  ) from public, anon, authenticated, service_role;
+
 -- Route an exact self-owned review to its qualified operator before the
 -- established independent-review candidate query.  Any pre-existing
 -- assignment still wins because the mature function checks it first.
@@ -255,6 +317,221 @@ begin
   end loop;
 end;
 $patch_operator_review_command_roles$;
+
+-- The outer sound-aware decision wrapper runs before the mature decision
+-- implementation and before any sound normalization or recording.  Gate an
+-- operator here too so unauthorized and replayed commands cannot do work in
+-- an outer layer before the inner authority boundary is reached.
+do $patch_operator_outer_decision_exact_gate$
+declare
+  function_signature constant regprocedure :=
+    'content_factory_private.creator_decide_content_review_pre_project_v47(jsonb)'::regprocedure;
+  function_definition text := pg_catalog.pg_get_functiondef(function_signature);
+  declaration_target constant text := $target$
+  organization_id uuid;
+  review_id_value uuid;$target$;
+  declaration_replacement constant text := $replacement$
+  organization_id uuid;
+  actor_role text;
+  review_id_value uuid;$replacement$;
+  role_target constant text := $target$
+  perform content_factory_private.membership_role(
+    organization_id,
+    true,
+    array['owner', 'admin', 'producer', 'reviewer', 'operator']
+  );$target$;
+  role_replacement constant text := $replacement$
+  actor_role := content_factory_private.membership_role(
+    organization_id,
+    true,
+    array['owner', 'admin', 'producer', 'reviewer', 'operator']
+  );$replacement$;
+  target constant text := $target$
+  review_id_value :=
+    content_factory_private.require_uuid(p_payload, 'review_id');$target$;
+  replacement constant text := $replacement$
+  review_id_value :=
+    content_factory_private.require_uuid(p_payload, 'review_id');
+  if actor_role = 'operator'
+     and not content_factory_private.qualified_operator_content_review_command_allowed(
+       organization_id,
+       nullif(
+         current_setting('contentengine.project_id', true),
+         ''
+       )::uuid,
+       review_id_value,
+       user_id
+     ) then
+    raise exception using
+      errcode = '42501',
+      message = 'role_not_allowed';
+  end if;$replacement$;
+begin
+  if strpos(
+       function_definition,
+       'qualified_operator_content_review_command_allowed('
+     ) > 0 then
+    return;
+  end if;
+  if strpos(function_definition, declaration_replacement) = 0 then
+    if strpos(function_definition, declaration_target) = 0 then
+      raise exception using
+        errcode = '55000',
+        message = 'operator_outer_decision_role_declaration_target_missing';
+    end if;
+    function_definition := replace(
+      function_definition,
+      declaration_target,
+      declaration_replacement
+    );
+  end if;
+  if strpos(function_definition, role_replacement) = 0 then
+    if strpos(function_definition, role_target) = 0 then
+      raise exception using
+        errcode = '55000',
+        message = 'operator_outer_decision_role_capture_target_missing';
+    end if;
+    function_definition := replace(
+      function_definition,
+      role_target,
+      role_replacement
+    );
+  end if;
+  if strpos(function_definition, target) = 0 then
+    raise exception using
+      errcode = '55000',
+      message = 'operator_outer_decision_exact_gate_target_missing';
+  end if;
+  execute replace(function_definition, target, replacement);
+end;
+$patch_operator_outer_decision_exact_gate$;
+
+-- Role recognition is not authorization.  Every operator-enabled context
+-- command must fail closed before it can record context or sound evidence
+-- unless the exact source review satisfies the same generated-output lineage,
+-- qualification and project-ACL predicate as a direct decision.  Managers and
+-- reviewers retain their established independent-review behavior.
+do $patch_operator_context_exact_gates$
+declare
+  function_signature regprocedure;
+  function_definition text;
+  target text;
+  replacement text;
+  declaration_target constant text := $target$
+  organization_id uuid;
+  source_review_id_value uuid;$target$;
+  declaration_replacement constant text := $replacement$
+  organization_id uuid;
+  actor_role text;
+  source_review_id_value uuid;$replacement$;
+  role_target constant text := $target$
+  perform content_factory_private.membership_role(
+    organization_id,
+    true,
+    array['owner', 'admin', 'producer', 'reviewer', 'operator']
+  );$target$;
+  role_replacement constant text := $replacement$
+  actor_role := content_factory_private.membership_role(
+    organization_id,
+    true,
+    array['owner', 'admin', 'producer', 'reviewer', 'operator']
+  );$replacement$;
+  operator_gate_needle constant text :=
+    'message = ''role_not_allowed''';
+begin
+  function_signature :=
+    'content_factory_private.creator_approve_generated_photo_review_with_context_pre_project_v47(jsonb)'::regprocedure;
+  function_definition := pg_catalog.pg_get_functiondef(function_signature);
+  if strpos(function_definition, operator_gate_needle) = 0 then
+    target := $target$
+  source_review_id_value :=
+    content_factory_private.require_uuid(p_payload, 'review_id');$target$;
+    replacement := $replacement$
+  source_review_id_value :=
+    content_factory_private.require_uuid(p_payload, 'review_id');
+  if actor_role = 'operator'
+     and not content_factory_private.qualified_operator_content_review_command_allowed(
+       organization_id,
+       nullif(
+         current_setting('contentengine.project_id', true),
+         ''
+       )::uuid,
+       source_review_id_value,
+       user_id
+     ) then
+    raise exception using
+      errcode = '42501',
+      message = 'role_not_allowed';
+  end if;$replacement$;
+    if strpos(function_definition, target) = 0 then
+      raise exception using
+        errcode = '55000',
+        message = 'operator_photo_context_exact_gate_target_missing';
+    end if;
+    execute replace(function_definition, target, replacement);
+  end if;
+
+  foreach function_signature in array array[
+    'content_factory_private.creator_approve_generated_video_review_with_context_pre_project_v47(jsonb)'::regprocedure,
+    'content_factory_private.creator_approve_generated_video_review_pre_sound_gate_v1(jsonb)'::regprocedure
+  ] loop
+    function_definition := pg_catalog.pg_get_functiondef(function_signature);
+    if strpos(function_definition, operator_gate_needle) > 0 then
+      continue;
+    end if;
+    if strpos(function_definition, declaration_replacement) = 0 then
+      if strpos(function_definition, declaration_target) = 0 then
+        raise exception using
+          errcode = '55000',
+          message = 'operator_video_context_role_declaration_target_missing';
+      end if;
+      function_definition := replace(
+        function_definition,
+        declaration_target,
+        declaration_replacement
+      );
+    end if;
+    if strpos(function_definition, role_replacement) = 0 then
+      if strpos(function_definition, role_target) = 0 then
+        raise exception using
+          errcode = '55000',
+          message = 'operator_video_context_role_capture_target_missing';
+      end if;
+      function_definition := replace(
+        function_definition,
+        role_target,
+        role_replacement
+      );
+    end if;
+    target := $target$
+  source_review_id_value :=
+    content_factory_private.require_uuid(p_payload, 'review_id');$target$;
+    replacement := $replacement$
+  source_review_id_value :=
+    content_factory_private.require_uuid(p_payload, 'review_id');
+  if actor_role = 'operator'
+     and not content_factory_private.qualified_operator_content_review_command_allowed(
+       organization_id,
+       nullif(
+         current_setting('contentengine.project_id', true),
+         ''
+       )::uuid,
+       source_review_id_value,
+       user_id
+     ) then
+    raise exception using
+      errcode = '42501',
+      message = 'role_not_allowed';
+  end if;$replacement$;
+    if strpos(function_definition, target) = 0 then
+      raise exception using
+        errcode = '55000',
+        message = 'operator_video_context_exact_gate_target_missing';
+    end if;
+    execute replace(function_definition, target, replacement);
+  end loop;
+end;
+$patch_operator_context_exact_gates$;
 
 -- Context-amendment approval retains all mature media/product/compliance
 -- validation.  Relax only its creator-independence branch for the same exact
@@ -407,12 +684,31 @@ declare
     organization_id,
     review_id_value,
     user_id
-  ) and not content_factory_private.qualified_operator_own_content_review_allowed(
+  ) and not content_factory_private.qualified_operator_content_review_command_allowed(
     organization_id,
     review_row.project_id,
     review_id_value,
     user_id
   ) then$replacement$;
+  operator_gate_target constant text := $target$
+  request_payload := jsonb_build_object($target$;
+  operator_gate_replacement constant text := $replacement$
+  if actor_role = 'operator'
+     and not content_factory_private.qualified_operator_content_review_command_allowed(
+       organization_id,
+       nullif(
+         current_setting('contentengine.project_id', true),
+         ''
+       )::uuid,
+       review_id_value,
+       user_id
+     ) then
+    raise exception using
+      errcode = '42501',
+      message = 'role_not_allowed';
+  end if;
+
+  request_payload := jsonb_build_object($replacement$;
   watch_target constant text := $target$
   if (
     content_factory_private.content_review_is_high_risk(review_row.result)$target$;
@@ -426,10 +722,7 @@ declare
   if (
     content_factory_private.content_review_is_high_risk(review_row.result)$replacement$;
 begin
-  if strpos(
-       function_definition,
-       'qualified_operator_own_content_review_allowed('
-     ) = 0 then
+  if strpos(function_definition, independence_replacement) = 0 then
     if strpos(function_definition, independence_target) = 0 then
       raise exception using
         errcode = '55000',
@@ -439,6 +732,18 @@ begin
       function_definition,
       independence_target,
       independence_replacement
+    );
+  end if;
+  if strpos(function_definition, operator_gate_replacement) = 0 then
+    if strpos(function_definition, operator_gate_target) = 0 then
+      raise exception using
+        errcode = '55000',
+        message = 'operator_exact_decision_gate_target_missing';
+    end if;
+    function_definition := replace(
+      function_definition,
+      operator_gate_target,
+      operator_gate_replacement
     );
   end if;
   if strpos(function_definition, watch_replacement) = 0 then
@@ -752,8 +1057,14 @@ $backfill_operator_self_review_assignments$;
 
 do $verify_operator_self_review_contract$
 declare
+  command_helper_definition text := lower(pg_catalog.pg_get_functiondef(
+    'content_factory_private.qualified_operator_content_review_command_allowed(uuid,uuid,uuid,uuid)'::regprocedure
+  ));
   assignment_definition text := lower(pg_catalog.pg_get_functiondef(
     'content_factory_private.assign_generated_media_review(uuid,uuid)'::regprocedure
+  ));
+  outer_decision_definition text := lower(pg_catalog.pg_get_functiondef(
+    'content_factory_private.creator_decide_content_review_pre_project_v47(jsonb)'::regprocedure
   ));
   decision_definition text := lower(pg_catalog.pg_get_functiondef(
     'content_factory_private.creator_decide_content_review_without_sound_release_gate(jsonb)'::regprocedure
@@ -763,6 +1074,9 @@ declare
   ));
   video_context_definition text := lower(pg_catalog.pg_get_functiondef(
     'content_factory_private.creator_approve_generated_video_review_pre_sound_gate_v1(jsonb)'::regprocedure
+  ));
+  video_context_wrapper_definition text := lower(pg_catalog.pg_get_functiondef(
+    'content_factory_private.creator_approve_generated_video_review_with_context_pre_project_v47(jsonb)'::regprocedure
   ));
   repair_definition text := lower(pg_catalog.pg_get_functiondef(
     'content_factory_private.creator_generation_repair_policy_structured_scores_v1(jsonb)'::regprocedure
@@ -774,13 +1088,39 @@ declare
     'public.creator_content_review_status(jsonb)'::regprocedure
   ));
 begin
-  if strpos(assignment_definition, 'qualified_operator_own_content_review_allowed(') = 0
+  if strpos(command_helper_definition, 'content_review_context_amendments') = 0
+     or strpos(command_helper_definition, 'source_completion_hash') = 0
+     or strpos(command_helper_definition, 'amended_completion_hash') = 0
+     or strpos(command_helper_definition, 'qualified_operator_own_content_review_allowed(') = 0
+     or strpos(assignment_definition, 'qualified_operator_own_content_review_allowed(') = 0
      or strpos(assignment_definition, 'workspace_project_access_allowed(') = 0
      or strpos(assignment_definition, 'external_ai_processing_confirmed') = 0
-     or strpos(decision_definition, 'qualified_operator_own_content_review_allowed(') = 0
+     or strpos(outer_decision_definition, 'qualified_operator_content_review_command_allowed(') = 0
+     or strpos(outer_decision_definition, 'if actor_role = ''operator''') = 0
+     or strpos(outer_decision_definition, 'message = ''role_not_allowed''') = 0
+     or strpos(outer_decision_definition, 'qualified_operator_content_review_command_allowed(')
+          > strpos(outer_decision_definition, 'normalize_content_review_sound_assessment(')
+     or strpos(decision_definition, 'qualified_operator_content_review_command_allowed(') = 0
+     or strpos(decision_definition, 'if actor_role = ''operator''') = 0
+     or strpos(decision_definition, 'message = ''role_not_allowed''') = 0
+     or strpos(decision_definition, 'qualified_operator_content_review_command_allowed(')
+          > strpos(decision_definition, 'begin_command(')
      or strpos(decision_definition, 'if not media_watched_value then') = 0
-     or strpos(photo_context_definition, 'qualified_operator_own_content_review_allowed(') = 0
-     or strpos(video_context_definition, 'qualified_operator_own_content_review_allowed(') = 0
+     or strpos(photo_context_definition, 'qualified_operator_content_review_command_allowed(') = 0
+     or strpos(photo_context_definition, 'if actor_role = ''operator''') = 0
+     or strpos(photo_context_definition, 'message = ''role_not_allowed''') = 0
+     or strpos(photo_context_definition, 'qualified_operator_content_review_command_allowed(')
+          > strpos(photo_context_definition, 'begin_command(')
+     or strpos(video_context_definition, 'qualified_operator_content_review_command_allowed(') = 0
+     or strpos(video_context_definition, 'if actor_role = ''operator''') = 0
+     or strpos(video_context_definition, 'message = ''role_not_allowed''') = 0
+     or strpos(video_context_definition, 'qualified_operator_content_review_command_allowed(')
+          > strpos(video_context_definition, 'begin_command(')
+     or strpos(video_context_wrapper_definition, 'qualified_operator_content_review_command_allowed(') = 0
+     or strpos(video_context_wrapper_definition, 'if actor_role = ''operator''') = 0
+     or strpos(video_context_wrapper_definition, 'message = ''role_not_allowed''') = 0
+     or strpos(video_context_wrapper_definition, 'qualified_operator_content_review_command_allowed(')
+          > strpos(video_context_wrapper_definition, 'normalize_content_review_sound_assessment(')
      or strpos(repair_definition, 'qualified_operator_own_content_review_allowed(') = 0
      or strpos(catalog_definition, 'qualified_operator_own_content_review_allowed(') = 0
      or strpos(status_definition, '''independent_assignment''') = 0
