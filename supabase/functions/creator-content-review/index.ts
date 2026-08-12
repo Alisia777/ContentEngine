@@ -1310,6 +1310,10 @@ function stringInput(input: Record<string, Json>, key: string): string {
   return typeof input[key] === "string" ? String(input[key]).trim() : "";
 }
 
+function exactStringInput(input: Record<string, Json>, key: string): string {
+  return typeof input[key] === "string" ? String(input[key]) : "";
+}
+
 function readGenerationClaimEvidence(
   input: Record<string, Json>,
 ): GenerationClaimEvidence | null {
@@ -1380,6 +1384,20 @@ function numericMetric(
 ): number | null {
   const value = metrics[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function hasExactMetricKeySet(
+  metrics: Record<string, Json>,
+  prefix: string,
+  expectedKeys: readonly string[],
+): boolean {
+  const actualKeys = Object.keys(metrics).filter((key) =>
+    key.startsWith(prefix)
+  );
+  return actualKeys.length === expectedKeys.length &&
+    expectedKeys.every((key) =>
+      Object.prototype.hasOwnProperty.call(metrics, key)
+    );
 }
 
 function makeFinding(
@@ -1996,7 +2014,11 @@ function deterministicFindings(
     duration !== null &&
     duration <= 10 &&
     timelineAtlasMaxGap! <= 0.5;
-  const continuityStatus = stringInput(metrics, "continuity_scan_status");
+  const continuityStatus = exactStringInput(metrics, "continuity_scan_status");
+  const continuityStrategy = exactStringInput(
+    metrics,
+    "continuity_scan_strategy",
+  );
   const continuityCallbackCount = numericMetric(
     metrics,
     "continuity_scan_callback_count",
@@ -2008,6 +2030,30 @@ function deterministicFindings(
   const continuityMissedCount = numericMetric(
     metrics,
     "continuity_scan_missed_frame_count",
+  );
+  const continuitySampleCount = numericMetric(
+    metrics,
+    "continuity_scan_sample_count",
+  );
+  const continuityTargetFps = numericMetric(
+    metrics,
+    "continuity_scan_target_fps",
+  );
+  const continuityTargetMaxDrift = numericMetric(
+    metrics,
+    "continuity_scan_target_max_drift_seconds",
+  );
+  const continuityFallbackReason = exactStringInput(
+    metrics,
+    "continuity_scan_fallback_reason",
+  );
+  const continuityFirstSecond = numericMetric(
+    metrics,
+    "continuity_scan_first_second",
+  );
+  const continuityLastSecond = numericMetric(
+    metrics,
+    "continuity_scan_last_second",
   );
   const continuityCoverage = numericMetric(
     metrics,
@@ -2033,20 +2079,43 @@ function deterministicFindings(
     metrics,
     "continuity_longest_duplicate_run_seconds",
   );
-  const continuityScanCompleted = continuityStatus === "completed" &&
-    stringInput(metrics, "continuity_scan_strategy") ===
-      "browser_presented_frames_v1" &&
-    continuityCallbackCount !== null &&
-    continuityCallbackCount >= 2 &&
-    continuityCallbackCount <= 3_600 &&
-    continuityPresentedCount !== null &&
-    continuityPresentedCount === continuityCallbackCount &&
-    continuityPresentedCount <= 10_000 &&
-    continuityMissedCount !== null &&
-    continuityMissedCount === 0 &&
+  const continuityMeanFrameDifference = numericMetric(
+    metrics,
+    "continuity_mean_frame_difference",
+  );
+  const completedContinuityFields = [
+    "continuity_scan_status",
+    "continuity_scan_strategy",
+    "continuity_scan_first_second",
+    "continuity_scan_last_second",
+    "continuity_scan_coverage_ratio",
+    "continuity_scan_max_gap_seconds",
+    "continuity_black_frame_ratio",
+    "continuity_longest_black_run_seconds",
+    "continuity_duplicate_transition_ratio",
+    "continuity_longest_duplicate_run_seconds",
+    "continuity_mean_frame_difference",
+    "continuity_raw_frames_persisted",
+  ] as const;
+  const continuitySpan = continuityFirstSecond !== null &&
+      continuityLastSecond !== null
+    ? continuityLastSecond - continuityFirstSecond
+    : null;
+  const continuityCompletedShared = continuityStatus === "completed" &&
+    duration !== null &&
+    duration >= 0.001 &&
+    duration <= 15 &&
+    continuityFirstSecond !== null &&
+    continuityFirstSecond >= 0 &&
+    continuityFirstSecond <= 15 &&
+    continuityLastSecond !== null &&
+    continuityLastSecond > continuityFirstSecond &&
+    continuityLastSecond <= duration &&
     continuityCoverage !== null &&
     continuityCoverage >= 0.8 &&
     continuityCoverage <= 1 &&
+    continuitySpan !== null &&
+    Math.abs(continuitySpan / duration - continuityCoverage) <= 0.02 &&
     continuityMaxGap !== null &&
     continuityMaxGap >= 0 &&
     continuityMaxGap <= 0.5 &&
@@ -2055,14 +2124,87 @@ function deterministicFindings(
     continuityBlackRatio <= 1 &&
     continuityLongestBlackRun !== null &&
     continuityLongestBlackRun >= 0 &&
-    continuityLongestBlackRun <= (duration ?? 15) &&
+    continuityLongestBlackRun <= duration &&
     continuityDuplicateRatio !== null &&
     continuityDuplicateRatio >= 0 &&
     continuityDuplicateRatio <= 1 &&
     continuityLongestDuplicateRun !== null &&
     continuityLongestDuplicateRun >= 0 &&
-    continuityLongestDuplicateRun <= (duration ?? 15) &&
+    continuityLongestDuplicateRun <= duration &&
+    continuityMeanFrameDifference !== null &&
+    continuityMeanFrameDifference >= 0 &&
+    continuityMeanFrameDifference <= 1 &&
     metrics.continuity_raw_frames_persisted === false;
+  const continuityPresentedFramesV1 = continuityCompletedShared &&
+    continuityStrategy === "browser_presented_frames_v1" &&
+    hasExactMetricKeySet(metrics, "continuity_", [
+      ...completedContinuityFields,
+      "continuity_scan_callback_count",
+      "continuity_scan_presented_frame_count",
+      "continuity_scan_missed_frame_count",
+    ]) &&
+    continuityCallbackCount !== null &&
+    Number.isInteger(continuityCallbackCount) &&
+    continuityCallbackCount >= 2 &&
+    continuityCallbackCount <= 3_600 &&
+    continuityPresentedCount !== null &&
+    Number.isInteger(continuityPresentedCount) &&
+    continuityPresentedCount === continuityCallbackCount &&
+    continuityPresentedCount <= 10_000 &&
+    continuityMissedCount !== null &&
+    Number.isInteger(continuityMissedCount) &&
+    continuityMissedCount === 0;
+  const denseSeekExpectedCount = duration !== null
+    ? Math.min(151, Math.max(16, Math.ceil(duration * 10) + 1))
+    : null;
+  const denseSeekExpectedMargin = duration !== null
+    ? Math.min(0.01, duration * 0.01)
+    : null;
+  const continuityDenseSeekV2 = continuityCompletedShared &&
+    continuityStrategy === "browser_dense_seek_v2" &&
+    hasExactMetricKeySet(metrics, "continuity_", [
+      ...completedContinuityFields,
+      "continuity_scan_sample_count",
+      "continuity_scan_target_fps",
+      "continuity_scan_target_max_drift_seconds",
+      "continuity_scan_fallback_reason",
+    ]) &&
+    continuitySampleCount !== null &&
+    Number.isInteger(continuitySampleCount) &&
+    continuitySampleCount === denseSeekExpectedCount &&
+    continuityTargetFps === 10 &&
+    continuityTargetMaxDrift !== null &&
+    continuityTargetMaxDrift >= 0 &&
+    continuityTargetMaxDrift <= 0.02 &&
+    [
+      "rvfc_unavailable",
+      "rvfc_coverage_unreliable",
+      "rvfc_max_gap_unreliable",
+      "rvfc_missed_frames",
+    ].includes(continuityFallbackReason) &&
+    continuityCoverage !== null &&
+    continuityCoverage >= 0.98 &&
+    continuityMaxGap !== null &&
+    continuityMaxGap <= 0.125 &&
+    continuityFirstSecond !== null &&
+    denseSeekExpectedMargin !== null &&
+    Math.abs(continuityFirstSecond - denseSeekExpectedMargin) <= 0.0201 &&
+    continuityLastSecond !== null &&
+    duration !== null &&
+    Math.abs(duration - continuityLastSecond - denseSeekExpectedMargin) <=
+      0.0201 &&
+    continuitySpan !== null &&
+    Math.abs(
+        continuityMaxGap -
+          continuitySpan / (continuitySampleCount - 1),
+      ) <= 0.04;
+  const continuityScanCompleted = continuityPresentedFramesV1 ||
+    continuityDenseSeekV2;
+  const continuityObservationCount = continuityPresentedFramesV1
+    ? continuityCallbackCount
+    : continuityDenseSeekV2
+    ? continuitySampleCount
+    : null;
   const blackRatio = continuityScanCompleted
     ? continuityBlackRatio
     : temporalScanCompleted
@@ -2093,11 +2235,11 @@ function deterministicFindings(
       "SCOPE.BROWSER_FRAMES_ADVISORY",
       "quality",
       "info",
-      "Локальный покадровый контроль не заменяет просмотр человеком",
+      "Локальный контроль непрерывности не заменяет просмотр человеком",
       continuityScanCompleted
         ? `Браузер локально измерил ${
-          Math.round(continuityCallbackCount!)
-        } показанных кадров короткого MP4; эти дополнительные кадры не сохранялись и не отправлялись во внешний AI. Внешний AI видит четыре контрольных кадра и пятый атлас из ${
+          Math.round(continuityObservationCount ?? 0)
+        } временных наблюдений короткого MP4; эти дополнительные наблюдения не сохранялись и не отправлялись во внешний AI. Внешний AI видит четыре контрольных кадра и пятый атлас из ${
           Math.round(timelineAtlasFrameCount!)
         } точек.`
         : timelineAtlasCompleted
@@ -2176,8 +2318,8 @@ function deterministicFindings(
         "TECH.CONTINUITY_SCAN_INCOMPLETE",
         "technical",
         "high",
-        "Покадровый локальный контроль сгенерированного ролика не подтверждён",
-        "Для сгенерированного MP4 до 15 секунд нет валидных агрегатов по каждому показанному браузером кадру.",
+        "Локальный контроль непрерывности сгенерированного ролика не подтверждён",
+        "Для сгенерированного MP4 до 15 секунд нет валидных агрегатов достаточного набора временных наблюдений.",
         "Повторите подготовку evidence в обновлённом браузере и полностью просмотрите точный MP4.",
         { human: true, stage: "video" },
       ));
@@ -2264,7 +2406,7 @@ function deterministicFindings(
           "technical",
           "high",
           "В коротком ролике найден почти чёрный участок",
-          `Покадровый локальный контроль измерил непрерывный почти чёрный участок длительностью до ${
+          `Локальные временные наблюдения дают оценку почти чёрного участка длительностью до ${
             continuityLongestBlackRun.toFixed(2)
           } сек.`,
           "Проверьте переход на точном MP4 и пересоберите ролик, если чёрный участок не был намеренным.",
@@ -2329,7 +2471,7 @@ function deterministicFindings(
         "technical",
         "high",
         "В коротком ролике найден зависший или повторяющийся участок",
-        `Почти одинаковые соседние кадры идут непрерывно до ${
+        `Локальные временные наблюдения дают оценку почти одинакового участка длительностью до ${
           continuityLongestDuplicateRun.toFixed(2)
         } сек.`,
         "Просмотрите найденный участок и повторите рендер, если это не намеренная статичная сцена.",

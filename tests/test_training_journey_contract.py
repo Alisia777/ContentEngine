@@ -241,10 +241,10 @@ def test_completion_flow_does_not_open_an_achievement_subwindow() -> None:
 
 
 def test_training_journey_assets_are_loaded_with_versioned_urls() -> None:
-    assert './training-journey.css?v=20260812.os4.35' in INDEX
-    assert BUILD == "20260812.os4.35"
+    assert './training-journey.css?v=20260812.os4.36' in INDEX
+    assert BUILD == "20260812.os4.36"
     assert f'./app.js?v={BUILD}' in INDEX
-    assert 'from "./training-journey.js?v=20260812.os4.35"' in APP
+    assert 'from "./training-journey.js?v=20260812.os4.36"' in APP
     assert 'from "./training-interactive.js?v=20260718.4"' in APP
 
 

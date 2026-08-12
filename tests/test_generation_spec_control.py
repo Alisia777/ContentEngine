@@ -425,11 +425,11 @@ def test_edge_accepts_only_atomic_terminal_stale_claim_as_non_retryable() -> Non
 
 
 def test_generation_spec_cache_versions_are_published_consistently() -> None:
-    assert './supabase-api.js?v=20260812.os4.35' in APP
-    assert './app.js?v=20260812.os4.35' in INDEX
+    assert './supabase-api.js?v=20260812.os4.36' in APP
+    assert './app.js?v=20260812.os4.36' in INDEX
     for name in (
         "workspace-os-v4-context-trash.js",
         "workspace-os-v4-trash-rpc-alias.js",
     ):
         source = (ROOT / "web/app" / name).read_text(encoding="utf-8")
-        assert './supabase-api.js?v=20260812.os4.35' in source
+        assert './supabase-api.js?v=20260812.os4.36' in source

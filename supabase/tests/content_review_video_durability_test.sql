@@ -128,17 +128,29 @@ insert into content_factory.workspace_folders (
   id, organization_id, parent_id, name, kind, status, position,
   created_by, updated_by
 )
-values (
-  'a1100000-0000-4000-8000-000000000101',
-  'a1100000-0000-4000-8000-000000000001',
-  null,
-  'Durable review project',
-  'project',
-  'active',
-  1024,
-  'a1000000-0000-4000-8000-000000000001',
-  'a1000000-0000-4000-8000-000000000001'
-);
+values
+  (
+    'a1100000-0000-4000-8000-000000000101',
+    'a1100000-0000-4000-8000-000000000001',
+    null,
+    'Durable review project',
+    'project',
+    'active',
+    1024,
+    'a1000000-0000-4000-8000-000000000001',
+    'a1000000-0000-4000-8000-000000000001'
+  ),
+  (
+    'a1100000-0000-4000-8000-000000000102',
+    'a1100000-0000-4000-8000-000000000001',
+    null,
+    'Other durable review project',
+    'project',
+    'active',
+    2048,
+    'a1000000-0000-4000-8000-000000000001',
+    'a1000000-0000-4000-8000-000000000001'
+  );
 
 with inserted_course_attempts as (
   insert into content_factory.training_attempts (
@@ -305,6 +317,82 @@ lateral jsonb_array_elements_text(
   prepare_result -> 'frame_object_names'
 ) with ordinality object_name(name, ordinal);
 
+select throws_ok(
+  $$select public.creator_commit_content_review_evidence(
+    jsonb_build_object(
+      'organization_id', 'a1100000-0000-4000-8000-000000000001',
+      'evidence_id', (
+        select prepare_result ->> 'evidence_id'
+        from durable_review_context
+      )
+    )
+  )$$,
+  '22023',
+  'project_id_required',
+  'authenticated evidence commit remains project-id fail-closed'
+);
+
+select throws_ok(
+  $$select public.creator_commit_content_review_evidence(
+    jsonb_build_object(
+      'organization_id', 'a1100000-0000-4000-8000-000000000001',
+      'project_id', 'a1100000-0000-4000-8000-000000000102',
+      'evidence_id', (
+        select prepare_result ->> 'evidence_id'
+        from durable_review_context
+      )
+    )
+  )$$,
+  '42501',
+  'project_entity_mismatch',
+  'authenticated evidence commit cannot cross project boundaries'
+);
+
+select throws_ok(
+  $$select public.creator_commit_content_review_evidence(
+    jsonb_build_object(
+      'organization_id', 'a1100000-0000-4000-8000-000000000001',
+      'project_id', 'a1100000-0000-4000-8000-000000000101',
+      'idempotency_key', 'durable-evidence-missing-continuity-0001',
+      'evidence_id', (
+        select prepare_result ->> 'evidence_id'
+        from durable_review_context
+      ),
+      'technical_metrics', jsonb_build_object(
+        'source_type', 'video',
+        'duration_seconds', 8
+      )
+    )
+  )$$,
+  '22023',
+  'content_review_evidence_continuity_metrics_invalid',
+  'authenticated project-scoped commit rejects a missing continuity status'
+);
+
+select throws_ok(
+  $$select public.creator_commit_content_review_evidence(
+    jsonb_build_object(
+      'organization_id', 'a1100000-0000-4000-8000-000000000001',
+      'project_id', 'a1100000-0000-4000-8000-000000000101',
+      'idempotency_key', 'durable-evidence-incomplete-not-applicable-0001',
+      'evidence_id', (
+        select prepare_result ->> 'evidence_id'
+        from durable_review_context
+      ),
+      'technical_metrics', jsonb_build_object(
+        'source_type', 'video',
+        'duration_seconds', 16,
+        'continuity_scan_status', 'not_applicable',
+        'continuity_scan_strategy', 'browser_presented_frames_v1',
+        'continuity_scan_duration_limit_seconds', 15
+      )
+    )
+  )$$,
+  '22023',
+  'content_review_evidence_continuity_metrics_invalid',
+  'authenticated project-scoped commit rejects incomplete not-applicable continuity'
+);
+
 update durable_review_context
 set commit_result = public.creator_commit_content_review_evidence(
   jsonb_build_object(
@@ -345,7 +433,23 @@ set commit_result = public.creator_commit_content_review_evidence(
       'timeline_atlas_columns', 8,
       'timeline_atlas_rows', 3,
       'timeline_atlas_order', 'row_major_chronological',
-      'timeline_atlas_dense_short_video', true
+      'timeline_atlas_dense_short_video', true,
+      'continuity_scan_status', 'completed',
+      'continuity_scan_strategy', 'browser_dense_seek_v2',
+      'continuity_scan_sample_count', 81,
+      'continuity_scan_target_fps', 10,
+      'continuity_scan_target_max_drift_seconds', 0,
+      'continuity_scan_fallback_reason', 'rvfc_missed_frames',
+      'continuity_scan_first_second', 0.01,
+      'continuity_scan_last_second', 7.99,
+      'continuity_scan_coverage_ratio', 0.9975,
+      'continuity_scan_max_gap_seconds', 0.0998,
+      'continuity_black_frame_ratio', 0,
+      'continuity_longest_black_run_seconds', 0,
+      'continuity_duplicate_transition_ratio', 0.02,
+      'continuity_longest_duplicate_run_seconds', 0.0998,
+      'continuity_mean_frame_difference', 0.08,
+      'continuity_raw_frames_persisted', false
     ),
     'frames', (
       select jsonb_agg(jsonb_build_object(
