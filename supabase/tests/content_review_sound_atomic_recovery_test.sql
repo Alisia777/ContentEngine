@@ -606,7 +606,7 @@ select is(
       public.creator_content_review_catalog(jsonb_build_object(
         'organization_id', '9a100000-0000-4000-8000-000000000001',
         'project_id', '9a110000-0000-4000-8000-000000000001',
-        'limit', 50
+        'run_limit', 50
       )) -> 'recent_reviews'
     ) item(value)
     where item.value ->> 'id' =

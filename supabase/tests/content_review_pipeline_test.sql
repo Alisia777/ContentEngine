@@ -1893,6 +1893,16 @@ select throws_ok(
   'approval requires every high or human-review finding code'
 );
 
+do $$
+begin
+  perform set_config(
+    'request.jwt.claim.sub',
+    '95000000-0000-4000-8000-000000000003',
+    true
+  );
+end;
+$$;
+
 update generated_review_context
 set decision_value = public.creator_decide_content_review(jsonb_build_object(
   'organization_id', '95100000-0000-4000-8000-000000000001',
@@ -1916,6 +1926,16 @@ set decision_value = public.creator_decide_content_review(jsonb_build_object(
     'silence_expected_confirmed', true
   )
 ));
+
+do $$
+begin
+  perform set_config(
+    'request.jwt.claim.sub',
+    '95000000-0000-4000-8000-000000000002',
+    true
+  );
+end;
+$$;
 
 select is(
   (select status
