@@ -20,7 +20,7 @@ from scripts.provision_supabase_member import (
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/provision-klimov-direct-access-once.yml"
-MIGRATION = ROOT / "supabase/migrations/202608120004_direct_employee_access.sql"
+MIGRATION = ROOT / "supabase/migrations/202608120007_direct_employee_access.sql"
 
 ORGANIZATION_ID = direct.EXPECTED_ORGANIZATION_ID
 OWNER_ID = direct.EXPECTED_OWNER_ID
