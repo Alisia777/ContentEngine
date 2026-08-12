@@ -6259,7 +6259,7 @@ function requiredProjectId(value) {
   return projectId;
 }
 
-function validContentReviewTechnicalMetrics(value) {
+export function validContentReviewTechnicalMetrics(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const sourceType = String(value.source_type || "").trim().toLowerCase();
   const finiteInRange = (field, minimum, maximum) =>
@@ -6350,51 +6350,133 @@ function validContentReviewTechnicalMetrics(value) {
     && Math.abs(
       sampledAt.at(-1) - value.timeline_atlas_last_second,
     ) <= 0.002;
-  const continuityScanValid = value.duration_seconds <= 15
-    ? value.continuity_scan_status === "completed"
-      && value.continuity_scan_strategy === "browser_presented_frames_v1"
-      && Number.isInteger(value.continuity_scan_callback_count)
-      && value.continuity_scan_callback_count >= 2
-      && value.continuity_scan_callback_count <= 3_600
-      && Number.isInteger(value.continuity_scan_presented_frame_count)
-      && value.continuity_scan_presented_frame_count ===
-        value.continuity_scan_callback_count
-      && value.continuity_scan_presented_frame_count <= 10_000
-      && Number.isInteger(value.continuity_scan_missed_frame_count)
-      && value.continuity_scan_missed_frame_count === 0
-      && finiteInRange("continuity_scan_first_second", 0, 15)
-      && finiteInRange("continuity_scan_last_second", 0, 15)
-      && value.continuity_scan_last_second >
+  const exactContinuityFields = (expected) => {
+    const actual = Object.keys(value).filter((key) => (
+      key.startsWith("continuity_")
+    ));
+    return actual.length === expected.length
+      && expected.every((key) => (
+        Object.prototype.hasOwnProperty.call(value, key)
+      ));
+  };
+  const completedContinuityFields = [
+    "continuity_scan_status",
+    "continuity_scan_strategy",
+    "continuity_scan_first_second",
+    "continuity_scan_last_second",
+    "continuity_scan_coverage_ratio",
+    "continuity_scan_max_gap_seconds",
+    "continuity_black_frame_ratio",
+    "continuity_longest_black_run_seconds",
+    "continuity_duplicate_transition_ratio",
+    "continuity_longest_duplicate_run_seconds",
+    "continuity_mean_frame_difference",
+    "continuity_raw_frames_persisted",
+  ];
+  const continuityCompletedShared = value.continuity_scan_status === "completed"
+    && finiteInRange("continuity_scan_first_second", 0, 15)
+    && finiteInRange("continuity_scan_last_second", 0, 15)
+    && value.continuity_scan_last_second > value.continuity_scan_first_second
+    && value.continuity_scan_last_second <= value.duration_seconds
+    && finiteInRange("continuity_scan_coverage_ratio", 0.8, 1)
+    && Math.abs(
+      (
+        value.continuity_scan_last_second -
         value.continuity_scan_first_second
-      && value.continuity_scan_last_second <= value.duration_seconds
-      && finiteInRange("continuity_scan_coverage_ratio", 0.8, 1)
-      && Math.abs(
+      ) / value.duration_seconds - value.continuity_scan_coverage_ratio,
+    ) <= 0.02
+    && finiteInRange("continuity_scan_max_gap_seconds", 0, 0.5)
+    && finiteInRange("continuity_black_frame_ratio", 0, 1)
+    && finiteInRange(
+      "continuity_longest_black_run_seconds",
+      0,
+      value.duration_seconds,
+    )
+    && finiteInRange("continuity_duplicate_transition_ratio", 0, 1)
+    && finiteInRange(
+      "continuity_longest_duplicate_run_seconds",
+      0,
+      value.duration_seconds,
+    )
+    && finiteInRange("continuity_mean_frame_difference", 0, 1)
+    && value.continuity_raw_frames_persisted === false;
+  const continuityPresentedFrameV1 = continuityCompletedShared
+    && value.continuity_scan_strategy === "browser_presented_frames_v1"
+    && exactContinuityFields([
+      ...completedContinuityFields,
+      "continuity_scan_callback_count",
+      "continuity_scan_presented_frame_count",
+      "continuity_scan_missed_frame_count",
+    ])
+    && Number.isInteger(value.continuity_scan_callback_count)
+    && value.continuity_scan_callback_count >= 2
+    && value.continuity_scan_callback_count <= 3_600
+    && Number.isInteger(value.continuity_scan_presented_frame_count)
+    && value.continuity_scan_presented_frame_count ===
+      value.continuity_scan_callback_count
+    && value.continuity_scan_presented_frame_count <= 10_000
+    && Number.isInteger(value.continuity_scan_missed_frame_count)
+    && value.continuity_scan_missed_frame_count === 0;
+  const denseSeekExpectedCount = Math.min(
+    151,
+    Math.max(16, Math.ceil(value.duration_seconds * 10) + 1),
+  );
+  const denseSeekExpectedMargin = Math.min(
+    0.01,
+    value.duration_seconds * 0.01,
+  );
+  const continuityDenseSeekV2 = continuityCompletedShared
+    && value.continuity_scan_strategy === "browser_dense_seek_v2"
+    && exactContinuityFields([
+      ...completedContinuityFields,
+      "continuity_scan_sample_count",
+      "continuity_scan_target_fps",
+      "continuity_scan_target_max_drift_seconds",
+      "continuity_scan_fallback_reason",
+    ])
+    && Number.isInteger(value.continuity_scan_sample_count)
+    && value.continuity_scan_sample_count === denseSeekExpectedCount
+    && value.continuity_scan_target_fps === 10
+    && finiteInRange(
+      "continuity_scan_target_max_drift_seconds",
+      0,
+      0.02,
+    )
+    && [
+      "rvfc_unavailable",
+      "rvfc_coverage_unreliable",
+      "rvfc_max_gap_unreliable",
+      "rvfc_missed_frames",
+    ].includes(value.continuity_scan_fallback_reason)
+    && value.continuity_scan_coverage_ratio >= 0.98
+    && value.continuity_scan_max_gap_seconds <= 0.125
+    && Math.abs(
+      value.continuity_scan_first_second - denseSeekExpectedMargin,
+    ) <= 0.0201
+    && Math.abs(
+      value.duration_seconds - value.continuity_scan_last_second -
+        denseSeekExpectedMargin,
+    ) <= 0.0201
+    && Math.abs(
+      value.continuity_scan_max_gap_seconds -
         (
           value.continuity_scan_last_second -
           value.continuity_scan_first_second
-        ) / value.duration_seconds -
-          value.continuity_scan_coverage_ratio,
-      ) <= 0.02
-      && finiteInRange("continuity_scan_max_gap_seconds", 0, 0.5)
-      && finiteInRange("continuity_black_frame_ratio", 0, 1)
-      && finiteInRange(
-        "continuity_longest_black_run_seconds",
-        0,
-        value.duration_seconds,
-      )
-      && finiteInRange("continuity_duplicate_transition_ratio", 0, 1)
-      && finiteInRange(
-        "continuity_longest_duplicate_run_seconds",
-        0,
-        value.duration_seconds,
-      )
-      && finiteInRange("continuity_mean_frame_difference", 0, 1)
-      && value.continuity_raw_frames_persisted === false
+        ) / (value.continuity_scan_sample_count - 1),
+    ) <= 0.04;
+  const continuityScanValid = value.duration_seconds <= 15
+    ? continuityPresentedFrameV1 || continuityDenseSeekV2
     : value.continuity_scan_status === "not_applicable"
       && value.continuity_scan_strategy === "browser_presented_frames_v1"
       && value.continuity_scan_not_applicable_reason ===
         "duration_above_short_video_limit"
-      && value.continuity_scan_duration_limit_seconds === 15;
+      && value.continuity_scan_duration_limit_seconds === 15
+      && exactContinuityFields([
+        "continuity_scan_status",
+        "continuity_scan_strategy",
+        "continuity_scan_not_applicable_reason",
+        "continuity_scan_duration_limit_seconds",
+      ]);
   if (
     sourceType !== "video"
     || !Number.isInteger(Number(value.frame_count))

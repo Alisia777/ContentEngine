@@ -3,13 +3,50 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
-select plan(10);
+select plan(17);
 
 select ok(
   content_factory_private.valid_content_review_continuity_metrics(
     '{}'::jsonb
   ),
   'historical evidence without continuity aggregates remains readable'
+);
+
+select ok(
+  not content_factory_private.valid_content_review_continuity_metrics(
+    jsonb_build_object(
+      'duration_seconds', 8.08,
+      'continuity_scan_status', null,
+      'continuity_scan_strategy', 'browser_dense_seek_v2',
+      'continuity_scan_sample_count', 82,
+      'continuity_scan_target_fps', 10,
+      'continuity_scan_target_max_drift_seconds', 0,
+      'continuity_scan_fallback_reason', 'rvfc_unavailable',
+      'continuity_scan_first_second', 0.01,
+      'continuity_scan_last_second', 8.07,
+      'continuity_scan_coverage_ratio', 0.9975,
+      'continuity_scan_max_gap_seconds', 0.0995,
+      'continuity_black_frame_ratio', 0,
+      'continuity_longest_black_run_seconds', 0,
+      'continuity_duplicate_transition_ratio', 0.02,
+      'continuity_longest_duplicate_run_seconds', 0.0995,
+      'continuity_mean_frame_difference', 0.08,
+      'continuity_raw_frames_persisted', false
+    )
+  ),
+  'an otherwise valid v2 contract with null status is rejected'
+);
+
+select ok(
+  not content_factory_private.valid_content_review_continuity_metrics(
+    jsonb_build_object(
+      'duration_seconds', 16,
+      'continuity_scan_status', 'not_applicable',
+      'continuity_scan_strategy', 'browser_presented_frames_v1',
+      'continuity_scan_duration_limit_seconds', 15
+    )
+  ),
+  'not-applicable continuity cannot omit its exact reason field'
 );
 
 select ok(
@@ -58,6 +95,82 @@ select ok(
     )
   ),
   'generated video continuity remains required through twelve seconds'
+);
+
+select ok(
+  content_factory_private.valid_content_review_continuity_metrics(
+    jsonb_build_object(
+      'duration_seconds', 8.08,
+      'continuity_scan_status', 'completed',
+      'continuity_scan_strategy', 'browser_dense_seek_v2',
+      'continuity_scan_sample_count', 82,
+      'continuity_scan_target_fps', 10,
+      'continuity_scan_target_max_drift_seconds', 0.001,
+      'continuity_scan_fallback_reason', 'rvfc_missed_frames',
+      'continuity_scan_first_second', 0.01,
+      'continuity_scan_last_second', 8.07,
+      'continuity_scan_coverage_ratio', 0.9975,
+      'continuity_scan_max_gap_seconds', 0.0995,
+      'continuity_black_frame_ratio', 0,
+      'continuity_longest_black_run_seconds', 0,
+      'continuity_duplicate_transition_ratio', 0.02,
+      'continuity_longest_duplicate_run_seconds', 0.0995,
+      'continuity_mean_frame_difference', 0.08,
+      'continuity_raw_frames_persisted', false
+    )
+  ),
+  'deterministic dense-seek fallback aggregates are valid for 8.08 seconds'
+);
+
+select ok(
+  not content_factory_private.valid_content_review_continuity_metrics(
+    jsonb_build_object(
+      'duration_seconds', 8.08,
+      'continuity_scan_status', 'completed',
+      'continuity_scan_strategy', 'browser_dense_seek_v2',
+      'continuity_scan_sample_count', 82,
+      'continuity_scan_target_fps', 10,
+      'continuity_scan_target_max_drift_seconds', 0.001,
+      'continuity_scan_fallback_reason', 'rvfc_missed_frames',
+      'continuity_scan_missed_frame_count', 0,
+      'continuity_scan_first_second', 0.01,
+      'continuity_scan_last_second', 8.07,
+      'continuity_scan_coverage_ratio', 0.9975,
+      'continuity_scan_max_gap_seconds', 0.0995,
+      'continuity_black_frame_ratio', 0,
+      'continuity_longest_black_run_seconds', 0,
+      'continuity_duplicate_transition_ratio', 0.02,
+      'continuity_longest_duplicate_run_seconds', 0.0995,
+      'continuity_mean_frame_difference', 0.08,
+      'continuity_raw_frames_persisted', false
+    )
+  ),
+  'dense-seek evidence cannot claim v1 missed-frame accounting'
+);
+
+select ok(
+  not content_factory_private.valid_content_review_continuity_metrics(
+    jsonb_build_object(
+      'duration_seconds', 8.08,
+      'continuity_scan_status', 'completed',
+      'continuity_scan_strategy', 'browser_dense_seek_v2',
+      'continuity_scan_sample_count', 81,
+      'continuity_scan_target_fps', 10,
+      'continuity_scan_target_max_drift_seconds', 0,
+      'continuity_scan_fallback_reason', 'rvfc_unavailable',
+      'continuity_scan_first_second', 0.01,
+      'continuity_scan_last_second', 8.07,
+      'continuity_scan_coverage_ratio', 0.9975,
+      'continuity_scan_max_gap_seconds', 0.1008,
+      'continuity_black_frame_ratio', 0,
+      'continuity_longest_black_run_seconds', 0,
+      'continuity_duplicate_transition_ratio', 0.02,
+      'continuity_longest_duplicate_run_seconds', 0.1008,
+      'continuity_mean_frame_difference', 0.08,
+      'continuity_raw_frames_persisted', false
+    )
+  ),
+  'dense-seek sample count must match the duration-derived grid exactly'
 );
 
 select ok(
@@ -128,6 +241,32 @@ select ok(
     'execute'
   ),
   'browser sessions cannot bypass the continuity evidence gate'
+);
+
+select ok(
+  to_regprocedure(
+    'content_factory_private.creator_commit_content_review_evidence_pre_project_v47(jsonb)'
+  ) is not null
+  and position(
+    'call_project_scoped_v47' in pg_get_functiondef(
+      'public.creator_commit_content_review_evidence(jsonb)'::regprocedure
+    )
+  ) > 0
+  and position(
+    'is distinct from expected_status' in lower(pg_get_functiondef(
+      'content_factory_private.creator_commit_content_review_evidence_pre_project_v47(jsonb)'::regprocedure
+    ))
+  ) > 0,
+  'public project scope and the private fail-closed continuity gate compose'
+);
+
+select ok(
+  not has_function_privilege(
+    'authenticated',
+    'content_factory_private.creator_commit_content_review_evidence_pre_project_v47(jsonb)',
+    'execute'
+  ),
+  'authenticated sessions cannot call the private pre-project gate directly'
 );
 
 select * from finish();

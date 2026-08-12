@@ -3,7 +3,7 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260812.os4.35";
+} from "./supabase-api.js?v=20260812.os4.36";
 import {
   clearExactYoutubeMediaHandoff,
   exactYoutubeRegisteredMediaId,
@@ -28,8 +28,8 @@ import {
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
 } from "./generation-spec.js?v=20260812.generation-spec-consent.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260812.os4.35";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260812.os4.35";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260812.os4.36";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260812.os4.36";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -92,7 +92,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260812.os4.35";
+} from "./product-research-view.js?v=20260812.os4.36";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -103,7 +103,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260812.os4.35";
+} from "./ai-learning-control-room.js?v=20260812.os4.36";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -119,7 +119,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260812.os4.35";
+} from "./content-generation-handoff.js?v=20260812.os4.36";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -132,13 +132,13 @@ import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
   normalizeGenerationVideoReferenceContext,
-} from "./generation-video-reference.js?v=20260812.os4.35";
+} from "./generation-video-reference.js?v=20260812.os4.36";
 import {
   buildGenerationFormDraft,
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260812.os4.35";
+} from "./generation-form-draft.js?v=20260812.os4.36";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
@@ -154,7 +154,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260812.os4.35";
+} from "./generation-autopilot.js?v=20260812.os4.36";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -175,7 +175,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260812.os4.35";
+} from "./content-review-view.js?v=20260812.os4.36";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -204,7 +204,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260812.os4.35";
+} from "./workspace-board-view.js?v=20260812.os4.36";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -233,7 +233,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260812.os4.35";
+} from "./training-journey.js?v=20260812.os4.36";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -252,7 +252,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260812.os4.35";
+} from "./training-practical-review.js?v=20260812.os4.36";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -271,7 +271,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260812.os4.35";
+} from "./my-work-view.js?v=20260812.os4.36";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -12529,10 +12529,19 @@ function generatedVideoTechnicalQaMarkup(details) {
     const frameCount = Number(metrics.frame_count || 0);
     const temporalCount = Number(metrics.temporal_scan_frame_count || 0);
     const atlasReady = metrics.timeline_atlas_status === "completed";
+    const denseSeekContinuity =
+      metrics.continuity_scan_strategy === "browser_dense_seek_v2";
     const continuityCount = Number(
-      metrics.continuity_scan_callback_count || 0,
+      denseSeekContinuity
+        ? metrics.continuity_scan_sample_count || 0
+        : metrics.continuity_scan_callback_count || 0,
     );
     const continuityReady = metrics.continuity_scan_status === "completed";
+    const continuityCopy = continuityReady && continuityCount
+      ? denseSeekContinuity
+        ? ` Дополнительно локально проверены ${continuityCount} равномерных точек таймлайна; выборки не сохранялись и не отправлялись во внешний AI.`
+        : ` Дополнительно локально проверены ${continuityCount} показанных кадров; они не сохранялись и не отправлялись во внешний AI.`
+      : "";
     const audioCopy = metrics.audio_analysis_status === "completed"
       ? " Звуковые уровни, тишина, клиппинг и длительность измерены локально."
       : " Звук автоматически не декодирован — его нужно прослушать вручную.";
@@ -12548,7 +12557,7 @@ function generatedVideoTechnicalQaMarkup(details) {
     return `
       <div class="generation-technical-qa is-ready" role="status">
         <strong>Рендер готов · звук не принят</strong>
-        <span>Технический скан готов автоматически. ${frameCount ? `${frameCount} evidence-изображений сохранены.` : ""}${atlasReady && temporalCount ? ` Пятое изображение — хронологический атлас из ${temporalCount} точек таймлайна.` : ""}${continuityReady && continuityCount ? ` Дополнительно локально проверены ${continuityCount} показанных кадров; они не сохранялись и не отправлялись во внешний AI.` : ""}${escapeHtml(audioCopy)}${escapeHtml(reviewStartCopy)}</span>
+        <span>Технический скан готов автоматически. ${frameCount ? `${frameCount} evidence-изображений сохранены.` : ""}${atlasReady && temporalCount ? ` Пятое изображение — хронологический атлас из ${temporalCount} точек таймлайна.` : ""}${escapeHtml(continuityCopy)}${escapeHtml(audioCopy)}${escapeHtml(reviewStartCopy)}</span>
         ${entry?.error ? `<span class="generation-technical-qa__error">${escapeHtml(entry.error)}</span>` : ""}
         <div class="generation-result-actions">
           ${reviewStartControl}
@@ -12571,8 +12580,11 @@ function generatedVideoTechnicalQaMarkup(details) {
   }
   const completed = Number(entry?.completedFrames || 0);
   const total = Number(entry?.totalFrames || 5);
+  const captureStage = String(entry?.captureStage || "");
   const message = entry?.status === "capturing"
-    ? total > 5
+    ? captureStage === "continuity_dense_seek"
+      ? `Плотно считываем точки таймлайна локально: ${Math.min(completed, total)} из ${total}; выборки не сохраняются и не отправляются во внешний AI.`
+      : total > 5
       ? total > 24
         ? `Локально проигрываем короткий MP4 по кадрам: ${Math.min(completed, total)} из ${total} долей таймлайна.`
         : `Локально сканируем таймлайн и собираем атлас: ${Math.min(completed, total)} из ${total} точек.`
@@ -13319,6 +13331,7 @@ function setGeneratedVideoQaStatus(mediaId, patch) {
     mediaId: normalizedMediaId,
     jobId: "",
     evidence: null,
+    captureStage: "",
     completedFrames: 0,
     totalFrames: 0,
   };
@@ -13529,6 +13542,7 @@ async function prepareGeneratedVideoTechnicalQa(entry) {
       error: "",
       completedFrames: 0,
       totalFrames: 0,
+      captureStage: "",
     });
     const media = await loadGeneratedVideoQaMedia(mediaId, entry?.signedUrl);
     if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id) return;
@@ -13539,6 +13553,7 @@ async function prepareGeneratedVideoTechnicalQa(entry) {
         status: "capturing",
         completedFrames: 0,
         totalFrames: 5,
+        captureStage: "video",
       });
       capturedEvidence = await captureVerifiedPrivateVideoEvidence(media, {
         onProgress: (progress) => {
@@ -13547,6 +13562,7 @@ async function prepareGeneratedVideoTechnicalQa(entry) {
             status: "capturing",
             completedFrames: Number(progress?.completed || 0),
             totalFrames: Number(progress?.total || 5),
+            captureStage: String(progress?.stage || "video"),
           });
         },
       });

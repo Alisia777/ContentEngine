@@ -29,6 +29,18 @@ const CONTINUITY_SCAN_TIMEOUT_PADDING_MS = 10_000;
 const CONTINUITY_SCAN_MIN_COVERAGE = 0.8;
 const CONTINUITY_SCAN_MAX_GAP_SECONDS = 0.5;
 const CONTINUITY_DUPLICATE_DIFFERENCE = 0.0015;
+const CONTINUITY_DENSE_SEEK_SAMPLES_PER_SECOND = 10;
+const CONTINUITY_DENSE_SEEK_MIN_SAMPLES = 16;
+const CONTINUITY_DENSE_SEEK_MAX_SAMPLES = 151;
+const CONTINUITY_DENSE_SEEK_TIMEOUT_MS = 45_000;
+const CONTINUITY_DENSE_SEEK_MAX_TARGET_DRIFT_SECONDS = 0.02;
+const CONTINUITY_DENSE_SEEK_MAX_GAP_SECONDS = 0.125;
+const CONTINUITY_DENSE_SEEK_FALLBACK_REASONS = new Set([
+  "rvfc_unavailable",
+  "rvfc_coverage_unreliable",
+  "rvfc_max_gap_unreliable",
+  "rvfc_missed_frames",
+]);
 const CONTENT_REVIEW_DECISION_VIDEO_MAX_HEIGHT = 420;
 export const MAX_CONTENT_REVIEW_IMAGE_SELECTION = 5;
 export const GENERATED_VIDEO_SOUND_ISSUE_CODES = Object.freeze([
@@ -1804,10 +1816,11 @@ async function captureVideoEvidence(media, onProgress) {
     await loadVideoMetadata(video, media.url);
     const width = Number(video.videoWidth);
     const height = Number(video.videoHeight);
-    const duration = Number(video.duration);
-    if (!width || !height || !Number.isFinite(duration) || duration < 0.01 || duration > 3_600) {
+    const sourceDuration = Number(video.duration);
+    if (!width || !height || !Number.isFinite(sourceDuration) || sourceDuration < 0.01 || sourceDuration > 3_600) {
       throw userError("MP4 имеет неподдерживаемые параметры. Проверьте, что файл открывается, длиннее 0,01 секунды и не длиннее одного часа.");
     }
+    const duration = round(sourceDuration, 3);
     const audioMetricsPromise = captureVideoAudioMetrics(media, duration);
     const targets = sampleTimes(duration);
     const frames = [];
@@ -2066,10 +2079,36 @@ async function captureVideoContinuityMetrics(video, duration, onProgress) {
     };
   }
   if (typeof video.requestVideoFrameCallback !== "function") {
-    throw userError(
-      "Браузер не поддерживает покадровый локальный контроль короткого MP4. Обновите браузер и повторите проверку.",
+    return captureVideoDenseSeekContinuityMetrics(
+      video,
+      duration,
+      onProgress,
+      "rvfc_unavailable",
     );
   }
+  try {
+    return await captureBrowserPresentedFrameContinuityMetrics(
+      video,
+      duration,
+      onProgress,
+    );
+  } catch (error) {
+    const fallbackReason = continuityDenseSeekFallbackReason(error);
+    if (!fallbackReason) throw error;
+    return captureVideoDenseSeekContinuityMetrics(
+      video,
+      duration,
+      onProgress,
+      fallbackReason,
+    );
+  }
+}
+
+async function captureBrowserPresentedFrameContinuityMetrics(
+  video,
+  duration,
+  onProgress,
+) {
   await seekVideo(video, 0);
   const canvas = document.createElement("canvas");
   canvas.width = FRAME_SAMPLE_SIZE;
@@ -2172,6 +2211,226 @@ async function captureVideoContinuityMetrics(video, duration, onProgress) {
   );
 }
 
+export function continuityDenseSeekFallbackReason(error) {
+  const reason = String(error?.continuityFallbackReason || "");
+  return CONTINUITY_DENSE_SEEK_FALLBACK_REASONS.has(reason) ? reason : "";
+}
+
+export function denseSeekContinuityTargets(durationSeconds) {
+  const duration = Number(durationSeconds);
+  if (
+    !Number.isFinite(duration)
+    || duration <= 0
+    || duration > CONTINUITY_SCAN_MAX_DURATION_SECONDS + 0.001
+  ) {
+    throw userError("Плотный локальный контроль имеет неверную длительность.");
+  }
+  const sampleCount = Math.min(
+    CONTINUITY_DENSE_SEEK_MAX_SAMPLES,
+    Math.max(
+      CONTINUITY_DENSE_SEEK_MIN_SAMPLES,
+      Math.ceil(
+        duration * CONTINUITY_DENSE_SEEK_SAMPLES_PER_SECOND,
+      ) + 1,
+    ),
+  );
+  const endpointMargin = Math.min(0.01, duration * 0.01);
+  const first = endpointMargin;
+  const last = duration - endpointMargin;
+  const span = last - first;
+  if (!(span > 0)) {
+    throw userError("Плотный локальный контроль не получил безопасный диапазон.");
+  }
+  return Array.from({ length: sampleCount }, (_value, index) => (
+    first + span * index / (sampleCount - 1)
+  ));
+}
+
+async function captureVideoDenseSeekContinuityMetrics(
+  video,
+  duration,
+  onProgress,
+  fallbackReason,
+) {
+  if (!CONTINUITY_DENSE_SEEK_FALLBACK_REASONS.has(fallbackReason)) {
+    throw userError("Плотный локальный контроль нельзя запускать для этой ошибки.");
+  }
+  const targets = denseSeekContinuityTargets(duration);
+  const canvas = document.createElement("canvas");
+  canvas.width = FRAME_SAMPLE_SIZE;
+  canvas.height = FRAME_SAMPLE_SIZE;
+  const context = canvas.getContext("2d", {
+    alpha: false,
+    willReadFrequently: true,
+  });
+  if (!context) {
+    throw userError("Браузер не поддерживает плотный локальный контроль кадров.");
+  }
+  const samples = [];
+  const actualTimes = [];
+  const deadline = Date.now() + CONTINUITY_DENSE_SEEK_TIMEOUT_MS;
+  video.pause();
+  for (let index = 0; index < targets.length; index += 1) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      throw userError("Плотный локальный контроль MP4 превысил лимит времени.");
+    }
+    await seekDenseContinuityTarget(
+      video,
+      targets[index],
+      Math.min(5_000, remainingMs),
+    );
+    const actualTime = Number(video.currentTime);
+    if (
+      !Number.isFinite(actualTime)
+      || Math.abs(actualTime - targets[index]) >
+        CONTINUITY_DENSE_SEEK_MAX_TARGET_DRIFT_SECONDS
+    ) {
+      throw userError("Браузер отклонился от точек плотного локального контроля.");
+    }
+    try {
+      context.drawImage(
+        video,
+        0,
+        0,
+        FRAME_SAMPLE_SIZE,
+        FRAME_SAMPLE_SIZE,
+      );
+      samples.push(sampleCanvasContext(context));
+    } catch (error) {
+      throw error instanceof Error
+        ? error
+        : userError("Не удалось измерить точку плотного локального контроля.");
+    }
+    actualTimes.push(actualTime);
+    onProgress?.({
+      stage: "continuity_dense_seek",
+      completed: index + 1,
+      total: targets.length,
+    });
+  }
+  return analyzeDenseSeekContinuitySamples(
+    samples,
+    actualTimes,
+    duration,
+    fallbackReason,
+  );
+}
+
+async function seekDenseContinuityTarget(video, seconds, timeoutMs) {
+  if (
+    Math.abs(Number(video.currentTime || 0) - seconds) < 0.0001
+    && video.readyState >= 2
+  ) return;
+  const wait = waitForEvent(
+    video,
+    "seeked",
+    timeoutMs,
+    "Не удалось считать точку плотного локального контроля MP4.",
+  );
+  video.currentTime = seconds;
+  await wait;
+}
+
+export function analyzeDenseSeekContinuitySamples(
+  samples,
+  actualTimes,
+  durationSeconds,
+  fallbackReason,
+) {
+  const duration = Number(durationSeconds);
+  const targets = denseSeekContinuityTargets(duration);
+  if (
+    !CONTINUITY_DENSE_SEEK_FALLBACK_REASONS.has(fallbackReason)
+    || !Array.isArray(samples)
+    || !Array.isArray(actualTimes)
+    || samples.length !== targets.length
+    || actualTimes.length !== targets.length
+  ) {
+    throw userError("Плотный локальный контроль имеет неверный размер.");
+  }
+  const times = actualTimes.map(Number);
+  const validTimes = times.every((value, index) => (
+    Number.isFinite(value)
+    && value >= 0
+    && value <= duration
+    && (index === 0 || value > times[index - 1])
+    && Math.abs(value - targets[index]) <=
+      CONTINUITY_DENSE_SEEK_MAX_TARGET_DRIFT_SECONDS
+  ));
+  const validSamples = samples.every((sample) => (
+    Number.isFinite(Number(sample?.mean))
+    && Number(sample.mean) >= 0
+    && Number(sample.mean) <= 255
+    && sample?.pixels instanceof Uint8Array
+    && sample.pixels.length > 0
+  ));
+  if (!validTimes || !validSamples) {
+    throw userError("Плотный локальный контроль содержит повреждённые данные.");
+  }
+  const coverage = (times.at(-1) - times[0]) / duration;
+  const gaps = [
+    times[0],
+    duration - times.at(-1),
+    ...times.slice(1).map((value, index) => value - times[index]),
+  ];
+  const maxGap = Math.max(...gaps);
+  const maxTargetDrift = Math.max(
+    ...times.map((value, index) => Math.abs(value - targets[index])),
+  );
+  if (
+    coverage < 0.98
+    || coverage > 1
+    || maxGap > CONTINUITY_DENSE_SEEK_MAX_GAP_SECONDS
+    || maxTargetDrift > CONTINUITY_DENSE_SEEK_MAX_TARGET_DRIFT_SECONDS
+  ) {
+    throw userError("Плотный локальный контроль не покрыл короткий ролик.");
+  }
+  const differences = samples.slice(1).map((sample, index) => (
+    frameDifference(samples[index].pixels, sample.pixels)
+  ));
+  const blackFlags = samples.map(
+    (sample) => sample.mean < TEMPORAL_BLACK_LUMA,
+  );
+  const duplicateFlags = differences.map(
+    (value) => value < CONTINUITY_DUPLICATE_DIFFERENCE,
+  );
+  const meanDifference = differences.reduce(
+    (sum, value) => sum + value,
+    0,
+  ) / differences.length;
+  return {
+    continuity_scan_status: "completed",
+    continuity_scan_strategy: "browser_dense_seek_v2",
+    continuity_scan_sample_count: samples.length,
+    continuity_scan_target_fps: CONTINUITY_DENSE_SEEK_SAMPLES_PER_SECOND,
+    continuity_scan_target_max_drift_seconds: round(maxTargetDrift, 4),
+    continuity_scan_fallback_reason: fallbackReason,
+    continuity_scan_first_second: round(times[0], 4),
+    continuity_scan_last_second: round(times.at(-1), 4),
+    continuity_scan_coverage_ratio: round(coverage, 4),
+    continuity_scan_max_gap_seconds: round(maxGap, 4),
+    continuity_black_frame_ratio: round(
+      blackFlags.filter(Boolean).length / blackFlags.length,
+      4,
+    ),
+    continuity_longest_black_run_seconds: round(
+      longestBooleanSampleRun(blackFlags, times, duration),
+      4,
+    ),
+    continuity_duplicate_transition_ratio: round(
+      duplicateFlags.filter(Boolean).length / duplicateFlags.length,
+      4,
+    ),
+    continuity_longest_duplicate_run_seconds: round(
+      longestBooleanTransitionRun(duplicateFlags, times, duration),
+      4,
+    ),
+    continuity_mean_frame_difference: round(meanDifference, 4),
+    continuity_raw_frames_persisted: false,
+  };
+}
+
 export function analyzeVideoContinuitySamples(
   samples,
   mediaTimes,
@@ -2223,13 +2482,16 @@ export function analyzeVideoContinuitySamples(
     ...times.slice(1).map((value, index) => value - times[index]),
   ];
   const maxGap = Math.max(...gaps);
-  if (
-    coverage < CONTINUITY_SCAN_MIN_COVERAGE
-    || coverage > 1
-    || maxGap > CONTINUITY_SCAN_MAX_GAP_SECONDS
-  ) {
-    throw userError(
+  if (coverage < CONTINUITY_SCAN_MIN_COVERAGE || coverage > 1) {
+    throw continuityReliabilityError(
       "Покадровый локальный контроль не покрыл достаточную часть короткого ролика.",
+      "rvfc_coverage_unreliable",
+    );
+  }
+  if (maxGap > CONTINUITY_SCAN_MAX_GAP_SECONDS) {
+    throw continuityReliabilityError(
+      "Покадровый локальный контроль оставил слишком большой разрыв между кадрами.",
+      "rvfc_max_gap_unreliable",
     );
   }
   const differences = samples.slice(1).map((sample, index) =>
@@ -2245,8 +2507,9 @@ export function analyzeVideoContinuitySamples(
   const presentedFrameCount = frameNumbers.at(-1) - frameNumbers[0] + 1;
   const missedFrameCount = Math.max(0, presentedFrameCount - callbackCount);
   if (missedFrameCount !== 0) {
-    throw userError(
+    throw continuityReliabilityError(
       "Браузер пропустил показанный кадр во время локального контроля. Повторите проверку в активной вкладке.",
+      "rvfc_missed_frames",
     );
   }
   const meanDifference = differences.reduce(
@@ -2282,6 +2545,12 @@ export function analyzeVideoContinuitySamples(
     continuity_mean_frame_difference: round(meanDifference, 4),
     continuity_raw_frames_persisted: false,
   };
+}
+
+function continuityReliabilityError(message, fallbackReason) {
+  const error = userError(message);
+  error.continuityFallbackReason = fallbackReason;
+  return error;
 }
 
 function longestBooleanSampleRun(flags, times, duration) {
