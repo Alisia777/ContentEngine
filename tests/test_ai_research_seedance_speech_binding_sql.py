@@ -180,6 +180,10 @@ def test_bind_preserves_public_acl_and_requires_exact_prompt_sentence() -> None:
     assert "ai_research_seedance_has_default_ignorable" in bind
     assert "generation_spec_ai_research_speech_prompt_mismatch" in bind
     assert "insert into content_factory.generation_spec_ai_research_speech_bindings" in bind
+    assert "select binding, version into binding_row, spec_row" not in bind
+    assert "select binding.* into binding_row" in bind
+    assert "select version.* into spec_row" in bind
+    assert bind.count("for share;") >= 2
     assert not re.search(
         r"create\s+or\s+replace\s+function\s+public\s*\.\s*"
         r"contentengine_bind_generation_spec_ai_research\s*\(",

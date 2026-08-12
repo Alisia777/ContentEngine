@@ -449,17 +449,25 @@ begin
       message = 'generation_spec_ai_research_speech_binding_invalid';
   end;
 
-  select binding, version into binding_row, spec_row
+  select binding.* into binding_row
   from content_factory.generation_spec_ai_research_bindings binding
-  join content_factory.generation_spec_versions version
-    on version.organization_id = binding.organization_id
-   and version.spec_id = binding.spec_id
-   and version.spec_version = binding.spec_version
-   and version.spec_hash = binding.spec_hash
   where binding.organization_id = organization_id_value
     and binding.id = binding_id_value
-  for share of binding, version;
-  if binding_row.id is null or spec_row.version_id is null then
+  for share;
+  if binding_row.id is null then
+    raise exception using
+      errcode = '55000',
+      message = 'generation_spec_ai_research_speech_binding_invalid';
+  end if;
+
+  select version.* into spec_row
+  from content_factory.generation_spec_versions version
+  where version.organization_id = binding_row.organization_id
+    and version.spec_id = binding_row.spec_id
+    and version.spec_version = binding_row.spec_version
+    and version.spec_hash = binding_row.spec_hash
+  for share;
+  if spec_row.version_id is null then
     raise exception using
       errcode = '55000',
       message = 'generation_spec_ai_research_speech_binding_invalid';
