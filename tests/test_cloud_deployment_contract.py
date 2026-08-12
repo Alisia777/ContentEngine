@@ -580,9 +580,11 @@ def test_creator_invite_function_is_explicitly_jwt_verified() -> None:
     assert 'new Set(["owner", "admin"])' in source
     assert 'const MAX_INVITES = 50' in source
     assert 'const MAX_CONCURRENT_INVITES = 5' in source
-    assert 'bootstrap.workspaceOpen' in source
-    assert '"system_provision_invited_member"' in source
-    assert '"system_reconcile_invited_member"' in source
+    assert 'bootstrap.workspaceOpen' not in source
+    assert '"final_exam_required"' not in source
+    assert '"system_admin_provision_member"' in source
+    assert '"system_admin_reconcile_member"' in source
+    assert '"system_admin_record_invite_delivery_attempts"' in source
     assert "inviteData.user?.id" in source
     assert "deleteUser" not in source
     assert "idempotency_key:" in source

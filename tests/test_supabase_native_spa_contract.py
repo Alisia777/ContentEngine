@@ -317,7 +317,9 @@ def test_spa_payload_and_workspace_fields_match_the_creator_rpc_migration() -> N
         for name in re.findall(r'"(creator_[a-z0-9_]+)"', adapter)
         if name != "creator_api_error"
     ]
-    assert len(set(rpc_names)) == 98
+    assert len(set(rpc_names)) == 100
+    assert "creator_admin_snapshot" in rpc_names
+    assert "creator_admin_mutate" in rpc_names
     assert "creator_operational_health" in rpc_names
     assert "creator_generation_learning_policy" in rpc_names
     assert "creator_generation_repair_policy" in rpc_names
@@ -484,7 +486,7 @@ def test_password_reset_has_a_bounded_wait_and_always_unlocks_the_form() -> None
     assert "finally" in reset
     assert "if (form.isConnected) setFormBusy(form, false)" in reset
     assert "Promise.race([operation, timeout])" in app
-    assert './app.js?v=20260812.os4.36' in index
+    assert './app.js?v=20260812.os4.37' in index
 
 
 def test_novice_workspace_has_required_tabs_and_last_mile_forms() -> None:
@@ -527,7 +529,7 @@ def test_team_invites_are_owner_admin_only_and_use_the_edge_function() -> None:
     assert 'split(/\\r?\\n/)' in app
     assert "emails.length > 50" in app
     assert 'functions.invoke("creator-invite"' in app
-    assert "body: { emails }" in app
+    assert "body: { emails, organization_id: requestOrganizationId }" in app
     for status in ("invited", "already_exists", "rate_limited", "smtp_required"):
         assert status in app
     assert "Каждый новый участник входит как trainee" in app

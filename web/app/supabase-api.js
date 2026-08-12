@@ -67,6 +67,8 @@ export const RPC = Object.freeze({
   exactYoutubeSourceQueue: "contentengine_exact_youtube_source_queue",
   captureEvent: "creator_capture_event",
   inviteAttempts: "creator_invite_delivery_attempts",
+  adminSnapshot: "creator_admin_snapshot",
+  adminMutate: "creator_admin_mutate",
   managerDashboard: "creator_manager_dashboard",
   operationalHealth: "creator_operational_health",
   generationSpendOverview: "creator_generation_spend_overview",
@@ -483,6 +485,61 @@ export class CreatorApiError extends Error {
       ? { ...details.job }
       : null;
   }
+}
+
+function normalizeManagedAccountInput(value) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const platform = String(source.platform || "").trim().toLowerCase();
+  const label = String(source.label || "").trim();
+  const handle = String(source.handle || "").trim();
+  const url = String(source.url || "").trim();
+  const notes = String(source.notes || "").trim();
+  if (!/^[a-z0-9][a-z0-9_-]{1,39}$/u.test(platform)) {
+    throw new CreatorApiError("Выберите площадку из списка.", {
+      code: "admin_account_platform_invalid",
+    });
+  }
+  if (label.length < 2 || label.length > 160 || /[\u0000-\u001f\u007f]/u.test(label)) {
+    throw new CreatorApiError("Название аккаунта должно содержать от 2 до 160 символов.", {
+      code: "admin_account_label_invalid",
+    });
+  }
+  if (handle.length > 160 || /[\u0000-\u001f\u007f]/u.test(handle)) {
+    throw new CreatorApiError("Логин аккаунта имеет неверный формат.", {
+      code: "admin_account_handle_invalid",
+    });
+  }
+  if (notes.length > 1000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(notes)) {
+    throw new CreatorApiError("Безопасная заметка слишком длинная или имеет неверный формат.", {
+      code: "admin_account_notes_invalid",
+    });
+  }
+  if (url) {
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch {
+      parsed = null;
+    }
+    if (
+      !parsed
+      || !["https:", "http:"].includes(parsed.protocol)
+      || parsed.username
+      || parsed.password
+      || parsed.href.length > 500
+    ) {
+      throw new CreatorApiError("Укажите публичную ссылку http или https.", {
+        code: "admin_account_url_invalid",
+      });
+    }
+  }
+  return {
+    platform,
+    label,
+    handle: handle || null,
+    url: url || null,
+    notes: notes || null,
+  };
 }
 
 export class CreatorApi {
@@ -1752,6 +1809,110 @@ export class CreatorApi {
 
   inviteAttempts() {
     return this.call(RPC.inviteAttempts, this.withOrganization({}));
+  }
+
+  adminSnapshot() {
+    return this.call(RPC.adminSnapshot, this.withOrganization({}));
+  }
+
+  adminMemberAction(action, { profileId, reason } = {}) {
+    const normalizedAction = String(action || "").trim().toLowerCase();
+    const normalizedProfileId = String(profileId || "").trim().toLowerCase();
+    const normalizedReason = String(reason || "").trim();
+    if (!new Set(["suspend_member", "reactivate_member", "revoke_member"]).has(normalizedAction)) {
+      throw new CreatorApiError("Не удалось определить действие с участником.", {
+        code: "admin_member_action_invalid",
+      });
+    }
+    if (!isUuid(normalizedProfileId)) {
+      throw new CreatorApiError("Не удалось определить участника. Обновите список.", {
+        code: "admin_member_profile_invalid",
+      });
+    }
+    if (normalizedReason.length < 10 || normalizedReason.length > 500) {
+      throw new CreatorApiError("Укажите проверяемую причину длиной от 10 до 500 символов.", {
+        code: "admin_reason_invalid",
+      });
+    }
+    return this.mutate(RPC.adminMutate, {
+      action: normalizedAction,
+      target_profile_id: normalizedProfileId,
+      reason: normalizedReason,
+      ...(normalizedAction === "revoke_member"
+        ? { confirmation: "REVOKE_MEMBER" }
+        : {}),
+    });
+  }
+
+  createManagedAccount(account = {}) {
+    return this.mutate(RPC.adminMutate, {
+      action: "create_account",
+      ...normalizeManagedAccountInput(account),
+    });
+  }
+
+  updateManagedAccount(accountId, expectedUpdatedAt, account = {}) {
+    const normalizedAccountId = String(accountId || "").trim().toLowerCase();
+    const normalizedExpectedAt = String(expectedUpdatedAt || "").trim();
+    if (!isUuid(normalizedAccountId) || !Number.isFinite(Date.parse(normalizedExpectedAt))) {
+      throw new CreatorApiError("Карточка аккаунта устарела. Обновите список.", {
+        code: "admin_account_version_invalid",
+      });
+    }
+    return this.mutate(RPC.adminMutate, {
+      action: "update_account",
+      account_id: normalizedAccountId,
+      expected_updated_at: normalizedExpectedAt,
+      ...normalizeManagedAccountInput(account),
+    });
+  }
+
+  archiveManagedAccount(accountId, expectedUpdatedAt, reason) {
+    const normalizedAccountId = String(accountId || "").trim().toLowerCase();
+    const normalizedExpectedAt = String(expectedUpdatedAt || "").trim();
+    const normalizedReason = String(reason || "").trim();
+    if (!isUuid(normalizedAccountId) || !Number.isFinite(Date.parse(normalizedExpectedAt))) {
+      throw new CreatorApiError("Карточка аккаунта устарела. Обновите список.", {
+        code: "admin_account_version_invalid",
+      });
+    }
+    if (normalizedReason.length < 10 || normalizedReason.length > 500) {
+      throw new CreatorApiError("Укажите проверяемую причину длиной от 10 до 500 символов.", {
+        code: "admin_reason_invalid",
+      });
+    }
+    return this.mutate(RPC.adminMutate, {
+      action: "archive_account",
+      account_id: normalizedAccountId,
+      expected_updated_at: normalizedExpectedAt,
+      reason: normalizedReason,
+      confirmation: "ARCHIVE_ACCOUNT",
+    });
+  }
+
+  assignManagedAccount(accountId, profileId = "") {
+    const normalizedAccountId = String(accountId || "").trim().toLowerCase();
+    const normalizedProfileId = String(profileId || "").trim().toLowerCase();
+    if (!isUuid(normalizedAccountId)) {
+      throw new CreatorApiError("Не удалось определить рабочий аккаунт. Обновите список.", {
+        code: "admin_account_id_invalid",
+      });
+    }
+    if (normalizedProfileId && !isUuid(normalizedProfileId)) {
+      throw new CreatorApiError("Не удалось определить участника. Обновите список.", {
+        code: "admin_member_profile_invalid",
+      });
+    }
+    return this.mutate(RPC.adminMutate, normalizedProfileId
+      ? {
+          action: "bind_account",
+          account_id: normalizedAccountId,
+          target_profile_id: normalizedProfileId,
+        }
+      : {
+          action: "unbind_account",
+          account_id: normalizedAccountId,
+        });
   }
 
   managerDashboard() {
@@ -6815,6 +6976,35 @@ function toFriendlyMessage(error) {
     membership_required: "Для аккаунта ещё не назначена команда. Обратитесь к руководителю.",
     membership_suspended: "Доступ приостановлен. Обратитесь к руководителю вашей команды.",
     membership_revoked: "Доступ отозван. Обратитесь к руководителю вашей команды.",
+    admin_snapshot_invalid: "Сервер не подтвердил безопасный административный снимок.",
+    admin_action_invalid: "Не удалось определить административное действие.",
+    admin_member_action_invalid: "Не удалось определить действие с участником.",
+    admin_member_profile_invalid: "Участник больше не найден. Обновите список.",
+    admin_reason_invalid: "Укажите проверяемую причину длиной от 10 до 500 символов.",
+    admin_account_id_invalid: "Рабочий аккаунт больше не найден. Обновите список.",
+    admin_account_version_invalid: "Карточка аккаунта устарела. Обновите список.",
+    admin_account_platform_invalid: "Выберите площадку из списка.",
+    admin_account_label_invalid: "Название аккаунта должно содержать от 2 до 160 символов.",
+    admin_account_handle_invalid: "Логин аккаунта имеет неверный формат.",
+    admin_account_url_invalid: "Укажите публичную ссылку http или https.",
+    admin_account_notes_invalid: "Безопасная заметка слишком длинная или имеет неверный формат.",
+    auth_account_not_active: "Текущая учётная запись не подтверждена или заблокирована.",
+    self_membership_change_forbidden: "Нельзя приостановить или удалить собственное членство.",
+    owner_membership_protected: "Доступ владельца защищён. Передайте владение отдельной процедурой.",
+    admin_membership_protected: "Администратор не может изменить другого администратора.",
+    target_member_not_found: "Участник больше не найден. Обновите список.",
+    target_account_not_active: "Учётная запись участника не подтверждена или отключена.",
+    target_membership_not_active: "Закрепить аккаунт можно только за активным подтверждённым участником.",
+    revoked_member_cannot_be_suspended: "Удалённого участника нельзя приостановить.",
+    revoked_member_cannot_be_reactivated: "Удалённого участника нельзя восстановить обычной кнопкой.",
+    managed_account_not_found: "Рабочий аккаунт больше не найден. Обновите список.",
+    managed_account_archived: "Рабочий аккаунт уже находится в архиве.",
+    managed_account_stale: "Карточка аккаунта изменилась в другой вкладке. Обновите список.",
+    account_assignment_protected: "Это назначение руководителя может изменить только владелец.",
+    revocation_confirmation_invalid: "Подтверждение удаления участника не прошло проверку.",
+    archive_confirmation_invalid: "Подтверждение архивирования не прошло проверку.",
+    admin_snapshot_timeout: "Админка не ответила вовремя. Обновите данные перед повтором.",
+    admin_mutation_timeout: "Сервер не подтвердил изменение вовремя. Сначала обновите список.",
     inactive_membership: "Доступ к команде приостановлен. Обратитесь к руководителю.",
     active_membership_required: "Доступ к команде приостановлен. Обратитесь к руководителю.",
     profile_not_active: "Аккаунт приостановлен. Обратитесь к руководителю.",
