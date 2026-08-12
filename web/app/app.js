@@ -3,7 +3,7 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260812.os4.34";
+} from "./supabase-api.js?v=20260812.os4.35";
 import {
   clearExactYoutubeMediaHandoff,
   exactYoutubeRegisteredMediaId,
@@ -28,8 +28,8 @@ import {
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
 } from "./generation-spec.js?v=20260812.generation-spec-consent.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260812.os4.34";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260812.os4.34";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260812.os4.35";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260812.os4.35";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -92,7 +92,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260812.os4.34";
+} from "./product-research-view.js?v=20260812.os4.35";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -103,7 +103,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260812.os4.34";
+} from "./ai-learning-control-room.js?v=20260812.os4.35";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -119,7 +119,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260812.os4.34";
+} from "./content-generation-handoff.js?v=20260812.os4.35";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -132,13 +132,13 @@ import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
   normalizeGenerationVideoReferenceContext,
-} from "./generation-video-reference.js?v=20260812.os4.34";
+} from "./generation-video-reference.js?v=20260812.os4.35";
 import {
   buildGenerationFormDraft,
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260812.os4.34";
+} from "./generation-form-draft.js?v=20260812.os4.35";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
@@ -154,7 +154,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260812.os4.34";
+} from "./generation-autopilot.js?v=20260812.os4.35";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -175,7 +175,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260812.os4.34";
+} from "./content-review-view.js?v=20260812.os4.35";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -204,7 +204,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260812.os4.34";
+} from "./workspace-board-view.js?v=20260812.os4.35";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -233,7 +233,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260812.os4.34";
+} from "./training-journey.js?v=20260812.os4.35";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -252,7 +252,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260812.os4.34";
+} from "./training-practical-review.js?v=20260812.os4.35";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -271,7 +271,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260812.os4.34";
+} from "./my-work-view.js?v=20260812.os4.35";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -3075,15 +3075,73 @@ function normalizeGenerationResearchPresetEvent(event) {
       || "",
   ).trim().toLowerCase();
   if (!contentReviewUuid(authoritativeProductId)) return null;
+  const projectId = currentWorkspaceProjectId();
+  const productCategory = String(
+    detail?.authoritative_product_category
+      || form.elements?.product_category?.value
+      || preset.product_category
+      || "",
+  ).trim().toLowerCase();
+  const verificationOnly = detail?.verification_only === true;
+  const providerPromptContract = verificationOnly
+    ? generationAiResearchProviderPromptContract(detail)
+    : null;
+  if (verificationOnly) {
+    const authoritativeProjectId = String(
+      detail?.authoritative_project_id || "",
+    ).trim().toLowerCase();
+    const selectedMediaProductId = String(
+      form.dataset.identityProductId || "",
+    ).trim().toLowerCase();
+    const storedProductId = String(
+      form.dataset.researchRecommendationProductId || "",
+    ).trim().toLowerCase();
+    const storedProductCategory = String(
+      form.dataset.researchRecommendationProductCategory || "",
+    ).trim().toLowerCase();
+    const currentProductCategory = String(
+      form.elements?.product_category?.value || "",
+    ).trim().toLowerCase();
+    const storedAppliedFields = String(
+      form.dataset.researchRecommendationAppliedFields || "",
+    )
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => allowedFields.has(value));
+    const exactAppliedFields = appliedFields.length === storedAppliedFields.length
+      && appliedFields.every((field, index) => field === storedAppliedFields[index]);
+    if (
+      state.route.path !== "/workspace/generation"
+      || !form.isConnected
+      || document.querySelector("#mock-batch-form") !== form
+      || !isWorkspaceProjectId(authoritativeProjectId)
+      || authoritativeProjectId !== projectId
+      || form.dataset.researchRecommendationLineage !== "active"
+      || form.dataset.researchRecommendationSelectionId !== selectionId
+      || Number(form.dataset.researchRecommendationPosition)
+        !== recommendationPosition
+      || form.dataset.researchRecommendationVerificationRequired !== "true"
+      || form.dataset.researchRecommendationVerificationState !== "verified"
+      || form.dataset.researchRecommendationVerificationSelectionId
+        !== selectionId
+      || Number(form.dataset.researchRecommendationVerificationPosition)
+        !== recommendationPosition
+      || authoritativeProductId !== selectedMediaProductId
+      || authoritativeProductId !== storedProductId
+      || !productCategory
+      || productCategory !== storedProductCategory
+      || productCategory !== currentProductCategory
+      || !exactAppliedFields
+      || !providerPromptContract
+    ) return null;
+  }
   return {
     form,
+    verificationOnly,
+    providerPromptContract,
     selection: {
-      projectId: currentWorkspaceProjectId(),
-      productCategory: String(
-        form.elements?.product_category?.value
-          || preset.product_category
-          || "",
-      ).trim().toLowerCase(),
+      projectId,
+      productCategory,
       selectionId,
       recommendationPosition,
       productId: authoritativeProductId,
@@ -3097,6 +3155,31 @@ function normalizeGenerationResearchPresetEvent(event) {
 function handleGenerationResearchPresetApplied(event) {
   const normalized = normalizeGenerationResearchPresetEvent(event);
   if (!normalized || normalized.selection.appliedFields.length < 1) return;
+  if (normalized.verificationOnly) {
+    // This event is emitted only after the adapter re-resolves the exact
+    // server envelope for an already-restored selection. Restore runtime
+    // provenance without rewriting controls, creating a draft, invalidating
+    // an approved spec or issuing a second recommendation RPC.
+    state.aiResearchProviderPromptRequestId =
+      Number(state.aiResearchProviderPromptRequestId || 0) + 1;
+    state.aiResearchRecommendation = {
+      ...normalized.selection,
+      ...normalized.providerPromptContract,
+    };
+    normalized.form.dataset.researchRecommendationProviderFragmentStatus =
+      "ready";
+    normalized.form.dataset.researchRecommendationProviderFragmentVersion =
+      normalized.providerPromptContract.providerPromptFragmentVersion;
+    normalized.form.dataset.researchRecommendationProviderFragmentHash =
+      normalized.providerPromptContract.providerPromptFragmentHash;
+    delete normalized.form.dataset.researchRecommendationVerificationFailure;
+    syncAutomaticGenerationBrief(normalized.form, {
+      identity: selectedGenerationProductIdentity(normalized.form),
+      force: true,
+    });
+    syncGenerationFormReadiness(normalized.form);
+    return;
+  }
   const previous = state.aiResearchRecommendation;
   const sameSelection = Boolean(
     previous
@@ -11240,8 +11323,8 @@ function generationPaidSafetyState(form) {
   } else if (!generationSpecApproved) {
     stateName = state.generationSpec.dirty ? "spec_changed" : "spec_prepare";
     hint = state.generationSpec.dirty
-      ? "Замысел изменился. Портал сохранит новую техническую версию автоматически при запуске."
-      : "Портал технически подготовит эту версию при запуске; отдельное одобрение не требуется.";
+      ? "Замысел изменился. Перед оплатой портал бесплатно подготовит новую точную версию ТЗ, которую нужно заново проверить и одобрить."
+      : "Перед оплатой портал бесплатно подготовит точную версию ТЗ — откройте, прочитайте и отдельно одобрите её.";
   } else {
     stateName = "ready";
   }
@@ -19942,9 +20025,14 @@ function handleFormActivity(event) {
     form.dataset.dirty = "true";
     if (form.id === "content-review-form") persistContentReviewDraft(form);
     if (form.id === "mock-batch-form") {
+      const priceConfirmationChanged =
+        event.target.name === "real_spend_confirmation";
       const approvalReviewCleared = clearGenerationSpecApprovalReview(form, {
         render: false,
-        clearPriceConfirmation: true,
+        // The checkbox is the explicit human price decision. Clearing it from
+        // its own input/change event makes the final required step impossible.
+        // Every other form mutation continues to revoke price consent.
+        clearPriceConfirmation: !priceConfirmationChanged,
       });
       if ([
         "generation_reference_url",
@@ -19986,7 +20074,7 @@ function handleFormActivity(event) {
         syncGenerationFormReadiness(form);
       }
       if (approvalReviewCleared) syncGenerationSpecUi(form);
-      scheduleGenerationFormDraftSave(form);
+      if (!priceConfirmationChanged) scheduleGenerationFormDraftSave(form);
     }
   }
 }
@@ -22589,7 +22677,7 @@ function syncAutomaticGenerationBrief(form, { force = false, identity = null } =
   }
   if (status) {
     status.dataset.state = "verified";
-    status.textContent = "Замысел сохранён. При нажатии «Запустить» портал сам подготовит и проверит техническое ТЗ — отдельное одобрение не требуется.";
+    status.textContent = "Замысел сохранён. Подготовьте бесплатную точную версию ТЗ, затем откройте, прочитайте и отдельно одобрите её перед оплатой.";
   }
   return compiled;
 }

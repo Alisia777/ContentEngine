@@ -566,6 +566,7 @@ def test_verified_media_identity_survives_exact_resolver_and_shared_draft_reappl
       const exact = fixture();
       const missingDisplayFields = {{
         product_id: productId,
+        product_category: 'household',
         source_product_sku: '',
         source_product_name: '',
       }};
@@ -661,6 +662,7 @@ def test_verified_media_identity_survives_exact_resolver_and_shared_draft_reappl
           exact.sku.dataset.mediaIdentityValue,
           exact.productName.dataset.mediaIdentityValue,
         ],
+        productCategory: exact.form.dataset.researchRecommendationProductCategory,
         manual, recommendation, incompleteRecommendation,
         noRightsApplied, noRightsValues,
         mixedApplied, mixedBefore, mixedAfter,
@@ -686,6 +688,7 @@ def test_verified_media_identity_survives_exact_resolver_and_shared_draft_reappl
     assert value["readiness"] == {"ready": True, "productComplete": True}
     assert value["readOnly"] == [True, True]
     assert value["mediaIdentityValues"] == list(exact.values())
+    assert value["productCategory"] == "household"
     assert value["manual"] == {
         "sku": "518413561",
         "productName": "Моё точное название",
@@ -819,7 +822,10 @@ def test_cache_race_prefers_newer_tombstone_across_force_reads_and_runtime() -> 
     mount = GENERATION[mount_start:mount_end]
     assert "applySharedWorkingDraft(form, knownShared)" not in mount
     assert "const shouldHydrate = shouldHydrateGenerationResearchWorkingDraft" in mount
-    assert "if (!shouldHydrate) return;" in mount
+    assert "if (!shouldHydrate) {" in mount
+    assert "generationResearchRecommendationMountResolveAction" in mount
+    assert 'if (resolveAction === "replay") runtime.loadPending = true' in mount
+    assert 'else if (resolveAction === "force") scheduleLoad({ force: true })' in mount
     assert 'setWorkingDraftAuthority(context.projectId, "unknown")' in mount
     assert "void hydrateSharedWorkingDraft(form, context)" in mount
 
@@ -904,6 +910,257 @@ def test_mutation_observer_mount_does_not_restart_settled_working_draft_hydratio
     }
 
 
+def test_settled_mount_re_resolves_programmatically_restored_exact_selection() -> None:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is unavailable")
+    module_url = (
+        ROOT / "web" / "app" / "workspace-generation-research-recommendations.js"
+    ).as_uri()
+    script = f"""
+      const mod = await import({json.dumps(module_url)});
+      const selectionId = 'b979e33c-4ab6-4592-9c13-90eabd1ba712';
+      const base = {{
+        contextKey: 'project|selection|2|product|household|sku|name|youtube',
+        loadedKey: 'project|selection|2|product|household|sku|name|youtube',
+        selectionId,
+        recommendationPosition: 2,
+        verificationRequired: true,
+      }};
+      console.log(JSON.stringify({{
+        restoredPending:
+          mod.generationResearchRecommendationMountResolveAction({{
+            ...base, verificationState: 'pending',
+          }}),
+        alreadyVerified:
+          mod.generationResearchRecommendationMountResolveAction({{
+            ...base, verificationState: 'verified',
+          }}),
+        changedContext:
+          mod.generationResearchRecommendationMountResolveAction({{
+            ...base,
+            loadedKey: 'project|||||||',
+            verificationState: 'verified',
+          }}),
+        invalidPendingTarget:
+          mod.generationResearchRecommendationMountResolveAction({{
+            ...base,
+            selectionId: '',
+            verificationState: 'pending',
+          }}),
+        failedStable:
+          mod.generationResearchRecommendationMountResolveAction({{
+            ...base, verificationState: 'failed',
+          }}),
+        sameExactInFlight:
+          mod.generationResearchRecommendationMountResolveAction({{
+            ...base, verificationState: 'pending', loading: true,
+          }}),
+        changedInFlight:
+          mod.generationResearchRecommendationMountResolveAction({{
+            ...base,
+            loadedKey: 'project|||||||',
+            verificationState: 'verified',
+            loading: true,
+          }}),
+      }}));
+    """
+    result = subprocess.run(
+        [node, "--input-type=module", "-e", script],
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
+    )
+    assert json.loads(result.stdout) == {
+        "restoredPending": "force",
+        "alreadyVerified": "none",
+        "changedContext": "schedule",
+        "invalidPendingTarget": "none",
+        "failedStable": "none",
+        "sameExactInFlight": "in_flight",
+        "changedInFlight": "replay",
+    }
+    schedule_start = GENERATION.index("function scheduleLoad(")
+    schedule_end = GENERATION.index("function handleRootClick(", schedule_start)
+    schedule = GENERATION[schedule_start:schedule_end]
+    assert "force === true && runtime.loadForcePending && runtime.loadTimer" in schedule
+    assert (
+        "runtime.loadForcePending = runtime.loadForcePending || force === true"
+        in schedule
+    )
+    assert "runtime.loadTimer = 0" in schedule
+    assert "&& !forceLoad" in schedule
+
+
+def test_verified_exact_reload_rehydrates_runtime_provenance_without_field_writes() -> None:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is unavailable")
+    module_url = (
+        ROOT / "web" / "app" / "workspace-generation-research-recommendations.js"
+    ).as_uri()
+    script = f"""
+      const mod = await import({json.dumps(module_url)});
+      const projectId = '4f0fcfa2-7233-4c0c-9e16-2c20e0aae379';
+      const selectionId = 'b979e33c-4ab6-4592-9c13-90eabd1ba712';
+      const productId = '88a117e4-83a4-4b77-a047-96d1a39b59f7';
+      const controls = {{
+        product_category: {{ value: 'household' }},
+        platform: {{ value: 'youtube' }},
+        generation_mode: {{ value: 'real_seedance' }},
+        duration_seconds: {{ value: '8' }},
+        format: {{ value: '9:16' }},
+        brief: {{ value: 'Человеческая правка должна остаться дословно.' }},
+      }};
+      class Form extends EventTarget {{
+        constructor() {{
+          super();
+          this.elements = controls;
+          this.dataset = {{
+          identityProductId: productId,
+          researchRecommendationLineage: 'active',
+          researchRecommendationProductId: productId,
+          researchRecommendationVerificationRequired: 'true',
+          researchRecommendationVerificationState: 'verified',
+          researchRecommendationVerificationSelectionId: selectionId,
+          researchRecommendationVerificationPosition: '2',
+          }};
+        }}
+      }}
+      const form = new Form();
+      const envelope = {{
+        project_id: projectId,
+        selection_id: selectionId,
+        recommendation_position: 2,
+        product_id: productId,
+        product_category: 'household',
+        provider_prompt_fragment_version: 'ai-research-provider-fragment-v1',
+        provider_prompt_fragment:
+          'AIResearchSelection/v1 C=кухня|H=честный тест|CTA=сравнить|P=4л|A=без выдумок',
+        provider_prompt_fragment_hash: 'a'.repeat(64),
+        preset: {{
+          product_category: 'household',
+          platform: 'youtube',
+          generation_mode: 'real_seedance',
+          duration_seconds: 8,
+          format: '9:16',
+          brief: 'Серверный исходный текст не должен заменить правку.',
+        }},
+        recommendation: {{ position: 2, title: 'Точный вариант' }},
+      }};
+      const state = {{
+        appliedFields: [
+          'product_category', 'platform', 'mode', 'duration_seconds',
+          'format', 'brief',
+        ],
+      }};
+      const snapshot = () => Object.fromEntries(
+        Object.entries(controls).map(([key, control]) => [key, control.value]),
+      );
+      const before = snapshot();
+      const categoryInitiallyAbsent =
+        !form.dataset.researchRecommendationProductCategory;
+      const productBound = mod.applyAuthoritativeRecommendationProduct(
+        form, envelope,
+      );
+      const populatedCategory =
+        form.dataset.researchRecommendationProductCategory || null;
+      const detail = mod.verifiedResearchRecommendationProvenanceDetail(
+        form, envelope, state, {{ projectId, productName: 'MILIO A425D-Black' }},
+      );
+      let emitted = null;
+      form.addEventListener(
+        'contentengine:generation-research-preset-applied',
+        (event) => {{ emitted = event.detail; }},
+      );
+      const dispatched = mod.dispatchVerifiedResearchRecommendationProvenance(
+        form, envelope, state, {{ projectId, productName: 'MILIO A425D-Black' }},
+      );
+      const after = snapshot();
+      const projectMismatch = mod.verifiedResearchRecommendationProvenanceDetail(
+        form,
+        {{ ...envelope, project_id: '22222222-2222-4222-8222-222222222222' }},
+        state,
+        {{ projectId }},
+      );
+      const productMismatch = mod.verifiedResearchRecommendationProvenanceDetail(
+        {{ ...form, dataset: {{ ...form.dataset,
+          identityProductId: '33333333-3333-4333-8333-333333333333',
+        }} }},
+        envelope,
+        state,
+        {{ projectId }},
+      );
+      const pending = mod.verifiedResearchRecommendationProvenanceDetail(
+        {{ ...form, dataset: {{ ...form.dataset,
+          researchRecommendationVerificationState: 'pending',
+        }} }},
+        envelope,
+        state,
+        {{ projectId }},
+      );
+      const badProvider = mod.verifiedResearchRecommendationProvenanceDetail(
+        form,
+        {{ ...envelope, provider_prompt_fragment_hash: 'A'.repeat(64) }},
+        state,
+        {{ projectId }},
+      );
+      console.log(JSON.stringify({{
+        before, after, categoryInitiallyAbsent, productBound,
+        populatedCategory, detail, emitted, dispatched, projectMismatch,
+        productMismatch, pending, badProvider,
+      }}));
+    """
+    result = subprocess.run(
+        [node, "--input-type=module", "-e", script],
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
+    )
+    value = json.loads(result.stdout)
+    assert value["before"] == value["after"]
+    assert value["categoryInitiallyAbsent"] is True
+    assert value["productBound"] is True
+    assert value["populatedCategory"] == "household"
+    assert value["detail"] == {
+        "verification_only": True,
+        "authoritative_project_id": "4f0fcfa2-7233-4c0c-9e16-2c20e0aae379",
+        "selection_id": "b979e33c-4ab6-4592-9c13-90eabd1ba712",
+        "recommendation_position": 2,
+        "authoritative_product_id": "88a117e4-83a4-4b77-a047-96d1a39b59f7",
+        "authoritative_product_category": "household",
+        "preset": {
+            "product_category": "household",
+            "platform": "youtube",
+            "mode": "real_seedance",
+            "duration_seconds": 8,
+            "format": "9:16",
+            "brief": "Серверный исходный текст не должен заменить правку.",
+        },
+        "applied_fields": [
+            "product_category", "platform", "mode", "duration_seconds",
+            "format", "brief",
+        ],
+        "provider_prompt_fragment_version": "ai-research-provider-fragment-v1",
+        "provider_prompt_fragment": (
+            "AIResearchSelection/v1 C=кухня|H=честный тест|CTA=сравнить|"
+            "P=4л|A=без выдумок"
+        ),
+        "provider_prompt_fragment_hash": "a" * 64,
+    }
+    assert value["emitted"] == value["detail"]
+    assert value["dispatched"] is True
+    assert value["projectMismatch"] is None
+    assert value["productMismatch"] is None
+    assert value["pending"] is None
+    assert value["badProvider"] is None
+    load_start = GENERATION.index("async function loadRecommendations(")
+    load_end = GENERATION.index("function scheduleLoad(", load_start)
+    load = GENERATION[load_start:load_end]
+    assert "dispatchVerifiedResearchRecommendationProvenance(" in load
+    assert "verification_only" in GENERATION
+
+
 def test_recommendation_panel_is_owned_by_the_runtime_dom_patcher() -> None:
     dom_patch = (
         ROOT / "web" / "app" / "workspace-dom-patch.js"
@@ -934,7 +1191,7 @@ def test_cross_project_inflight_work_is_origin_guarded_and_replays_latest_form()
     assert "void clearWorkingDraft()" in clear
 
     load_start = GENERATION.index("async function loadRecommendations(")
-    load_end = GENERATION.index("function scheduleLoad()", load_start)
+    load_end = GENERATION.index("function scheduleLoad(", load_start)
     load = GENERATION[load_start:load_end]
     assert "runtime.form !== form" in load
     assert "!form.isConnected" in load
@@ -1024,7 +1281,8 @@ def test_consumed_deep_link_and_tombstone_guard_prevent_opt_out_resurrection() -
     assert "explicitResearchRecommendationIntentIsFresh(routedTarget)" in GENERATION
     assert "runtime.activeIndex = -1" in GENERATION
     assert "runtime.loadPending = true" in GENERATION
-    assert "runtime.response && !freshExplicitRoute" in GENERATION
+    assert "runtime.response" in GENERATION
+    assert "&& !freshExplicitRoute" in GENERATION
     assert "if (target && !workingDraftAuthorityVerified(context))" in GENERATION
     assert 'researchRecommendationVerificationFailure = "working_draft_unverified"' in GENERATION
     assert "runtime.response = null" in GENERATION
@@ -1183,7 +1441,7 @@ def test_api_boundary_and_scoped_cache_edges_are_wired() -> None:
     assert "generationResearchRecommendation(input = {})" in API
     assert "generationAiResearchWorkingDraft(input = {})" in API
     assert '"workspace-ai-research-training.js":\n      "20260811.ai-center-runtime-owned.2"' in BOOTSTRAP
-    assert '"workspace-generation-research-recommendations.js":\n      "20260812.ai-media-identity.1"' in BOOTSTRAP
+    assert '"workspace-generation-research-recommendations.js":\n      "20260812.ai-reload-verification.1"' in BOOTSTRAP
     assert "generation-ai-research-working-draft.js?v=20260811.ai-working-draft.1" in APP
     assert "generation-ai-research-working-draft.js?v=20260811.ai-working-draft.1" in GENERATION
 

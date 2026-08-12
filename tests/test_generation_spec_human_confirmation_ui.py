@@ -344,6 +344,260 @@ def test_app_routes_confirmation_through_explicit_review_and_rechecks_before_rpc
     assert "startProductResearch" not in review_actions
 
 
+def test_generation_guidance_requires_free_exact_review_before_payment() -> None:
+    for obsolete in (
+        "отдельное одобрение не требуется",
+        "портал сам подготовит и проверит техническое ТЗ",
+    ):
+        assert obsolete not in APP
+
+    for truthful in (
+        "Перед оплатой портал бесплатно подготовит точную версию ТЗ",
+        "которую нужно заново проверить и одобрить",
+        "Подготовьте бесплатную точную версию ТЗ",
+        "отдельно одобрите её перед оплатой",
+    ):
+        assert truthful in APP
+
+
+def test_verified_reload_event_restores_runtime_provenance_without_second_rpc() -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is required for executable reload verification")
+    normalize_start = APP.index("function normalizeGenerationResearchPresetEvent")
+    normalize_end = APP.index(
+        "function handleGenerationResearchPresetApplied", normalize_start
+    )
+    handler_start = normalize_end
+    handler_end = APP.index(
+        "function handleGenerationResearchPresetOptOut", handler_start
+    )
+    normalize_source = APP[normalize_start:normalize_end]
+    handler_source = APP[handler_start:handler_end]
+    script = f"""
+{normalize_source}
+{handler_source}
+
+const projectId = "4f0fcfa2-7233-4c0c-9e16-2c20e0aae379";
+const selectionId = "b979e33c-4ab6-4592-9c13-90eabd1ba712";
+const productId = "88a117e4-83a4-4b77-a047-96d1a39b59f7";
+const providerFragment = "AIResearchSelection/v1 C=кухня|H=честный тест|CTA=сравнить|P=4л|A=без выдумок";
+const appliedFields = [
+  "product_category", "platform", "mode", "duration_seconds", "format", "brief",
+];
+const form = {{
+  isConnected: true,
+  dataset: {{
+    identityProductId: productId,
+    researchRecommendationProductId: productId,
+    researchRecommendationProductCategory: "household",
+    researchRecommendationLineage: "active",
+    researchRecommendationSelectionId: selectionId,
+    researchRecommendationPosition: "2",
+    researchRecommendationAppliedFields: appliedFields.join(","),
+    researchRecommendationVerificationRequired: "true",
+    researchRecommendationVerificationState: "verified",
+    researchRecommendationVerificationSelectionId: selectionId,
+    researchRecommendationVerificationPosition: "2",
+  }},
+  elements: {{ product_category: {{ value: "household" }} }},
+}};
+const detail = {{
+  verification_only: true,
+  authoritative_project_id: projectId,
+  selection_id: selectionId,
+  recommendation_position: 2,
+  authoritative_product_id: productId,
+  authoritative_product_category: "household",
+  preset: {{
+    product_category: "household",
+    platform: "youtube",
+    mode: "real_seedance",
+    duration_seconds: 8,
+    format: "9:16",
+    brief: "Точный сохранённый замысел",
+  }},
+  applied_fields: appliedFields,
+  provider_prompt_fragment_version: "ai-research-provider-fragment-v1",
+  provider_prompt_fragment: providerFragment,
+  provider_prompt_fragment_hash: "a".repeat(64),
+}};
+let activeDocumentForm = form;
+const document = {{ querySelector: () => activeDocumentForm }};
+const eventFor = (overrides = {{}}, dataset = form.dataset, isConnected = true) => {{
+  const candidate = dataset === form.dataset && isConnected
+    ? form
+    : {{ ...form, dataset, isConnected }};
+  activeDocumentForm = candidate;
+  return {{
+    target: {{ closest: () => candidate }},
+    detail: {{ ...detail, ...overrides }},
+  }};
+}};
+const state = {{
+  route: {{ path: "/workspace/generation" }},
+  aiResearchProviderPromptRequestId: 7,
+  aiResearchRecommendation: null,
+}};
+function contentReviewUuid(value) {{
+  return /^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[1-8][0-9a-f]{{3}}-[89ab][0-9a-f]{{3}}-[0-9a-f]{{12}}$/iu
+    .test(String(value || ""));
+}}
+function isWorkspaceProjectId(value) {{ return contentReviewUuid(value); }}
+function currentWorkspaceProjectId() {{ return projectId; }}
+function generationAiResearchProviderPromptContract(value) {{
+  if (
+    value?.provider_prompt_fragment_version !== "ai-research-provider-fragment-v1"
+    || !String(value?.provider_prompt_fragment || "").startsWith("AIResearchSelection/v1 ")
+    || !/^[0-9a-f]{{64}}$/u.test(String(value?.provider_prompt_fragment_hash || ""))
+  ) return null;
+  return {{
+    providerPromptFragmentVersion: value.provider_prompt_fragment_version,
+    providerPromptFragment: value.provider_prompt_fragment,
+    providerPromptFragmentHash: value.provider_prompt_fragment_hash,
+    providerPromptFragmentStatus: "ready",
+  }};
+}}
+function selectedGenerationProductIdentity() {{ return {{ sku: "518413561" }}; }}
+let briefSyncs = 0;
+let readinessSyncs = 0;
+let forbiddenCalls = 0;
+function syncAutomaticGenerationBrief() {{ briefSyncs += 1; }}
+function syncGenerationFormReadiness() {{ readinessSyncs += 1; }}
+function invalidateGenerationSpec() {{ forbiddenCalls += 1; }}
+function persistGenerationFormDraft() {{ forbiddenCalls += 1; }}
+function hydrateGenerationAiResearchProviderPrompt() {{ forbiddenCalls += 1; }}
+
+const valid = normalizeGenerationResearchPresetEvent(eventFor());
+const wrongProject = normalizeGenerationResearchPresetEvent(eventFor({{
+  authoritative_project_id: "11111111-1111-4111-8111-111111111111",
+}}));
+const wrongProduct = normalizeGenerationResearchPresetEvent(eventFor({{
+  authoritative_product_id: "22222222-2222-4222-8222-222222222222",
+}}));
+const wrongCategory = normalizeGenerationResearchPresetEvent(eventFor({{
+  authoritative_product_category: "electronics",
+}}));
+const pending = normalizeGenerationResearchPresetEvent(eventFor({{}}, {{
+  ...form.dataset,
+  researchRecommendationVerificationState: "pending",
+}}));
+const wrongFields = normalizeGenerationResearchPresetEvent(eventFor({{
+  applied_fields: ["brief"],
+}}));
+const badProvider = normalizeGenerationResearchPresetEvent(eventFor({{
+  provider_prompt_fragment_hash: "A".repeat(64),
+}}));
+const detached = normalizeGenerationResearchPresetEvent(
+  eventFor({{}}, form.dataset, false),
+);
+
+handleGenerationResearchPresetApplied(eventFor());
+console.log(JSON.stringify({{
+  valid: Boolean(valid?.verificationOnly && valid?.providerPromptContract),
+  invalids: [
+    wrongProject, wrongProduct, wrongCategory, pending, wrongFields, badProvider,
+    detached,
+  ],
+  stateSelection: state.aiResearchRecommendation,
+  requestId: state.aiResearchProviderPromptRequestId,
+  briefSyncs,
+  readinessSyncs,
+  forbiddenCalls,
+  providerStatus: form.dataset.researchRecommendationProviderFragmentStatus,
+}}));
+"""
+    result = subprocess.run(
+        [node, "--input-type=module", "--eval", script],
+        cwd=ROOT,
+        capture_output=True,
+        check=True,
+        text=True,
+        encoding="utf-8",
+        timeout=10,
+    )
+    payload = json.loads(result.stdout)
+    assert payload["valid"] is True
+    assert payload["invalids"] == [None] * 7
+    assert payload["stateSelection"]["projectId"] == (
+        "4f0fcfa2-7233-4c0c-9e16-2c20e0aae379"
+    )
+    assert payload["stateSelection"]["selectionId"] == (
+        "b979e33c-4ab6-4592-9c13-90eabd1ba712"
+    )
+    assert payload["stateSelection"]["productId"] == (
+        "88a117e4-83a4-4b77-a047-96d1a39b59f7"
+    )
+    assert payload["stateSelection"]["providerPromptFragment"]
+    assert payload["requestId"] == 8
+    assert payload["briefSyncs"] == 1
+    assert payload["readinessSyncs"] == 1
+    assert payload["forbiddenCalls"] == 0
+    assert payload["providerStatus"] == "ready"
+
+
+def test_price_confirmation_survives_its_own_event_but_not_form_mutation() -> None:
+    activity_start = APP.index("function handleFormActivity")
+    activity_end = APP.index("function clearWorkspaceDropTargets", activity_start)
+    activity = APP[activity_start:activity_end]
+    assert 'event.target.name === "real_spend_confirmation"' in activity
+    assert "clearPriceConfirmation: !priceConfirmationChanged" in activity
+    assert "if (!priceConfirmationChanged) scheduleGenerationFormDraftSave(form)" in activity
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is required for executable price confirmation")
+    clear_start = APP.index("function clearGenerationSpecApprovalReview")
+    clear_end = APP.index("function generationSpecApprovalReviewDirty", clear_start)
+    clear_source = APP[clear_start:clear_end]
+    script = f"""
+{clear_source}
+
+const state = {{ generationSpec: {{ approvalReview: null }} }};
+const checkbox = {{ name: "real_spend_confirmation", checked: true }};
+const form = {{ elements: {{ real_spend_confirmation: checkbox }} }};
+function applyActivity(target) {{
+  const priceConfirmationChanged = target.name === "real_spend_confirmation";
+  clearGenerationSpecApprovalReview(form, {{
+    render: false,
+    clearPriceConfirmation: !priceConfirmationChanged,
+  }});
+}}
+applyActivity(checkbox);
+const afterOwnEvent = checkbox.checked;
+applyActivity({{ name: "brief" }});
+const afterBriefMutation = checkbox.checked;
+
+checkbox.checked = true;
+state.generationSpec.approvalReview = {{ key: "exact-review" }};
+applyActivity(checkbox);
+const ownEventClearsReview = state.generationSpec.approvalReview === null;
+const ownEventKeepsPrice = checkbox.checked;
+
+console.log(JSON.stringify({{
+  afterOwnEvent,
+  afterBriefMutation,
+  ownEventClearsReview,
+  ownEventKeepsPrice,
+}}));
+"""
+    result = subprocess.run(
+        [node, "--input-type=module", "--eval", script],
+        cwd=ROOT,
+        capture_output=True,
+        check=True,
+        text=True,
+        encoding="utf-8",
+        timeout=10,
+    )
+    assert json.loads(result.stdout) == {
+        "afterOwnEvent": True,
+        "afterBriefMutation": False,
+        "ownEventClearsReview": True,
+        "ownEventKeepsPrice": True,
+    }
+
+
 def test_generation_spec_confirmation_sources_are_valid_javascript() -> None:
     node = shutil.which("node")
     if node is None:
