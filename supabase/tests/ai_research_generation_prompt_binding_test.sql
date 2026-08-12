@@ -1393,6 +1393,7 @@ select is(
 
 -- Simulate one pre-v56 AI Seedance binding only after proving that its
 -- exact speech can start. Absence of the additive proof must then fail.
+reset role;
 set local session_replication_role = replica;
 delete from content_factory.generation_spec_ai_research_speech_bindings proof
 where proof.binding_id = (
@@ -1406,6 +1407,7 @@ where proof.binding_id = (
   where state.test_key = 'valid-1'
 );
 set local session_replication_role = origin;
+set local role authenticated;
 
 select throws_ok(
   $$select public.creator_start_real_generation(jsonb_build_object(
