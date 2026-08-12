@@ -1126,6 +1126,7 @@ select throws_ok(
     'project_id', '95100000-0000-4000-8000-000000000101',
     'idempotency_key', 'content-review-self-decision',
     'decision', 'needs_changes',
+    'media_watched_confirmed', true,
     'comment', 'Нужно исправить лечебное обещание перед публикацией.'
   ))$$,
   '42501',
@@ -1168,6 +1169,7 @@ select public.creator_decide_content_review(jsonb_build_object(
   'project_id', '95100000-0000-4000-8000-000000000101',
   'idempotency_key', 'content-review-needs-changes',
   'decision', 'needs_changes',
+  'media_watched_confirmed', true,
   'comment', 'Удалить лечебное обещание и отправить новый файл на проверку.',
   'resolved_recommendation_codes', '[]'::jsonb,
   'risk_acknowledgements', jsonb_build_array(
@@ -1188,6 +1190,7 @@ select is(
     'project_id', '95100000-0000-4000-8000-000000000101',
     'idempotency_key', 'content-review-needs-changes',
     'decision', 'needs_changes',
+    'media_watched_confirmed', true,
     'comment', 'Удалить лечебное обещание и отправить новый файл на проверку.',
     'resolved_recommendation_codes', '[]'::jsonb,
     'risk_acknowledgements', jsonb_build_array(
@@ -1379,7 +1382,7 @@ select throws_ok(
   ))$$,
   '42501',
   'role_not_allowed',
-  'operators cannot issue human approval decisions'
+  'operator cannot decide low-risk source media without exact generated lineage'
 );
 
 do $$
@@ -1890,6 +1893,16 @@ select throws_ok(
   'approval requires every high or human-review finding code'
 );
 
+do $$
+begin
+  perform set_config(
+    'request.jwt.claim.sub',
+    '95000000-0000-4000-8000-000000000003',
+    true
+  );
+end;
+$$;
+
 update generated_review_context
 set decision_value = public.creator_decide_content_review(jsonb_build_object(
   'organization_id', '95100000-0000-4000-8000-000000000001',
@@ -1913,6 +1926,16 @@ set decision_value = public.creator_decide_content_review(jsonb_build_object(
     'silence_expected_confirmed', true
   )
 ));
+
+do $$
+begin
+  perform set_config(
+    'request.jwt.claim.sub',
+    '95000000-0000-4000-8000-000000000002',
+    true
+  );
+end;
+$$;
 
 select is(
   (select status

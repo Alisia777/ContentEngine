@@ -644,8 +644,22 @@ def test_generated_video_task_routes_to_content_review_instead_of_generic_accept
     assert "result.output_media_id" in APP
     assert 'data-action="open-generated-content-review"' in APP
     assert "Открыть проверку контента" in APP
-    assert "state.contentReview.pendingMediaId = mediaId" in APP
-    assert 'navigate(`/workspace/review?project_id=${encodeURIComponent(projectId)}`)' in APP
+    handler = APP[
+        APP.index('if (action === "open-generated-content-review")') :
+        APP.index('if (action === "start-generated-video-review")')
+    ]
+    assert 'String(control.dataset.mediaId || "").trim().toLowerCase()' in handler
+    assert "if (!isWorkspaceProjectId(mediaId))" in handler
+    assert "state.contentReview.pendingMediaId = mediaId" in handler
+    assert re.search(
+        r"workspaceProjectHref\(\s*"
+        r"`/workspace/review\?view=new&media=\$\{encodeURIComponent\(mediaId\)\}`,\s*"
+        r"projectId,\s*\)",
+        handler,
+    )
+    assert "navigate(reviewRoute);" in handler
+    assert 'navigate(`/workspace/review?project_id=${encodeURIComponent(projectId)}`)' not in handler
+    assert handler.index("state.contentReview.pendingMediaId = mediaId") < handler.index("navigate(reviewRoute);")
     for code in (
         "content_review_generation_not_succeeded",
         "content_review_approval_evidence_required",

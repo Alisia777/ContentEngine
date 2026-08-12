@@ -642,8 +642,8 @@ def test_creator_rpc_inventory_counts_the_two_new_authenticated_admin_rpcs() -> 
     flat = _flat(CREATOR_FACTORY_TEST)
 
     assert "'creator_admin_snapshot', 'creator_admin_mutate'" in flat
-    assert "90, 'all browser rpcs expose exactly p_payload jsonb'" in flat
-    assert "108, 'authenticated can execute all creator rpcs'" in flat
+    assert "91, 'all browser rpcs expose exactly p_payload jsonb'" in flat
+    assert "109, 'authenticated can execute all creator rpcs'" in flat
 
 
 def test_admin_snapshot_exposes_audited_waiver_state_without_secret_material() -> None:

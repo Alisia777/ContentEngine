@@ -88,8 +88,11 @@ select ok(
     'content_factory_private.creator_content_review_catalog_pre_media_status(jsonb)'::regprocedure
   ) like '%creator_content_review_catalog_pre_project_v47%'
   and pg_get_functiondef(
+    'content_factory_private.creator_review_catalog_pre_sound_truth_v2(jsonb)'::regprocedure
+  ) like '%creator_content_review_catalog_pre_media_status%'
+  and pg_get_functiondef(
     'public.creator_content_review_catalog(jsonb)'::regprocedure
-  ) like '%creator_content_review_catalog_pre_media_status%',
+  ) like '%creator_review_catalog_pre_sound_truth_v2%',
   'public catalog preserves the privacy-minimized repair action through the status wrapper'
 );
 

@@ -163,6 +163,7 @@ import {
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
+  contentReviewDecisionAllowed,
   contentReviewHasBlockers,
   contentReviewIsBusy,
   contentReviewRequiredRiskCodes,
@@ -13368,8 +13369,11 @@ async function downloadGenerationOutput(url, jobId, photo = false) {
   }
 }
 
-function canDecideContentReview() {
-  return ["owner", "admin", "producer", "reviewer"].includes(state.bootstrap?.membership?.role);
+function canDecideContentReview(run = null) {
+  return contentReviewDecisionAllowed(
+    state.bootstrap?.membership?.role,
+    run,
+  );
 }
 
 function generatedVideoQaStorageKey() {
@@ -14381,7 +14385,7 @@ function renderContentReviewSection(sectionState) {
             phase: state.contentReview.phase,
             error: state.contentReview.error,
             notice: state.contentReview.notice,
-            canDecide: canDecideContentReview(),
+            canDecide: canDecideContentReview(state.contentReview.record),
             view: reviewView,
             restorePlacement: state.route.query.get("action") === "restore-placement",
           })}
@@ -14527,7 +14531,9 @@ function bindContentReviewDecisionMedia() {
   form.dataset.mediaBinding = "true";
   const stateNode = form.querySelector("[data-content-review-media-state]");
   const watchControl = form.elements.media_watched_confirmed;
-  const submitControls = Array.from(form.querySelectorAll("[data-review-decision-submit]"));
+  const submitControls = Array.from(form.querySelectorAll(
+    "[data-review-decision-submit], [data-sound-recovery-submit]",
+  ));
   const setLocked = (status, message) => {
     form.dataset.exactMediaState = status;
     if (watchControl) {
@@ -19020,8 +19026,8 @@ async function handleClick(event) {
   if (action === "open-generated-content-review") {
     const projectId = requireWorkspaceProjectId();
     if (!projectId) return;
-    const mediaId = String(control.dataset.mediaId || "").trim();
-    if (!mediaId) {
+    const mediaId = String(control.dataset.mediaId || "").trim().toLowerCase();
+    if (!isWorkspaceProjectId(mediaId)) {
       toast("У готового материала не найден точный файл. Обновите задачи и генерацию.", "error");
       return;
     }
@@ -19030,7 +19036,11 @@ async function handleClick(event) {
     state.contentReview.phase = "idle";
     state.contentReview.error = "";
     state.contentReview.notice = "Выберите контекст публикации и запустите обязательную проверку готового фото или видео.";
-    navigate(`/workspace/review?project_id=${encodeURIComponent(projectId)}`);
+    const reviewRoute = workspaceProjectHref(
+      `/workspace/review?view=new&media=${encodeURIComponent(mediaId)}`,
+      projectId,
+    );
+    navigate(reviewRoute);
     return;
   }
 
@@ -19715,6 +19725,7 @@ async function handleSubmit(event) {
   else if (form.id === "product-research-brief-form") await submitProductResearchBrief(form, event.submitter);
   else if (form.id === "exact-youtube-research-evidence-form") await submitExactYoutubeResearchEvidence(form);
   else if (form.id === "content-review-form") await submitContentReview(form);
+  else if (form.classList.contains("content-review-sound-recovery-form")) await submitContentReviewSoundRecovery(form);
   else if (form.classList.contains("content-review-decision-form")) await submitContentReviewDecision(form, event.submitter);
   else if (form.classList.contains("generation-reconciliation-form")) await submitRealGenerationReconciliation(form, event.submitter);
   else if (form.id === "mock-batch-form") await submitGenerationBatch(form);
@@ -28121,14 +28132,140 @@ async function submitContentReview(form) {
   scheduleContentReviewPolling(800);
 }
 
+function contentReviewSoundValidationMessage(code) {
+  return {
+    sound_silence_confirmation_required:
+      "Подтвердите, что немой режим действительно не содержит речи, музыки или шума.",
+    sound_issue_code_required:
+      "Для найденной ошибки звука отметьте хотя бы один точный тип проблемы.",
+    sound_unexpected_audio_code_required:
+      "Для немого режима отметьте, что неожиданно появились речь, музыка или шум.",
+    sound_issue_note_required:
+      "Коротко запишите, что именно слышно: это сохранится в неизменяемой истории звуковых ошибок.",
+    sound_issues_block_approval:
+      "Оценка с ошибками не совместима с уже сохранённым одобрением. Обновите проверку.",
+    sound_clear_confirmation_required:
+      "Для чистого звука отдельно подтвердите дословную реплику, дикцию, голос и синхронизацию.",
+    sound_clear_issue_conflict:
+      "Нельзя одновременно отметить чистый звук и звуковую ошибку.",
+    sound_silent_issue_conflict:
+      "Ожидаемая тишина не может одновременно содержать отмеченную звуковую ошибку.",
+  }[code] || "После полного прослушивания выберите итог отдельной проверки звука.";
+}
+
+async function submitContentReviewSoundRecovery(form) {
+  const projectId = requireWorkspaceProjectId();
+  if (!projectId) return;
+  const review = state.contentReview;
+  const reviewId = String(form.dataset.reviewId || "");
+  if (
+    !reviewId
+    || reviewId !== String(review.record?.id || "")
+    || !review.record?.decision
+    || review.record.soundAssessment
+    || review.record.soundRecoveryEligible !== true
+  ) {
+    toast("Обновите проверку: восстановление звуковой истории для этого решения больше недоступно.", "error");
+    return;
+  }
+  if (!contentReviewExactMediaReady(form)) {
+    toast("Сначала заново прослушайте точный защищённый MP4 от 00:00 до конца без перемотки и с включённым звуком.", "error");
+    form.querySelector("[data-content-review-exact-media]")?.focus();
+    return;
+  }
+  const values = readContentReviewDecision(form, null);
+  const audioExpected = review.record.media?.audioExpected !== false;
+  values.soundAssessment.audio = audioExpected;
+  const soundValidation = validateGeneratedVideoSoundAssessment(
+    values.soundAssessment,
+    {
+      audioExpected,
+      decision: review.record.decision.decision,
+    },
+  );
+  if (!soundValidation.valid) {
+    toast(contentReviewSoundValidationMessage(soundValidation.code), "error");
+    const focusTarget = soundValidation.code === "sound_issue_note_required"
+      ? form.elements.sound_note
+      : soundValidation.code === "sound_issue_code_required"
+        ? form.querySelector('input[name="sound_issue_codes"]')
+        : soundValidation.code === "sound_clear_confirmation_required"
+          ? form.elements.spoken_script_heard_exactly_confirmed
+          : form.elements.sound_status || form.elements.silence_expected_confirmed;
+    focusTarget?.focus?.();
+    return;
+  }
+  if (!values.mediaWatchedConfirmed) {
+    toast("Подтвердите личное повторное прослушивание точного MP4.", "error");
+    form.elements.media_watched_confirmed?.focus();
+    return;
+  }
+
+  review.phase = "deciding";
+  review.error = "";
+  review.notice = "";
+  renderWorkspace("review");
+  try {
+    const raw = await state.api.recoverContentReviewSoundAssessment(
+      reviewId,
+      values.soundAssessment,
+      {
+        mediaWatchedConfirmed: true,
+        projectId,
+      },
+    );
+    const recoveryResult = raw?.data ?? raw ?? {};
+    review.record = normalizeContentReviewRun({
+      run: {
+        id: reviewId,
+        sound_assessment: recoveryResult.sound_assessment,
+        sound_assessment_history: recoveryResult.sound_assessment_history,
+        sound_recovery_eligible: false,
+      },
+    }, review.record);
+    upsertContentReviewRun(review.record);
+    review.phase = "idle";
+    review.notice = "Оценка звука добавлена к неизменяемому решению. Само решение и уже подготовленный ремонт не запускались повторно.";
+    try {
+      const [freshStatus, freshCatalog] = await Promise.all([
+        state.api.contentReviewStatus(reviewId, { projectId }),
+        state.api.contentReviewCatalog({ limit: 50, projectId }),
+      ]);
+      const [hydratedStatus, hydratedCatalog] = await Promise.all([
+        hydratePrivateMedia(freshStatus, { refreshSignedUrls: true }),
+        hydratePrivateMedia(freshCatalog, { refreshSignedUrls: true }),
+      ]);
+      review.record = normalizeContentReviewRun(hydratedStatus, review.record);
+      state.sections.review.data = hydratedCatalog;
+      state.sections.review.status = "ready";
+      state.sections.review.error = null;
+      upsertContentReviewRun(review.record);
+    } catch (refreshError) {
+      console.warn("Content review sound recovery refresh failed", refreshError);
+      review.error = "Оценка звука сохранена, но свежий статус не загрузился. Нажмите «Обновить»; повторно оценку не отправляйте.";
+    }
+    await track("content_review_sound_assessment_recovered", {
+      review_id: reviewId,
+      decision: review.record?.decision?.decision || null,
+      media_watched_confirmed: true,
+      sound_status: values.soundAssessment.status,
+      sound_issue_codes: values.soundAssessment.issueCodes,
+    });
+  } catch (error) {
+    review.phase = "idle";
+    review.error = actionErrorMessage(error);
+  }
+  if (state.route.path === "/workspace/review") renderWorkspace("review");
+}
+
 async function submitContentReviewDecision(form, submitter) {
   const projectId = requireWorkspaceProjectId();
   if (!projectId) return;
-  if (!canDecideContentReview()) {
+  const review = state.contentReview;
+  if (!canDecideContentReview(review.record)) {
     toast("Финальное решение доступно только руководителю, продюсеру или проверяющему.", "error");
     return;
   }
-  const review = state.contentReview;
   const reviewId = String(form.dataset.reviewId || "");
   if (!reviewId || reviewId !== String(review.record?.id || "")) {
     toast("Откройте актуальную проверку и повторите решение.", "error");

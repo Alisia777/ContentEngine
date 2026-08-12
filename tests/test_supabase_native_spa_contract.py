@@ -317,7 +317,7 @@ def test_spa_payload_and_workspace_fields_match_the_creator_rpc_migration() -> N
         for name in re.findall(r'"(creator_[a-z0-9_]+)"', adapter)
         if name != "creator_api_error"
     ]
-    assert len(set(rpc_names)) == 100
+    assert len(set(rpc_names)) == 101
     assert "creator_admin_snapshot" in rpc_names
     assert "creator_admin_mutate" in rpc_names
     assert "creator_operational_health" in rpc_names
@@ -327,6 +327,7 @@ def test_spa_payload_and_workspace_fields_match_the_creator_rpc_migration() -> N
     assert "creator_update_generation_campaign_spend_policy" in rpc_names
     assert "creator_prepare_content_review_evidence" in rpc_names
     assert "creator_commit_content_review_evidence" in rpc_names
+    assert "creator_recover_content_review_sound_assessment" in rpc_names
     assert "creator_ai_learning_control_room" in rpc_names
     assert "creator_register_ai_knowledge_source" in rpc_names
     assert "creator_decide_ai_teaching_card" in rpc_names

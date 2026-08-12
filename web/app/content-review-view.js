@@ -323,12 +323,17 @@ export function normalizeContentReviewRun(raw, previous = null, mediaById = null
     || {};
   const decisionSource = objectFrom(envelope.decision) || objectFrom(source.decision) || previous?.decision || null;
   const soundAssessmentSource = objectFrom(envelope.sound_assessment)
+    || objectFrom(envelope.soundAssessment)
     || objectFrom(source.sound_assessment)
+    || objectFrom(source.soundAssessment)
     || objectFrom(decisionSource?.sound_assessment)
+    || objectFrom(decisionSource?.soundAssessment)
     || previous?.soundAssessment
     || null;
   const assignmentSource = objectFrom(
     source.independent_assignment
+    || source.independentAssignment
+    || envelope.independentAssignment
     || envelope.independent_assignment,
   );
   const repairNextActionSource = objectFrom(
@@ -363,6 +368,13 @@ export function normalizeContentReviewRun(raw, previous = null, mediaById = null
     soundAssessment: soundAssessmentSource
       ? normalizeSoundAssessment(soundAssessmentSource)
       : null,
+    soundRecoveryEligible: (
+      envelope.sound_recovery_eligible
+      ?? envelope.soundRecoveryEligible
+      ?? source.sound_recovery_eligible
+      ?? source.soundRecoveryEligible
+      ?? previous?.soundRecoveryEligible
+    ) === true,
     independentAssignment: assignmentSource
       ? normalizeIndependentAssignment(assignmentSource)
       : previous?.independentAssignment || null,
@@ -398,11 +410,23 @@ function normalizeIndependentAssignment(raw) {
   }
   return {
     status,
-    assignedToMe: raw.assigned_to_me === true,
-    decisionEligible: raw.decision_eligible === true,
-    assignedAt: raw.assigned_at || null,
-    completedAt: raw.completed_at || null,
+    assignedToMe: (raw.assigned_to_me ?? raw.assignedToMe) === true,
+    decisionEligible: (raw.decision_eligible ?? raw.decisionEligible) === true,
+    assignedAt: raw.assigned_at || raw.assignedAt || null,
+    completedAt: raw.completed_at || raw.completedAt || null,
   };
+}
+
+export function contentReviewDecisionAllowed(role, run = null) {
+  const normalizedRole = String(role || "").trim().toLowerCase();
+  if (["owner", "admin", "producer", "reviewer"].includes(normalizedRole)) {
+    return true;
+  }
+  if (normalizedRole !== "operator") return false;
+  const assignment = run?.independentAssignment;
+  return assignment?.status === "assigned"
+    && assignment.assignedToMe === true
+    && assignment.decisionEligible === true;
 }
 
 function normalizeGenerationRepairNextAction(raw) {
@@ -1443,8 +1467,8 @@ function soundAssessmentSummaryMarkup(run) {
   if (!assessment) {
     return `
       <section class="content-review-sound-summary is-legacy">
-        <strong>Звук: нет отдельной записи</strong>
-        <p>Это решение создано до обязательной истории звуковых ошибок. Оно не считается подтверждением дикции.</p>
+        <strong>${run.soundRecoveryEligible ? "Звук: требуется повторное подтверждение" : "Звук: нет отдельной записи"}</strong>
+        <p>${run.soundRecoveryEligible ? "Неизменяемое решение сохранено, но отдельная оценка звука отсутствует. Тот же сотрудник может заново прослушать точный MP4 и дописать только звуковую историю." : "Отдельная оценка дикции не найдена. Само решение не считается подтверждением качества звука."}</p>
       </section>`;
   }
   const issues = assessment.issueCodes
@@ -1457,6 +1481,43 @@ function soundAssessmentSummaryMarkup(run) {
       ${assessment.note ? `<p>${escapeHtml(assessment.note)}</p>` : ""}
       <small>${escapeHtml(assessment.assessedBy || "Ответственный проверяющий")} · ${formatDate(assessment.assessedAt)}</small>
     </section>`;
+}
+
+function soundAssessmentRecoveryMarkup(run) {
+  if (
+    run.media?.kind !== "generated_video"
+    || !run.decision
+    || run.soundAssessment
+    || run.soundRecoveryEligible !== true
+  ) return "";
+  const mediaAvailable = Boolean(run.media?.url)
+    && run.mediaIsStale !== true
+    && (!run.media?.status || run.media.status === "ready");
+  const unavailableMessage = run.mediaIsStale
+    ? "Файл изменился после решения. Звуковую историю этой версии восстанавливать нельзя."
+    : "Точная защищённая версия MP4 сейчас недоступна. Обновите статус проверки.";
+  const exactVideo = `<video class="content-review-decision-preview__media" data-content-review-exact-media data-media-kind="video" src="${escapeHtml(run.media?.url || "")}" controls preload="metadata" playsinline></video>`;
+  const exactPreview = mediaAvailable
+    ? platformSafeZoneVideoMarkup(run.input?.platform, exactVideo)
+    : `<div class="content-review-decision-preview__missing">${escapeHtml(unavailableMessage)}</div>`;
+  return `
+    <form class="card content-review-decision-form content-review-sound-recovery-form" data-review-id="${escapeHtml(run.id)}" data-exact-media-state="${mediaAvailable ? "loading" : "unavailable"}" novalidate>
+      <div>
+        <p class="eyebrow">Восстановление истории звука</p>
+        <h3>Заново прослушайте точный MP4</h3>
+        <p>Решение «${escapeHtml(decisionLabel(run.decision.decision))}» останется неизменным. Портал добавит только пропущенную оценку звука от того же сотрудника и не запустит повторное решение или ремонт.</p>
+      </div>
+      <section class="content-review-decision-preview">
+        <div><strong>Прослушайте именно этот файл от 00:00 до конца</strong><small>Без перемотки, ускорения и выключения громкости. После окончания отдельно отметьте дикцию и каждую найденную ошибку.</small></div>
+        ${exactPreview}
+        <p class="content-review-decision-preview__state ${mediaAvailable ? "" : "is-error"}" data-content-review-media-state role="status">${mediaAvailable ? "Загружаем метаданные MP4. Затем прослушайте файл целиком с включённым звуком." : escapeHtml(unavailableMessage)}</p>
+      </section>
+      <label class="content-review-check content-review-watch-confirmation"><input type="checkbox" name="media_watched_confirmed" value="yes" required disabled /><span><strong>Я подтверждаю, что заново прослушал(а) именно этот защищённый MP4 до конца</strong><small>Поле откроется только после непрерывного воспроизведения с включённым звуком и скоростью 1×.</small></span></label>
+      ${generatedVideoSoundAssessmentMarkup(run)}
+      <div class="content-review-decision-actions">
+        <button class="btn btn-primary" type="submit" data-sound-recovery-submit disabled>Добавить оценку звука</button>
+      </div>
+    </form>`;
 }
 
 function generatedVideoSoundAssessmentMarkup(run) {
@@ -1510,6 +1571,7 @@ function reviewDecisionMarkup(
         <span aria-hidden="true">⌁</span>
         <div><p class="eyebrow">Неизменяемое решение человека</p><h3>${escapeHtml(decisionLabel(run.decision.decision))}</h3><p>${escapeHtml(run.decision.reason || "Причина не указана.")}</p><small>${escapeHtml(run.decision.decidedBy || "Ответственный участник")} · ${formatDate(run.decision.decidedAt)}</small>${soundAssessmentSummaryMarkup(run)}</div>
       </section>
+      ${soundAssessmentRecoveryMarkup(run)}
       ${restorePlacement && run.decision.decision === "approved" ? `
         <section class="card content-review-next-action">
           <div>
