@@ -288,7 +288,7 @@
 }
 
 .ce-v4-review-panel[data-ce-v4-review-result-panel="4"] .content-review-decision-form > :first-child,
-.ce-v4-review-panel[data-ce-v4-review-result-panel="4"] .content-review-decision-form > .content-review-decision-actions {
+.ce-v4-review-panel[data-ce-v4-review-result-panel="4"] .content-review-decision-form > :first-child {
   grid-column: 1 / -1;
 }
 
@@ -297,10 +297,23 @@
   top: calc(var(--ce-v4-top, 46px) + 84px);
   grid-column: 1;
   grid-row: 2 / span 8;
+  min-width: 0;
+  overflow: hidden;
+  z-index: 1;
 }
 
 .ce-v4-review-panel[data-ce-v4-review-result-panel="4"] .content-review-decision-form > :not(:first-child):not(.content-review-decision-preview):not(.content-review-decision-actions) {
   grid-column: 2;
+}
+
+/* Keep the decision controls in the form column, outside the sticky preview's
+   row span.  The old full-width auto-placement put the preview status layer
+   over the buttons on tall video reviews. */
+.ce-v4-review-panel[data-ce-v4-review-result-panel="4"] .content-review-decision-form > .content-review-decision-actions {
+  position: relative;
+  z-index: 2;
+  grid-column: 2;
+  grid-row: auto;
 }
 
 .ce-v4-review-panel.is-entering {

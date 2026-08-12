@@ -120,6 +120,8 @@ export const RPC = Object.freeze({
   startGeneratedVideoReview: "creator_start_generated_video_review",
   contentReviewStatus: "creator_content_review_status",
   decideContentReview: "creator_decide_content_review",
+  recoverContentReviewSoundAssessment:
+    "creator_recover_content_review_sound_assessment",
   restoreProjectPlacement: "creator_restore_project_placement",
   approveGeneratedPhotoWithContext:
     "creator_approve_generated_photo_review_with_context",
@@ -4216,6 +4218,29 @@ export class CreatorApi {
     });
   }
 
+  recoverContentReviewSoundAssessment(reviewId, soundAssessment, {
+    mediaWatchedConfirmed = false,
+    projectId = "",
+    project_id: projectIdSnake = "",
+  } = {}) {
+    if (mediaWatchedConfirmed !== true) {
+      throw new CreatorApiError("Перед восстановлением оценки полностью прослушайте защищённый MP4 с включённым звуком.", {
+        code: "content_review_sound_recovery_confirmation_required",
+      });
+    }
+    const normalizedProjectId = requiredProjectId(projectIdSnake || projectId);
+    const safeSoundAssessment = normalizeGeneratedVideoSoundAssessment(
+      soundAssessment,
+      { required: true },
+    );
+    return this.mutate(RPC.recoverContentReviewSoundAssessment, {
+      review_id: this.requireContentReviewId(reviewId),
+      project_id: normalizedProjectId,
+      media_watched_confirmed: true,
+      sound_assessment: safeSoundAssessment,
+    });
+  }
+
   restoreProjectPlacement(reviewId, { projectId = "", project_id: projectIdSnake = "" } = {}) {
     return this.mutate(RPC.restoreProjectPlacement, {
       review_id: this.requireContentReviewId(reviewId),
@@ -7205,6 +7230,10 @@ function toFriendlyMessage(error) {
     content_review_sound_assessment_not_applicable: "Оценка звука доступна только для сгенерированного MP4.",
     content_review_sound_lineage_invalid: "Не удалось подтвердить связь оценки звука с этой версией ролика.",
     content_review_sound_context_lineage_invalid: "Контекстная версия ролика потеряла связь с исходной оценкой звука.",
+    content_review_sound_recovery_payload_invalid: "Данные восстановления оценки звука неполны. Обновите проверку и заполните форму заново.",
+    content_review_sound_recovery_confirmation_required: "Полностью прослушайте точный защищённый MP4 и подтвердите просмотр перед сохранением оценки звука.",
+    content_review_sound_recovery_not_allowed: "Добавить пропущенную оценку может только тот же допущенный сотрудник, который сохранил это неизменяемое решение.",
+    content_review_sound_recovery_media_not_ready: "Точная версия MP4 больше не активна или изменилась. Восстановление звуковой истории остановлено.",
     content_review_external_ai_processing_required: "Для контрольных кадров с узнаваемыми людьми подтвердите законное основание и необходимое информирование о внешней AI-обработке.",
     external_ai_processing_basis_required: "Для контрольных кадров с узнаваемыми людьми подтвердите законное основание и необходимое информирование о передаче данных внешнему AI-провайдеру.",
     content_review_not_completed: "Решение можно сохранить только после завершения проверки.",

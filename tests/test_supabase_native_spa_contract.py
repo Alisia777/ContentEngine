@@ -317,7 +317,7 @@ def test_spa_payload_and_workspace_fields_match_the_creator_rpc_migration() -> N
         for name in re.findall(r'"(creator_[a-z0-9_]+)"', adapter)
         if name != "creator_api_error"
     ]
-    assert len(set(rpc_names)) == 98
+    assert len(set(rpc_names)) == 99
     assert "creator_operational_health" in rpc_names
     assert "creator_generation_learning_policy" in rpc_names
     assert "creator_generation_repair_policy" in rpc_names
@@ -325,6 +325,7 @@ def test_spa_payload_and_workspace_fields_match_the_creator_rpc_migration() -> N
     assert "creator_update_generation_campaign_spend_policy" in rpc_names
     assert "creator_prepare_content_review_evidence" in rpc_names
     assert "creator_commit_content_review_evidence" in rpc_names
+    assert "creator_recover_content_review_sound_assessment" in rpc_names
     assert "creator_ai_learning_control_room" in rpc_names
     assert "creator_register_ai_knowledge_source" in rpc_names
     assert "creator_decide_ai_teaching_card" in rpc_names
@@ -484,7 +485,7 @@ def test_password_reset_has_a_bounded_wait_and_always_unlocks_the_form() -> None
     assert "finally" in reset
     assert "if (form.isConnected) setFormBusy(form, false)" in reset
     assert "Promise.race([operation, timeout])" in app
-    assert './app.js?v=20260812.os4.36' in index
+    assert './app.js?v=20260812.os4.37' in index
 
 
 def test_novice_workspace_has_required_tabs_and_last_mile_forms() -> None:

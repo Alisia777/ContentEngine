@@ -55,6 +55,26 @@ PROJECT_CATALOG_HOTFIX = _read(
 )
 
 
+def test_review_decision_actions_do_not_share_the_sticky_preview_grid_area() -> None:
+    preview_rule = re.search(
+        r'\.content-review-decision-form > \.content-review-decision-preview\s*\{([^}]*)\}',
+        REVIEW_CSS,
+        re.S,
+    )
+    actions_rule = re.search(
+        r'\.content-review-decision-form > \.content-review-decision-actions\s*\{([^}]*)\}',
+        REVIEW_CSS,
+        re.S,
+    )
+    assert preview_rule and actions_rule
+    assert "grid-column: 1" in preview_rule.group(1)
+    assert "overflow: hidden" in preview_rule.group(1)
+    assert "grid-column: 2" in actions_rule.group(1)
+    assert "grid-row: auto" in actions_rule.group(1)
+    assert "z-index: 2" in actions_rule.group(1)
+    assert "pointer-events" not in actions_rule.group(1)
+
+
 def _function(source: str, declaration: str) -> str:
     """Extract a JavaScript function without depending on its next neighbour."""
 
@@ -679,7 +699,7 @@ def test_archiving_a_project_uses_its_dedicated_path_and_clears_stale_scope() ->
 
 
 def test_v47_assets_share_one_release_key() -> None:
-    build = "20260812.os4.36"
+    build = "20260812.os4.37"
     assert f'const BUILD = "{build}"' in LOADER
     assert f'const BUILD = "{build}"' in CORE
     for asset in (
