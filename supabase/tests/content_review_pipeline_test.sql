@@ -1168,6 +1168,7 @@ select public.creator_decide_content_review(jsonb_build_object(
   'project_id', '95100000-0000-4000-8000-000000000101',
   'idempotency_key', 'content-review-needs-changes',
   'decision', 'needs_changes',
+  'media_watched_confirmed', true,
   'comment', 'Удалить лечебное обещание и отправить новый файл на проверку.',
   'resolved_recommendation_codes', '[]'::jsonb,
   'risk_acknowledgements', jsonb_build_array(
@@ -1188,6 +1189,7 @@ select is(
     'project_id', '95100000-0000-4000-8000-000000000101',
     'idempotency_key', 'content-review-needs-changes',
     'decision', 'needs_changes',
+    'media_watched_confirmed', true,
     'comment', 'Удалить лечебное обещание и отправить новый файл на проверку.',
     'resolved_recommendation_codes', '[]'::jsonb,
     'risk_acknowledgements', jsonb_build_array(

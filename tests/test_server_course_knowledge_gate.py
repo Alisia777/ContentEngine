@@ -399,8 +399,8 @@ def test_pgtap_fixtures_satisfy_the_refreshed_course_gate() -> None:
         ROOT / "supabase/test-fixtures/training_assessment_v5_keys.sql"
     ).read_text(encoding="utf-8").casefold()
     assert "'creator_submit_course_check'" in creator
-    assert "88,\n  'all browser rpcs expose exactly p_payload jsonb'" in creator
-    assert "106,\n  'authenticated can execute all creator rpcs'" in creator
+    assert "89,\n  'all browser rpcs expose exactly p_payload jsonb'" in creator
+    assert "107,\n  'authenticated can execute all creator rpcs'" in creator
     assert "'creator_save_practical_project'" in creator
     assert "'creator_decide_practical_project'" in creator
     assert "'creator_submit_platform_simulator'" in creator
