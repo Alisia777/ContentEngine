@@ -63,6 +63,8 @@ def test_academy_dispatch_executes_first_shift_and_account_launch_routes() -> No
         function stopAllTrainingWalkthroughs() {{}}
         function destroyAccountVisualController() {{}}
         function membershipLockDetails() {{ return null; }}
+        function isAdminRoute() {{ return false; }}
+        function canManageTeam() {{ return false; }}
         function academyRequired() {{ return true; }}
         function navigate(path) {{ calls.push(["navigate", path]); }}
         function renderLearningHome() {{ calls.push(["home"]); }}

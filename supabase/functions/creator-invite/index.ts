@@ -6,11 +6,15 @@ const MAX_BODY_BYTES = 32_768;
 const PUBLIC_APP_URL = new URL("https://alisia777.github.io/ContentEngine/");
 const PUBLIC_APP_ORIGIN = PUBLIC_APP_URL.origin;
 const EMAIL_PATTERN = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,63}$/u;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const PASSWORD_CHANGE_REQUIRED_MARKER =
   "contentengine_password_change_required";
 const PASSWORD_CHANGE_COMPLETED_MARKER =
   "contentengine_password_change_completed";
-const INVITE_ATTEMPT_RPC = "system_record_invite_delivery_attempts";
+const ADMIN_MEMBER_PROVISIONED_MARKER =
+  "contentengine_admin_member_provisioned";
+const INVITE_ATTEMPT_RPC = "system_admin_record_invite_delivery_attempts";
 
 type Json =
   | string
@@ -29,15 +33,15 @@ type ContentEngineDatabase = {
         Args: { p_payload: Json };
         Returns: Json;
       };
-      system_provision_invited_member: {
+      system_admin_provision_member: {
         Args: { p_payload: Json };
         Returns: Json;
       };
-      system_reconcile_invited_member: {
+      system_admin_reconcile_member: {
         Args: { p_payload: Json };
         Returns: Json;
       };
-      system_record_invite_delivery_attempts: {
+      system_admin_record_invite_delivery_attempts: {
         Args: { p_payload: Json };
         Returns: Json;
       };
@@ -48,7 +52,6 @@ type ContentEngineDatabase = {
 type BootstrapResult = {
   organizationId: string;
   role: string;
-  workspaceOpen: boolean;
 };
 
 type InviteResult = {
@@ -147,8 +150,23 @@ function readBootstrap(value: Json): BootstrapResult | null {
   return {
     organizationId: organization.id,
     role: membership.role,
-    workspaceOpen: value.workspace_open === true,
   };
+}
+
+async function inviteIdentityKey(
+  organizationId: string,
+  invitedBy: string,
+  email: string,
+): Promise<string> {
+  const bytes = new TextEncoder().encode(
+    `${organizationId}:${invitedBy}:${email}`,
+  );
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const hex = Array.from(
+    new Uint8Array(digest),
+    (value) => value.toString(16).padStart(2, "0"),
+  ).join("");
+  return `admin-invite:${hex}`;
 }
 
 const inviteCreators = withSupabase<ContentEngineDatabase>({
@@ -192,8 +210,20 @@ const inviteCreators = withSupabase<ContentEngineDatabase>({
     return json(request, { ok: false, code: "invalid_json" }, 400);
   }
 
-  if (!isRecord(payload)) {
+  if (
+    !isRecord(payload) ||
+    Object.keys(payload).some((key) =>
+      !["emails", "organization_id"].includes(key)
+    )
+  ) {
     return json(request, { ok: false, code: "invalid_payload" }, 400);
+  }
+
+  const requestedOrganizationId = typeof payload.organization_id === "string"
+    ? payload.organization_id.trim().toLocaleLowerCase("en-US")
+    : "";
+  if (!UUID_PATTERN.test(requestedOrganizationId)) {
+    return json(request, { ok: false, code: "organization_invalid" }, 400);
   }
 
   const rawEmails = payload.emails;
@@ -220,14 +250,16 @@ const inviteCreators = withSupabase<ContentEngineDatabase>({
   const { data: bootstrapData, error: bootstrapError } = await context.supabase
     .rpc(
       "creator_bootstrap",
-      { p_payload: {} },
+      { p_payload: { organization_id: requestedOrganizationId } },
     );
   const bootstrap = readBootstrap(bootstrapData);
-  if (bootstrapError || !bootstrap) {
+  if (
+    bootstrapError ||
+    !bootstrap ||
+    bootstrap.organizationId.toLocaleLowerCase("en-US") !==
+      requestedOrganizationId
+  ) {
     return json(request, { ok: false, code: "workspace_unavailable" }, 403);
-  }
-  if (!bootstrap.workspaceOpen) {
-    return json(request, { ok: false, code: "final_exam_required" }, 403);
   }
   if (!new Set(["owner", "admin"]).has(bootstrap.role)) {
     return json(request, { ok: false, code: "team_management_forbidden" }, 403);
@@ -346,12 +378,17 @@ const inviteCreators = withSupabase<ContentEngineDatabase>({
     let failureReason = "membership_provision_failed";
     if (inviteFailure?.status === "already_exists") {
       const { error: reconciliationError } = await context.supabaseAdmin.rpc(
-        "system_reconcile_invited_member",
+        "system_admin_reconcile_member",
         {
           p_payload: {
             organization_id: organizationId,
             email,
             invited_by: invitedBy,
+            idempotency_key: await inviteIdentityKey(
+              organizationId,
+              invitedBy,
+              email,
+            ),
           },
         },
       );
@@ -371,11 +408,12 @@ const inviteCreators = withSupabase<ContentEngineDatabase>({
               ...currentMetadata,
               [PASSWORD_CHANGE_REQUIRED_MARKER]: true,
               [PASSWORD_CHANGE_COMPLETED_MARKER]: false,
+              [ADMIN_MEMBER_PROVISIONED_MARKER]: true,
             },
           });
         if (markerError === null) {
           const { error: provisionError } = await context.supabaseAdmin.rpc(
-            "system_provision_invited_member",
+            "system_admin_provision_member",
             {
               p_payload: {
                 organization_id: organizationId,

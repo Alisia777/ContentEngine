@@ -3,7 +3,12 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260812.os4.36";
+} from "./supabase-api.js?v=20260812.os4.37";
+import {
+  adminPeopleMarkup,
+  normalizeAdminSnapshot,
+  normalizeAdminView,
+} from "./admin-people-view.js?v=20260812.os4.37";
 import {
   clearExactYoutubeMediaHandoff,
   exactYoutubeRegisteredMediaId,
@@ -28,8 +33,8 @@ import {
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
 } from "./generation-spec.js?v=20260812.generation-spec-consent.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260812.os4.36";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260812.os4.36";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260812.os4.37";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260812.os4.37";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -92,7 +97,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260812.os4.36";
+} from "./product-research-view.js?v=20260812.os4.37";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -103,7 +108,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260812.os4.36";
+} from "./ai-learning-control-room.js?v=20260812.os4.37";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -119,7 +124,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260812.os4.36";
+} from "./content-generation-handoff.js?v=20260812.os4.37";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -132,13 +137,13 @@ import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
   normalizeGenerationVideoReferenceContext,
-} from "./generation-video-reference.js?v=20260812.os4.36";
+} from "./generation-video-reference.js?v=20260812.os4.37";
 import {
   buildGenerationFormDraft,
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260812.os4.36";
+} from "./generation-form-draft.js?v=20260812.os4.37";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
@@ -154,7 +159,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260812.os4.36";
+} from "./generation-autopilot.js?v=20260812.os4.37";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -175,7 +180,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260812.os4.36";
+} from "./content-review-view.js?v=20260812.os4.37";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -204,7 +209,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260812.os4.36";
+} from "./workspace-board-view.js?v=20260812.os4.37";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -233,7 +238,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260812.os4.36";
+} from "./training-journey.js?v=20260812.os4.37";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -252,7 +257,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260812.os4.36";
+} from "./training-practical-review.js?v=20260812.os4.37";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -271,7 +276,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260812.os4.36";
+} from "./my-work-view.js?v=20260812.os4.37";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -573,6 +578,7 @@ const MEMBERSHIP_LOCK_COPY = Object.freeze({
 
 const WORKSPACE_START_PATH = "/workspace/home";
 const WORKSPACE_ACCESS_REQUIRED_PATH = "/access-required";
+const ADMIN_PEOPLE_PATH = "/admin/people";
 const PROJECT_OPTIONAL_WORKSPACE_SECTIONS = new Set(["home", "team", "feedback", "ai"]);
 const PROJECT_ACCESS_OPERATIONAL_ROLES = new Set([
   "owner",
@@ -1098,6 +1104,14 @@ const state = {
   accountVisualMountRequest: 0,
   accountVisualStates: new Map(),
   teamInviteResult: null,
+  adminPeople: {
+    status: "idle",
+    data: null,
+    error: "",
+    notice: "",
+    requestId: 0,
+    busyKey: "",
+  },
   managerDashboard: { status: "idle", data: null, error: null, requestId: 0, updatedAt: 0 },
   operationalHealth: { status: "idle", data: null, error: null, requestId: 0, updatedAt: 0 },
   generationSpend: {
@@ -3551,8 +3565,11 @@ async function loadBootstrap({ silent = false } = {}) {
       && previousProjectContextKey !== nextProjectContextKey
     ) {
       clearWorkspaceProjectSelection();
+      state.teamInviteResult = null;
+      resetAdminPeopleState();
     }
     state.bootstrap = bootstrap;
+    if (!canManageTeam()) resetAdminPeopleState();
     state.projectFlow.contextKey = nextProjectContextKey;
     hydrateWorkspaceAccessRequest(state.bootstrap.workspaceAccessRequest);
     state.courseCheckResults = Object.fromEntries(
@@ -3570,6 +3587,7 @@ async function loadBootstrap({ silent = false } = {}) {
       state.api.organizationId = null;
       state.examResult = null;
       state.teamInviteResult = null;
+      resetAdminPeopleState();
       state.managerDashboard.requestId += 1;
       state.managerDashboard.status = "idle";
       state.managerDashboard.data = null;
@@ -3638,6 +3656,7 @@ async function loadBootstrap({ silent = false } = {}) {
 }
 
 function authenticatedRouteCompatible(path, startPath) {
+  if (isAdminRoute(path)) return canManageTeam();
   if (startPath === "/learn") {
     return path === "/learn" || path.startsWith("/learn/");
   }
@@ -3651,6 +3670,7 @@ async function refreshBootstrapAccessState({ force = false } = {}) {
     path === "/learn"
     || path.startsWith("/learn/")
     || path.startsWith("/workspace/")
+    || isAdminRoute(path)
     || path === WORKSPACE_ACCESS_REQUIRED_PATH
     || path === "/access-locked"
   );
@@ -4580,6 +4600,19 @@ function render() {
     return;
   }
 
+  if (isAdminRoute(path)) {
+    if (path === "/admin") {
+      navigate(ADMIN_PEOPLE_PATH, true, { scopeProject: false });
+      return;
+    }
+    if (!canManageTeam()) {
+      renderAdminForbidden();
+      return;
+    }
+    renderAdminPeople();
+    return;
+  }
+
   if (academyRequired()) {
     if (path !== "/learn" && !path.startsWith("/learn/")) {
       navigate("/learn", true);
@@ -4923,12 +4956,170 @@ function renderWorkspaceAccessRequired() {
         </div>
       ` : ""}
       <div class="inline-actions" style="justify-content:center; margin-top:20px">
+        ${canManageTeam() ? `<a class="btn" href="#${ADMIN_PEOPLE_PATH}">Открыть админку</a>` : ""}
         ${academyComplete ? `<button class="btn" type="button" data-action="request-workspace-access" data-primary-action="true" ${requestState.status === "loading" || requestPending ? "disabled" : ""}>${requestState.status === "loading" ? "Отправляем…" : requestPending ? "Запрос уже отправлен" : "Запросить рабочий допуск"}</button>` : ""}
         <button class="btn btn-secondary" type="button" data-action="retry-bootstrap">Проверить доступ</button>
         <button class="btn btn-secondary" type="button" data-action="logout">Выйти</button>
       </div>
     </main>
   `;
+}
+
+function renderAdminForbidden() {
+  const destination = academyRequired()
+    ? "/learn"
+    : hasWorkspaceAccess()
+      ? WORKSPACE_START_PATH
+      : WORKSPACE_ACCESS_REQUIRED_PATH;
+  app.innerHTML = `
+    <main id="main-content" class="error-page" tabindex="-1" aria-labelledby="admin-forbidden-title">
+      <div class="boot-mark" aria-hidden="true">!</div>
+      <p class="eyebrow">Администрирование защищено</p>
+      <h1 id="admin-forbidden-title">Нужна роль владельца или администратора</h1>
+      <p class="muted">Учебный и производственный доступ не дают права изменять состав команды или назначения рабочих аккаунтов.</p>
+      <div class="inline-actions" style="justify-content:center; margin-top:20px">
+        <a class="btn" href="#${escapeHtml(destination)}">Вернуться</a>
+        <button class="btn btn-secondary" type="button" data-action="logout">Выйти</button>
+      </div>
+    </main>
+  `;
+}
+
+function resetAdminPeopleState() {
+  state.adminPeople.requestId += 1;
+  state.adminPeople.status = "idle";
+  state.adminPeople.data = null;
+  state.adminPeople.error = "";
+  state.adminPeople.notice = "";
+  state.adminPeople.busyKey = "";
+}
+
+function renderAdminPeople() {
+  if (state.adminPeople.status === "idle") {
+    window.queueMicrotask(() => loadAdminPeople());
+  }
+  app.innerHTML = adminPeopleMarkup({
+    snapshot: state.adminPeople.data,
+    status: state.adminPeople.status,
+    error: state.adminPeople.error,
+    notice: state.adminPeople.notice,
+    busyKey: state.adminPeople.busyKey,
+    view: normalizeAdminView(state.route.query.get("view")),
+    inviteResult: state.teamInviteResult,
+    canOpenWorkspace: hasWorkspaceAccess(),
+  });
+}
+
+async function loadAdminPeople({ silent = false } = {}) {
+  if (!canManageTeam() || !state.api?.adminSnapshot) return null;
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  const requestOrganizationId = state.api.organizationId;
+  const requestApi = state.api;
+  const requestId = state.adminPeople.requestId + 1;
+  const requestIsCurrent = () => (
+    requestEpoch === state.dataEpoch
+    && requestUserId === state.user?.id
+    && requestOrganizationId === state.api?.organizationId
+    && requestApi === state.api
+    && requestId === state.adminPeople.requestId
+  );
+  state.adminPeople.requestId = requestId;
+  state.adminPeople.status = silent && state.adminPeople.data ? "refreshing" : "loading";
+  state.adminPeople.error = "";
+  if (!silent && isAdminRoute()) renderAdminPeople();
+  try {
+    const raw = await withUiTimeout(
+      requestApi.adminSnapshot(),
+      WORKSPACE_REQUEST_TIMEOUT_MS,
+      "admin_snapshot_timeout",
+    );
+    if (!requestIsCurrent()) return null;
+    const snapshot = normalizeAdminSnapshot(raw);
+    if (
+      !snapshot.ok
+      || !snapshot.organization.id
+      || !["owner", "admin"].includes(snapshot.actor.role)
+    ) {
+      throw new CreatorApiError("Сервер не подтвердил административный снимок.", {
+        code: "admin_snapshot_invalid",
+      });
+    }
+    state.adminPeople.data = snapshot;
+    state.adminPeople.status = "ready";
+    state.adminPeople.error = "";
+    try {
+      const persisted = await withUiTimeout(
+        requestApi.inviteAttempts(),
+        AUTH_REQUEST_TIMEOUT_MS,
+        "admin_invite_history_timeout",
+      );
+      if (!requestIsCurrent()) return null;
+      if (Array.isArray(persisted?.results)) {
+        state.teamInviteResult = persisted;
+        persistTeamInviteResult(persisted);
+      }
+    } catch (error) {
+      if (!requestIsCurrent()) return null;
+      console.warn("Admin invite delivery history unavailable", error);
+      if (!state.teamInviteResult) state.teamInviteResult = restoreTeamInviteResult();
+    }
+    if (isAdminRoute()) renderAdminPeople();
+    return snapshot;
+  } catch (error) {
+    if (!requestIsCurrent()) return null;
+    state.adminPeople.status = "error";
+    state.adminPeople.error = actionErrorMessage(error);
+    if (isAdminRoute()) renderAdminPeople();
+    return null;
+  }
+}
+
+async function runAdminMutation(busyKey, operation, successMessage) {
+  if (!canManageTeam() || !state.api?.adminSnapshot || state.adminPeople.busyKey) {
+    toast("Дождитесь завершения текущего административного действия.", "info");
+    return false;
+  }
+  state.adminPeople.busyKey = busyKey;
+  state.adminPeople.error = "";
+  state.adminPeople.notice = "";
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  const requestOrganizationId = state.api.organizationId;
+  const requestApi = state.api;
+  const requestContextIsCurrent = () => (
+    requestEpoch === state.dataEpoch
+    && requestUserId === state.user?.id
+    && requestOrganizationId === state.api?.organizationId
+    && requestApi === state.api
+  );
+  const requestOwnsBusyState = () => (
+    requestContextIsCurrent() && state.adminPeople.busyKey === busyKey
+  );
+  if (isAdminRoute()) renderAdminPeople();
+  try {
+    await withUiTimeout(
+      Promise.resolve().then(operation),
+      WORKSPACE_REQUEST_TIMEOUT_MS,
+      "admin_mutation_timeout",
+    );
+    if (!requestOwnsBusyState()) return false;
+    state.adminPeople.busyKey = "";
+    state.adminPeople.notice = successMessage;
+    state.adminPeople.status = state.adminPeople.data ? "ready" : "idle";
+    await loadAdminPeople({ silent: true });
+    if (!requestContextIsCurrent()) return false;
+    toast(successMessage, "success");
+    return true;
+  } catch (error) {
+    if (!requestOwnsBusyState()) return false;
+    state.adminPeople.busyKey = "";
+    state.adminPeople.error = actionErrorMessage(error);
+    state.adminPeople.status = state.adminPeople.data ? "ready" : "error";
+    if (isAdminRoute()) renderAdminPeople();
+    toast(state.adminPeople.error, "error");
+    return false;
+  }
 }
 
 function trainingAchievementShelfMarkup(courses, completedModules) {
@@ -7287,6 +7478,7 @@ function learningScaffold(content, activePath) {
         </div>
         <div class="learning-gate-user">
           <span>${escapeHtml(profile.name)}</span>
+          ${canManageTeam() ? `<a class="btn btn-secondary btn-small" href="#${ADMIN_PEOPLE_PATH}">Админка</a>` : ""}
           <button class="btn btn-secondary btn-small" type="button" data-action="logout">Выйти</button>
         </div>
       </header>
@@ -8750,6 +8942,10 @@ function refreshNotificationLayer({ focus = false } = {}) {
   }
 }
 
+function isAdminRoute(path = state.route?.path) {
+  return path === "/admin" || path === ADMIN_PEOPLE_PATH;
+}
+
 function canManageTeam() {
   return ["owner", "admin"].includes(state.bootstrap?.membership?.role);
 }
@@ -9352,7 +9548,16 @@ async function loadSection(section, options = {}) {
   if (!target || ["loading", "refreshing"].includes(target.status)) return;
   const requestEpoch = state.dataEpoch;
   const requestUserId = state.user?.id;
+  const requestApi = state.api;
+  const requestOrganizationId = requestApi?.organizationId;
   const requestId = target.requestId + 1;
+  const requestIsCurrent = () => (
+    requestEpoch === state.dataEpoch
+    && requestUserId === state.user?.id
+    && requestApi === state.api
+    && requestOrganizationId === state.api?.organizationId
+    && requestId === target.requestId
+  );
   target.requestId = requestId;
   target.status = target.data ? "refreshing" : "loading";
   target.error = null;
@@ -9638,10 +9843,11 @@ async function loadSection(section, options = {}) {
     if (section === "team") {
       try {
         const persisted = await withUiTimeout(
-          state.api.inviteAttempts(),
+          requestApi.inviteAttempts(),
           AUTH_REQUEST_TIMEOUT_MS,
           "История приглашений временно недоступна.",
         );
+        if (!requestIsCurrent()) return;
         if (Array.isArray(persisted?.results) && persisted.results.length) {
           state.teamInviteResult = persisted;
           persistTeamInviteResult(persisted);
@@ -9649,6 +9855,7 @@ async function loadSection(section, options = {}) {
           state.teamInviteResult = restoreTeamInviteResult();
         }
       } catch (error) {
+        if (!requestIsCurrent()) return;
         console.warn("Invite delivery history unavailable", error);
         if (!state.teamInviteResult) state.teamInviteResult = restoreTeamInviteResult();
       }
@@ -9656,7 +9863,7 @@ async function loadSection(section, options = {}) {
     if (section === "media" || section === "board" || section === "review") {
       data = await hydratePrivateMedia(data);
     }
-    if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== target.requestId) return;
+    if (!requestIsCurrent()) return;
     target.data = data;
     target.status = "ready";
     if (section === "board") {
@@ -16780,7 +16987,7 @@ function renderTeamSectionLegacy(sectionState) {
   const members = listFrom(sectionState.data || {}, "members");
   return `
     <div class="page-wrap">
-      ${pageHeader("Команда", "Пригласите креаторов по рабочей почте. Пароли и секреты в эту форму не вводятся.", `<span class="badge badge-info">До 50 человек</span>`)}
+      ${pageHeader("Команда", "Здесь остаются обучение, проверки и операционные показатели. Состав и рабочие аккаунты управляются в отдельной админке.", `<a class="btn btn-secondary btn-small" href="#${ADMIN_PEOPLE_PATH}">Открыть админку</a><span class="badge badge-info">До 50 человек</span>`)}
       ${alertMarkup("Каждый новый участник входит как trainee. Рабочие разделы откроются только после четырёх курсов, принятой руководителем пробной работы и успешного экзамена из 12 сценариев.", "info")}
       <div class="split-grid" style="margin-top:18px">
         <section class="card card-pad">
@@ -17250,7 +17457,7 @@ function renderTeamSection(sectionState) {
               : `${membersPanel}${projectAccessMarkup(members)}`;
   return `
     <div class="page-wrap" data-team-view="${teamView}">
-      ${pageHeader("Команда", "Пригласите креаторов по рабочей почте. Пароли и секреты в эту форму не вводятся.", `<span class="badge badge-info">До 50 человек</span>`)}
+      ${pageHeader("Команда", "Здесь остаются обучение, проверки и операционные показатели. Состав и рабочие аккаунты управляются в отдельной админке.", `<a class="btn btn-secondary btn-small" href="#${ADMIN_PEOPLE_PATH}">Открыть админку</a><span class="badge badge-info">До 50 человек</span>`)}
       ${alertMarkup("Каждый новый участник входит как trainee. Рабочие разделы откроются только после четырёх курсов, принятой руководителем пробной работы и успешного экзамена из 12 сценариев.", "info")}
       ${workspaceActionSwitch("team-action-switch team-action-switch--groups", "Область управления командой", teamGroup, [
         { view: "people", href: "#/workspace/team?view=members", label: "Люди" },
@@ -17593,6 +17800,13 @@ async function handleClick(event) {
   const control = event.target.closest("[data-action]");
   if (!control) return;
   const action = control.dataset.action;
+
+  if (action === "refresh-admin-people") {
+    if (!canManageTeam() || state.adminPeople.busyKey) return;
+    state.adminPeople.notice = "";
+    await loadAdminPeople({ silent: true });
+    return;
+  }
 
   if (action === "open-project-chooser") {
     navigate("/workspace/home", false, { scopeProject: false });
@@ -19510,6 +19724,12 @@ async function handleSubmit(event) {
   else if (form.id === "media-upload-form") await submitMedia(form);
   else if (form.id === "feedback-form") await submitFeedback(form);
   else if (form.id === "team-invite-form") await submitTeamInvites(form);
+  else if (form.id === "admin-invite-form") await submitTeamInvites(form);
+  else if (form.classList.contains("admin-member-action-form")) await submitAdminMemberAction(form);
+  else if (form.id === "admin-account-create-form") await submitAdminAccountCreate(form);
+  else if (form.classList.contains("admin-account-edit-form")) await submitAdminAccountUpdate(form);
+  else if (form.classList.contains("admin-account-bind-form")) await submitAdminAccountBinding(form);
+  else if (form.classList.contains("admin-account-archive-form")) await submitAdminAccountArchive(form);
   else if (form.id === "manager-access-form") await submitManagerAccess(form);
   else if (form.id === "generation-spend-policy-form") await submitGenerationSpendPolicy(form, event.submitter);
   else if (form.id === "generation-campaign-create-form") await submitGenerationCampaignCreate(form);
@@ -24583,9 +24803,97 @@ async function submitFeedback(form) {
   }
 }
 
+async function submitAdminMemberAction(form) {
+  if (!canManageTeam() || !isAdminRoute()) return;
+  const action = String(form.dataset.memberAction || "").trim().toLowerCase();
+  const profileId = String(form.dataset.profileId || "").trim().toLowerCase();
+  const reason = String(new FormData(form).get("reason") || "").trim();
+  const successMessages = {
+    suspend_member: "Доступ участника приостановлен.",
+    reactivate_member: "Доступ участника восстановлен.",
+    revoke_member: "Участник удалён из команды; история сохранена.",
+  };
+  if (!successMessages[action]) {
+    toast("Не удалось определить действие с участником.", "error");
+    return;
+  }
+  await runAdminMutation(
+    `member:${action}:${profileId}`,
+    () => state.api.adminMemberAction(action, { profileId, reason }),
+    successMessages[action],
+  );
+}
+
+function adminAccountFormPayload(form) {
+  const values = new FormData(form);
+  return {
+    platform: String(values.get("platform") || "").trim(),
+    label: String(values.get("label") || "").trim(),
+    handle: String(values.get("handle") || "").trim(),
+    url: String(values.get("url") || "").trim(),
+    notes: String(values.get("notes") || "").trim(),
+  };
+}
+
+async function submitAdminAccountCreate(form) {
+  if (!canManageTeam() || !isAdminRoute()) return;
+  const payload = adminAccountFormPayload(form);
+  await runAdminMutation(
+    `account:create:${payload.platform}:${payload.label}`,
+    () => state.api.createManagedAccount(payload),
+    "Рабочий аккаунт создан. Теперь закрепите его за сотрудником.",
+  );
+}
+
+async function submitAdminAccountUpdate(form) {
+  if (!canManageTeam() || !isAdminRoute()) return;
+  const accountId = String(form.dataset.accountId || "").trim().toLowerCase();
+  const expectedUpdatedAt = String(form.dataset.expectedUpdatedAt || "").trim();
+  await runAdminMutation(
+    `account:update:${accountId}`,
+    () => state.api.updateManagedAccount(
+      accountId,
+      expectedUpdatedAt,
+      adminAccountFormPayload(form),
+    ),
+    "Карточка рабочего аккаунта обновлена.",
+  );
+}
+
+async function submitAdminAccountBinding(form) {
+  if (!canManageTeam() || !isAdminRoute()) return;
+  const accountId = String(form.dataset.accountId || "").trim().toLowerCase();
+  const profileId = String(new FormData(form).get("profile_id") || "").trim().toLowerCase();
+  const currentProfileId = String(form.dataset.currentProfileId || "").trim().toLowerCase();
+  if (profileId === currentProfileId) {
+    toast("Назначение не изменилось.", "info");
+    return;
+  }
+  await runAdminMutation(
+    `account:assign:${accountId}:${profileId || "unassigned"}`,
+    () => state.api.assignManagedAccount(accountId, profileId),
+    profileId
+      ? "Рабочий аккаунт закреплён за сотрудником."
+      : "Рабочий аккаунт отвязан; история назначения сохранена.",
+  );
+}
+
+async function submitAdminAccountArchive(form) {
+  if (!canManageTeam() || !isAdminRoute()) return;
+  const accountId = String(form.dataset.accountId || "").trim().toLowerCase();
+  const expectedUpdatedAt = String(form.dataset.expectedUpdatedAt || "").trim();
+  const reason = String(new FormData(form).get("reason") || "").trim();
+  await runAdminMutation(
+    `account:archive:${accountId}`,
+    () => state.api.archiveManagedAccount(accountId, expectedUpdatedAt, reason),
+    "Рабочий аккаунт архивирован; назначение и история сохранены.",
+  );
+}
+
 async function submitTeamInvites(form) {
-  if (!canManageTeam() || !hasWorkspaceAccess()) {
-    toast("Приглашать участников может только сертифицированный руководитель.", "error");
+  const admin = form.id === "admin-invite-form";
+  if (!canManageTeam()) {
+    toast("Приглашать участников может только владелец или администратор.", "error");
     return;
   }
   const raw = String(new FormData(form).get("emails") || "");
@@ -24602,13 +24910,31 @@ async function submitTeamInvites(form) {
     return;
   }
 
+  const requestEpoch = state.dataEpoch;
+  const requestUserId = state.user?.id;
+  const requestOrganizationId = state.api?.organizationId;
+  const requestSupabase = state.supabase;
+  const requestIsCurrent = () => (
+    requestEpoch === state.dataEpoch
+    && requestUserId === state.user?.id
+    && requestOrganizationId === state.api?.organizationId
+    && requestSupabase === state.supabase
+  );
+  if (!requestOrganizationId) {
+    toast("Не удалось определить рабочую команду. Обновите страницу.", "error");
+    return;
+  }
+
   setFormBusy(form, true, "Отправляем приглашения…");
   try {
     const { data, error } = await withUiTimeout(
-      state.supabase.functions.invoke("creator-invite", { body: { emails } }),
+      requestSupabase.functions.invoke("creator-invite", {
+        body: { emails, organization_id: requestOrganizationId },
+      }),
       INVITE_REQUEST_TIMEOUT_MS,
       "invite_request_timeout",
     );
+    if (!requestIsCurrent()) return;
     if (error) throw await normalizeInviteFunctionError(error);
     if (!data || !Array.isArray(data.results)) {
       throw new Error("Supabase не вернул результаты приглашений.");
@@ -24617,20 +24943,28 @@ async function submitTeamInvites(form) {
     persistTeamInviteResult(data);
     delete form.dataset.dirty;
     state.sections.team.status = "idle";
+    if (admin) {
+      state.adminPeople.notice = Number(data.invited || 0) > 0
+        ? "Приглашение создано. Новый участник добавлен как стажёр."
+        : "Запрос завершён. Проверьте статус адреса ниже.";
+      await loadAdminPeople({ silent: true });
+    }
     await track("team_invites_completed", {
       requested: Number(data.requested ?? emails.length),
       invited: Number(data.invited ?? 0),
       already_exists: Number(data.already_exists ?? 0),
       failed: Number(data.failed ?? 0),
     });
+    if (!requestIsCurrent()) return;
     toast(
       Number(data.invited || 0) > 0
         ? `Сервис принял запросов: ${Number(data.invited)}. Доставка писем ещё не подтверждена.`
         : "Запуск завершён. Проверьте статусы справа.",
       Number(data.failed || 0) > 0 ? "info" : "success",
     );
-    render();
+    if (!admin || isAdminRoute()) render();
   } catch (error) {
+    if (!requestIsCurrent()) return;
     setFormBusy(form, false);
     if (String(error?.message || "") === "invite_request_timeout") {
       const uncertain = {
@@ -24864,11 +25198,13 @@ async function normalizeInviteFunctionError(error) {
   const messages = {
     invite_count_invalid: "За один запуск можно пригласить от 1 до 50 человек.",
     email_invalid: "Один или несколько email заполнены неверно.",
+    organization_invalid: "Не удалось определить рабочую команду. Обновите страницу.",
     workspace_unavailable: "Рабочая команда временно недоступна. Повторите попытку позже.",
     final_exam_required: "Сначала завершите обучение и сдайте итоговый экзамен.",
     team_management_forbidden: "Приглашать участников может только руководитель.",
     origin_not_allowed: "Этот адрес приложения не разрешён для приглашений.",
     request_too_large: "Список приглашений слишком большой.",
+    invite_journal_unavailable: "Сервер не подтвердил журнал приглашений. Обновите историю и не повторяйте список вслепую.",
   };
   const normalized = new Error(messages[code] || authErrorMessage(error));
   normalized.isUserSafe = true;
@@ -28855,6 +29191,7 @@ function clearAuthenticatedState() {
   state.trainingProgress.saveQueues.clear();
   state.trainingProgress.completionInFlight.clear();
   state.teamInviteResult = null;
+  resetAdminPeopleState();
   state.managerDashboard.requestId += 1;
   state.managerDashboard.status = "idle";
   state.managerDashboard.data = null;
