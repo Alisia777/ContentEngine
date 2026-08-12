@@ -641,18 +641,20 @@ begin
   exception when invalid_text_representation or null_value_not_allowed then
     return result_value;
   end;
-  select proof, version.model into proof_row, model_value
+  select version.model into model_value
   from content_factory.generation_spec_ai_research_bindings binding
   join content_factory.generation_spec_versions version
     on version.organization_id = binding.organization_id
    and version.spec_id = binding.spec_id
    and version.spec_version = binding.spec_version
    and version.spec_hash = binding.spec_hash
-  left join content_factory.generation_spec_ai_research_speech_bindings proof
-    on proof.organization_id = binding.organization_id
-   and proof.binding_id = binding.id
   where binding.organization_id = organization_id_value
     and binding.id = binding_id_value;
+
+  select proof.* into proof_row
+  from content_factory.generation_spec_ai_research_speech_bindings proof
+  where proof.organization_id = organization_id_value
+    and proof.binding_id = binding_id_value;
 
   return jsonb_set(
     result_value,

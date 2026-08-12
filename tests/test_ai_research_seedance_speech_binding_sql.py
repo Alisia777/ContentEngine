@@ -231,6 +231,23 @@ def test_paid_start_delegates_v55_then_revalidates_exact_speech() -> None:
     )
 
 
+def test_plpgsql_never_combines_a_record_target_with_other_into_targets() -> None:
+    sql = _read(MIGRATION)
+    assert not re.search(
+        r"select\s+[^;\n]+,\s*[^;\n]+\s+into\s+"
+        r"(?:binding_row|spec_row|proof_row)\s*,",
+        sql,
+        flags=re.IGNORECASE,
+    )
+    read_wrapper = _function(
+        sql,
+        "content_factory_private."
+        "contentengine_generation_spec_ai_research_binding_pre_acl_v423",
+    ).casefold()
+    assert "select version.model into model_value" in read_wrapper
+    assert "select proof.* into proof_row" in read_wrapper
+
+
 def test_pgtap_covers_semantic_mismatch_legacy_rejection_and_rollback() -> None:
     pgtap = _read(PGTAP).casefold()
     for marker in (
