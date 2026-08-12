@@ -227,6 +227,48 @@ def _display_name_value_category(value: object, *, expected: str) -> str:
     return "other"
 
 
+_EMAIL_IDENTITY_METADATA_KEYS = frozenset(
+    {"sub", "email", "email_verified", "phone_verified"}
+)
+
+
+def _email_identity_metadata_contract(
+    snapshot: PartialAdoptionSnapshot,
+) -> str:
+    """Classify exact Supabase email-identity metadata without revealing it."""
+    metadata = snapshot.raw_user_meta_data
+    if type(metadata) is not dict:
+        return "invalid_type"
+
+    keys = tuple(metadata.keys())
+    if any(type(key) is not str for key in keys):
+        return "unknown_or_mixed"
+    if frozenset(keys) != _EMAIL_IDENTITY_METADATA_KEYS:
+        return "unknown_or_mixed"
+
+    if (
+        type(snapshot.user_id) is str
+        and type(snapshot.auth_email) is str
+        and type(snapshot.email_confirmed) is bool
+        and type(snapshot.auth_provider) is str
+        and snapshot.auth_provider == "email"
+        and type(snapshot.auth_providers) is tuple
+        and len(snapshot.auth_providers) == 1
+        and type(snapshot.auth_providers[0]) is str
+        and snapshot.auth_providers[0] == "email"
+        and type(metadata["sub"]) is str
+        and metadata["sub"] == snapshot.user_id
+        and type(metadata["email"]) is str
+        and metadata["email"] == snapshot.auth_email
+        and type(metadata["email_verified"]) is bool
+        and metadata["email_verified"] is snapshot.email_confirmed
+        and type(metadata["phone_verified"]) is bool
+        and metadata["phone_verified"] is False
+    ):
+        return "email_identity_exact_consistent"
+    return "email_identity_exact_inconsistent"
+
+
 def _invalid_display_name_state(
     snapshot: PartialAdoptionSnapshot,
     *,
@@ -236,6 +278,7 @@ def _invalid_display_name_state(
     metadata_shape = _display_name_metadata_shape(
         snapshot.raw_user_meta_data
     )
+    metadata_contract = _email_identity_metadata_contract(snapshot)
     auth_name = _display_name_value_category(
         snapshot.auth_display_name,
         expected=display_name,
@@ -249,6 +292,7 @@ def _invalid_display_name_state(
         "Partial-adoption snapshot is invalid: "
         "field=display_name_state "
         f"metadata_shape={metadata_shape} "
+        f"metadata_contract={metadata_contract} "
         f"auth_name={auth_name} "
         f"profile_name={profile_name} "
         f"confirmed={confirmed}"
