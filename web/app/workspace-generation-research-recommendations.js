@@ -96,6 +96,7 @@ const runtime = {
   apiPromise: null,
   loading: false,
   loadPending: false,
+  loadForcePending: false,
   applying: false,
   loadTimer: 0,
   key: "",
@@ -695,6 +696,99 @@ function dispatchPresetProvenance(form, type, detail) {
   form.dispatchEvent(browserCustomEvent(type, detail));
 }
 
+export function verifiedResearchRecommendationProvenanceDetail(
+  form,
+  envelope,
+  state = {},
+  context = {},
+) {
+  const selectionId = normalizedUuid(recommendationSelectionId(envelope));
+  const position = recommendationPosition(envelope);
+  const projectId = normalizedUuid(envelope?.project_id);
+  const contextProjectId = normalizedUuid(context?.projectId);
+  const productId = normalizedUuid(envelope?.product_id);
+  const selectedProductId = normalizedUuid(form?.dataset?.identityProductId);
+  const storedProductId = normalizedUuid(
+    form?.dataset?.researchRecommendationProductId,
+  );
+  const category = clean(envelope?.product_category, 40).toLowerCase();
+  const currentCategory = clean(
+    formControl(form, "product_category")?.value,
+    40,
+  ).toLowerCase();
+  const providerVersion = String(
+    envelope?.provider_prompt_fragment_version || "",
+  );
+  const providerFragment = String(envelope?.provider_prompt_fragment || "");
+  const providerHash = String(envelope?.provider_prompt_fragment_hash || "");
+  const appliedFields = [...new Set(
+    (Array.isArray(state?.appliedFields) ? state.appliedFields : [])
+      .filter((field) => PRESET_FIELDS.includes(field)),
+  )];
+  const verifiedTarget = {
+    selectionId: normalizedUuid(
+      form?.dataset?.researchRecommendationVerificationSelectionId,
+    ),
+    recommendationPosition: Number(
+      form?.dataset?.researchRecommendationVerificationPosition,
+    ),
+  };
+  if (
+    form?.dataset?.researchRecommendationLineage !== "active"
+    || form.dataset.researchRecommendationVerificationRequired !== "true"
+    || form.dataset.researchRecommendationVerificationState !== "verified"
+    || recommendationTargetKey(verifiedTarget) !== recommendationTargetKey({
+      selectionId,
+      recommendationPosition: position,
+    })
+    || !projectId
+    || projectId !== contextProjectId
+    || !productId
+    || productId !== selectedProductId
+    || productId !== storedProductId
+    || !PRODUCT_CATEGORIES.has(category)
+    || category !== currentCategory
+    || !appliedFields.length
+    || providerVersion !== "ai-research-provider-fragment-v1"
+    || !providerFragment
+    || Array.from(providerFragment).length > 240
+    || providerFragment.trim() !== providerFragment
+    || !providerFragment.startsWith("AIResearchSelection/v1 ")
+    || /[\u0000-\u001f\u007f]/u.test(providerFragment)
+    || !/^[0-9a-f]{64}$/u.test(providerHash)
+  ) return null;
+  return {
+    verification_only: true,
+    authoritative_project_id: projectId,
+    selection_id: selectionId,
+    recommendation_position: position,
+    authoritative_product_id: productId,
+    authoritative_product_category: category,
+    preset: normalizeResearchRecommendationPreset(envelope, context),
+    applied_fields: appliedFields,
+    provider_prompt_fragment_version: providerVersion,
+    provider_prompt_fragment: providerFragment,
+    provider_prompt_fragment_hash: providerHash,
+  };
+}
+
+export function dispatchVerifiedResearchRecommendationProvenance(
+  form,
+  envelope,
+  state = {},
+  context = {},
+) {
+  const detail = verifiedResearchRecommendationProvenanceDetail(
+    form,
+    envelope,
+    state,
+    context,
+  );
+  if (!detail) return false;
+  dispatchPresetProvenance(form, PRESET_EVENT, detail);
+  return true;
+}
+
 /**
  * Apply only the governed editable preset fields. This function deliberately
  * has no references to campaign, media, destination, quantity or spend fields.
@@ -1260,6 +1354,10 @@ export function applyAuthoritativeRecommendationProduct(form, envelope) {
   if (sku) sku.value = values.sku;
   if (productName) productName.value = values.productName;
   form.dataset.researchRecommendationProductId = productId;
+  const productCategory = clean(source.product_category, 40).toLowerCase();
+  if (PRODUCT_CATEGORIES.has(productCategory)) {
+    form.dataset.researchRecommendationProductCategory = productCategory;
+  }
   return true;
 }
 
@@ -2288,6 +2386,15 @@ async function loadRecommendations(form, context) {
     );
     if (alreadyApplied) {
       restoreResearchRecommendationPresetLineage(form, selected, state, { context });
+      // The main generation runtime can be freshly rendered even when this
+      // adapter already restored DOM lineage. Re-emit only the exact,
+      // server-verified envelope; no control value is applied or changed.
+      dispatchVerifiedResearchRecommendationProvenance(
+        form,
+        selected,
+        state,
+        context,
+      );
       if (!runtime.workingDraft?.draft) scheduleWorkingDraftSave();
       if (target) consumeRouteRecommendationTarget(target);
     }
@@ -2366,16 +2473,26 @@ async function loadRecommendations(form, context) {
   }
 }
 
-function scheduleLoad() {
+function scheduleLoad({ force = false } = {}) {
+  if (force === true && runtime.loadForcePending && runtime.loadTimer) return;
+  runtime.loadForcePending = runtime.loadForcePending || force === true;
   window.clearTimeout(runtime.loadTimer);
   runtime.loadTimer = window.setTimeout(() => {
+    runtime.loadTimer = 0;
+    const forceLoad = runtime.loadForcePending;
+    runtime.loadForcePending = false;
     if (!runtime.form?.isConnected) return;
     const context = formContext(runtime.form);
     const key = recommendationKey(context);
     const routedTarget = routeRecommendationTarget();
     const freshExplicitRoute = routedTarget
       && explicitResearchRecommendationIntentIsFresh(routedTarget);
-    if (key === runtime.key && runtime.response && !freshExplicitRoute) return;
+    if (
+      key === runtime.key
+      && runtime.response
+      && !freshExplicitRoute
+      && !forceLoad
+    ) return;
     runtime.key = key;
     void loadRecommendations(runtime.form, context);
   }, 180);
@@ -2477,6 +2594,31 @@ export function shouldHydrateGenerationResearchWorkingDraft({
     || (!hydrating && authority === "unknown");
 }
 
+export function generationResearchRecommendationMountResolveAction({
+  contextKey = "",
+  loadedKey = "",
+  selectionId = "",
+  recommendationPosition = null,
+  verificationRequired = false,
+  verificationState = "",
+  loading = false,
+} = {}) {
+  if (!String(contextKey || "")) return "none";
+  const hasExactTarget = Boolean(
+    normalizedUuid(selectionId)
+    && [1, 2, 3].includes(Number(recommendationPosition)),
+  );
+  const exactTargetNeedsVerification = Boolean(
+    hasExactTarget
+    && verificationRequired === true
+    && verificationState === "pending",
+  );
+  const contextChanged = contextKey !== loadedKey;
+  if (!contextChanged && !exactTargetNeedsVerification) return "none";
+  if (loading) return contextChanged ? "replay" : "in_flight";
+  return exactTargetNeedsVerification ? "force" : "schedule";
+}
+
 function mount() {
   if (routePath() !== ROUTE) {
     window.clearTimeout(runtime.workingDraftSaveTimer);
@@ -2541,8 +2683,28 @@ function mount() {
   // updates the status and form, so rehydrating the same connected form on
   // every observer callback creates a self-sustaining checking loop and never
   // reaches the recommendation resolver. A new form or project still starts a
-  // fresh authoritative read; ordinary DOM mutations keep the settled state.
-  if (!shouldHydrate) return;
+  // fresh authoritative read. A settled form only queues recommendation work
+  // when its exact context changed or a restored selection is still pending.
+  if (!shouldHydrate) {
+    const contextKey = recommendationKey(context);
+    const resolveAction = generationResearchRecommendationMountResolveAction({
+      contextKey,
+      loadedKey: runtime.key,
+      selectionId: context.selectionId,
+      recommendationPosition: context.recommendationPosition,
+      verificationRequired:
+        form.dataset.researchRecommendationVerificationRequired === "true",
+      verificationState:
+        form.dataset.researchRecommendationVerificationState || "",
+      loading: runtime.loading,
+    });
+    // A changed programmatic restore must replay after the in-flight request.
+    // The same exact verification already in flight needs no duplicate RPC.
+    if (resolveAction === "replay") runtime.loadPending = true;
+    else if (resolveAction === "force") scheduleLoad({ force: true });
+    else if (resolveAction === "schedule") scheduleLoad();
+    return;
+  }
   // A cached value can be the previous side of an app-level force refresh.
   // Never mark it verified or exact-resolve it before the shared read settles;
   // readGenerationAiResearchWorkingDraft joins that in-flight promise.
