@@ -18,6 +18,7 @@ MIGRATION_PATH = (
     / "202608120003_employee_account_admin.sql"
 )
 EDGE_PATH = ROOT / "supabase" / "functions" / "creator-invite" / "index.ts"
+CREATOR_FACTORY_TEST_PATH = ROOT / "supabase" / "tests" / "creator_factory_test.sql"
 CONFIG_PATH = ROOT / "supabase" / "config.toml"
 CI_PATH = ROOT / ".github" / "workflows" / "ci.yml"
 DEPLOY_PATH = ROOT / ".github" / "workflows" / "supabase-pages.yml"
@@ -25,6 +26,7 @@ DEPLOY_PATH = ROOT / ".github" / "workflows" / "supabase-pages.yml"
 MIGRATION = MIGRATION_PATH.read_text(encoding="utf-8")
 MIGRATION_LOWER = MIGRATION.casefold()
 EDGE = EDGE_PATH.read_text(encoding="utf-8")
+CREATOR_FACTORY_TEST = CREATOR_FACTORY_TEST_PATH.read_text(encoding="utf-8")
 
 
 def _flat(value: str) -> str:
@@ -634,6 +636,14 @@ def test_migration_notifies_postgrest_after_registering_the_new_rpcs() -> None:
         "grant execute on function public.creator_invite_delivery_attempts(jsonb)"
     )
     assert notify_index < flat.rindex("commit")
+
+
+def test_creator_rpc_inventory_counts_the_two_new_authenticated_admin_rpcs() -> None:
+    flat = _flat(CREATOR_FACTORY_TEST)
+
+    assert "'creator_admin_snapshot', 'creator_admin_mutate'" in flat
+    assert "90, 'all browser rpcs expose exactly p_payload jsonb'" in flat
+    assert "108, 'authenticated can execute all creator rpcs'" in flat
 
 
 def test_admin_snapshot_exposes_audited_waiver_state_without_secret_material() -> None:
