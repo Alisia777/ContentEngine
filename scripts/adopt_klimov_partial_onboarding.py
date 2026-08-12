@@ -230,6 +230,47 @@ def _display_name_value_category(value: object, *, expected: str) -> str:
 _EMAIL_IDENTITY_METADATA_KEYS = frozenset(
     {"sub", "email", "email_verified", "phone_verified"}
 )
+_LOCAL_PROFILE_METADATA_KEYS = frozenset(
+    {"display_name", "email_verified"}
+)
+_EMAIL_IDENTITY_CORE_KEYS = frozenset({"sub", "email"})
+_EMAIL_IDENTITY_WITH_VERIFICATION_KEYS = (
+    _EMAIL_IDENTITY_CORE_KEYS | {"email_verified"}
+)
+_REVIEWED_METADATA_KEYS = (
+    _EMAIL_IDENTITY_METADATA_KEYS | _LOCAL_PROFILE_METADATA_KEYS
+)
+_METADATA_KEYSET_FINGERPRINTS = {
+    frozenset(): "local_profile_shape",
+    frozenset({"display_name"}): "local_profile_shape",
+    frozenset({"email_verified"}): "local_profile_shape",
+    _LOCAL_PROFILE_METADATA_KEYS: "local_profile_shape",
+    _EMAIL_IDENTITY_CORE_KEYS: "email_identity_core",
+    _EMAIL_IDENTITY_WITH_VERIFICATION_KEYS: (
+        "email_identity_with_verification"
+    ),
+    _EMAIL_IDENTITY_METADATA_KEYS: "email_identity_full",
+    _EMAIL_IDENTITY_METADATA_KEYS | {"display_name"}: (
+        "email_identity_full_with_profile"
+    ),
+}
+
+
+def _metadata_keyset_fingerprint(value: object) -> str:
+    """Return a fixed keyset category without returning keys or values."""
+    if type(value) is not dict:
+        return "invalid_type"
+
+    keys = tuple(value.keys())
+    if any(type(key) is not str for key in keys):
+        return "unknown_extra_or_mixed"
+    keyset = frozenset(keys)
+    fingerprint = _METADATA_KEYSET_FINGERPRINTS.get(keyset)
+    if fingerprint is not None:
+        return fingerprint
+    if keyset <= _REVIEWED_METADATA_KEYS:
+        return "reviewed_subset_other"
+    return "unknown_extra_or_mixed"
 
 
 def _email_identity_metadata_contract(
@@ -279,6 +320,9 @@ def _invalid_display_name_state(
         snapshot.raw_user_meta_data
     )
     metadata_contract = _email_identity_metadata_contract(snapshot)
+    metadata_keyset = _metadata_keyset_fingerprint(
+        snapshot.raw_user_meta_data
+    )
     auth_name = _display_name_value_category(
         snapshot.auth_display_name,
         expected=display_name,
@@ -293,6 +337,7 @@ def _invalid_display_name_state(
         "field=display_name_state "
         f"metadata_shape={metadata_shape} "
         f"metadata_contract={metadata_contract} "
+        f"metadata_keyset={metadata_keyset} "
         f"auth_name={auth_name} "
         f"profile_name={profile_name} "
         f"confirmed={confirmed}"

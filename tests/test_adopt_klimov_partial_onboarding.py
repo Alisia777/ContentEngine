@@ -752,6 +752,30 @@ def test_only_exact_empty_name_state_is_a_resumable_repair_phase() -> None:
     [
         _missing_name(raw_user_meta_data={"display_name": ""}),
         _missing_name(raw_user_meta_data={"unexpected": True}),
+        _missing_name(raw_user_meta_data={"sub": USER_ID}),
+        _missing_name(raw_user_meta_data={"email": EMAIL}),
+        _missing_name(
+            raw_user_meta_data={"sub": USER_ID, "email_verified": False}
+        ),
+        _missing_name(
+            raw_user_meta_data={"sub": USER_ID, "email": EMAIL}
+        ),
+        _missing_name(
+            raw_user_meta_data={
+                "sub": USER_ID,
+                "email": EMAIL,
+                "email_verified": False,
+            }
+        ),
+        _missing_name(
+            raw_user_meta_data={
+                "display_name": DISPLAY_NAME,
+                "sub": USER_ID,
+                "email": EMAIL,
+                "email_verified": False,
+                "phone_verified": False,
+            }
+        ),
         _missing_name(auth_display_name=DISPLAY_NAME),
         _retry_profile_sync(auth_display_name=""),
         _retry_profile_sync(profile_display_name="Somebody else"),
@@ -789,6 +813,7 @@ _DIAGNOSTIC_SENTINELS = (
         "expected_display_name",
         "metadata_shape",
         "metadata_contract",
+        "metadata_keyset",
         "auth_name",
         "profile_name",
         "confirmed",
@@ -799,6 +824,7 @@ _DIAGNOSTIC_SENTINELS = (
             DISPLAY_NAME,
             "empty",
             "unknown_or_mixed",
+            "local_profile_shape",
             "expected",
             "expected",
             "false",
@@ -813,6 +839,7 @@ _DIAGNOSTIC_SENTINELS = (
             DISPLAY_NAME,
             "display_only",
             "unknown_or_mixed",
+            "local_profile_shape",
             "missing",
             "expected",
             "false",
@@ -826,6 +853,7 @@ _DIAGNOSTIC_SENTINELS = (
             DISPLAY_NAME,
             "verified_only",
             "unknown_or_mixed",
+            "local_profile_shape",
             "other",
             "missing",
             "true",
@@ -840,6 +868,7 @@ _DIAGNOSTIC_SENTINELS = (
             DISPLAY_NAME,
             "display_and_verified",
             "unknown_or_mixed",
+            "local_profile_shape",
             "expected",
             "expected",
             "false",
@@ -859,6 +888,7 @@ _DIAGNOSTIC_SENTINELS = (
             "ULTRA_PRIVATE_EXPECTED_NAME",
             "other",
             "unknown_or_mixed",
+            "unknown_extra_or_mixed",
             "expected",
             "expected",
             "false",
@@ -878,6 +908,7 @@ _DIAGNOSTIC_SENTINELS = (
             DISPLAY_NAME,
             "other",
             "invalid_type",
+            "invalid_type",
             "other",
             "other",
             "false",
@@ -894,6 +925,7 @@ _DIAGNOSTIC_SENTINELS = (
             DISPLAY_NAME,
             "other",
             "invalid_type",
+            "invalid_type",
             "other",
             "other",
             "false",
@@ -908,6 +940,7 @@ _DIAGNOSTIC_SENTINELS = (
             DISPLAY_NAME,
             "display_only",
             "unknown_or_mixed",
+            "local_profile_shape",
             "expected",
             "other",
             "false",
@@ -925,6 +958,7 @@ _DIAGNOSTIC_SENTINELS = (
             DISPLAY_NAME,
             "verified_only",
             "unknown_or_mixed",
+            "local_profile_shape",
             "missing",
             "other",
             "true",
@@ -943,6 +977,7 @@ _DIAGNOSTIC_SENTINELS = (
             DISPLAY_NAME,
             "other",
             "email_identity_exact_consistent",
+            "email_identity_full",
             "missing",
             "missing",
             "false",
@@ -963,6 +998,7 @@ _DIAGNOSTIC_SENTINELS = (
             DISPLAY_NAME,
             "other",
             "email_identity_exact_inconsistent",
+            "email_identity_full",
             "missing",
             "missing",
             "false",
@@ -974,6 +1010,7 @@ def test_display_name_failure_emits_only_allowlisted_categories(
     expected_display_name: str,
     metadata_shape: str,
     metadata_contract: str,
+    metadata_keyset: str,
     auth_name: str,
     profile_name: str,
     confirmed: str,
@@ -990,6 +1027,7 @@ def test_display_name_failure_emits_only_allowlisted_categories(
         "field=display_name_state "
         f"metadata_shape={metadata_shape} "
         f"metadata_contract={metadata_contract} "
+        f"metadata_keyset={metadata_keyset} "
         f"auth_name={auth_name} "
         f"profile_name={profile_name} "
         f"confirmed={confirmed}"
@@ -1008,6 +1046,16 @@ def test_display_name_failure_emits_only_allowlisted_categories(
         "email_identity_exact_consistent",
         "email_identity_exact_inconsistent",
         "unknown_or_mixed",
+        "invalid_type",
+    }
+    assert metadata_keyset in {
+        "local_profile_shape",
+        "email_identity_core",
+        "email_identity_with_verification",
+        "email_identity_full",
+        "email_identity_full_with_profile",
+        "reviewed_subset_other",
+        "unknown_extra_or_mixed",
         "invalid_type",
     }
     for sentinel in _DIAGNOSTIC_SENTINELS:
@@ -1038,6 +1086,128 @@ class _HostileDiagnosticValue:
 
 class _MetadataDictSubclass(dict[str, object]):
     pass
+
+
+class _MetadataStringSubclass(str):
+    pass
+
+
+_REVIEWED_METADATA_KEYS = (
+    "display_name",
+    "sub",
+    "email",
+    "email_verified",
+    "phone_verified",
+)
+
+
+def _reviewed_metadata_key_subsets() -> tuple[frozenset[str], ...]:
+    return tuple(
+        frozenset(
+            key
+            for index, key in enumerate(_REVIEWED_METADATA_KEYS)
+            if mask & (1 << index)
+        )
+        for mask in range(1 << len(_REVIEWED_METADATA_KEYS))
+    )
+
+
+@pytest.mark.parametrize("keys", _reviewed_metadata_key_subsets())
+def test_metadata_keyset_exhausts_only_reviewed_key_subsets(
+    keys: frozenset[str],
+) -> None:
+    metadata = {key: _HostileDiagnosticValue() for key in keys}
+
+    category = adoption._metadata_keyset_fingerprint(metadata)
+
+    known_fingerprints = {
+        frozenset(): "local_profile_shape",
+        frozenset({"display_name"}): "local_profile_shape",
+        frozenset({"email_verified"}): "local_profile_shape",
+        frozenset({"display_name", "email_verified"}): (
+            "local_profile_shape"
+        ),
+        frozenset({"sub", "email"}): "email_identity_core",
+        frozenset({"sub", "email", "email_verified"}): (
+            "email_identity_with_verification"
+        ),
+        frozenset(
+            {"sub", "email", "email_verified", "phone_verified"}
+        ): "email_identity_full",
+        frozenset(
+            {
+                "display_name",
+                "sub",
+                "email",
+                "email_verified",
+                "phone_verified",
+            }
+        ): "email_identity_full_with_profile",
+    }
+    expected = known_fingerprints.get(keys, "reviewed_subset_other")
+    assert category == expected
+    assert category in {
+        "local_profile_shape",
+        "email_identity_core",
+        "email_identity_with_verification",
+        "email_identity_full",
+        "email_identity_full_with_profile",
+        "reviewed_subset_other",
+        "unknown_extra_or_mixed",
+        "invalid_type",
+    }
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"ultra_private_metadata_key": _HostileDiagnosticValue()},
+        {
+            "sub": _HostileDiagnosticValue(),
+            "ultra_private_metadata_key": _HostileDiagnosticValue(),
+        },
+        {
+            "display_name": _HostileDiagnosticValue(),
+            "sub": _HostileDiagnosticValue(),
+            "ultra_private_metadata_key": _HostileDiagnosticValue(),
+        },
+        {7: _HostileDiagnosticValue()},
+        {_HostileDiagnosticValue(): _HostileDiagnosticValue()},
+        {_MetadataStringSubclass("sub"): _HostileDiagnosticValue()},
+    ],
+)
+def test_metadata_keyset_rejects_unknown_or_non_exact_keys_without_leaks(
+    metadata: dict[object, object],
+) -> None:
+    category = adoption._metadata_keyset_fingerprint(metadata)
+    message = str(
+        adoption._invalid_display_name_state(
+            _snapshot(raw_user_meta_data=metadata),  # type: ignore[arg-type]
+            display_name=DISPLAY_NAME,
+        )
+    )
+
+    assert category == "unknown_extra_or_mixed"
+    assert f"metadata_keyset={category}" in message
+    for sentinel in _DIAGNOSTIC_SENTINELS:
+        assert sentinel not in message
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        None,
+        ["ultra_private_metadata_value"],
+        ("ultra_private_metadata_value",),
+        _MetadataDictSubclass(
+            {"sub": _HostileDiagnosticValue()}
+        ),
+    ],
+)
+def test_metadata_keyset_rejects_non_exact_dict_containers(
+    metadata: object,
+) -> None:
+    assert adoption._metadata_keyset_fingerprint(metadata) == "invalid_type"
 
 
 @pytest.mark.parametrize(
