@@ -45,6 +45,7 @@ def _snapshot(**changes: object) -> adoption.PartialAdoptionSnapshot:
             MEMBER_PROVISION_MARKER: True,
             PASSWORD_CHANGE_REQUIRED_MARKER: True,
         },
+        raw_user_meta_data={"display_name": DISPLAY_NAME},
         auth_display_name=DISPLAY_NAME,
         auth_provider="email",
         auth_providers=("email",),
@@ -105,7 +106,51 @@ def _reason(
 def _confirmed_trainee(
     **changes: object,
 ) -> adoption.PartialAdoptionSnapshot:
-    return _snapshot(email_confirmed=True, **changes)
+    snapshot = _snapshot(
+        email_confirmed=True,
+        raw_user_meta_data={
+            "display_name": DISPLAY_NAME,
+            "email_verified": True,
+        },
+    )
+    return replace(snapshot, **changes)
+
+
+def _missing_name(
+    **changes: object,
+) -> adoption.PartialAdoptionSnapshot:
+    snapshot = _snapshot(
+        raw_user_meta_data={},
+        auth_display_name="",
+        profile_display_name="",
+    )
+    return replace(snapshot, **changes)
+
+
+def _confirmed_missing_name(
+    **changes: object,
+) -> adoption.PartialAdoptionSnapshot:
+    snapshot = _missing_name(
+        email_confirmed=True,
+        raw_user_meta_data={"email_verified": True},
+    )
+    return replace(snapshot, **changes)
+
+
+def _retry_profile_sync(
+    *,
+    email_confirmed: bool = False,
+    **changes: object,
+) -> adoption.PartialAdoptionSnapshot:
+    snapshot = _snapshot(
+        email_confirmed=email_confirmed,
+        raw_user_meta_data={
+            "display_name": DISPLAY_NAME,
+            **({"email_verified": True} if email_confirmed else {}),
+        },
+        profile_display_name="",
+    )
+    return replace(snapshot, **changes)
 
 
 def _operator(
@@ -115,6 +160,10 @@ def _operator(
 ) -> adoption.PartialAdoptionSnapshot:
     return _snapshot(
         email_confirmed=True,
+        raw_user_meta_data={
+            "display_name": DISPLAY_NAME,
+            "email_verified": True,
+        },
         membership_role="operator",
         membership_updated_at="2026-08-11 20:00:00+00",
         waiver_count=1,
@@ -259,6 +308,7 @@ def test_snapshot_query_is_read_only_and_captures_every_boundary() -> None:
     for required in (
         "auth.users",
         "encrypted_password",
+        "raw_user_meta_data",
         "profiles",
         "memberships",
         "membership_permissions",
@@ -279,6 +329,7 @@ def test_snapshot_query_is_read_only_and_captures_every_boundary() -> None:
         token in sql.casefold()
         for token in ("insert into", "update ", "delete from")
     )
+    assert "coalesce(auth_user.raw_user_meta_data, " not in sql
 
 
 @pytest.mark.parametrize(
@@ -287,10 +338,11 @@ def test_snapshot_query_is_read_only_and_captures_every_boundary() -> None:
         ("auth_match_count", "SENSITIVE_INVALID_VALUE"),
         ("auth_created_in_source_window", "SENSITIVE_INVALID_VALUE"),
         ("app_metadata", "SENSITIVE_INVALID_VALUE"),
+        ("raw_user_meta_data", "SENSITIVE_INVALID_VALUE"),
+        ("raw_user_meta_data", None),
         ("auth_providers", "SENSITIVE_INVALID_VALUE"),
         ("membership_permissions", "SENSITIVE_INVALID_VALUE"),
         ("membership_id", "SENSITIVE_INVALID_VALUE"),
-        ("profile_display_name", ""),
     ],
 )
 def test_snapshot_parser_reports_only_the_invalid_top_level_field(
@@ -508,6 +560,13 @@ def test_inconsistent_present_provenance_fails_closed() -> None:
         _snapshot(app_metadata={**_snapshot().app_metadata, "unreviewed": True}),
         _snapshot(auth_provider="phone"),
         _snapshot(auth_providers=("email", "phone")),
+        _snapshot(raw_user_meta_data={}),
+        _snapshot(
+            raw_user_meta_data={
+                "display_name": DISPLAY_NAME,
+                "unreviewed": True,
+            }
+        ),
         _snapshot(auth_display_name="Somebody else"),
         _snapshot(profile_email="somebody-else@example.com"),
         _snapshot(profile_display_name="Somebody else"),
@@ -541,6 +600,10 @@ def test_any_reviewed_boundary_mismatch_stops_before_adoption(
 
 
 def test_confirmed_trainee_and_exact_operator_are_resumable_phases() -> None:
+    assert _confirmed_trainee().raw_user_meta_data == {
+        "display_name": DISPLAY_NAME,
+        "email_verified": True,
+    }
     assert adoption._validate_snapshot(
         _confirmed_trainee(),
         email=EMAIL,
@@ -561,6 +624,151 @@ def test_confirmed_trainee_and_exact_operator_are_resumable_phases() -> None:
         adoption.CLASS_NO_PROVENANCE,
         adoption.PHASE_CONFIRMED_OPERATOR,
     )
+    assert _operator().raw_user_meta_data == {
+        "display_name": DISPLAY_NAME,
+        "email_verified": True,
+    }
+
+
+@pytest.mark.parametrize(
+    "unsafe",
+    [
+        _snapshot(
+            raw_user_meta_data={
+                "display_name": DISPLAY_NAME,
+                "email_verified": True,
+            }
+        ),
+        replace(
+            _confirmed_trainee(),
+            raw_user_meta_data={"display_name": DISPLAY_NAME},
+        ),
+        replace(
+            _confirmed_trainee(),
+            raw_user_meta_data={
+                "display_name": DISPLAY_NAME,
+                "email_verified": False,
+            },
+        ),
+        replace(
+            _confirmed_trainee(),
+            raw_user_meta_data={
+                "display_name": DISPLAY_NAME,
+                "email_verified": "true",
+            },
+        ),
+        replace(
+            _confirmed_trainee(),
+            raw_user_meta_data={
+                "display_name": DISPLAY_NAME,
+                "email_verified": True,
+                "unexpected": True,
+            },
+        ),
+        replace(
+            _confirmed_missing_name(),
+            raw_user_meta_data={},
+        ),
+        replace(
+            _operator(),
+            raw_user_meta_data={"display_name": DISPLAY_NAME},
+        ),
+    ],
+)
+def test_email_verified_metadata_is_exact_and_phase_aware(
+    unsafe: adoption.PartialAdoptionSnapshot,
+) -> None:
+    with pytest.raises(adoption.KlimovPartialAdoptionError):
+        adoption._validate_snapshot(
+            unsafe,
+            email=EMAIL,
+            display_name=DISPLAY_NAME,
+            owner_email=OWNER_EMAIL,
+            authority=AUTHORITY,
+        )
+
+
+def test_only_exact_empty_name_state_is_a_resumable_repair_phase() -> None:
+    assert adoption._display_name_state(
+        _missing_name(),
+        display_name=DISPLAY_NAME,
+    ) == adoption.NAME_STATE_NEEDS_AUTH_NAME
+    assert adoption._display_name_state(
+        _missing_name(profile_display_name=DISPLAY_NAME),
+        display_name=DISPLAY_NAME,
+    ) == adoption.NAME_STATE_NEEDS_AUTH_NAME
+    assert adoption._display_name_state(
+        _retry_profile_sync(),
+        display_name=DISPLAY_NAME,
+    ) == adoption.NAME_STATE_RETRY_PROFILE_SYNC
+    assert adoption._display_name_state(
+        _snapshot(),
+        display_name=DISPLAY_NAME,
+    ) == adoption.NAME_STATE_READY
+    assert adoption._validate_snapshot(
+        _missing_name(),
+        email=EMAIL,
+        display_name=DISPLAY_NAME,
+        owner_email=OWNER_EMAIL,
+        authority=AUTHORITY,
+    ) == (
+        adoption.CLASS_NO_PROVENANCE,
+        adoption.PHASE_UNCONFIRMED_TRAINEE_MISSING_NAME,
+    )
+    assert adoption._validate_snapshot(
+        _missing_name(profile_display_name=DISPLAY_NAME),
+        email=EMAIL,
+        display_name=DISPLAY_NAME,
+        owner_email=OWNER_EMAIL,
+        authority=AUTHORITY,
+    ) == (
+        adoption.CLASS_NO_PROVENANCE,
+        adoption.PHASE_UNCONFIRMED_TRAINEE_MISSING_NAME,
+    )
+    assert adoption._validate_snapshot(
+        _retry_profile_sync(),
+        email=EMAIL,
+        display_name=DISPLAY_NAME,
+        owner_email=OWNER_EMAIL,
+        authority=AUTHORITY,
+    ) == (
+        adoption.CLASS_NO_PROVENANCE,
+        adoption.PHASE_UNCONFIRMED_TRAINEE_MISSING_NAME,
+    )
+    assert adoption._validate_snapshot(
+        _confirmed_missing_name(),
+        email=EMAIL,
+        display_name=DISPLAY_NAME,
+        owner_email=OWNER_EMAIL,
+        authority=AUTHORITY,
+    ) == (
+        adoption.CLASS_NO_PROVENANCE,
+        adoption.PHASE_CONFIRMED_TRAINEE_MISSING_NAME,
+    )
+
+
+@pytest.mark.parametrize(
+    "unsafe",
+    [
+        _missing_name(raw_user_meta_data={"display_name": ""}),
+        _missing_name(raw_user_meta_data={"unexpected": True}),
+        _missing_name(auth_display_name=DISPLAY_NAME),
+        _retry_profile_sync(auth_display_name=""),
+        _retry_profile_sync(profile_display_name="Somebody else"),
+        _missing_name(membership_role="operator"),
+    ],
+)
+def test_partial_or_nonempty_missing_name_state_fails_closed(
+    unsafe: adoption.PartialAdoptionSnapshot,
+) -> None:
+    with pytest.raises(adoption.KlimovPartialAdoptionError):
+        adoption._validate_snapshot(
+            unsafe,
+            email=EMAIL,
+            display_name=DISPLAY_NAME,
+            owner_email=OWNER_EMAIL,
+            authority=AUTHORITY,
+        )
 
 
 def test_operator_phase_requires_exact_prior_one_off_reason() -> None:
@@ -692,8 +900,23 @@ class ApplyHarness:
             "trainee",
         ),
         (
+            _missing_name(),
+            adoption.PHASE_UNCONFIRMED_TRAINEE_MISSING_NAME,
+            "trainee",
+        ),
+        (
             _confirmed_trainee(),
             adoption.PHASE_CONFIRMED_TRAINEE,
+            "trainee",
+        ),
+        (
+            _confirmed_missing_name(),
+            adoption.PHASE_CONFIRMED_TRAINEE_MISSING_NAME,
+            "trainee",
+        ),
+        (
+            _retry_profile_sync(),
+            adoption.PHASE_UNCONFIRMED_TRAINEE_MISSING_NAME,
             "trainee",
         ),
         (
@@ -736,6 +959,14 @@ def test_apply_rereads_same_snapshot_puts_only_email_confirm_and_binds_waiver(
     before = _snapshot()
     confirmed = _confirmed_trainee()
     operator = _operator()
+    assert confirmed == replace(
+        before,
+        email_confirmed=True,
+        raw_user_meta_data={
+            "display_name": DISPLAY_NAME,
+            "email_verified": True,
+        },
+    )
     harness = ApplyHarness(
         monkeypatch,
         [before, before, confirmed, operator, operator],
@@ -776,6 +1007,207 @@ def test_apply_rereads_same_snapshot_puts_only_email_confirm_and_binds_waiver(
     assert len(harness.verifications) == 1
     assert harness.verifications[0]["expected_reason"] == reason
     assert harness.verifications[0]["expected_pre_role"] == "trainee"
+
+
+def test_apply_repairs_exact_missing_name_before_separate_confirmation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_github_apply_context(monkeypatch)
+    missing_name = _missing_name()
+    named = _snapshot()
+    confirmed = _confirmed_trainee()
+    operator = _operator()
+    harness = ApplyHarness(
+        monkeypatch,
+        [
+            missing_name,
+            missing_name,
+            named,
+            confirmed,
+            operator,
+            operator,
+        ],
+    )
+
+    result = harness.run(apply=True)
+
+    assert result == adoption.PartialAdoptionResult(
+        classification=adoption.CLASS_NO_PROVENANCE,
+        phase=adoption.PHASE_CONFIRMED_OPERATOR,
+        identity_status=(
+            "display_name_repaired_and_confirmed_by_one_off_adoption"
+        ),
+        membership_role="operator",
+        recovery_status="requested",
+    )
+    assert harness.reads == 6
+    assert harness.management.server_key_calls == 1
+    assert harness.auth.calls == [
+        {
+            "path": f"/auth/v1/admin/users/{USER_ID}",
+            "method": "PUT",
+            "payload": {
+                "user_metadata": {"display_name": DISPLAY_NAME},
+            },
+        },
+        {
+            "path": f"/auth/v1/admin/users/{USER_ID}",
+            "method": "PUT",
+            "payload": {"email_confirm": True},
+        },
+    ]
+    assert harness.auth.recovery_emails == [EMAIL]
+    assert len(harness.grants) == 1
+    assert len(harness.verifications) == 1
+
+
+def test_confirmed_missing_name_resume_repairs_name_without_confirmation_put(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_github_apply_context(monkeypatch)
+    missing_name = _confirmed_missing_name()
+    named = _confirmed_trainee()
+    operator = _operator()
+    harness = ApplyHarness(
+        monkeypatch,
+        [missing_name, missing_name, named, operator, operator],
+    )
+
+    result = harness.run(apply=True)
+
+    assert result.identity_status == "display_name_repaired"
+    assert result.phase == adoption.PHASE_CONFIRMED_OPERATOR
+    assert harness.management.server_key_calls == 1
+    assert harness.auth.calls == [
+        {
+            "path": f"/auth/v1/admin/users/{USER_ID}",
+            "method": "PUT",
+            "payload": {
+                "user_metadata": {"display_name": DISPLAY_NAME},
+            },
+        }
+    ]
+    assert harness.auth.recovery_emails == [EMAIL]
+    assert len(harness.grants) == 1
+
+
+def test_missing_auth_name_with_already_exact_profile_is_repaired_resumably(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_github_apply_context(monkeypatch)
+    needs_auth_name = _missing_name(profile_display_name=DISPLAY_NAME)
+    named = _snapshot()
+    confirmed = _confirmed_trainee()
+    operator = _operator()
+    harness = ApplyHarness(
+        monkeypatch,
+        [
+            needs_auth_name,
+            needs_auth_name,
+            named,
+            confirmed,
+            operator,
+            operator,
+        ],
+    )
+
+    result = harness.run(apply=True)
+
+    assert result.identity_status == (
+        "display_name_repaired_and_confirmed_by_one_off_adoption"
+    )
+    assert harness.auth.calls[:2] == [
+        {
+            "path": f"/auth/v1/admin/users/{USER_ID}",
+            "method": "PUT",
+            "payload": {
+                "user_metadata": {"display_name": DISPLAY_NAME},
+            },
+        },
+        {
+            "path": f"/auth/v1/admin/users/{USER_ID}",
+            "method": "PUT",
+            "payload": {"email_confirm": True},
+        },
+    ]
+    assert harness.auth.recovery_emails == [EMAIL]
+
+
+def test_retry_after_swallowed_profile_trigger_repeats_only_name_put(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_github_apply_context(monkeypatch)
+    retry_profile_sync = _retry_profile_sync(email_confirmed=True)
+    named = _confirmed_trainee()
+    operator = _operator()
+    harness = ApplyHarness(
+        monkeypatch,
+        [
+            retry_profile_sync,
+            retry_profile_sync,
+            named,
+            operator,
+            operator,
+        ],
+    )
+
+    result = harness.run(apply=True)
+
+    assert result.identity_status == "display_name_repaired"
+    assert harness.auth.calls == [
+        {
+            "path": f"/auth/v1/admin/users/{USER_ID}",
+            "method": "PUT",
+            "payload": {
+                "user_metadata": {"display_name": DISPLAY_NAME},
+            },
+        }
+    ]
+    assert harness.auth.recovery_emails == [EMAIL]
+    assert len(harness.grants) == 1
+
+
+def test_unconfirmed_retry_after_swallowed_profile_trigger_reaches_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_github_apply_context(monkeypatch)
+    retry_profile_sync = _retry_profile_sync()
+    named = _snapshot()
+    confirmed = _confirmed_trainee()
+    operator = _operator()
+    harness = ApplyHarness(
+        monkeypatch,
+        [
+            retry_profile_sync,
+            retry_profile_sync,
+            named,
+            confirmed,
+            operator,
+            operator,
+        ],
+    )
+
+    result = harness.run(apply=True)
+
+    assert result.identity_status == (
+        "display_name_repaired_and_confirmed_by_one_off_adoption"
+    )
+    assert harness.auth.calls == [
+        {
+            "path": f"/auth/v1/admin/users/{USER_ID}",
+            "method": "PUT",
+            "payload": {
+                "user_metadata": {"display_name": DISPLAY_NAME},
+            },
+        },
+        {
+            "path": f"/auth/v1/admin/users/{USER_ID}",
+            "method": "PUT",
+            "payload": {"email_confirm": True},
+        },
+    ]
+    assert harness.auth.recovery_emails == [EMAIL]
+    assert len(harness.grants) == 1
 
 
 def test_confirmed_trainee_resume_skips_put_then_waives_and_recovers(
@@ -838,16 +1270,40 @@ def test_changed_second_snapshot_blocks_auth_put(
     assert harness.grants == []
 
 
-def test_post_put_snapshot_must_differ_only_by_confirmation(
+@pytest.mark.parametrize(
+    "post",
+    [
+        replace(
+            _confirmed_trainee(),
+            raw_user_meta_data={"display_name": DISPLAY_NAME},
+        ),
+        replace(
+            _confirmed_trainee(),
+            raw_user_meta_data={
+                "display_name": DISPLAY_NAME,
+                "email_verified": False,
+            },
+        ),
+        replace(
+            _confirmed_trainee(),
+            raw_user_meta_data={
+                "display_name": DISPLAY_NAME,
+                "email_verified": True,
+                "unexpected": True,
+            },
+        ),
+        replace(
+            _confirmed_trainee(),
+            profile_display_name="Somebody else",
+        ),
+    ],
+)
+def test_post_put_snapshot_requires_exact_confirmation_transition(
     monkeypatch: pytest.MonkeyPatch,
+    post: adoption.PartialAdoptionSnapshot,
 ) -> None:
     _set_github_apply_context(monkeypatch)
     before = _snapshot()
-    post = replace(
-        before,
-        email_confirmed=True,
-        profile_display_name="Somebody else",
-    )
     harness = ApplyHarness(monkeypatch, [before, before, post])
 
     with pytest.raises(adoption.KlimovPartialAdoptionError):
@@ -856,6 +1312,48 @@ def test_post_put_snapshot_must_differ_only_by_confirmation(
     assert len(harness.auth.calls) == 1
     assert harness.auth.recovery_emails == []
     assert harness.grants == []
+
+
+@pytest.mark.parametrize(
+    "post_repair",
+    [
+        _snapshot(
+            raw_user_meta_data={
+                "display_name": DISPLAY_NAME,
+                "unexpected": True,
+            }
+        ),
+        _snapshot(profile_display_name=""),
+        _snapshot(membership_updated_at="2026-08-11 19:20:01+00"),
+        _confirmed_trainee(),
+    ],
+)
+def test_name_repair_postread_permits_only_exact_name_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    post_repair: adoption.PartialAdoptionSnapshot,
+) -> None:
+    _set_github_apply_context(monkeypatch)
+    missing_name = _missing_name()
+    harness = ApplyHarness(
+        monkeypatch,
+        [missing_name, missing_name, post_repair],
+    )
+
+    with pytest.raises(adoption.KlimovPartialAdoptionError):
+        harness.run(apply=True)
+
+    assert harness.auth.calls == [
+        {
+            "path": f"/auth/v1/admin/users/{USER_ID}",
+            "method": "PUT",
+            "payload": {
+                "user_metadata": {"display_name": DISPLAY_NAME},
+            },
+        }
+    ]
+    assert harness.auth.recovery_emails == []
+    assert harness.grants == []
+    assert harness.verifications == []
 
 
 def test_post_waiver_mismatch_blocks_recovery(

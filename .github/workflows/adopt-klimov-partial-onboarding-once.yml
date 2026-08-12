@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       confirmation:
-        description: Type ADOPT_KLIMOV_PARTIAL_FROM_RUN_31526654618_ONCE to run the reviewed one-off adoption
+        description: Type ADOPT_KLIMOV_PARTIAL_FROM_RUN_31526654618_ONCE to run the reviewed one-off name repair and adoption
         required: true
         type: string
 
@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   adopt:
-    name: Adopt exact partial identity, waive training and send recovery
+    name: Repair exact identity name, adopt, waive training and send recovery
     if: >-
       github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' &&
@@ -44,7 +44,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Run the fixed one-off partial adoption
+      - name: Run the fixed one-off name repair and partial adoption
         shell: bash
         run: |
           set -euo pipefail
