@@ -197,6 +197,64 @@ def _invalid_snapshot_field(field_name: str) -> KlimovPartialAdoptionError:
     )
 
 
+def _display_name_metadata_shape(value: object) -> str:
+    """Return only a reviewed, non-sensitive metadata-shape category."""
+    if not isinstance(value, dict):
+        return "other"
+    try:
+        keys = frozenset(value)
+    except (TypeError, ValueError):
+        return "other"
+    if not keys:
+        return "empty"
+    if keys == {"display_name"}:
+        return "display_only"
+    if keys == {"email_verified"}:
+        return "verified_only"
+    if keys == {"display_name", "email_verified"}:
+        return "display_and_verified"
+    return "other"
+
+
+def _display_name_value_category(value: object, *, expected: str) -> str:
+    """Classify a name without returning its value or type."""
+    if not isinstance(value, str):
+        return "other"
+    if value == "":
+        return "missing"
+    if value == expected:
+        return "expected"
+    return "other"
+
+
+def _invalid_display_name_state(
+    snapshot: PartialAdoptionSnapshot,
+    *,
+    display_name: str,
+) -> KlimovPartialAdoptionError:
+    """Build the allowlisted, categorical display-name diagnostic."""
+    metadata_shape = _display_name_metadata_shape(
+        snapshot.raw_user_meta_data
+    )
+    auth_name = _display_name_value_category(
+        snapshot.auth_display_name,
+        expected=display_name,
+    )
+    profile_name = _display_name_value_category(
+        snapshot.profile_display_name,
+        expected=display_name,
+    )
+    confirmed = "true" if snapshot.email_confirmed is True else "false"
+    return KlimovPartialAdoptionError(
+        "Partial-adoption snapshot is invalid: "
+        "field=display_name_state "
+        f"metadata_shape={metadata_shape} "
+        f"auth_name={auth_name} "
+        f"profile_name={profile_name} "
+        f"confirmed={confirmed}"
+    )
+
+
 def _required_int(
     row: dict[str, Any],
     key: str,
@@ -894,7 +952,10 @@ def _display_name_state(
         and snapshot.profile_display_name == ""
     ):
         return NAME_STATE_RETRY_PROFILE_SYNC
-    raise _invalid_snapshot_field("display_name_state")
+    raise _invalid_display_name_state(
+        snapshot,
+        display_name=display_name,
+    )
 
 
 def _validate_snapshot(
