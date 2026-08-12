@@ -3,7 +3,7 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260812.os4.33";
+} from "./supabase-api.js?v=20260812.os4.34";
 import {
   clearExactYoutubeMediaHandoff,
   exactYoutubeRegisteredMediaId,
@@ -18,14 +18,18 @@ import {
   resolveExactYoutubeResearchCaptureMedia,
 } from "./exact-youtube-research-capture.js?v=20260810.exact-video-capture.2";
 import {
+  generationSpecApprovalReviewDecision,
+  generationSpecApprovalReviewMatches,
+  generationSpecApprovalReviewState,
+  generationSpecApprovalReviewTuple,
   generationSpecCardMarkup,
   generationSpecScopesMatch,
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
-} from "./generation-spec.js?v=20260803.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260812.os4.33";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260812.os4.33";
+} from "./generation-spec.js?v=20260812.generation-spec-consent.1";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260812.os4.34";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260812.os4.34";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -88,7 +92,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260812.os4.33";
+} from "./product-research-view.js?v=20260812.os4.34";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -99,7 +103,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260812.os4.33";
+} from "./ai-learning-control-room.js?v=20260812.os4.34";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -115,7 +119,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260812.os4.33";
+} from "./content-generation-handoff.js?v=20260812.os4.34";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -128,13 +132,13 @@ import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
   normalizeGenerationVideoReferenceContext,
-} from "./generation-video-reference.js?v=20260812.os4.33";
+} from "./generation-video-reference.js?v=20260812.os4.34";
 import {
   buildGenerationFormDraft,
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260812.os4.33";
+} from "./generation-form-draft.js?v=20260812.os4.34";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
@@ -150,7 +154,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260812.os4.33";
+} from "./generation-autopilot.js?v=20260812.os4.34";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -171,7 +175,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260812.os4.33";
+} from "./content-review-view.js?v=20260812.os4.34";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -200,7 +204,7 @@ import {
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260812.os4.33";
+} from "./workspace-board-view.js?v=20260812.os4.34";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -229,7 +233,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260812.os4.33";
+} from "./training-journey.js?v=20260812.os4.34";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -248,7 +252,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260812.os4.33";
+} from "./training-practical-review.js?v=20260812.os4.34";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -267,7 +271,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260812.os4.33";
+} from "./my-work-view.js?v=20260812.os4.34";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -1136,6 +1140,7 @@ const state = {
     saving: false,
     aiResearchBinding: null,
     videoReferenceBinding: null,
+    approvalReview: null,
   },
   aiResearchRecommendation: null,
   generationRepair: readStoredGenerationRepair(),
@@ -18321,6 +18326,74 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "cancel-generation-spec-review") {
+    const form = control.closest("#mock-batch-form");
+    if (!form) return;
+    clearGenerationSpecApprovalReview(form, {
+      render: true,
+      clearPriceConfirmation: true,
+    });
+    toast("Проверка закрыта. Версия не одобрена, платный запуск не выполнялся.", "info");
+    return;
+  }
+
+  if ([
+    "confirm-generation-spec-approval",
+    "request-generation-spec-revision",
+  ].includes(action)) {
+    const form = control.closest("#mock-batch-form");
+    if (!form) return;
+    const decision = action === "confirm-generation-spec-approval"
+      ? "approve"
+      : "revision";
+    const outcome = evaluateGenerationSpecApprovalReview(form, decision);
+    if (!outcome.ok || !outcome.rpcAction) {
+      clearGenerationSpecApprovalReview(form, {
+        render: true,
+        clearPriceConfirmation: true,
+      });
+      toast(
+        outcome.kind === "blocked"
+          ? "Сначала прочитайте точный prompt, сверьте реплику и поставьте явное подтверждение."
+          : "Версия или её prompt изменились. Откройте проверку заново для текущих version и hash.",
+        "error",
+      );
+      return;
+    }
+    const approvalReview = state.generationSpec.approvalReview;
+    if (outcome.rpcAction !== "approve") {
+      clearGenerationSpecApprovalReview(form, {
+        render: false,
+        clearPriceConfirmation: true,
+      });
+    }
+    control.disabled = true;
+    try {
+      const envelope = await runGenerationSpecControl(form, outcome.rpcAction, {
+        approvalReview,
+      });
+      if (!envelope) throw new Error("Это решение для ТЗ сейчас недоступно.");
+      toast(
+        outcome.rpcAction === "approve"
+          ? "Эта точная версия ТЗ одобрена. Платный запуск всё ещё требует отдельного подтверждения цены."
+          : "Версия отправлена на доработку. Подтверждение цены очищено; платный запуск не выполнялся.",
+        "success",
+      );
+    } catch (error) {
+      state.generationSpec.error = actionErrorMessage(error);
+      clearGenerationSpecApprovalReview(form, {
+        render: false,
+        clearPriceConfirmation: true,
+      });
+      syncGenerationSpecUi(form);
+      syncGenerationFormReadiness(form);
+      toast(actionErrorMessage(error), "error");
+    } finally {
+      if (control.isConnected) control.disabled = false;
+    }
+    return;
+  }
+
   if ([
     "run-generation-spec-recommended-action",
     "control-generation-spec",
@@ -18419,9 +18492,19 @@ async function handleClick(event) {
       return;
     }
     if (specAction === "review") {
-      const details = form.querySelector(".generation-spec-card__prompt");
-      if (details) details.open = true;
-      scrollElementIntoView(form.querySelector("#generation-spec-card"), "center");
+      if (!openGenerationSpecApprovalReview(form)) {
+        toast("Текущая версия изменилась. Обновите или сохраните ТЗ и откройте проверку заново.", "error");
+      }
+      return;
+    }
+    if (
+      specAction === "approve"
+      && state.generationSpec.data?.recommendedNextAction?.action === "approve"
+      && state.generationSpec.data.recommendedNextAction.requiresConfirmation === true
+    ) {
+      if (!openGenerationSpecApprovalReview(form)) {
+        toast("Для одобрения откройте точную серверную версию и проверьте её заново.", "error");
+      }
       return;
     }
     control.disabled = true;
@@ -19577,6 +19660,29 @@ async function submitSavedMyWorkView(form) {
 }
 
 function handleChange(event) {
+  if (event.target.matches("[data-generation-spec-approval-confirm]")) {
+    const form = event.target.closest("#mock-batch-form");
+    const spec = state.generationSpec.data?.generationSpec;
+    const current = form
+      ? evaluateGenerationSpecApprovalReview(form, "revision")
+      : null;
+    if (!form || !current?.ok) {
+      clearGenerationSpecApprovalReview(form, {
+        render: true,
+        clearPriceConfirmation: true,
+      });
+      toast("Версия изменилась. Откройте проверку текущего ТЗ заново.", "error");
+      return;
+    }
+    state.generationSpec.approvalReview = generationSpecApprovalReviewState(spec, {
+      confirmed: event.target.checked === true,
+    });
+    if (form.elements.real_spend_confirmation) {
+      form.elements.real_spend_confirmation.checked = false;
+    }
+    syncGenerationSpecUi(form);
+    return;
+  }
   handleFormActivity(event);
 
   if (event.target.matches("[data-project-access-project]")) {
@@ -19819,6 +19925,7 @@ function submitAccountAdvertisingCheck(form) {
 }
 
 function handleFormActivity(event) {
+  if (event.target.matches?.("[data-generation-spec-approval-confirm]")) return;
   const rationale = event.target.closest?.(".knowledge-rationale textarea");
   if (rationale) {
     const counter = rationale.closest(".knowledge-rationale")?.querySelector("[data-rationale-count]");
@@ -19835,6 +19942,10 @@ function handleFormActivity(event) {
     form.dataset.dirty = "true";
     if (form.id === "content-review-form") persistContentReviewDraft(form);
     if (form.id === "mock-batch-form") {
+      const approvalReviewCleared = clearGenerationSpecApprovalReview(form, {
+        render: false,
+        clearPriceConfirmation: true,
+      });
       if ([
         "generation_reference_url",
         "generation_reference_mechanics",
@@ -19874,6 +19985,7 @@ function handleFormActivity(event) {
       } else {
         syncGenerationFormReadiness(form);
       }
+      if (approvalReviewCleared) syncGenerationSpecUi(form);
       scheduleGenerationFormDraftSave(form);
     }
   }
@@ -21812,6 +21924,108 @@ function currentGenerationSpecContext(form) {
   });
 }
 
+function clearGenerationSpecApprovalReview(form, {
+  render = false,
+  clearPriceConfirmation = true,
+} = {}) {
+  const hadReview = Boolean(state.generationSpec.approvalReview);
+  state.generationSpec.approvalReview = null;
+  if (clearPriceConfirmation && form?.elements?.real_spend_confirmation) {
+    form.elements.real_spend_confirmation.checked = false;
+  }
+  if (render) syncGenerationSpecUi(form);
+  return hadReview;
+}
+
+function generationSpecApprovalReviewDirty(form) {
+  const payload = generationSpecPreparePayload(form);
+  return state.generationSpec.dirty === true
+    || generationSpecPayloadKey(payload) !== state.generationSpec.key;
+}
+
+function openGenerationSpecApprovalReview(form) {
+  const envelope = state.generationSpec.data;
+  const spec = envelope?.generationSpec;
+  const next = envelope?.recommendedNextAction;
+  if (
+    !form
+    || state.generationSpec.status !== "ready"
+    || spec?.status !== "draft"
+    || next?.action !== "approve"
+    || next.requiresConfirmation !== true
+    || generationSpecApprovalReviewDirty(form)
+    || !currentGenerationSpecContext(form)
+  ) return false;
+  const outcome = generationSpecApprovalReviewDecision({
+    decision: "open",
+    spec,
+  });
+  if (!outcome.ok || !outcome.review) return false;
+  const existingReview = generationSpecApprovalReviewMatches(
+    state.generationSpec.approvalReview,
+    spec,
+  )
+    ? state.generationSpec.approvalReview
+    : null;
+  clearGenerationSpecApprovalReview(form, {
+    render: false,
+    clearPriceConfirmation: true,
+  });
+  state.generationSpec.approvalReview = existingReview || outcome.review;
+  syncGenerationSpecUi(form);
+  const review = form.querySelector("[data-generation-spec-approval-review]");
+  scrollElementIntoView(review || form.querySelector("#generation-spec-card"), "center");
+  review?.querySelector("[data-generation-spec-approval-confirm]")
+    ?.focus({ preventScroll: true });
+  return true;
+}
+
+function evaluateGenerationSpecApprovalReview(form, decision) {
+  const envelope = state.generationSpec.data;
+  const spec = envelope?.generationSpec;
+  const next = envelope?.recommendedNextAction;
+  const review = state.generationSpec.approvalReview;
+  const tuple = generationSpecApprovalReviewTuple(spec);
+  const context = currentGenerationSpecContext(form);
+  const panel = form?.querySelector("[data-generation-spec-approval-review]");
+  const checkbox = panel?.querySelector("[data-generation-spec-approval-confirm]");
+  const exactDomTuple = Boolean(
+    tuple
+    && panel?.isConnected
+    && panel.dataset.reviewKey === tuple.key
+    && panel.dataset.specId === tuple.specId
+    && Number(panel.dataset.specVersion) === tuple.specVersion
+    && panel.dataset.specHash === tuple.specHash
+    && panel.dataset.promptHash === tuple.promptHash
+  );
+  const exactContext = Boolean(
+    context
+    && tuple
+    && context.spec_id === tuple.specId
+    && context.spec_version === tuple.specVersion
+    && context.spec_hash === tuple.specHash
+    && form.dataset.autoGenerationBrief === spec?.compiled_prompt
+  );
+  if (
+    state.generationSpec.status !== "ready"
+    || spec?.status !== "draft"
+    || next?.action !== "approve"
+    || next.requiresConfirmation !== true
+    || !generationSpecApprovalReviewMatches(review, spec)
+    || !exactDomTuple
+    || !exactContext
+  ) {
+    return Object.freeze({ ok: false, kind: "stale", rpcAction: null });
+  }
+  return generationSpecApprovalReviewDecision({
+    decision,
+    review,
+    spec,
+    dirty: generationSpecApprovalReviewDirty(form),
+    confirmed: checkbox?.checked === true,
+  });
+}
+
 function syncGenerationSpecUi(form) {
   if (!form) return;
   const current = form.querySelector("#generation-spec-card");
@@ -21820,6 +22034,22 @@ function syncGenerationSpecUi(form) {
   const currentPayload = generationSpecPreparePayload(form);
   const dirty = state.generationSpec.dirty === true
     || generationSpecPayloadKey(currentPayload) !== state.generationSpec.key;
+  if (
+    state.generationSpec.approvalReview
+    && (
+      dirty
+      || !currentGenerationSpecContext(form)
+      || !generationSpecApprovalReviewMatches(
+        state.generationSpec.approvalReview,
+        state.generationSpec.data?.generationSpec,
+      )
+    )
+  ) {
+    clearGenerationSpecApprovalReview(form, {
+      render: false,
+      clearPriceConfirmation: true,
+    });
+  }
   const wrapper = document.createElement("div");
   wrapper.innerHTML = generationSpecCardMarkup({
     ...state.generationSpec,
@@ -21836,6 +22066,7 @@ function invalidateGenerationSpec(form, reason = "") {
   state.generationSpec.error = reason;
   state.generationSpec.aiResearchBinding = null;
   state.generationSpec.videoReferenceBinding = null;
+  state.generationSpec.approvalReview = null;
   if (form?.elements?.real_spend_confirmation) {
     form.elements.real_spend_confirmation.checked = false;
   }
@@ -21852,6 +22083,7 @@ function resetGenerationSpecState() {
   state.generationSpec.saving = false;
   state.generationSpec.aiResearchBinding = null;
   state.generationSpec.videoReferenceBinding = null;
+  state.generationSpec.approvalReview = null;
   const form = document.querySelector("#mock-batch-form");
   if (form) delete form.dataset.generationSpecPromptLocked;
 }
@@ -21874,6 +22106,10 @@ function applyGenerationSpecEnvelope(raw, form, {
     error.code = "generation_spec_response_invalid";
     throw error;
   }
+  clearGenerationSpecApprovalReview(form, {
+    render: false,
+    clearPriceConfirmation: true,
+  });
   state.generationSpec.data = envelope;
   state.generationSpec.status = "ready";
   state.generationSpec.error = "";
@@ -21915,6 +22151,10 @@ async function refreshGenerationSpec(form, { force = false } = {}) {
   const requestId = ++state.generationSpec.requestId;
   state.generationSpec.status = "loading";
   state.generationSpec.error = "";
+  clearGenerationSpecApprovalReview(form, {
+    render: false,
+    clearPriceConfirmation: true,
+  });
   syncGenerationSpecUi(form);
   try {
     const raw = await state.api.generationSpecStatus(context);
@@ -22114,6 +22354,7 @@ function restorePreservedProductResearchSnapshot(researchId) {
 async function runGenerationSpecControl(form, action, {
   targetSpecVersion = null,
   preparedPayload: preparedPayloadOverride = null,
+  approvalReview = null,
 } = {}) {
   if (!form || state.generationSpec.saving) return null;
   const supported = new Set([
@@ -22136,6 +22377,36 @@ async function runGenerationSpecControl(form, action, {
       "Замысел изменился. Портал сначала сохранит новую техническую версию.",
       { code: "generation_spec_patch_required" },
     );
+  }
+  const approvalRequiresHumanReview = Boolean(
+    action === "approve"
+    && state.generationSpec.data?.recommendedNextAction?.action === "approve"
+    && state.generationSpec.data.recommendedNextAction.requiresConfirmation === true
+  );
+  if (approvalRequiresHumanReview) {
+    const approvalDecision = generationSpecApprovalReviewDecision({
+      decision: "approve",
+      review: approvalReview,
+      spec: current,
+      dirty: currentInputChanged,
+      confirmed: approvalReview?.confirmed === true,
+    });
+    if (
+      approvalReview !== state.generationSpec.approvalReview
+      || !approvalDecision.ok
+      || approvalDecision.rpcAction !== "approve"
+    ) {
+      throw new CreatorApiError(
+        "Одобрение требует отдельной проверки точного prompt, реплики, version и hash.",
+        { code: "generation_spec_human_review_required" },
+      );
+    }
+  }
+  if (["patch", "reject", "revert", "recompute"].includes(action)) {
+    clearGenerationSpecApprovalReview(form, {
+      render: false,
+      clearPriceConfirmation: true,
+    });
   }
   state.generationSpec.saving = true;
   state.generationSpec.error = "";
@@ -22172,6 +22443,22 @@ async function runGenerationSpecControl(form, action, {
             }
           : {}),
       };
+      if (approvalRequiresHumanReview) {
+        const exactApprovalDecision = evaluateGenerationSpecApprovalReview(
+          form,
+          "approve",
+        );
+        if (
+          approvalReview !== state.generationSpec.approvalReview
+          || !exactApprovalDecision.ok
+          || exactApprovalDecision.rpcAction !== "approve"
+        ) {
+          throw new CreatorApiError(
+            "Проверяемая версия изменилась перед одобрением. Откройте её заново.",
+            { code: "generation_spec_human_review_stale" },
+          );
+        }
+      }
       raw = await state.api.controlGenerationSpec(input);
     }
     const envelope = applyGenerationSpecEnvelope(raw, form, {

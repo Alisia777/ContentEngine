@@ -22,6 +22,23 @@ select has_column(
   'prompt_binding_proof_hash',
   'append-only bindings retain an additive prompt proof'
 );
+select has_function(
+  'content_factory_private',
+  'ai_research_seedance_spoken_line',
+  array['text', 'integer'],
+  'the server has one authoritative structured Seedance speech parser'
+);
+select has_function(
+  'content_factory_private',
+  'ai_research_seedance_has_default_ignorable',
+  array['text'],
+  'the server rejects Unicode Default_Ignorable code points explicitly'
+);
+select has_table(
+  'content_factory',
+  'generation_spec_ai_research_speech_bindings',
+  'AI-bound Seedance speech has a separate append-only proof ledger'
+);
 
 create or replace function pg_temp.ai_prompt_human_brief(
   p_key text
@@ -38,6 +55,8 @@ as $$
     || 'Проверяем   размеры до покупки' || E'\n\n'
     || 'КЛЮЧЕВОЕ СООБЩЕНИЕ:' || E'\n'
     || 'Покажите точные факты' || E'\n\n'
+    || 'РЕПЛИКА / СЮЖЕТ:' || E'\n'
+    || 'Показываю точный MILIO на маленькой кухне' || E'\n\n'
     || 'CTA:' || E'\n'
     || 'Сравните размеры своей кухни перед покупкой' || E'\n\n'
     || 'ДОКАЗАТЕЛЬСТВА:' || E'\n'
@@ -388,6 +407,272 @@ select is(
   'a reserved marker in editable intent is rejected'
 );
 
+select is(
+  content_factory_private.ai_research_seedance_spoken_line(
+    pg_temp.ai_prompt_human_brief('raw-exact'), 8
+  ),
+  'Показываю точный MILIO на маленькой кухне',
+  'server derives the exact raw structured speech without a fallback'
+);
+
+select is(
+  content_factory_private.ai_research_seedance_spoken_line(
+    replace(pg_temp.ai_prompt_human_brief('crlf'), E'\n', E'\r\n'), 8
+  ),
+  'Показываю точный MILIO на маленькой кухне',
+  'CR/LF remain the only allowed structural controls before parsing'
+);
+
+select is(
+  content_factory_private.ai_research_seedance_spoken_line(
+    E'\t' || pg_temp.ai_prompt_human_brief('outer-tab'), 8
+  ),
+  null,
+  'a whole-brief outer TAB is rejected before normalization'
+);
+
+select is(
+  content_factory_private.ai_research_seedance_spoken_line(
+    pg_temp.ai_prompt_human_brief('duplicate-nbsp')
+      || E'\n' || U&'\00A0' || 'РЕПЛИКА / СЮЖЕТ: вторая реплика',
+    8
+  ),
+  null,
+  'a duplicate speech heading hidden behind Unicode whitespace fails closed'
+);
+
+select is(
+  content_factory_private.ai_research_seedance_spoken_line(
+    replace(
+      pg_temp.ai_prompt_human_brief('unicode-heading'),
+      'РЕПЛИКА / СЮЖЕТ:',
+      'РЕПЛИКА' || U&'\00A0' || '/' || U&'\00A0'
+        || 'СЮЖЕТ' || U&'\2009' || ':'
+    ),
+    8
+  ),
+  null,
+  'a noncanonical Unicode-spaced heading is counted but cannot masquerade as the structured section'
+);
+
+select is(
+  content_factory_private.ai_research_seedance_spoken_line(
+    replace(
+      pg_temp.ai_prompt_human_brief('multispace-heading'),
+      'РЕПЛИКА / СЮЖЕТ:',
+      'РЕПЛИКА  /  СЮЖЕТ :'
+    ),
+    8
+  ),
+  null,
+  'a noncanonical ASCII-multispace speech heading fails closed'
+);
+
+select is(
+  content_factory_private.ai_research_seedance_spoken_line(
+    replace(
+      pg_temp.ai_prompt_human_brief('c1-heading'),
+      'РЕПЛИКА / СЮЖЕТ:',
+      chr(133) || 'РЕПЛИКА / СЮЖЕТ:'
+    ),
+    8
+  ),
+  null,
+  'a U+0085-prefixed heading fails the raw C1 guard'
+);
+
+select ok(
+  not content_factory_private.ai_research_seedance_has_default_ignorable(
+    'обычный видимый текст'
+  )
+  and (
+    select bool_and(
+      content_factory_private.ai_research_seedance_has_default_ignorable(
+        'до' || character.value || 'после'
+      )
+    )
+    from unnest(array[
+      U&'\200B', U&'\200C', U&'\200D', U&'\2060'
+    ]) character(value)
+  ),
+  'U+200B/U+200C/U+200D/U+2060 are Default_Ignorable and visible text is not'
+);
+
+select ok(
+  (
+    select bool_and(
+      content_factory_private.ai_research_seedance_spoken_line(
+        pg_temp.ai_prompt_human_brief('default-ignorable-duplicate')
+          || E'\nРЕП' || character.value
+          || 'ЛИКА / СЮЖЕТ: скрытая вторая реплика',
+        8
+      ) is null
+    )
+    from unnest(array[
+      U&'\200B', U&'\200C', U&'\200D', U&'\2060'
+    ]) character(value)
+  ),
+  'every Default_Ignorable raw duplicate speech label fails before normalization'
+);
+
+select ok(
+  (
+    select bool_and(
+      content_factory_private.ai_research_seedance_spoken_line(
+        replace(
+          pg_temp.ai_prompt_human_brief('default-ignorable-line'),
+          'Показываю точный MILIO на маленькой кухне',
+          'Показываю' || character.value || ' точный MILIO'
+        ),
+        8
+      ) is null
+    )
+    from unnest(array[
+      U&'\200B', U&'\200C', U&'\200D', U&'\2060'
+    ]) character(value)
+  ),
+  'every Default_Ignorable selected speech line fails before hashing or prompt binding'
+);
+
+select ok(
+  (
+    select bool_and(
+      content_factory_private.ai_research_seedance_has_default_ignorable(
+        surface.value || character.value || 'ЛИКА / СЮЖЕТ: скрытая реплика'
+      )
+    )
+    from unnest(array[
+      'Visual direction: РЕП',
+      'Research decision: РЕП',
+      'Avoid: РЕП'
+    ]) surface(value)
+    cross join unnest(array[
+      U&'\200B', U&'\200C', U&'\200D', U&'\2060'
+    ]) character(value)
+  ),
+  'visual, research and avoid prompt surfaces reject every tested invisible speech injection'
+);
+
+select is(
+  content_factory_private.ai_research_seedance_spoken_line(
+    replace(
+      pg_temp.ai_prompt_human_brief('unicode-content'),
+      'Показываю точный MILIO на маленькой кухне',
+      'Показываю' || U&'\00A0' || 'MILIO'
+    ),
+    8
+  ),
+  null,
+  'non-ASCII whitespace inside raw selected speech fails closed'
+);
+
+select is(
+  content_factory_private.ai_research_seedance_spoken_line(
+    replace(
+      pg_temp.ai_prompt_human_brief('inline-label'),
+      'Показываю точный MILIO на маленькой кухне',
+      'Показываю MILIO РЕПЛИКА / СЮЖЕТ: подмена'
+    ),
+    8
+  ),
+  null,
+  'an inline nested speech label fails closed'
+);
+
+select is(
+  content_factory_private.ai_research_seedance_spoken_line(
+    replace(
+      pg_temp.ai_prompt_human_brief('quoted-wrapper'),
+      'Показываю точный MILIO на маленькой кухне',
+      'Герой говорит: «Показываю другой товар»'
+    ),
+    8
+  ),
+  null,
+  'a quoted wrapper is not accepted as raw selected speech'
+);
+
+select is(
+  content_factory_private.ai_research_seedance_spoken_line(
+    replace(
+      pg_temp.ai_prompt_human_brief('unicode-quote'),
+      'Показываю точный MILIO на маленькой кухне',
+      'Показываю ＇другой＇ MILIO'
+    ),
+    8
+  ),
+  null,
+  'every Unicode Quotation_Mark delimiter fails closed'
+);
+
+select is(
+  content_factory_private.ai_research_seedance_spoken_line(
+    replace(
+      pg_temp.ai_prompt_human_brief('control'),
+      'Показываю точный MILIO на маленькой кухне',
+      'Показываю' || chr(129) || 'MILIO'
+    ),
+    8
+  ),
+  null,
+  'C1 controls in selected speech fail closed'
+);
+
+select is(
+  content_factory_private.ai_research_seedance_spoken_line(
+    replace(
+      pg_temp.ai_prompt_human_brief('external'),
+      'Показываю точный MILIO на маленькой кухне',
+      'Показываю MILIO на example.com'
+    ),
+    8
+  ),
+  null,
+  'an external reference cannot enter the exact speech proof'
+);
+
+select ok(
+  content_factory_private.ai_research_seedance_spoken_line(
+    replace(
+      pg_temp.ai_prompt_human_brief('limit-4-ok'),
+      'Показываю точный MILIO на маленькой кухне',
+      array_to_string(array_fill('слово'::text, array[11]), ' ')
+    ),
+    4
+  ) is not null
+  and content_factory_private.ai_research_seedance_spoken_line(
+    replace(
+      pg_temp.ai_prompt_human_brief('limit-4-bad'),
+      'Показываю точный MILIO на маленькой кухне',
+      array_to_string(array_fill('слово'::text, array[12]), ' ')
+    ),
+    4
+  ) is null
+  and content_factory_private.ai_research_seedance_spoken_word_limit(4) = 11
+  and content_factory_private.ai_research_seedance_spoken_word_limit(8) = 22
+  and content_factory_private.ai_research_seedance_spoken_word_limit(12) = 33
+  and content_factory_private.ai_research_seedance_spoken_word_limit(15) = 41,
+  'server word budgets match the client for every Seedance duration'
+);
+
+select is(
+  content_factory_private.ai_research_seedance_speech_directive_count(
+    'Реплика' || U&'\00A0' || 'героя' || U&'\2009'
+      || 'дословно : «тест»'
+  ),
+  1,
+  'prompt directive counting treats Unicode whitespace exactly like the client'
+);
+
+select is(
+  content_factory_private.ai_research_seedance_structured_speech_count(
+    'Visual: РЕПЛИКА' || U&'\00A0' || '/' || U&'\2009'
+      || 'СЮЖЕТ : second speech'
+  ),
+  1,
+  'prompt structured-speech counting catches Unicode-spaced client injections'
+);
+
 with resolved as (
   select content_factory_private.ai_research_recommendation_snapshot(
     'fa100000-0000-4000-8000-000000000001'::uuid,
@@ -477,9 +762,18 @@ insert into ai_prompt_binding_state (
   ('legacy-manual', 'fa500000-0000-4000-8000-000000000001', 1,
    'fa400000-0000-4000-8000-000000000001',
    pg_temp.ai_prompt_human_brief('legacy binding cannot start')),
+  ('contradictory-speech', 'fa500000-0000-4000-8000-000000000001', 2,
+   'fa400000-0000-4000-8000-000000000001',
+   pg_temp.ai_prompt_human_brief('contradictory speech')),
+  ('structured-speech-prompt', 'fa500000-0000-4000-8000-000000000001', 2,
+   'fa400000-0000-4000-8000-000000000001',
+   pg_temp.ai_prompt_human_brief('structured speech prompt')),
+  ('default-ignorable-prompt', 'fa500000-0000-4000-8000-000000000001', 2,
+   'fa400000-0000-4000-8000-000000000001',
+   pg_temp.ai_prompt_human_brief('default ignorable prompt')),
   ('budget-incomplete', 'fa500000-0000-4000-8000-000000000002', 1,
    'fa400000-0000-4000-8000-000000000001',
-   pg_temp.ai_prompt_human_brief('budget incomplete'));
+    pg_temp.ai_prompt_human_brief('budget incomplete'));
 
 update ai_prompt_binding_state state
 set provider_fragment = case
@@ -511,6 +805,25 @@ set proposed_prompt = case state.test_key
     'Create a manual exact product video without AI selection.'
   when 'legacy-manual' then
     'Create a legacy manual exact product video without AI markers.'
+  when 'contradictory-speech' then
+    'Create an exact product video.' || E'\n'
+      || state.provider_fragment || E'\n'
+      || state.human_fragment || E'\n'
+      || 'Реплика героя дословно: «Говорю противоречащий обязательный текст»'
+  when 'structured-speech-prompt' then
+    'Create an exact product video.' || E'\n'
+      || state.provider_fragment || E'\n'
+      || state.human_fragment || E'\n'
+      || 'Реплика героя дословно: «Показываю точный MILIO на маленькой кухне»'
+      || E'\nVisual direction: РЕПЛИКА' || U&'\00A0' || '/'
+      || U&'\2009' || 'СЮЖЕТ : Second speech.'
+  when 'default-ignorable-prompt' then
+    'Create an exact product video.' || E'\n'
+      || state.provider_fragment || E'\n'
+      || state.human_fragment || E'\n'
+      || 'Реплика героя дословно: «Показываю точный MILIO на маленькой кухне»'
+      || E'\nVisual direction: РЕП' || U&'\200B'
+      || 'ЛИКА / СЮЖЕТ: hidden speech.'
   when 'budget-incomplete' then
     'Create an exact product video.' || E'\n'
       || 'AIResearchSelection/v1 C=incomplete|H=hook|CTA=cta|P=proof|A=avoid'
@@ -518,7 +831,8 @@ set proposed_prompt = case state.test_key
   else
     'Create an exact product video.' || E'\n'
       || state.provider_fragment || E'\n'
-      || state.human_fragment
+      || state.human_fragment || E'\n'
+      || 'Реплика героя дословно: «Показываю точный MILIO на маленькой кухне»'
   end;
 
 grant select, update on ai_prompt_binding_state to authenticated;
@@ -594,7 +908,7 @@ select is(
   count(*) filter (
     where prepare_result #>> '{generation_spec,status}' = 'draft'
   ),
-  11::bigint,
+  14::bigint,
   'all valid, mismatch, XOR, manual, legacy, and budget specs are immutable fixtures'
 )
 from ai_prompt_binding_state;
@@ -652,6 +966,27 @@ select ok(
 from content_factory.generation_spec_ai_research_bindings
 where organization_id = 'fa100000-0000-4000-8000-000000000001'::uuid;
 
+select ok(
+  count(*) = 3
+  and bool_and(spoken_line_version = 'ai-research-seedance-speech-v1')
+  and bool_and(spoken_line =
+    'Показываю точный MILIO на маленькой кухне')
+  and bool_and(spoken_line_hash =
+    content_factory_private.raw_text_sha256(spoken_line))
+  and bool_and(spoken_prompt_fragment =
+    'Реплика героя дословно: «' || spoken_line || '»')
+  and bool_and(spoken_prompt_fragment_hash =
+    content_factory_private.raw_text_sha256(spoken_prompt_fragment))
+  and bool_and(speech_binding_proof_hash =
+    content_factory_private.raw_text_sha256(
+      spoken_line_version || E'\n' || spoken_line || E'\n'
+        || spoken_prompt_fragment || E'\n' || compiled_prompt_hash
+    )),
+  'every AI-bound Seedance spec stores one append-only exact speech proof'
+)
+from content_factory.generation_spec_ai_research_speech_bindings
+where organization_id = 'fa100000-0000-4000-8000-000000000001'::uuid;
+
 set local role authenticated;
 
 with state as (
@@ -681,6 +1016,13 @@ select ok(
     '^[0-9a-f]{64}$'
   and value #>> '{binding,human_intent_fragment_hash}' ~
     '^[0-9a-f]{64}$'
+  and value #>> '{binding,spoken_line_version}' =
+    'ai-research-seedance-speech-v1'
+  and value #>> '{binding,spoken_line}' =
+    'Показываю точный MILIO на маленькой кухне'
+  and value #>> '{binding,speech_binding_proof_hash}' ~
+    '^[0-9a-f]{64}$'
+  and value #>> '{binding,speech_binding_legacy}' = 'false'
   and value #>> '{binding,legacy}' = 'false',
   'the private read delegate returns a self-contained additive proof through the unchanged public ACL wrapper'
 )
@@ -806,6 +1148,69 @@ select throws_ok(
     )
   )
   from ai_prompt_binding_state state
+  where state.test_key = 'contradictory-speech'$$,
+  '55000',
+  'generation_spec_ai_research_speech_prompt_mismatch',
+  'a custom client cannot bind speech that contradicts the structured selected line'
+);
+
+select throws_ok(
+  $$select public.contentengine_bind_generation_spec_ai_research(
+    jsonb_build_object(
+      'organization_id', 'fa100000-0000-4000-8000-000000000001'::uuid,
+      'project_id', 'fa200000-0000-4000-8000-000000000001'::uuid,
+      'spec_id', state.prepare_result #>> '{generation_spec,spec_id}',
+      'spec_version', (state.prepare_result #>>
+        '{generation_spec,spec_version}')::integer,
+      'spec_hash', state.prepare_result #>> '{generation_spec,spec_hash}',
+      'selection_id', state.selection_id,
+      'recommendation_position', state.recommendation_position,
+      'confirmation', true
+    )
+  )
+  from ai_prompt_binding_state state
+  where state.test_key = 'structured-speech-prompt'$$,
+  '55000',
+  'generation_spec_ai_research_speech_prompt_mismatch',
+  'a custom client cannot hide a second Unicode-spaced structured speech directive in the provider prompt'
+);
+
+select throws_ok(
+  $$select public.contentengine_bind_generation_spec_ai_research(
+    jsonb_build_object(
+      'organization_id', 'fa100000-0000-4000-8000-000000000001'::uuid,
+      'project_id', 'fa200000-0000-4000-8000-000000000001'::uuid,
+      'spec_id', state.prepare_result #>> '{generation_spec,spec_id}',
+      'spec_version', (state.prepare_result #>>
+        '{generation_spec,spec_version}')::integer,
+      'spec_hash', state.prepare_result #>> '{generation_spec,spec_hash}',
+      'selection_id', state.selection_id,
+      'recommendation_position', state.recommendation_position,
+      'confirmation', true
+    )
+  )
+  from ai_prompt_binding_state state
+  where state.test_key = 'default-ignorable-prompt'$$,
+  '55000',
+  'generation_spec_ai_research_speech_prompt_mismatch',
+  'a Default_Ignorable visual speech injection cannot enter the immutable proof'
+);
+
+select throws_ok(
+  $$select public.contentengine_bind_generation_spec_ai_research(
+    jsonb_build_object(
+      'organization_id', 'fa100000-0000-4000-8000-000000000001'::uuid,
+      'project_id', 'fa200000-0000-4000-8000-000000000001'::uuid,
+      'spec_id', state.prepare_result #>> '{generation_spec,spec_id}',
+      'spec_version', (state.prepare_result #>>
+        '{generation_spec,spec_version}')::integer,
+      'spec_hash', state.prepare_result #>> '{generation_spec,spec_hash}',
+      'selection_id', state.selection_id,
+      'recommendation_position', state.recommendation_position,
+      'confirmation', true
+    )
+  )
+  from ai_prompt_binding_state state
   where state.test_key = 'budget-incomplete'$$,
   '22023',
   'ai_research_prompt_budget_exceeded',
@@ -817,7 +1222,7 @@ reset role;
 select is(
   count(*),
   3::bigint,
-  'failed exact product, duplicate, XOR, and budget binds append no row'
+  'failed exact product, duplicate, XOR, speech, and budget binds append no row'
 )
 from content_factory.generation_spec_ai_research_bindings
 where organization_id = 'fa100000-0000-4000-8000-000000000001'::uuid;
@@ -974,7 +1379,7 @@ select is(
     'test_key', 'valid exact option 2'
   )) #>> '{test_key}',
   'valid exact option 2',
-  'one exact provider marker plus human marker plus nonlegacy binding may return to Edge'
+  'one exact provider marker plus human marker plus exact speech proof may return to Edge'
 )
 from state;
 
@@ -984,6 +1389,41 @@ select is(
    where effect in ('job', 'spend')),
   4::bigint,
   'two successful starts retain the two delegated transactional effects each'
+);
+
+-- Simulate one pre-v56 AI Seedance binding only after proving that its
+-- exact speech can start. Absence of the additive proof must then fail.
+set local session_replication_role = replica;
+delete from content_factory.generation_spec_ai_research_speech_bindings proof
+where proof.binding_id = (
+  select binding.id
+  from ai_prompt_binding_state state
+  join content_factory.generation_spec_ai_research_bindings binding
+    on binding.spec_id =
+      (state.prepare_result #>> '{generation_spec,spec_id}')::uuid
+   and binding.spec_version = (state.prepare_result #>>
+      '{generation_spec,spec_version}')::integer
+  where state.test_key = 'valid-1'
+);
+set local session_replication_role = origin;
+
+select throws_ok(
+  $$select public.creator_start_real_generation(jsonb_build_object(
+    'organization_id', 'fa100000-0000-4000-8000-000000000001'::uuid,
+    'project_id', 'fa200000-0000-4000-8000-000000000001'::uuid,
+    'generation_spec_context', jsonb_build_object(
+      'spec_id', state.prepare_result #>> '{generation_spec,spec_id}',
+      'spec_version', (state.prepare_result #>>
+        '{generation_spec,spec_version}')::integer,
+      'spec_hash', state.prepare_result #>> '{generation_spec,spec_hash}'
+    ),
+    'test_key', 'legacy seedance speech proof missing'
+  ))
+  from ai_prompt_binding_state state
+  where state.test_key = 'valid-1'$$,
+  '55000',
+  'generation_ai_research_seedance_speech_binding_required',
+  'a legacy AI Seedance binding without speech v1 rolls back paid start'
 );
 
 select throws_ok(
@@ -1106,7 +1546,7 @@ select is(
    from content_factory.ai_prompt_binding_start_audit
    where effect in ('job', 'spend')),
   4::bigint,
-  'delegated writes roll back for duplicate, XOR, unbound, and legacy proof failures'
+  'delegated writes roll back for duplicate, XOR, unbound, legacy speech, and legacy prompt proof failures'
 );
 
 select is(

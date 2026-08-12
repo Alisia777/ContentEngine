@@ -154,7 +154,7 @@ process.stdout.write(JSON.stringify({{
 
 def test_one_paid_click_prepares_current_server_spec_without_separate_approval() -> None:
     for token in (
-        'from "./generation-spec.js?v=20260803.1"',
+            'from "./generation-spec.js?v=20260812.generation-spec-consent.1"',
         "generationSpecCardMarkup",
         "currentGenerationSpecContext(form)",
         "generationSpecApproved",
@@ -425,11 +425,11 @@ def test_edge_accepts_only_atomic_terminal_stale_claim_as_non_retryable() -> Non
 
 
 def test_generation_spec_cache_versions_are_published_consistently() -> None:
-    assert './supabase-api.js?v=20260812.os4.33' in APP
-    assert './app.js?v=20260812.os4.33' in INDEX
+    assert './supabase-api.js?v=20260812.os4.34' in APP
+    assert './app.js?v=20260812.os4.34' in INDEX
     for name in (
         "workspace-os-v4-context-trash.js",
         "workspace-os-v4-trash-rpc-alias.js",
     ):
         source = (ROOT / "web/app" / name).read_text(encoding="utf-8")
-        assert './supabase-api.js?v=20260812.os4.33' in source
+        assert './supabase-api.js?v=20260812.os4.34' in source
