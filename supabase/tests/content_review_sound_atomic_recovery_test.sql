@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
-select plan(18);
+select plan(19);
 
 select ok(
   exists (
@@ -633,12 +633,25 @@ select throws_ok(
       true, repeat('b', 64), repeat('5', 64),
       'sound-recovery-future-partial-0001'
     );
-    set constraints enforce_generated_video_decision_sound_atomic immediate;
+    set constraints
+      content_factory.enforce_generated_video_decision_sound_atomic immediate;
   end;
   $atomic_future_decision$;$$,
   '23514',
   'content_review_sound_assessment_required',
   'a future generated-video decision without sound rolls back atomically'
+);
+
+select is(
+  (
+    select count(*)::integer
+    from content_factory.content_review_decisions
+    where organization_id =
+          '9a100000-0000-4000-8000-000000000001'
+      and id = '9a170000-0000-4000-8000-000000000003'
+  ),
+  0,
+  'the rejected future decision leaves no partial immutable row'
 );
 
 select is(
