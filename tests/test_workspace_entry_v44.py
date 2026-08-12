@@ -198,6 +198,8 @@ function normalizeTrainingPracticalProject(value) {
   return { approved: value?.approved === true };
 }
 function trainingCatalogReady() { return true; }
+function isAdminRoute() { return false; }
+function canManageTeam() { return false; }
 const training = (waiver = false) => ({
   accessWaiver: { active: waiver, scope: waiver ? "workspace_generation" : "" },
   completedModules: [],
