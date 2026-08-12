@@ -1127,7 +1127,114 @@ function workingDraftConflict(error) {
   ].filter(Boolean).join(" "));
 }
 
-function applyAuthoritativeRecommendationProduct(form, envelope) {
+function selectedVerifiedMediaProduct(form, expectedProductId) {
+  const selectedMedia = Array.from(
+    form?.querySelectorAll?.('input[name="media_id"]') || [],
+  ).filter((input) => (
+    input.checked
+    && (
+      !input.disabled
+      || (
+        form?.dataset?.busy === "true"
+        && input.dataset?.wasDisabled === "false"
+      )
+    )
+  ));
+  if (!selectedMedia.length) {
+    return { selected: false, valid: true, product: null };
+  }
+  const selectedPrimaryId = String(
+    Array.from(
+      form?.querySelectorAll?.('input[name="primary_media_id"]') || [],
+    ).find((input) => (
+      input.checked
+      && (
+        !input.disabled
+        || (
+          form?.dataset?.busy === "true"
+          && input.dataset?.wasDisabled === "false"
+        )
+      )
+    ))?.value
+      || form?.dataset?.primaryGenerationMediaId
+      || "",
+  ).trim();
+  const primary = selectedMedia.find((input) => (
+    String(input.value || "").trim() === selectedPrimaryId
+  )) || (selectedMedia.length === 1 ? selectedMedia[0] : null);
+  const identity = (input) => ({
+    productId: normalizedUuid(input?.dataset?.mediaProductId),
+    sku: clean(input?.dataset?.mediaSku, 120),
+    productName: clean(input?.dataset?.mediaProductName, 180),
+    verified: input?.dataset?.mediaIdentityVerified === "true",
+    rightsConfirmed: input?.dataset?.mediaRightsConfirmed === "true",
+  });
+  const primaryIdentity = identity(primary);
+  const valid = Boolean(
+    primary
+    && primaryIdentity.verified
+    && primaryIdentity.rightsConfirmed
+    && primaryIdentity.productId === expectedProductId
+    && primaryIdentity.sku
+    && primaryIdentity.productName
+    && selectedMedia.every((input) => {
+      const candidate = identity(input);
+      return candidate.verified
+        && candidate.rightsConfirmed
+        && candidate.productId === primaryIdentity.productId
+        && candidate.sku === primaryIdentity.sku
+        && candidate.productName === primaryIdentity.productName;
+    }),
+  );
+  return {
+    selected: true,
+    valid,
+    product: valid
+      ? {
+          sku: primaryIdentity.sku,
+          productName: primaryIdentity.productName,
+        }
+      : null,
+  };
+}
+
+export function resolveAuthoritativeRecommendationProductFields({
+  recommendationSku = "",
+  recommendationProductName = "",
+  selectedMedia = null,
+  currentSku = "",
+  currentProductName = "",
+} = {}) {
+  const mediaSku = clean(selectedMedia?.sku, 120);
+  const mediaProductName = clean(selectedMedia?.productName, 180);
+  if (mediaSku && mediaProductName) {
+    return {
+      sku: mediaSku,
+      productName: mediaProductName,
+      source: "verified_media",
+    };
+  }
+  const authoritativeSku = clean(recommendationSku, 120);
+  const authoritativeProductName = clean(recommendationProductName, 180);
+  const preservedSku = clean(currentSku, 120);
+  const preservedProductName = clean(currentProductName, 180);
+  if (authoritativeSku && authoritativeProductName) {
+    return {
+      sku: authoritativeSku,
+      productName: authoritativeProductName,
+      source: "recommendation",
+    };
+  }
+  return {
+    // Older selections can legitimately lack one display field. Never mix
+    // that incomplete advisory identity with the human's exact product pair.
+    sku: preservedSku,
+    productName: preservedProductName,
+    source: "preserved",
+  };
+}
+
+export function applyAuthoritativeRecommendationProduct(form, envelope) {
   const source = object(envelope);
   const productId = normalizedUuid(source.product_id);
   const selectedMediaProductId = normalizedUuid(
@@ -1141,10 +1248,17 @@ function applyAuthoritativeRecommendationProduct(form, envelope) {
   }
   const sku = form?.elements?.sku;
   const productName = form?.elements?.product_name;
-  if (sku) sku.value = clean(source.source_product_sku, 120);
-  if (productName) {
-    productName.value = clean(source.source_product_name, 240);
-  }
+  const selectedMedia = selectedVerifiedMediaProduct(form, productId);
+  if (selectedMedia.selected && !selectedMedia.valid) return false;
+  const values = resolveAuthoritativeRecommendationProductFields({
+    recommendationSku: source.source_product_sku,
+    recommendationProductName: source.source_product_name,
+    selectedMedia: selectedMedia.product,
+    currentSku: sku?.value,
+    currentProductName: productName?.value,
+  });
+  if (sku) sku.value = values.sku;
+  if (productName) productName.value = values.productName;
   form.dataset.researchRecommendationProductId = productId;
   return true;
 }

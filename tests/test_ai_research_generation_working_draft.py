@@ -502,6 +502,213 @@ def test_exact_product_identity_blocks_target_shared_and_later_media_mismatch() 
     assert 'form.elements.real_spend_confirmation.checked = false' in APP
 
 
+def test_verified_media_identity_survives_exact_resolver_and_shared_draft_reapply() -> None:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is unavailable")
+    module_url = (
+        ROOT / "web" / "app" / "workspace-generation-research-recommendations.js"
+    ).as_uri()
+    readiness_url = (
+        ROOT / "web" / "app" / "generation-form-readiness.js"
+    ).as_uri()
+    script = f"""
+      const mod = await import({json.dumps(module_url)});
+      const readinessMod = await import({json.dumps(readiness_url)});
+      const productId = '55555555-5555-4555-8555-555555555555';
+      const otherProductId = '77777777-7777-4777-8777-777777777777';
+      const mediaId = '66666666-6666-4666-8666-666666666666';
+
+      function fixture(
+        identityProductId = productId,
+        rightsConfirmed = true,
+        extraMedia = null,
+      ) {{
+        const sku = {{value: '518413561', readOnly: true, dataset: {{
+          mediaIdentityValue: '518413561'
+        }}}};
+        const productName = {{
+          value: 'Аэрогриль MILIO A425D-Black', readOnly: true, dataset: {{
+            mediaIdentityValue: 'Аэрогриль MILIO A425D-Black'
+          }},
+        }};
+        const media = {{
+          name: 'media_id', value: mediaId, checked: true, disabled: false,
+          dataset: {{
+            mediaIdentityVerified: 'true', mediaProductId: identityProductId,
+            mediaRightsConfirmed: rightsConfirmed ? 'true' : 'false',
+            mediaSku: '518413561',
+            mediaProductName: 'Аэрогриль MILIO A425D-Black',
+          }},
+        }};
+        const primary = {{
+          name: 'primary_media_id', value: mediaId, checked: true,
+          disabled: false, dataset: {{}},
+        }};
+        const mediaItems = [media, ...(extraMedia ? [extraMedia] : [])];
+        return {{
+          sku, productName,
+          form: {{
+            dataset: {{
+              identityProductId,
+              primaryGenerationMediaId: mediaId,
+            }},
+            elements: {{sku, product_name: productName}},
+            querySelectorAll(selector) {{
+              if (selector === 'input[name="media_id"]') return mediaItems;
+              if (selector === 'input[name="primary_media_id"]') return [primary];
+              return [];
+            }},
+          }},
+        }};
+      }}
+
+      const exact = fixture();
+      const missingDisplayFields = {{
+        product_id: productId,
+        source_product_sku: '',
+        source_product_name: '',
+      }};
+      // The delayed exact resolver and the shared-draft hydrate both use this
+      // boundary. Repeating it must not erase the identity populated at step 5.
+      const exactResolver = mod.applyAuthoritativeRecommendationProduct(
+        exact.form, missingDisplayFields,
+      );
+      const afterExactResolver = {{
+        sku: exact.sku.value, productName: exact.productName.value,
+      }};
+      const sharedHydrate = mod.applyAuthoritativeRecommendationProduct(
+        exact.form, missingDisplayFields,
+      );
+      const afterSharedHydrate = {{
+        sku: exact.sku.value, productName: exact.productName.value,
+      }};
+      const readiness = readinessMod.evaluateGenerationFormReadiness({{
+        mode: 'real_seedance',
+        sku: exact.sku.value,
+        productName: exact.productName.value,
+        productCategory: 'household',
+        platform: 'youtube',
+        destinationRef: '@milio',
+        mediaCount: 1,
+        brief: 'Точный замысел из выбранного человеком варианта ИИ-центра.',
+        campaignId: '88888888-8888-4888-8888-888888888888',
+        spendAllowed: true,
+        confirmationMatches: true,
+        count: 1,
+        maxMockCount: 10,
+      }});
+
+      const manual = mod.resolveAuthoritativeRecommendationProductFields({{
+        recommendationSku: '', recommendationProductName: '',
+        currentSku: '518413561', currentProductName: 'Моё точное название',
+      }});
+      const recommendation = mod.resolveAuthoritativeRecommendationProductFields({{
+        recommendationSku: 'SERVER-SKU',
+        recommendationProductName: 'Серверное название',
+        currentSku: 'HUMAN-SKU', currentProductName: 'Ручное название',
+      }});
+      const incompleteRecommendation =
+        mod.resolveAuthoritativeRecommendationProductFields({{
+          recommendationSku: 'PARTIAL-SERVER-SKU',
+          recommendationProductName: '',
+          currentSku: '518413561',
+          currentProductName: 'Моё точное название',
+        }});
+      const noRights = fixture(productId, false);
+      const noRightsApplied = mod.applyAuthoritativeRecommendationProduct(
+        noRights.form,
+        {{
+          product_id: productId,
+          source_product_sku: 'SERVER-SKU',
+          source_product_name: 'Серверное название',
+        }},
+      );
+      const noRightsValues = [noRights.sku.value, noRights.productName.value];
+      const mixed = fixture(productId, true, {{
+        name: 'media_id',
+        value: '99999999-9999-4999-8999-999999999999',
+        checked: true,
+        disabled: false,
+        dataset: {{
+          mediaIdentityVerified: 'true',
+          mediaRightsConfirmed: 'true',
+          mediaProductId: otherProductId,
+          mediaSku: 'OTHER-SKU',
+          mediaProductName: 'Different product',
+        }},
+      }});
+      const mixedBefore = [mixed.sku.value, mixed.productName.value];
+      const mixedApplied = mod.applyAuthoritativeRecommendationProduct(
+        mixed.form, missingDisplayFields,
+      );
+      const mixedAfter = [mixed.sku.value, mixed.productName.value];
+      const mismatch = fixture(otherProductId);
+      const mismatchBefore = [mismatch.sku.value, mismatch.productName.value];
+      const mismatchApplied = mod.applyAuthoritativeRecommendationProduct(
+        mismatch.form, missingDisplayFields,
+      );
+      const mismatchAfter = [mismatch.sku.value, mismatch.productName.value];
+      console.log(JSON.stringify({{
+        exactResolver, sharedHydrate, afterExactResolver, afterSharedHydrate,
+        readiness: {{
+          ready: readiness.ready,
+          productComplete:
+            readiness.steps.find((step) => step.key === 'product')?.complete,
+        }},
+        readOnly: [exact.sku.readOnly, exact.productName.readOnly],
+        mediaIdentityValues: [
+          exact.sku.dataset.mediaIdentityValue,
+          exact.productName.dataset.mediaIdentityValue,
+        ],
+        manual, recommendation, incompleteRecommendation,
+        noRightsApplied, noRightsValues,
+        mixedApplied, mixedBefore, mixedAfter,
+        mismatchApplied, mismatchBefore, mismatchAfter,
+      }}));
+    """
+    result = subprocess.run(
+        [node, "--input-type=module", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    value = json.loads(result.stdout)
+    exact = {
+        "sku": "518413561",
+        "productName": "Аэрогриль MILIO A425D-Black",
+    }
+    assert value["exactResolver"] is True
+    assert value["sharedHydrate"] is True
+    assert value["afterExactResolver"] == exact
+    assert value["afterSharedHydrate"] == exact
+    assert value["readiness"] == {"ready": True, "productComplete": True}
+    assert value["readOnly"] == [True, True]
+    assert value["mediaIdentityValues"] == list(exact.values())
+    assert value["manual"] == {
+        "sku": "518413561",
+        "productName": "Моё точное название",
+        "source": "preserved",
+    }
+    assert value["recommendation"] == {
+        "sku": "SERVER-SKU",
+        "productName": "Серверное название",
+        "source": "recommendation",
+    }
+    assert value["incompleteRecommendation"] == {
+        "sku": "518413561",
+        "productName": "Моё точное название",
+        "source": "preserved",
+    }
+    assert value["noRightsApplied"] is False
+    assert value["noRightsValues"] == list(exact.values())
+    assert value["mixedApplied"] is False
+    assert value["mixedBefore"] == value["mixedAfter"] == list(exact.values())
+    assert value["mismatchApplied"] is False
+    assert value["mismatchBefore"] == value["mismatchAfter"]
+
+
 def test_non_deep_link_choice_requires_exact_server_resolution_and_never_silent_applies() -> None:
     assert "requestExplicitRecommendation(selectedEnvelope())" in GENERATION
     assert "generationResearchRecommendation" in GENERATION
@@ -976,7 +1183,7 @@ def test_api_boundary_and_scoped_cache_edges_are_wired() -> None:
     assert "generationResearchRecommendation(input = {})" in API
     assert "generationAiResearchWorkingDraft(input = {})" in API
     assert '"workspace-ai-research-training.js":\n      "20260811.ai-center-runtime-owned.2"' in BOOTSTRAP
-    assert '"workspace-generation-research-recommendations.js":\n      "20260811.ai-working-draft.3"' in BOOTSTRAP
+    assert '"workspace-generation-research-recommendations.js":\n      "20260812.ai-media-identity.1"' in BOOTSTRAP
     assert "generation-ai-research-working-draft.js?v=20260811.ai-working-draft.1" in APP
     assert "generation-ai-research-working-draft.js?v=20260811.ai-working-draft.1" in GENERATION
 

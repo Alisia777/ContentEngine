@@ -17,7 +17,7 @@
     "workspace-ai-research-training.js":
       "20260811.ai-center-runtime-owned.2",
     "workspace-generation-research-recommendations.js":
-      "20260811.ai-working-draft.3",
+      "20260812.ai-media-identity.1",
     "workspace-research-failure-recovery.js":
       "20260811.ai-center-runtime-owned.1",
   });

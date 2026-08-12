@@ -404,12 +404,12 @@ def test_portal_uses_recommendation_without_confirming_spend_for_user() -> None:
     assert "checked" not in confirmation
     assert "required" in confirmation
     assert (
-        'from "./product-research-view.js?v=20260811.os4.32"'
+        'from "./product-research-view.js?v=20260812.os4.33"'
         in APP
     )
     assert (
-        'from "./content-generation-handoff.js?v=20260811.os4.32"'
+        'from "./content-generation-handoff.js?v=20260812.os4.33"'
         in APP
     )
-    assert 'from "./generation-autopilot.js?v=20260811.os4.32"' in APP
-    assert './app.js?v=20260811.os4.32' in INDEX
+    assert 'from "./generation-autopilot.js?v=20260812.os4.33"' in APP
+    assert './app.js?v=20260812.os4.33' in INDEX
