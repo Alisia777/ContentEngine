@@ -605,6 +605,8 @@ set editable_intent = 'КОНЦЕПЦИЯ:' || E'\n'
       || 'Watch one honest product detail?' || E'\n\n'
       || 'CTA:' || E'\n'
       || 'Review the product details.' || E'\n\n'
+      || 'РЕПЛИКА / СЮЖЕТ:' || E'\n'
+      || 'Watch one honest product detail.' || E'\n\n'
       || 'ДОКАЗАТЕЛЬСТВА:' || E'\n'
       || 'Exact source image is registered.' || E'\n\n'
       || 'НЕ ОБЕЩАТЬ / УЧЕСТЬ:' || E'\n'
@@ -707,6 +709,8 @@ set prepare_result = public.creator_prepare_generation_spec(
         || 'exact registered package. Preserve label, shape, colors, '
         || 'proportions, and observable facts. Do not invent performance '
         || 'claims, text, logos, or another product.' || E'\n'
+        || 'Реплика героя дословно: «Watch one honest product detail.»'
+        || E'\n'
         || context_row.provider_fragment || E'\n'
         || context_row.human_fragment,
     -- Keep preparation on the provider-free baseline contract.  The
@@ -837,6 +841,12 @@ select ok(
      and binding.recommendation_snapshot = selection.recommendations -> 0
      and binding.recommendation_hash =
        content_factory_private.json_hash(selection.recommendations -> 0)
+    join content_factory.generation_spec_ai_research_speech_bindings speech
+      on speech.organization_id = binding.organization_id
+     and speech.binding_id = binding.id
+     and speech.spoken_line = 'Watch one honest product detail.'
+     and speech.spoken_prompt_fragment =
+       'Реплика героя дословно: «Watch one honest product detail.»'
   )
   and (select binding_result #>> '{version}' =
          'generation-spec-ai-research-binding-v2'

@@ -43,6 +43,22 @@ const AI_RESEARCH_HUMAN_SECTION_KEYS = Object.freeze([
   ["ДОКАЗАТЕЛЬСТВА", "P", 16],
   ["НЕ ОБЕЩАТЬ / УЧЕСТЬ", "A", 20],
 ]);
+const AI_RESEARCH_SPOKEN_SECTION = "РЕПЛИКА / СЮЖЕТ";
+const AI_RESEARCH_SPOKEN_SECTION_TOKEN_PATTERN =
+  /РЕПЛИКА\p{White_Space}*\/\p{White_Space}*СЮЖЕТ\p{White_Space}*:/iu;
+const AI_RESEARCH_SPOKEN_SECTION_TOKEN_GLOBAL_PATTERN =
+  /РЕПЛИКА\p{White_Space}*\/\p{White_Space}*СЮЖЕТ\p{White_Space}*:/giu;
+const AI_RESEARCH_SPOKEN_WRAPPER_PATTERN =
+  /(?:^|[.!?…]\p{White_Space}+)(?:(?:герой|блогер|ведущ(?:ий|ая)|человек)\p{White_Space}+(?:говорит|произносит|рассказывает)|реплика\p{White_Space}+героя(?:\p{White_Space}+дословно)?)\p{White_Space}*:/iu;
+const PROMPT_SPOKEN_DIRECTIVE_PATTERN =
+  /(?:(?:(?:герой|блогер|ведущ(?:ий|ая)|человек)\p{White_Space}+(?:говорит|произносит|рассказывает)|реплика\p{White_Space}+героя(?:\p{White_Space}+дословно)?)\p{White_Space}*:|РЕПЛИКА\p{White_Space}*\/\p{White_Space}*СЮЖЕТ\p{White_Space}*:)/giu;
+const AI_RESEARCH_SPOKEN_CONTROL_PATTERN = /[\u0000-\u001f\u007f-\u009f]/u;
+const AI_RESEARCH_RAW_UNSAFE_CONTROL_PATTERN =
+  /[\u0000-\u0009\u000b\u000c\u000e-\u001f\u007f-\u009f]/u;
+const AI_RESEARCH_DEFAULT_IGNORABLE_PATTERN =
+  /\p{Default_Ignorable_Code_Point}/u;
+const AI_RESEARCH_SPOKEN_NON_ASCII_WHITESPACE_PATTERN = /[^\S ]/u;
+const AI_RESEARCH_SPOKEN_QUOTATION_MARK_PATTERN = /\p{Quotation_Mark}/u;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const EXPLICIT_SPOKEN_LINE_PATTERN =
   /(^|[.!?…]\s+)((?:(?:герой|блогер|ведущ(?:ий|ая)|человек)\s+(?:говорит|произносит|рассказывает)|реплика\s+героя(?:\s+дословно)?))\s*:\s*[«“"]([^»”"]{2,500})[»”"]\s*[.!?…]?/iu;
@@ -516,6 +532,70 @@ export function compileAiResearchHumanIntent({
   };
 }
 
+function compileAiResearchSpokenIntent({
+  currentBrief = "",
+  durationSeconds = 8,
+} = {}) {
+  const normalizedDuration = contentGenerationDurationSeconds(
+    REAL_SEEDANCE_MODE,
+    durationSeconds,
+  );
+  const wordLimit = seedanceSpokenWordLimit(normalizedDuration);
+  const currentRaw = String(currentBrief ?? "");
+  const sections = aiResearchBriefSections(currentRaw, { strictSpoken: true });
+  const sectionValue = cleanAiResearchHumanText(
+    sections?.[AI_RESEARCH_SPOKEN_SECTION],
+  );
+  const spokenSectionCount = (
+    currentRaw.match(
+      AI_RESEARCH_SPOKEN_SECTION_TOKEN_GLOBAL_PATTERN,
+    ) || []
+  ).length;
+  const line = cleanText(sectionValue);
+  const spokenWords = words(line).length;
+  if (
+    !sections
+    || sections.__spokenUnsafe === true
+    || AI_RESEARCH_DEFAULT_IGNORABLE_PATTERN.test(currentRaw)
+    || spokenSectionCount !== 1
+    || !line
+    || AI_RESEARCH_SPOKEN_SECTION_TOKEN_PATTERN.test(sectionValue)
+    || AI_RESEARCH_SPOKEN_WRAPPER_PATTERN.test(sectionValue)
+    || AI_RESEARCH_SPOKEN_CONTROL_PATTERN.test(sectionValue)
+    || AI_RESEARCH_DEFAULT_IGNORABLE_PATTERN.test(sectionValue)
+    || AI_RESEARCH_SPOKEN_NON_ASCII_WHITESPACE_PATTERN.test(sectionValue)
+    || AI_RESEARCH_SPOKEN_QUOTATION_MARK_PATTERN.test(sectionValue)
+    || spokenWords < 1
+  ) {
+    return {
+      ready: false,
+      line: "",
+      spokenWords: 0,
+      wordLimit,
+      durationSeconds: normalizedDuration,
+      code: "ai_research_spoken_script_invalid",
+    };
+  }
+  if (spokenWords > wordLimit) {
+    return {
+      ready: false,
+      line: "",
+      spokenWords,
+      wordLimit,
+      durationSeconds: normalizedDuration,
+      code: "ai_research_spoken_script_too_long",
+    };
+  }
+  return {
+    ready: true,
+    line,
+    spokenWords,
+    wordLimit,
+    durationSeconds: normalizedDuration,
+    code: "",
+  };
+}
+
 export function compileSafeGenerationBrief({
   mode,
   productName,
@@ -550,6 +630,16 @@ export function compileSafeGenerationBrief({
         currentBrief: selectedRecommendation?.currentBrief,
       })
     : { ready: true, line: "", changedSections: [] };
+  const selectedSpokenIntent = selectedRecommendationRequired
+    && normalizedMode === REAL_SEEDANCE_MODE
+    ? compileAiResearchSpokenIntent({
+        currentBrief: selectedRecommendation?.currentBrief,
+        durationSeconds: contentGenerationDurationSeconds(
+          normalizedMode,
+          requestedDurationSeconds,
+        ),
+      })
+    : { ready: true, line: "", spokenWords: 0 };
   const promptScenarioIntent = selectedRecommendationRequired
     ? ""
     : safeScenarioIntent;
@@ -598,6 +688,18 @@ export function compileSafeGenerationBrief({
     blockers.push({
       code: selectedHumanIntent.code || "ai_research_human_intent_invalid",
       message: "Ручные правки рекомендации не удалось безопасно уместить в технический prompt.",
+    });
+  }
+  if (
+    selectedRecommendationRequired
+    && normalizedMode === REAL_SEEDANCE_MODE
+    && !selectedSpokenIntent.ready
+  ) {
+    blockers.push({
+      code: selectedSpokenIntent.code || "ai_research_spoken_script_invalid",
+      message: selectedSpokenIntent.code === "ai_research_spoken_script_too_long"
+        ? `Реплика выбранного варианта длиннее лимита для ${selectedSpokenIntent.durationSeconds} секунд. Сократите поле «РЕПЛИКА / СЮЖЕТ» до ${selectedSpokenIntent.wordLimit} слов.`
+        : "В выбранном варианте ИИ‑центра нет одной безопасной точной реплики. Проверьте поле «РЕПЛИКА / СЮЖЕТ».",
     });
   }
   if (
@@ -720,13 +822,15 @@ export function compileSafeGenerationBrief({
       normalizedMode,
       requestedDurationSeconds,
     );
-    const spokenLine = safeScenarioSpokenLine({
-      scenarioIntent: rawScenarioIntent,
-      explicitSpokenLine,
-      productName: exactProductName,
-      fallback: interaction.spokenLine,
-      durationSeconds,
-    });
+    const spokenLine = selectedRecommendationRequired
+      ? selectedSpokenIntent.line
+      : safeScenarioSpokenLine({
+          scenarioIntent: rawScenarioIntent,
+          explicitSpokenLine,
+          productName: exactProductName,
+          fallback: interaction.spokenLine,
+          durationSeconds,
+        });
     spokenWords = words(spokenLine).length;
     promptLines = [
       required(`Создай один непрерывный вертикальный UGC-ролик длительностью ${durationSeconds} секунд.`),
@@ -744,7 +848,9 @@ export function compileSafeGenerationBrief({
           : interaction.videoAction,
       ),
       required(interaction.requirement),
-      required(`Реплика героя дословно: «${spokenLine}»`),
+      required(spokenLine
+        ? `Реплика героя дословно: «${spokenLine}»`
+        : ""),
       required(
         /\p{Script=Cyrillic}/u.test(spokenLine)
           ? SEEDANCE_RUSSIAN_DICTION_GUARD
@@ -791,6 +897,30 @@ export function compileSafeGenerationBrief({
       });
     }
     if (
+      selectedRecommendationRequired
+      && normalizedMode === REAL_SEEDANCE_MODE
+      && selectedSpokenIntent.ready
+    ) {
+      const expectedSpokenLine =
+        `Реплика героя дословно: «${selectedSpokenIntent.line}»`;
+      const actualSpokenLine =
+        /Реплика героя дословно:\s*«([^»]+)»/u.exec(prompt)?.[1] || "";
+      const spokenDirectiveCount = (
+        prompt.match(PROMPT_SPOKEN_DIRECTIVE_PATTERN) || []
+      ).length;
+      if (
+        actualSpokenLine !== selectedSpokenIntent.line
+        || spokenDirectiveCount !== 1
+        || prompt.split(expectedSpokenLine).length - 1 !== 1
+        || AI_RESEARCH_DEFAULT_IGNORABLE_PATTERN.test(prompt)
+      ) {
+        blockers.push({
+          code: "ai_research_prompt_binding_invalid",
+          message: "Технический prompt потерял точную реплику выбранного варианта ИИ‑центра.",
+        });
+      }
+    }
+    if (
       !selectedRecommendationRequired
       && (providerMarkerCount !== 0 || humanMarkerCount !== 0)
     ) {
@@ -825,6 +955,7 @@ export function compileSafeGenerationBrief({
     selectedRecommendationFragmentHash:
       selectedProviderFragment?.fragmentHash || "",
     selectedRecommendationHumanIntent: selectedHumanIntent.line,
+    selectedRecommendationSpokenLine: selectedSpokenIntent.line,
   });
 }
 
@@ -1614,6 +1745,12 @@ export function inspectContentGenerationPrompt(
       });
     }
   } else if (normalizedMode === REAL_SEEDANCE_MODE) {
+    if (AI_RESEARCH_DEFAULT_IGNORABLE_PATTERN.test(String(prompt ?? ""))) {
+      blockers.push({
+        code: "spoken_prompt_ambiguous",
+        message: "Удалите невидимые управляющие символы из задания и реплики.",
+      });
+    }
     const interaction = inferProductInteractionProfile({
       productName,
       productCategory,
@@ -2129,36 +2266,70 @@ function requiredVerbatim(text) {
   };
 }
 
-function aiResearchBriefSections(value) {
+function aiResearchBriefSections(value, { strictSpoken = false } = {}) {
   const sections = {};
   const seen = new Set();
-  const requiredSections = new Set(
-    AI_RESEARCH_HUMAN_SECTION_KEYS.map(([section]) => section),
-  );
+  const uniqueSections = new Set([
+    ...AI_RESEARCH_HUMAN_SECTION_KEYS.map(([section]) => section),
+    ...(strictSpoken ? [AI_RESEARCH_SPOKEN_SECTION] : []),
+  ]);
+  const rawValue = String(value || "");
+  if (
+    strictSpoken
+    && AI_RESEARCH_RAW_UNSAFE_CONTROL_PATTERN.test(rawValue)
+  ) {
+    sections.__spokenUnsafe = true;
+  }
   let active = "";
-  String(value || "").replace(/\r\n?/gu, "\n").split("\n").forEach((rawLine) => {
-    const line = String(rawLine || "")
-      .replace(/^ +/gu, "")
-      .replace(/ +$/gu, "");
+  rawValue.replace(/\r\n?/gu, "\n").split("\n").forEach((rawLine) => {
+    const line = strictSpoken
+      ? String(rawLine || "")
+        .replace(/^\p{White_Space}+/gu, "")
+        .replace(/\p{White_Space}+$/gu, "")
+      : String(rawLine || "")
+        .replace(/^ +/gu, "")
+        .replace(/ +$/gu, "");
     if (!line) return;
     const heading = AI_RESEARCH_BRIEF_SECTION_PATTERN.exec(line);
     if (heading) {
       active = heading[1].toLocaleUpperCase("ru-RU");
-      if (requiredSections.has(active) && seen.has(active)) {
+      if (uniqueSections.has(active) && seen.has(active)) {
         sections.__invalid = true;
         return;
       }
-      if (requiredSections.has(active)) seen.add(active);
+      if (uniqueSections.has(active)) seen.add(active);
+      if (
+        strictSpoken
+        && active === AI_RESEARCH_SPOKEN_SECTION
+        && unsafeAiResearchSpokenRawText(rawLine)
+      ) {
+        sections.__spokenUnsafe = true;
+      }
       const inline = cleanAiResearchHumanText(heading[2]);
       if (inline) sections[active] = inline;
       return;
     }
     if (!active) return;
+    if (
+      strictSpoken
+      && active === AI_RESEARCH_SPOKEN_SECTION
+      && unsafeAiResearchSpokenRawText(rawLine)
+    ) {
+      sections.__spokenUnsafe = true;
+    }
     sections[active] = cleanAiResearchHumanText(
       `${sections[active] || ""} ${line}`,
     );
   });
   return sections.__invalid === true ? null : sections;
+}
+
+function unsafeAiResearchSpokenRawText(value) {
+  const raw = String(value ?? "");
+  return AI_RESEARCH_SPOKEN_CONTROL_PATTERN.test(raw)
+    || AI_RESEARCH_DEFAULT_IGNORABLE_PATTERN.test(raw)
+    || AI_RESEARCH_SPOKEN_NON_ASCII_WHITESPACE_PATTERN.test(raw)
+    || AI_RESEARCH_SPOKEN_QUOTATION_MARK_PATTERN.test(raw);
 }
 
 function boundedAiResearchText(value, maximum) {

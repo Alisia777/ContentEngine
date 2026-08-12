@@ -255,6 +255,118 @@ export function approvedGenerationSpecContext(envelope, {
   });
 }
 
+export function generationSpecApprovalReviewTuple(spec) {
+  const specId = normalizedUuid(spec?.spec_id);
+  const specVersion = Number(spec?.spec_version);
+  const specHash = clean(spec?.spec_hash).toLowerCase();
+  const promptHash = clean(spec?.prompt_hash).toLowerCase();
+  if (
+    !specId
+    || !Number.isInteger(specVersion)
+    || specVersion < 1
+    || specVersion > 100_000
+    || !SHA256_PATTERN.test(specHash)
+    || !SHA256_PATTERN.test(promptHash)
+  ) return null;
+  return Object.freeze({
+    specId,
+    specVersion,
+    specHash,
+    promptHash,
+    key: JSON.stringify([specId, specVersion, specHash, promptHash]),
+  });
+}
+
+export function generationSpecApprovalReviewState(spec, {
+  confirmed = false,
+} = {}) {
+  const tuple = generationSpecApprovalReviewTuple(spec);
+  if (!tuple) return null;
+  return Object.freeze({
+    open: true,
+    confirmed: confirmed === true,
+    ...tuple,
+  });
+}
+
+export function generationSpecApprovalReviewMatches(review, spec) {
+  const tuple = generationSpecApprovalReviewTuple(spec);
+  return Boolean(
+    tuple
+    && review?.open === true
+    && review.specId === tuple.specId
+    && Number(review.specVersion) === tuple.specVersion
+    && review.specHash === tuple.specHash
+    && review.promptHash === tuple.promptHash
+    && review.key === tuple.key
+  );
+}
+
+export function generationSpecSpokenReview(spec) {
+  const audioExpected = spec?.exact_scope?.audio === true;
+  if (!audioExpected) {
+    return Object.freeze({
+      audioExpected: false,
+      ready: true,
+      spokenLine: "",
+      message: "В этой версии речь не предусмотрена.",
+    });
+  }
+  const spokenLines = [...String(spec?.compiled_prompt || "").matchAll(
+    /Реплика героя дословно:\s*«([^»]+)»/gu,
+  )].map((match) => clean(match[1])).filter(Boolean);
+  const ready = spokenLines.length === 1;
+  return Object.freeze({
+    audioExpected: true,
+    ready,
+    spokenLine: ready ? spokenLines[0] : "",
+    message: ready
+      ? "Сверьте эту реплику слово в слово перед одобрением."
+      : "В точном prompt нет одной однозначной дословной реплики. Эту версию нельзя одобрить.",
+  });
+}
+
+export function generationSpecApprovalReviewDecision({
+  decision = "",
+  review = null,
+  spec = null,
+  dirty = false,
+  confirmed = false,
+} = {}) {
+  const normalizedDecision = clean(decision).toLowerCase();
+  if (normalizedDecision === "cancel") {
+    return Object.freeze({ ok: true, kind: "cancel", rpcAction: null });
+  }
+  if (normalizedDecision === "open") {
+    const nextReview = generationSpecApprovalReviewState(spec);
+    return Object.freeze({
+      ok: Boolean(nextReview),
+      kind: nextReview ? "open" : "stale",
+      rpcAction: null,
+      review: nextReview,
+    });
+  }
+  const current = generationSpecApprovalReviewMatches(review, spec)
+    && spec?.status === "draft"
+    && dirty !== true;
+  if (!current) {
+    return Object.freeze({ ok: false, kind: "stale", rpcAction: null });
+  }
+  if (normalizedDecision === "revision") {
+    return Object.freeze({ ok: true, kind: "revision", rpcAction: "reject" });
+  }
+  const speech = generationSpecSpokenReview(spec);
+  if (
+    normalizedDecision !== "approve"
+    || confirmed !== true
+    || review?.confirmed !== true
+    || !speech.ready
+  ) {
+    return Object.freeze({ ok: false, kind: "blocked", rpcAction: null });
+  }
+  return Object.freeze({ ok: true, kind: "approve", rpcAction: "approve" });
+}
+
 export function generationSpecCardMarkup(state = {}, { expectedScope = null } = {}) {
   const envelope = state.data || null;
   const spec = envelope?.generationSpec || null;
@@ -264,6 +376,20 @@ export function generationSpecCardMarkup(state = {}, { expectedScope = null } = 
   );
   const loading = state.status === "loading" || state.saving === true;
   const next = envelope?.recommendedNextAction || null;
+  const approvalReviewRequired = Boolean(
+    !dirty
+    && spec?.status === "draft"
+    && next?.action === "approve"
+    && next.requiresConfirmation === true
+  );
+  const approvalReviewActive = Boolean(
+    approvalReviewRequired
+    && generationSpecApprovalReviewMatches(state.approvalReview, spec)
+  );
+  const approvalReviewConfirmed = Boolean(
+    approvalReviewActive && state.approvalReview?.confirmed === true
+  );
+  const spokenReview = generationSpecSpokenReview(spec);
   const statusLabel = loading
     ? "Проверяем серверную версию"
     : approved
@@ -275,21 +401,25 @@ export function generationSpecCardMarkup(state = {}, { expectedScope = null } = 
           : "Версия ещё не подготовлена";
   const primaryAction = dirty
     ? (spec ? "patch" : "prepare")
-    : next?.action || (spec ? "patch" : "prepare");
+    : approvalReviewRequired
+      ? "review"
+      : next?.action || (spec ? "patch" : "prepare");
   const primaryLabel = dirty
     ? spec
       ? "Сохранить правки как новую версию"
       : "Подготовить серверное ТЗ бесплатно"
-    : next?.label || (spec
-      ? "Подготовить исправленную версию"
-      : "Подготовить серверное ТЗ бесплатно");
+    : approvalReviewRequired
+      ? (approvalReviewActive ? "Продолжить проверку ТЗ" : "Открыть и проверить ТЗ")
+      : next?.label || (spec
+        ? "Подготовить исправленную версию"
+        : "Подготовить серверное ТЗ бесплатно");
   const primaryReason = dirty
     ? "Поля изменились после последней серверной проверки. Старая версия не будет утверждена автоматически."
     : next?.reason || "Сервер зафиксирует точный prompt и его происхождение без вызова Runway.";
   const controls = spec
     ? [
         ["patch", "Сохранить правки"],
-        ["approve", "Утвердить эту версию"],
+        ...(approvalReviewRequired ? [] : [["approve", "Утвердить эту версию"]]),
         ["reject", "Отклонить"],
         ["revert", "Вернуть прошлую"],
         ["recompute", "Пересчитать"],
@@ -357,7 +487,7 @@ export function generationSpecCardMarkup(state = {}, { expectedScope = null } = 
           <div><dt>Spec hash</dt><dd><code>${escapeHtml(spec.spec_hash.slice(0, 12))}…</code></dd></div>
           <div><dt>Prompt hash</dt><dd><code>${escapeHtml(spec.prompt_hash.slice(0, 12))}…</code></dd></div>
         </dl>
-        <details class="generation-spec-card__prompt">
+        <details class="generation-spec-card__prompt" ${approvalReviewActive ? "open" : ""}>
           <summary>Проверить точный prompt этой версии</summary>
           <pre>${escapeHtml(spec.compiled_prompt)}</pre>
         </details>
@@ -397,6 +527,29 @@ export function generationSpecCardMarkup(state = {}, { expectedScope = null } = 
         <p>${escapeHtml(primaryReason)}</p>
         <button class="btn btn-secondary btn-small" type="button" data-action="run-generation-spec-recommended-action" data-generation-spec-control="${escapeHtml(primaryAction)}" ${loading ? "disabled" : ""}>${escapeHtml(primaryLabel)}</button>
       </div>
+      ${approvalReviewActive ? `
+        <section class="generation-spec-card__approval-review" data-generation-spec-approval-review data-review-key="${escapeHtml(state.approvalReview.key)}" data-spec-id="${escapeHtml(state.approvalReview.specId)}" data-spec-version="${state.approvalReview.specVersion}" data-spec-hash="${escapeHtml(state.approvalReview.specHash)}" data-prompt-hash="${escapeHtml(state.approvalReview.promptHash)}" aria-label="Проверка точной версии ТЗ">
+          <div>
+            <p class="eyebrow">Решение человека</p>
+            <h4>Проверьте эту точную версию до одобрения</h4>
+            <p class="muted tiny">Подтверждение относится только к v${state.approvalReview.specVersion}, spec ${escapeHtml(state.approvalReview.specHash.slice(0, 12))}… и prompt ${escapeHtml(state.approvalReview.promptHash.slice(0, 12))}…. Любое изменение сбросит его.</p>
+          </div>
+          <div class="generation-spec-card__speech" data-generation-spec-spoken-review data-state="${spokenReview.ready ? "ready" : "blocked"}">
+            <strong>${spokenReview.audioExpected ? "Дословная реплика" : "Звук"}</strong>
+            ${spokenReview.spokenLine ? `<blockquote>«${escapeHtml(spokenReview.spokenLine)}»</blockquote>` : ""}
+            <p class="muted tiny">${escapeHtml(spokenReview.message)}</p>
+          </div>
+          <label class="recipe-confirm">
+            <input type="checkbox" data-generation-spec-approval-confirm ${approvalReviewConfirmed ? "checked" : ""} ${loading || !spokenReview.ready ? "disabled" : ""}>
+            <span>Я полностью прочитал точный prompt и ${spokenReview.audioExpected ? "сверил дословную реплику" : "подтвердил режим без речи"}. Я одобряю только указанные выше version и hash.</span>
+          </label>
+          <div class="inline-actions">
+            <button class="btn" type="button" data-action="confirm-generation-spec-approval" ${loading || !approvalReviewConfirmed || !spokenReview.ready ? "disabled" : ""}>Одобрить эту точную версию</button>
+            <button class="btn btn-secondary" type="button" data-action="request-generation-spec-revision" ${loading ? "disabled" : ""}>На доработку</button>
+            <button class="btn btn-ghost" type="button" data-action="cancel-generation-spec-review" ${loading ? "disabled" : ""}>Отмена</button>
+          </div>
+        </section>
+      ` : ""}
       <details class="generation-spec-card__controls">
         <summary>Другие доступные действия</summary>
         <div class="inline-actions">
