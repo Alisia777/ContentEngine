@@ -1,0 +1,81 @@
+name: Provision Klimov direct access once
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type PROVISION_KLIMOV_TEMP_PASSWORD_OPERATOR_ALL_PROJECTS_ONCE
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-klimov-operator-onboarding
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    name: Set temporary password and grant current projects
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.inputs.confirmation ==
+        'PROVISION_KLIMOV_TEMP_PASSWORD_OPERATOR_ALL_PROJECTS_ONCE'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+      SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_OWNER_EMAIL: ${{ secrets.SUPABASE_OWNER_EMAIL }}
+      SUPABASE_MEMBER_KLIMOV_EMAIL: ${{ secrets.SUPABASE_MEMBER_KLIMOV_EMAIL }}
+      SUPABASE_MEMBER_KLIMOV_DISPLAY_NAME: ${{ secrets.SUPABASE_MEMBER_KLIMOV_DISPLAY_NAME }}
+      CONTENTENGINE_MEMBER_DISPATCH_PASSWORD: ${{ secrets.SUPABASE_MEMBER_KLIMOV_TEMP_PASSWORD }}
+    steps:
+      - name: Check out the exact deployed main revision
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Apply the protected direct-access saga
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${SUPABASE_PROJECT_REF:?Configure SUPABASE_PROJECT_REF in production}"
+          : "${SUPABASE_PUBLISHABLE_KEY:?Configure SUPABASE_PUBLISHABLE_KEY in production}"
+          : "${SUPABASE_ACCESS_TOKEN:?Configure SUPABASE_ACCESS_TOKEN in production}"
+          : "${SUPABASE_OWNER_EMAIL:?Configure SUPABASE_OWNER_EMAIL in production}"
+          : "${SUPABASE_MEMBER_KLIMOV_EMAIL:?Configure SUPABASE_MEMBER_KLIMOV_EMAIL in production}"
+          : "${SUPABASE_MEMBER_KLIMOV_DISPLAY_NAME:?Configure SUPABASE_MEMBER_KLIMOV_DISPLAY_NAME in production}"
+          : "${CONTENTENGINE_MEMBER_DISPATCH_PASSWORD:?Configure SUPABASE_MEMBER_KLIMOV_TEMP_PASSWORD in production}"
+          echo "::add-mask::$SUPABASE_OWNER_EMAIL"
+          echo "::add-mask::$SUPABASE_MEMBER_KLIMOV_EMAIL"
+          echo "::add-mask::$SUPABASE_MEMBER_KLIMOV_DISPLAY_NAME"
+          python -m scripts.provision_klimov_direct_access \
+            --email="$SUPABASE_MEMBER_KLIMOV_EMAIL" \
+            --display-name="$SUPABASE_MEMBER_KLIMOV_DISPLAY_NAME" \
+            --owner-email="$SUPABASE_OWNER_EMAIL" \
+            --password-dispatch-id="klimov-direct-access-v1"
+
+      - name: Record safe completion summary
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo "## Klimov direct access"
+            echo
+            echo "- Exact Auth identity confirmed"
+            echo "- Temporary password installed; first-login change required"
+            echo "- Active operator waiver verified"
+            echo "- Every current active project assigned"
+            echo "- No recovery or SMTP email requested"
+          } >> "$GITHUB_STEP_SUMMARY"
