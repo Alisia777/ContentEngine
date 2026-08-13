@@ -515,7 +515,7 @@ def test_primary_dock_defaults_expose_one_unambiguous_next_action() -> None:
     assert "routeReviewId || activeReview || pendingDecision" in review
 
     acceptance = "generationModelAcceptanceMarkup("
-    archive = '<section class="card generation-archive-card">'
+    archive = '<section class="card generation-archive-card" data-generation-archive-card>'
     assert generation.count(acceptance) == 1
     assert generation.index(archive) < generation.index(acceptance)
 
