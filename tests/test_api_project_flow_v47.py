@@ -1076,7 +1076,7 @@ def test_exact_project_media_rpc_matches_generation_and_review_visibility() -> N
     method_start = API.index("projectMedia(")
     method = API[method_start : method_start + 1_800]
     assert "isUuid(normalizedMediaId)" in method
-    assert '["generation", "review"].includes(normalizedSurface)' in method
+    assert '["generation", "review", "files"].includes(normalizedSurface)' in method
     assert "requiredProjectId(projectIdSnake || projectId)" in method
     assert "media_id: normalizedMediaId" in method
     assert "surface: normalizedSurface" in method

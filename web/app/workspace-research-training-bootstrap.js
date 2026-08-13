@@ -10,16 +10,16 @@
 (() => {
   "use strict";
 
-  const BUILD = "20260810.research.30";
+  const BUILD = "20260812.os4.38";
   const ASSET_BUILD_OVERRIDES = Object.freeze({
     "workspace-ai-exact-youtube-sources.js":
-      "20260811.ai-center-runtime-owned.2",
+      "20260812.os4.38",
     "workspace-ai-research-training.js":
-      "20260811.ai-center-runtime-owned.2",
+      "20260812.os4.38",
     "workspace-generation-research-recommendations.js":
-      "20260812.ai-reload-verification.1",
+      "20260812.os4.38",
     "workspace-research-failure-recovery.js":
-      "20260811.ai-center-runtime-owned.1",
+      "20260812.os4.38",
   });
   const SCRIPT_URL = document.currentScript?.src || window.location.href;
   const BASE_URL = new URL(".", SCRIPT_URL);
@@ -90,6 +90,32 @@
     return (`/${raw.split("?")[0] || ""}`)
       .replace(/\/{2,}/gu, "/")
       .replace(/\/$/u, "") || "/";
+  }
+
+  function aiProjectAssetAllowed(file) {
+    // A real browser exposes querySelector. Minimal adapter harnesses without
+    // it exercise the legacy project-wide loader contract in isolation.
+    if (typeof document.querySelector !== "function") return true;
+    const shell = document.querySelector(".workspace-shell");
+    const receiptScope = String(
+      shell?.dataset?.aiResearchReceiptScope || "none",
+    ).trim().toLowerCase();
+    const exactYoutubeScope = String(
+      shell?.dataset?.aiExactYoutubeSourceScope || "none",
+    ).trim().toLowerCase();
+    if (
+      [
+        "workspace-ai-research-training.js",
+        "workspace-ai-research-training.css",
+      ].includes(file)
+    ) return ["own", "project"].includes(receiptScope);
+    if (
+      [
+        "workspace-ai-exact-youtube-sources.js",
+        "workspace-ai-exact-youtube-sources.css",
+      ].includes(file)
+    ) return exactYoutubeScope === "project";
+    return true;
   }
 
   function assetUrl(file) {
@@ -173,9 +199,15 @@
     const currentEpoch = ++epoch;
     const matches = ROUTES.filter((entry) => entry.match(route));
     if (!matches.length) return;
-    const styles = [...new Set(matches.flatMap((entry) => entry.styles))];
-    const modules = [...new Set(matches.flatMap((entry) => entry.modules))];
-    const requiresRpcAliases = matches.some(
+    let styles = [...new Set(matches.flatMap((entry) => entry.styles))];
+    let modules = [...new Set(matches.flatMap((entry) => entry.modules))];
+    if (route === "/workspace/ai") {
+      styles = styles.filter(aiProjectAssetAllowed);
+      modules = modules.filter(aiProjectAssetAllowed);
+    }
+    const requiresRpcAliases = modules.includes(
+      "workspace-ai-research-training.js",
+    ) && matches.some(
       (entry) => entry.requiresRpcAliases === true,
     );
     try {
@@ -205,6 +237,10 @@
 
   window.addEventListener("contentengine:v4-route-ready", schedule);
   window.addEventListener("contentengine:workspace-runtime-ready", schedule);
+  window.addEventListener(
+    "contentengine:workspace-capabilities-ready",
+    schedule,
+  );
   if (document.documentElement.dataset.ceV4Ready === "true") {
     schedule();
   }

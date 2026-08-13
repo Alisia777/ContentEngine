@@ -11,6 +11,8 @@ const OPENAI_RESPONSE_SOURCES_INCLUDE =
   "include%5B%5D=web_search_call.action.sources";
 const RESEARCH_PROVIDER_KEY = "openai_web_search";
 const RESEARCH_PROVIDER_ADAPTER_VERSION = "openai-responses-web-search-v1";
+const RESEARCH_BILLING_MODEL = "gpt-5.5";
+const RESEARCH_SERVICE_TIER = "default";
 const STORAGE_BUCKET = "contentengine-private";
 const MAX_BODY_BYTES = 8_192;
 const MAX_PROVIDER_JSON_BYTES = 1_572_864;
@@ -1134,15 +1136,10 @@ function openAiSecret(): string | null {
 }
 
 function openAiModel(): string {
-  const configured = Deno.env.get("OPENAI_PRODUCT_RESEARCH_MODEL") ??
-    Deno.env.get("QVF_OPENAI_MODEL") ?? "gpt-5.5";
-  if (
-    /^[A-Za-z0-9][A-Za-z0-9._:-]{1,79}$/u.test(configured) &&
-    !hasForbiddenControl(configured)
-  ) {
-    return configured;
-  }
-  return "gpt-5.5";
+  // This exact model is part of the action-time metered price contract shown
+  // to the employee.  A deployment-time override would make that confirmation
+  // untruthful, so research intentionally has no environment model fallback.
+  return RESEARCH_BILLING_MODEL;
 }
 
 function validateSignedStorageUrl(value: unknown): string | null {
@@ -2766,6 +2763,7 @@ function openAiRequestBody(
   ];
   return {
     model: openAiModel(),
+    service_tier: RESEARCH_SERVICE_TIER,
     instructions: RESEARCH_INSTRUCTIONS.trim(),
     input: [{ role: "user", content }],
     tools: [{ type: "web_search", search_context_size: "high" }],

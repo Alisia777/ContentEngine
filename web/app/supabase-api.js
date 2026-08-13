@@ -175,6 +175,47 @@ const AI_KNOWLEDGE_MIME_TYPES = new Set([
   "text/plain",
 ]);
 const PRODUCT_RESEARCH_PLATFORM_SET = new Set(PRODUCT_RESEARCH_PLATFORMS);
+const PRODUCT_RESEARCH_PAID_AUTHORIZATION_KEYS = Object.freeze([
+  "version",
+  "provider",
+  "provider_key",
+  "adapter_version",
+  "model",
+  "currency",
+  "billing_mode",
+  "service_tier",
+  "input_usd_per_million_tokens",
+  "output_usd_per_million_tokens",
+  "long_context_threshold_input_tokens",
+  "long_context_input_usd_per_million_tokens",
+  "long_context_output_usd_per_million_tokens",
+  "web_search_usd_per_call",
+  "max_output_tokens",
+  "max_provider_attempts",
+  "fixed_total",
+  "confirmation_value",
+]);
+const PRODUCT_RESEARCH_PAID_AUTHORIZATION_EXACT = Object.freeze({
+  version: "openai-api-2026-08-13-gpt-5.5-standard-context-v3",
+  provider: "openai",
+  provider_key: "openai_web_search",
+  adapter_version: "openai-responses-web-search-v1",
+  model: "gpt-5.5",
+  currency: "USD",
+  billing_mode: "metered_actual_usage",
+  service_tier: "default",
+  input_usd_per_million_tokens: "5.00",
+  output_usd_per_million_tokens: "30.00",
+  long_context_threshold_input_tokens: 272_000,
+  long_context_input_usd_per_million_tokens: "10.00",
+  long_context_output_usd_per_million_tokens: "45.00",
+  web_search_usd_per_call: "0.01",
+  max_output_tokens: 18_000,
+  max_provider_attempts: 1,
+  fixed_total: false,
+  confirmation_value:
+    "OPENAI_GPT_5_5_WEB_RESEARCH_20260813_DEFAULT_SHORT_IN_5_OUT_30_LONG_GT272K_IN_10_OUT_45_SEARCH_0_01_MAXOUT_18000",
+});
 const RESEARCH_STAGE_SET = new Set([
   "sources",
   "category",
@@ -487,6 +528,58 @@ export class CreatorApiError extends Error {
       ? { ...details.job }
       : null;
   }
+}
+
+export function normalizeProductResearchPaidAuthorization(value) {
+  if (!hasExactObjectKeys(value, PRODUCT_RESEARCH_PAID_AUTHORIZATION_KEYS)) {
+    throw new CreatorApiError("Точный тариф платного анализа устарел. Обновите проект и подтвердите его заново.", {
+      code: "product_research_paid_authorization_invalid",
+    });
+  }
+  const exactEntriesValid = Object.entries(
+    PRODUCT_RESEARCH_PAID_AUTHORIZATION_EXACT,
+  ).every(([key, expected]) => value[key] === expected);
+  if (
+    !exactEntriesValid
+  ) {
+    throw new CreatorApiError("Точный тариф платного анализа устарел. Обновите проект и подтвердите его заново.", {
+      code: "product_research_paid_authorization_invalid",
+    });
+  }
+  // Clone the canonical object whole: the RPC compares all keys and values.
+  return JSON.parse(JSON.stringify(value));
+}
+
+function productResearchMutationFingerprintPayload(payload) {
+  const sanitized = { ...payload };
+  const authorization = sanitized.paid_analysis_authorization;
+  delete sanitized.paid_analysis_authorization;
+  if (authorization) {
+    sanitized.paid_analysis_tariff = {
+      version: authorization.version,
+      provider_key: authorization.provider_key,
+      adapter_version: authorization.adapter_version,
+      model: authorization.model,
+      currency: authorization.currency,
+      billing_mode: authorization.billing_mode,
+      service_tier: authorization.service_tier,
+      input_usd_per_million_tokens:
+        authorization.input_usd_per_million_tokens,
+      output_usd_per_million_tokens:
+        authorization.output_usd_per_million_tokens,
+      long_context_threshold_input_tokens:
+        authorization.long_context_threshold_input_tokens,
+      long_context_input_usd_per_million_tokens:
+        authorization.long_context_input_usd_per_million_tokens,
+      long_context_output_usd_per_million_tokens:
+        authorization.long_context_output_usd_per_million_tokens,
+      web_search_usd_per_call: authorization.web_search_usd_per_call,
+      max_output_tokens: authorization.max_output_tokens,
+      max_provider_attempts: authorization.max_provider_attempts,
+      fixed_total: authorization.fixed_total,
+    };
+  }
+  return sanitized;
 }
 
 function normalizeManagedAccountInput(value) {
@@ -1581,6 +1674,20 @@ export class CreatorApi {
       }
       payload.entity_types = [...new Set(options.entity_types.map(String))];
     }
+    if (options.artifact_classes !== undefined) {
+      const supported = new Set(["source", "generated_output", "unclassified"]);
+      if (
+        !Array.isArray(options.artifact_classes)
+        || options.artifact_classes.length < 1
+        || options.artifact_classes.length > 3
+        || options.artifact_classes.some((value) => !supported.has(String(value)))
+      ) {
+        throw new CreatorApiError("Выберите источники, результаты или неклассифицированные материалы.", {
+          code: "workspace_artifact_classes_invalid",
+        });
+      }
+      payload.artifact_classes = [...new Set(options.artifact_classes.map(String))];
+    }
     if (options.cursor !== undefined) {
       if (!options.cursor || typeof options.cursor !== "object" || Array.isArray(options.cursor)) {
         throw new CreatorApiError("Курсор рабочего пространства имеет неверный формат.", {
@@ -1685,7 +1792,7 @@ export class CreatorApi {
         code: "project_media_id_invalid",
       });
     }
-    if (!["generation", "review"].includes(normalizedSurface)) {
+    if (!["generation", "review", "files"].includes(normalizedSurface)) {
       throw new CreatorApiError("Некорректный раздел материала.", {
         code: "project_media_surface_invalid",
       });
@@ -2389,6 +2496,15 @@ export class CreatorApi {
         code: "product_research_paid_confirmation_required",
       });
     }
+    const paidAuthorizationProvided = Object.prototype.hasOwnProperty.call(
+      input || {},
+      "paid_analysis_authorization",
+    );
+    const paidAnalysisAuthorization = paidAuthorizationProvided
+      ? normalizeProductResearchPaidAuthorization(
+          input.paid_analysis_authorization,
+        )
+      : null;
     const productCategory = String(input?.product_category || "")
       .trim()
       .toLowerCase();
@@ -2448,12 +2564,19 @@ export class CreatorApi {
       product_category: productCategory,
       project_id: normalizedProjectId,
     };
+    if (paidAnalysisAuthorization) {
+      payload.paid_analysis_authorization = paidAnalysisAuthorization;
+    } else {
+      delete payload.paid_analysis_authorization;
+    }
     delete payload.projectId;
     // The media id is a client-side expected receipt value. The SQL binding
     // derives its authoritative media from the append-only attachment and
     // deliberately does not accept a caller-selected media id.
     delete payload.exact_youtube_media_id;
-    const created = await this.mutate(RPC.startProductResearch, payload);
+    const created = await this.mutate(RPC.startProductResearch, payload, {
+      fingerprintPayload: productResearchMutationFingerprintPayload(payload),
+    });
     const source = created?.data && typeof created.data === "object" ? created.data : created;
     const run = source?.run || source?.research || {};
     const runId = String(run?.id || source?.run_id || source?.research_id || source?.id || "").trim();
@@ -5451,9 +5574,15 @@ export class CreatorApi {
     return { ...payload, organization_id: this.organizationId };
   }
 
-  async mutate(functionName, payload, { retainOnError = true } = {}) {
+  async mutate(functionName, payload, {
+    retainOnError = true,
+    fingerprintPayload = null,
+  } = {}) {
     const scopedPayload = this.withOrganization(payload);
-    const fingerprint = `${functionName}:${stableStringify(scopedPayload)}`;
+    const fingerprintScope = fingerprintPayload === null
+      ? scopedPayload
+      : this.withOrganization(fingerprintPayload);
+    const fingerprint = `${functionName}:${stableStringify(fingerprintScope)}`;
     const idempotencyKey = this.mutationKeys[fingerprint] || crypto.randomUUID();
     this.mutationKeys[fingerprint] = idempotencyKey;
     writeMutationKeys(this.mutationKeys);
@@ -7560,6 +7689,7 @@ function toFriendlyMessage(error) {
     workspace_page_size_invalid: "Можно загрузить от 1 до 100 объектов за один запрос.",
     workspace_search_invalid: "Сократите запрос поиска до 120 символов.",
     workspace_entity_types_invalid: "Выберите материалы, задачи или оба типа объектов.",
+    workspace_artifact_classes_invalid: "Выберите корректный фильтр: источники, исследования или созданные результаты.",
     workspace_media_kinds_invalid: "Один из типов материалов больше не поддерживается.",
     workspace_task_statuses_invalid: "Один из статусов задач больше не поддерживается.",
     workspace_cursor_invalid: "Список объектов изменился. Обновите рабочий стол.",

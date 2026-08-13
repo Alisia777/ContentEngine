@@ -115,6 +115,8 @@ const runtime = {
   workingDraftAuthority: "unknown",
   workingDraftAuthorityProjectId: "",
   explicitApplyTargetKey: "",
+  freshRouteApplyTargetKey: "",
+  freshRouteApplyProjectId: "",
   tombstoneReplacementKey: "",
 };
 
@@ -157,6 +159,17 @@ function recommendationTargetKey(target) {
   return target?.selectionId && [1, 2, 3].includes(target.recommendationPosition)
     ? `${target.selectionId}:${target.recommendationPosition}`
     : "";
+}
+
+export function researchRecommendationApplicationAuthorized(
+  target,
+  { freshRouteTargetKey = "", explicitApplyTargetKey = "" } = {},
+) {
+  const targetKey = recommendationTargetKey(target);
+  return Boolean(
+    targetKey
+    && (targetKey === freshRouteTargetKey || targetKey === explicitApplyTargetKey),
+  );
 }
 
 export function explicitResearchRecommendationForTarget(
@@ -1328,7 +1341,7 @@ export function resolveAuthoritativeRecommendationProductFields({
   };
 }
 
-export function applyAuthoritativeRecommendationProduct(form, envelope) {
+export function recommendationProductIdentityMatches(form, envelope) {
   const source = object(envelope);
   const productId = normalizedUuid(source.product_id);
   const selectedMediaProductId = normalizedUuid(
@@ -1340,10 +1353,18 @@ export function applyAuthoritativeRecommendationProduct(form, envelope) {
   ).ok) {
     return false;
   }
+  const selectedMedia = selectedVerifiedMediaProduct(form, productId);
+  if (selectedMedia.selected && !selectedMedia.valid) return false;
+  return true;
+}
+
+export function applyAuthoritativeRecommendationProduct(form, envelope) {
+  if (!recommendationProductIdentityMatches(form, envelope)) return false;
+  const source = object(envelope);
+  const productId = normalizedUuid(source.product_id);
   const sku = form?.elements?.sku;
   const productName = form?.elements?.product_name;
   const selectedMedia = selectedVerifiedMediaProduct(form, productId);
-  if (selectedMedia.selected && !selectedMedia.valid) return false;
   const values = resolveAuthoritativeRecommendationProductFields({
     recommendationSku: source.source_product_sku,
     recommendationProductName: source.source_product_name,
@@ -1762,6 +1783,10 @@ function applyRecommendation(envelope, { explicit = false } = {}) {
       "Сначала сервер должен подтвердить точный выбранный вариант и товар. ИИ‑поля не применены.",
       "danger",
     );
+    return false;
+  }
+  if (!applyAuthoritativeRecommendationProduct(runtime.form, envelope)) {
+    blockRecommendationProductMismatch(runtime.form, envelope);
     return false;
   }
   const context = formContext(runtime.form);
@@ -2201,10 +2226,33 @@ async function loadRecommendations(form, context) {
             recommendationPosition: rememberedPosition,
           }
         : null));
+  const routedTargetKey = recommendationTargetKey(routedTarget);
+  if (
+    routedTargetKey
+    && explicitResearchRecommendationIntentIsFresh(routedTarget)
+  ) {
+    runtime.freshRouteApplyTargetKey = routedTargetKey;
+    runtime.freshRouteApplyProjectId = normalizedUuid(context.projectId);
+    // Consume the one-shot browser intent before any asynchronous work. A
+    // reload can still preview the exact server response, but cannot apply it
+    // again without a fresh human click.
+    consumeExplicitResearchRecommendationIntent(routedTarget);
+  } else if (
+    !routedTargetKey
+    || runtime.freshRouteApplyProjectId !== normalizedUuid(context.projectId)
+    || runtime.freshRouteApplyTargetKey !== routedTargetKey
+  ) {
+    runtime.freshRouteApplyTargetKey = "";
+    runtime.freshRouteApplyProjectId = "";
+  }
+  const freshRouteApplyTargetKey =
+    runtime.freshRouteApplyProjectId === normalizedUuid(context.projectId)
+      ? runtime.freshRouteApplyTargetKey
+      : "";
   if (
     routedTarget
     && recommendationTargetKey(routedTarget) === recommendationTargetKey(target)
-    && explicitResearchRecommendationIntentIsFresh(routedTarget)
+    && freshRouteApplyTargetKey === recommendationTargetKey(routedTarget)
   ) {
     authorizeTombstoneReplacement(context, routedTarget);
   }
@@ -2346,7 +2394,7 @@ async function loadRecommendations(form, context) {
       if (!exactTarget) {
         throw new Error("generation_research_recommendation_response_mismatch");
       }
-      if (!applyAuthoritativeRecommendationProduct(form, exactTarget)) {
+      if (!recommendationProductIdentityMatches(form, exactTarget)) {
         blockRecommendationProductMismatch(form, exactTarget);
         throw new Error("generation_research_recommendation_product_mismatch");
       }
@@ -2396,22 +2444,32 @@ async function loadRecommendations(form, context) {
         context,
       );
       if (!runtime.workingDraft?.draft) scheduleWorkingDraftSave();
-      if (target) consumeRouteRecommendationTarget(target);
+      if (target) {
+        runtime.freshRouteApplyTargetKey = "";
+        runtime.freshRouteApplyProjectId = "";
+        consumeRouteRecommendationTarget(target);
+      }
     }
-    const explicitApplyRequested = Boolean(
-      target
-      && runtime.explicitApplyTargetKey
-      && runtime.explicitApplyTargetKey === recommendationTargetKey(target),
+    const explicitApplyRequested = researchRecommendationApplicationAuthorized(
+      target,
+      {
+        freshRouteTargetKey: freshRouteApplyTargetKey,
+        explicitApplyTargetKey: runtime.explicitApplyTargetKey,
+      },
     );
     if (
       selected
       && target
-      && (routeRecommendationTarget() || explicitApplyRequested)
+      && explicitApplyRequested
       && !alreadyApplied
     ) {
       const applied = applyRecommendation(selected, { explicit: true });
       runtime.explicitApplyTargetKey = "";
-      if (applied && target) consumeRouteRecommendationTarget(target);
+      if (applied && target) {
+        runtime.freshRouteApplyTargetKey = "";
+        runtime.freshRouteApplyProjectId = "";
+        consumeRouteRecommendationTarget(target);
+      }
     } else if (defaultPreview) {
       setStatus(
         alreadyApplied
@@ -2623,6 +2681,13 @@ function mount() {
   if (routePath() !== ROUTE) {
     window.clearTimeout(runtime.workingDraftSaveTimer);
     runtime.workingDraftSaveTimer = 0;
+    // Fresh URL and explicit-button grants live only for one uninterrupted
+    // Create-route visit. Leaving while verification is in flight must not
+    // let a later back-navigation reuse an already-consumed human intent.
+    runtime.freshRouteApplyTargetKey = "";
+    runtime.freshRouteApplyProjectId = "";
+    runtime.explicitApplyTargetKey = "";
+    runtime.tombstoneReplacementKey = "";
     runtime.form = null;
     runtime.root = null;
     return;

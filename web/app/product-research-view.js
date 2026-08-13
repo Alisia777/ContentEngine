@@ -410,9 +410,73 @@ function normalizeExactVideoEvidence(value) {
   return valid ? normalized : null;
 }
 
+function normalizeProductResearchStatusContext(value) {
+  const source = objectValue(value) || {};
+  const runId = String(source.run_id || "").trim().toLowerCase();
+  const projectId = String(source.project_id || "").trim().toLowerCase();
+  const ownership = String(source.ownership || "").trim().toLowerCase();
+  if (
+    !RESEARCH_UUID_PATTERN.test(runId)
+    || !RESEARCH_UUID_PATTERN.test(projectId)
+    || !["own", "project"].includes(ownership)
+  ) return null;
+  const category = normalizeProductResearchAiCategory(
+    source.product_category,
+  );
+  const receiptSource = objectValue(source.ai_receipt) || {};
+  const receiptId = String(receiptSource.receipt_id || "")
+    .trim()
+    .toLowerCase();
+  const aiReceipt = receiptId && RESEARCH_UUID_PATTERN.test(receiptId)
+    ? {
+        receiptId,
+        status: String(receiptSource.status || "").trim().toLowerCase(),
+      }
+    : null;
+  return {
+    runId,
+    projectId,
+    ownership,
+    productCategory: category,
+    aiReceipt,
+  };
+}
+
+export function productResearchStatusMatchesContext(
+  record,
+  { runId = "", projectId = "", runScope = "none" } = {},
+) {
+  const expectedRunId = String(runId || "").trim().toLowerCase();
+  const expectedProjectId = String(projectId || "").trim().toLowerCase();
+  if (
+    !RESEARCH_UUID_PATTERN.test(expectedRunId)
+    || !RESEARCH_UUID_PATTERN.test(expectedProjectId)
+    || record?.statusAuthorityVerified !== true
+    || String(record?.id || "").trim().toLowerCase() !== expectedRunId
+    || String(record?.projectId || "").trim().toLowerCase()
+      !== expectedProjectId
+  ) return false;
+  if (runScope === "own") return record?.ownership === "own";
+  return runScope === "project"
+    && ["own", "project"].includes(record?.ownership);
+}
+
+export function productResearchRequestContextMatches(
+  captured,
+  { requestId = 0, projectId = "" } = {},
+) {
+  return Number.isSafeInteger(captured?.requestId)
+    && captured.requestId === Number(requestId)
+    && RESEARCH_UUID_PATTERN.test(String(captured?.projectId || ""))
+    && captured.projectId === String(projectId || "").trim().toLowerCase();
+}
+
 export function normalizeProductResearch(raw, previous = null) {
   const root = objectValue(raw?.data) || objectValue(raw) || {};
   const run = objectValue(root.run) || objectValue(root.research) || root;
+  const statusContext = normalizeProductResearchStatusContext(
+    root.research_context,
+  );
   const result = objectValue(run.result) || objectValue(root.result) || {};
   const analysis = objectValue(run.analysis) || objectValue(result.analysis) || objectValue(root.analysis) || result;
   const latestDraft = objectValue(root.latest_draft) || objectValue(root.draft) || objectValue(run.latest_draft) || {};
@@ -657,6 +721,13 @@ export function normalizeProductResearch(raw, previous = null) {
 
   return {
     id,
+    projectId: statusContext?.projectId || "",
+    ownership: statusContext?.ownership || "",
+    statusAuthorityVerified: Boolean(
+      statusContext && statusContext.runId === String(id).trim().toLowerCase()
+    ),
+    statusProductCategory: statusContext?.productCategory || "",
+    aiReceipt: statusContext?.aiReceipt || null,
     status,
     productName: String(run.product_name || run.product?.name || root.product_name || previous?.productName || ""),
     sku: String(run.sku || run.product?.sku || root.sku || previous?.sku || ""),
@@ -3181,6 +3252,8 @@ export function productResearchInputMarkup({
   error = "",
   notice = "",
   defaults = {},
+  paidTariff = null,
+  exactPaidAuthorizationRequired = false,
 } = {}) {
   const initial = objectValue(defaults) || {};
   const selectedMediaIds = new Set(stringArray(initial.sourceMediaIds).slice(0, 5));
@@ -3203,7 +3276,77 @@ export function productResearchInputMarkup({
         <div><strong>${mediaLoading ? "Загружаем исходники…" : "Нет подходящих фото-исходников"}</strong><p>${mediaLoading ? "Подождите несколько секунд." : "Добавьте готовые к использованию product photo или packshot. Сгенерированные результаты сюда не попадают."}</p></div>
         ${mediaLoading ? "" : `<a class="btn btn-secondary btn-small" href="#/workspace/media">Открыть материалы</a>`}
       </div>`;
-  return `
+  const tariff = objectValue(paidTariff);
+  const tariffKeys = [
+    "version",
+    "provider",
+    "provider_key",
+    "adapter_version",
+    "model",
+    "currency",
+    "billing_mode",
+    "service_tier",
+    "input_usd_per_million_tokens",
+    "output_usd_per_million_tokens",
+    "long_context_threshold_input_tokens",
+    "long_context_input_usd_per_million_tokens",
+    "long_context_output_usd_per_million_tokens",
+    "web_search_usd_per_call",
+    "max_output_tokens",
+    "max_provider_attempts",
+    "fixed_total",
+    "confirmation_value",
+  ];
+  const tariffTextKeys = [
+    "version",
+    "provider",
+    "provider_key",
+    "adapter_version",
+    "model",
+    "currency",
+    "service_tier",
+    "input_usd_per_million_tokens",
+    "output_usd_per_million_tokens",
+    "long_context_input_usd_per_million_tokens",
+    "long_context_output_usd_per_million_tokens",
+    "web_search_usd_per_call",
+    "confirmation_value",
+  ];
+  const exactTariffAvailable = Boolean(
+    tariff
+      && Object.keys(tariff).length === tariffKeys.length
+      && tariffKeys.every((key) => Object.hasOwn(tariff, key))
+      && tariff.billing_mode === "metered_actual_usage"
+      && tariff.service_tier === "default"
+      && tariff.fixed_total === false
+      && tariff.version === "openai-api-2026-08-13-gpt-5.5-standard-context-v3"
+      && tariff.provider === "openai"
+      && tariff.provider_key === "openai_web_search"
+      && tariff.adapter_version === "openai-responses-web-search-v1"
+      && tariff.model === "gpt-5.5"
+      && tariff.currency === "USD"
+      && tariff.input_usd_per_million_tokens === "5.00"
+      && tariff.output_usd_per_million_tokens === "30.00"
+      && tariff.long_context_threshold_input_tokens === 272_000
+      && tariff.long_context_input_usd_per_million_tokens === "10.00"
+      && tariff.long_context_output_usd_per_million_tokens === "45.00"
+      && tariff.web_search_usd_per_call === "0.01"
+      && tariff.confirmation_value
+        === "OPENAI_GPT_5_5_WEB_RESEARCH_20260813_DEFAULT_SHORT_IN_5_OUT_30_LONG_GT272K_IN_10_OUT_45_SEARCH_0_01_MAXOUT_18000"
+      && tariffTextKeys.every((key) => (
+        typeof tariff[key] === "string"
+        && tariff[key].trim()
+        && tariff[key].length <= 512
+      ))
+      && Number.isSafeInteger(tariff.max_output_tokens)
+      && tariff.max_output_tokens === 18_000
+      && tariff.max_provider_attempts === 1,
+  );
+  const paidAuthorizationMarkup = exactTariffAvailable
+    ? `<div class="alert alert-warning" role="note"><strong aria-hidden="true">$</strong><span><strong>Это платный анализ по фактическому расходу.</strong> Модель ${escapeHtml(tariff.model)}, стандартный режим ${escapeHtml(tariff.service_tier)}: при входе до ${escapeHtml(tariff.long_context_threshold_input_tokens)} токенов включительно — вход $${escapeHtml(tariff.input_usd_per_million_tokens)} и выход $${escapeHtml(tariff.output_usd_per_million_tokens)} за 1 млн токенов; если вход превысит ${escapeHtml(tariff.long_context_threshold_input_tokens)}, повышенный тариф применяется ко всему запросу — вход $${escapeHtml(tariff.long_context_input_usd_per_million_tokens)} и выход $${escapeHtml(tariff.long_context_output_usd_per_million_tokens)} за 1 млн токенов; веб-поиск $${escapeHtml(tariff.web_search_usd_per_call)} за вызов. Максимум выходных токенов: ${escapeHtml(tariff.max_output_tokens)}; попытка провайдера только одна. Итоговая сумма заранее не фиксирована и зависит от фактического расхода и от того, пересечён ли порог long context.</span></div>
+        <label class="check-row"><input type="checkbox" name="paid_analysis_confirmation" value="${escapeHtml(tariff.confirmation_value)}" required /><span><strong>Подтверждаю этот точный тариф и один платный запуск</strong><br /><small>Версия тарифа: ${escapeHtml(tariff.version)}. Подтверждение действует только для этого нажатия и не сохраняется на будущие запуски.</small></span></label>`
+    : `<div class="alert alert-warning" role="alert"><strong aria-hidden="true">!</strong><span><strong>Точный тариф сейчас недоступен.</strong> Платный анализ заблокирован до получения свежего серверного тарифа. Обновите раздел и подтвердите его вручную.</span></div>`;
+  let markup = `
     ${error ? `<div class="alert alert-danger" role="alert"><strong aria-hidden="true">!</strong><span>${escapeHtml(error)}</span></div>` : ""}
     ${notice ? `<div class="alert alert-info" role="status"><strong aria-hidden="true">i</strong><span>${escapeHtml(notice)}</span>${previousResearchId ? `<button class="btn btn-ghost btn-small" type="button" data-action="restore-previous-product-research" data-research-id="${escapeHtml(previousResearchId)}">Открыть прежний снимок</button>` : ""}</div>` : ""}
     <section class="product-research-start-grid" aria-labelledby="product-research-form-title">
@@ -3255,6 +3398,42 @@ export function productResearchInputMarkup({
         <div class="product-research-privacy"><strong>Что анализ не делает</strong><p>Не входит в чужие кабинеты, не обходит защиту площадок и не считает неподтверждённое свойство фактом.</p></div>
       </aside>
     </section>`;
+  if (!exactPaidAuthorizationRequired) return markup;
+  const legacyConfirmationMarker = 'name="paid_analysis_ack"';
+  const legacyConfirmationIndex = markup.indexOf(legacyConfirmationMarker);
+  const legacyPriceStart = markup.lastIndexOf(
+    '<div class="alert alert-warning" role="note">',
+    legacyConfirmationIndex,
+  );
+  const legacyConfirmationEnd = markup.indexOf("</label>", legacyConfirmationIndex);
+  if (
+    legacyPriceStart < 0
+    || legacyConfirmationIndex < 0
+    || legacyConfirmationEnd < 0
+  ) return markup;
+  markup = `${markup.slice(0, legacyPriceStart)}${paidAuthorizationMarkup}${markup.slice(
+    legacyConfirmationEnd + "</label>".length,
+  )}`;
+  if (!exactTariffAvailable) {
+    markup = markup.replace(
+      'type="submit" data-primary-action="true"',
+      'type="submit" data-primary-action="true" disabled aria-disabled="true"',
+    );
+  }
+  return markup;
+}
+
+export function invalidateProductResearchPaidConfirmation(
+  form,
+  changedFieldName = "",
+) {
+  const confirmation = form?.elements?.paid_analysis_confirmation;
+  if (
+    !confirmation
+    || String(changedFieldName || "") === "paid_analysis_confirmation"
+  ) return false;
+  confirmation.checked = false;
+  return true;
 }
 
 export function productResearchProgressMarkup(record, error = "") {
@@ -3798,6 +3977,71 @@ export function productResearchResultMarkup(record, {
         <button class="btn ${approved ? "btn-secondary" : ""}" type="submit" data-research-submit="approve" ${approved ? "" : 'data-primary-action="true"'} ${saving || approving || approved ? "disabled" : ""}>${approving ? "Создаём задачи…" : approved ? "Задачи уже созданы" : "Утвердить и создать 3 задачи →"}</button>
       </div>
     </form>
+    </div>`;
+}
+
+export function productResearchEvidenceMarkup(record, {
+  notice = "",
+  error = "",
+  aiReceiptHref = "",
+  aiReceiptPending = false,
+  canStartNew = false,
+} = {}) {
+  const categoryAnalysis = normalizeCategoryAnalysis(record?.categoryAnalysis);
+  const competitorAnalysis = normalizeCompetitorAnalysis(record?.competitorAnalysis);
+  const trendAnalysis = normalizeTrendAnalysis(record?.trendAnalysis);
+  const guidance = normalizeResearchGuidance(record?.guidance);
+  const stageCorrections = normalizeStageCorrections(record?.stageCorrections);
+  const confidence = confidenceCopy(record?.confidence);
+  const score = clampScore(record?.score);
+  const sources = normalizeSources(record?.sources);
+  const sourceMarkup = sources.length
+    ? sources.map(sourceMarkupItem).join("")
+    : `<div class="product-research-empty-note"><strong>Публичные источники не подтверждены</strong><p>Не переносите найденные ИИ формулировки в ролик как факт без доказательства.</p></div>`;
+  const receiptAction = aiReceiptHref
+    ? `<a class="btn" href="${escapeHtml(aiReceiptHref)}" data-primary-action="true">Открыть свой чек в ИИ-центре →</a>`
+    : aiReceiptPending
+      ? `<p class="muted" role="status">Чек ИИ-центра ещё формируется. Обновите раздел через несколько секунд; новый платный анализ для этого не нужен.</p>`
+      : "";
+  const newResearchAction = canStartNew
+    ? `<button class="btn btn-secondary" type="button" data-action="new-product-research">Подготовить новое исследование</button>`
+    : "";
+  return `
+    <div data-research-view="evidence" data-product-research-evidence-read-only="true">
+      ${error ? `<div class="alert alert-danger" role="alert"><strong aria-hidden="true">!</strong><span>${escapeHtml(error)}</span></div>` : ""}
+      ${notice ? `<div class="alert alert-info" role="status"><strong aria-hidden="true">i</strong><span>${escapeHtml(notice)}</span></div>` : ""}
+      <section class="card card-pad" aria-labelledby="operator-research-evidence-title">
+        <p class="eyebrow">Ваш завершённый анализ</p>
+        <h2 id="operator-research-evidence-title">Доказательства доступны только для чтения</h2>
+        <p>Источники и выводы этого запуска сохранены без управленческих форм, утверждения задач и автоматической передачи в генерацию. Следующий выбор вы делаете сами в ИИ-центре.</p>
+        <div class="inline-actions">${receiptAction}${newResearchAction}</div>
+      </section>
+      ${productResearchIntelligenceMarkup({
+        categoryAnalysis,
+        competitorAnalysis,
+        trendAnalysis,
+        guidance,
+        stageCorrections,
+        sources,
+        readOnly: true,
+      })}
+      <section class="product-research-scoreboard" aria-label="Предварительная оценка контента">
+        <div class="card card-pad product-research-score" style="--research-score:${score}">
+          <div class="product-research-score-ring"><strong>${score}</strong><small>из 100</small></div>
+          <div><p class="eyebrow">Креативный потенциал</p><h2>${scoreLabel(score)}</h2><p>${escapeHtml(record?.forecastSummary || "Оценка показывает качество вводных и сценарной идеи.")}</p><small class="product-research-score-note">Это предпубликационная эвристика: она не гарантирует просмотры или продажи.</small></div>
+        </div>
+        <div class="card card-pad product-research-confidence"><span class="badge">${escapeHtml(confidence.label)}</span><h2>Уверенность: ${escapeHtml(confidence.label.toLowerCase())}</h2><p>${escapeHtml(confidence.description)}</p></div>
+      </section>
+      <div class="product-research-result-grid">
+        <section class="card product-research-sources" aria-labelledby="operator-research-sources-title">
+          <div class="card-header"><div><p class="eyebrow">Доказательства</p><h2 id="operator-research-sources-title">Что найдено и откуда</h2></div><span class="badge">${sources.length} источников</span></div>
+          <div class="product-research-source-list">${sourceMarkup}</div>
+        </section>
+        <section class="card product-research-factors" aria-labelledby="operator-research-factors-title">
+          <div class="card-header"><div><p class="eyebrow">Почему такой балл</p><h2 id="operator-research-factors-title">Сильные стороны и риски</h2></div></div>
+          <ul>${normalizeFactors(record?.factors).map((factor) => `<li class="${factor.impact < 0 ? "risk" : "strength"}"><span aria-hidden="true">${factor.impact < 0 ? "!" : "+"}</span><div><strong>${escapeHtml(factor.label)}</strong><p>${escapeHtml(factor.detail)}</p></div></li>`).join("") || `<li><div><strong>Недостаточно данных</strong><p>Проверьте источники и ограничения анализа перед решением.</p></div></li>`}</ul>
+        </section>
+      </div>
     </div>`;
 }
 
@@ -7860,6 +8104,7 @@ function productResearchIntelligenceMarkup({
   stageCorrections,
   sources = [],
   disabled = false,
+  readOnly = false,
 }) {
   const guidanceLabels = {
     ready_for_brief: "Можно переходить к ТЗ",
@@ -7883,7 +8128,7 @@ function productResearchIntelligenceMarkup({
     partial: "Частичная выборка",
     representative: "Рабочая выборка",
   };
-  const correctionField = (name, label, value, placeholder) => `
+  const correctionField = (name, label, value, placeholder) => readOnly ? "" : `
     <label class="field product-research-stage-correction">
       <span>${escapeHtml(label)}</span>
       <textarea form="product-research-brief-form" name="${escapeHtml(name)}" maxlength="2000" placeholder="${escapeHtml(placeholder)}" ${disabled ? "disabled" : ""}>${escapeHtml(value || "")}</textarea>
@@ -7947,13 +8192,13 @@ function productResearchIntelligenceMarkup({
   return `
     <section class="card product-research-intelligence" aria-labelledby="product-research-intelligence-title">
       <div class="card-header">
-        <div><p class="eyebrow">Управляемое исследование</p><h2 id="product-research-intelligence-title">Категория → конкуренты → тренды → решение</h2><p>Каждый вывод можно скорректировать до утверждения. Система сама показывает пробелы и рекомендует следующий шаг.</p></div>
+        <div><p class="eyebrow">Управляемое исследование</p><h2 id="product-research-intelligence-title">Категория → конкуренты → тренды → решение</h2><p>${readOnly ? "Это завершённый снимок доказательств и выводов. Система показывает пробелы и рекомендуемый следующий шаг без изменения исходного исследования." : "Каждый вывод можно скорректировать до утверждения. Система сама показывает пробелы и рекомендует следующий шаг."}</p></div>
         <span class="badge">${escapeHtml(guidanceLabels[guidance.status] || "Нужна проверка")}</span>
       </div>
       <div class="product-research-intelligence-grid">
         <article class="product-research-intel-stage" data-research-stage="sources">
           <header><span>01</span><div><p class="eyebrow">Доказательства</p><h3>Источники и границы</h3></div></header>
-          <p>Неизменяемая база ссылок остаётся в блоке доказательств. Здесь можно указать, какой источник не использовать в решении и почему.</p>
+          <p>${readOnly ? "Неизменяемая база ссылок остаётся в блоке доказательств и доступна для проверки." : "Неизменяемая база ссылок остаётся в блоке доказательств. Здесь можно указать, какой источник не использовать в решении и почему."}</p>
           ${correctionField("source_correction", "Корректировка источников", stageCorrections.sources, "Например: источник описывает другую комплектацию — не использовать его для оффера")}
         </article>
         <article class="product-research-intel-stage" data-research-stage="category">

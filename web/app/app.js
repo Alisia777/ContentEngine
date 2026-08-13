@@ -3,12 +3,12 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260812.os4.37";
+} from "./supabase-api.js?v=20260812.os4.38";
 import {
   adminPeopleMarkup,
   normalizeAdminSnapshot,
   normalizeAdminView,
-} from "./admin-people-view.js?v=20260812.os4.37";
+} from "./admin-people-view.js?v=20260812.os4.38";
 import {
   clearExactYoutubeMediaHandoff,
   exactYoutubeRegisteredMediaId,
@@ -33,8 +33,8 @@ import {
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
 } from "./generation-spec.js?v=20260812.generation-spec-consent.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260812.os4.37";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260812.os4.37";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260812.os4.38";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260812.os4.38";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -91,13 +91,17 @@ import {
   normalizeResearchStageControl,
   normalizeResearchMarketRegistry,
   inspectResearchScenarioGenerationReadiness,
+  invalidateProductResearchPaidConfirmation,
+  productResearchEvidenceMarkup,
   productResearchInputMarkup,
   productResearchProgressMarkup,
   productResearchResultMarkup,
+  productResearchRequestContextMatches,
+  productResearchStatusMatchesContext,
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260812.os4.37";
+} from "./product-research-view.js?v=20260812.os4.38";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -108,7 +112,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260812.os4.37";
+} from "./ai-learning-control-room.js?v=20260812.os4.38";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -124,7 +128,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260812.os4.37";
+} from "./content-generation-handoff.js?v=20260812.os4.38";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -137,13 +141,13 @@ import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
   normalizeGenerationVideoReferenceContext,
-} from "./generation-video-reference.js?v=20260812.os4.37";
+} from "./generation-video-reference.js?v=20260812.os4.38";
 import {
   buildGenerationFormDraft,
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260812.os4.37";
+} from "./generation-form-draft.js?v=20260812.os4.38";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
@@ -159,7 +163,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260812.os4.37";
+} from "./generation-autopilot.js?v=20260812.os4.38";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -181,7 +185,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260812.os4.37";
+} from "./content-review-view.js?v=20260812.os4.38";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -209,8 +213,9 @@ import {
   normalizeWorkspaceBoard,
   workspaceBoardItemByKey,
   workspaceBoardItemKey,
+  workspaceBoardPaginationState,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260812.os4.37";
+} from "./workspace-board-view.js?v=20260812.os4.38";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -239,7 +244,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260812.os4.37";
+} from "./training-journey.js?v=20260812.os4.38";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -258,7 +263,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260812.os4.37";
+} from "./training-practical-review.js?v=20260812.os4.38";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -277,7 +282,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260812.os4.37";
+} from "./my-work-view.js?v=20260812.os4.38";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -1223,7 +1228,8 @@ const state = {
     selectedFolderId: "all",
     selectedItemKey: "",
     query: "",
-    entityType: "media",
+    entityType: "all",
+    provenanceFilter: "all",
     busy: false,
     notice: "",
     error: "",
@@ -4666,7 +4672,13 @@ function render() {
   const requestedSection = path.startsWith("/workspace/")
     ? path.replace("/workspace/", "")
     : "home";
-  const section = visibleWorkspaceTabs().some(([key]) => key === requestedSection)
+  const visibleSection = visibleWorkspaceTabs().some(
+    ([key]) => key === requestedSection,
+  );
+  const pendingProjectCapability = projectScopedRouteCapabilityPending(
+    requestedSection,
+  );
+  const section = visibleSection || pendingProjectCapability
     ? requestedSection
     : "home";
   if (path !== `/workspace/${section}`) {
@@ -7540,6 +7552,7 @@ function renderWorkspaceBoardSection(sectionState) {
     selectedItemKey: state.workspaceBoard.selectedItemKey,
     query: state.workspaceBoard.query,
     entityType: state.workspaceBoard.entityType,
+    provenanceFilter: state.workspaceBoard.provenanceFilter,
     busy: state.workspaceBoard.busy || sectionState.status === "refreshing",
     notice: state.workspaceBoard.notice,
     error: state.workspaceBoard.error,
@@ -7570,7 +7583,12 @@ function workspaceBoardBrowserOptions(cursor = null) {
   if (folderId === "root") options.folder_id = null;
   else if (folderId !== "all" && !isWorkspaceSmartFolderId(folderId)) options.folder_id = folderId;
   if (state.workspaceBoard.query) options.search = state.workspaceBoard.query;
-  if (state.workspaceBoard.entityType !== "all") {
+  if (["source", "generated_output"].includes(state.workspaceBoard.provenanceFilter)) {
+    options.entity_types = ["media"];
+    options.artifact_classes = [state.workspaceBoard.provenanceFilter];
+  } else if (state.workspaceBoard.provenanceFilter === "research") {
+    options.entity_types = ["media"];
+  } else if (state.workspaceBoard.entityType !== "all") {
     options.entity_types = [state.workspaceBoard.entityType];
   }
   if (cursor) options.cursor = cursor;
@@ -7667,7 +7685,16 @@ async function submitWorkspaceFolderEdit(form) {
 async function submitWorkspaceBoardFilters(form) {
   const values = new FormData(form);
   state.workspaceBoard.query = String(values.get("query") || "").trim().slice(0, 120);
-  state.workspaceBoard.entityType = String(values.get("entity_type") || "media");
+  const requestedEntityType = String(values.get("entity_type") || "all")
+    .trim()
+    .toLowerCase();
+  state.workspaceBoard.entityType = ["all", "media", "task"].includes(
+    requestedEntityType,
+  ) ? requestedEntityType : "all";
+  state.workspaceBoard.provenanceFilter = String(values.get("provenance_filter") || "all");
+  if (state.workspaceBoard.provenanceFilter === "research") {
+    state.workspaceBoard.selectedFolderId = "all";
+  }
   state.workspaceBoard.notice = "";
   state.workspaceBoard.error = "";
   state.workspaceBoard.hasMore = false;
@@ -7992,6 +8019,148 @@ function workspaceProjectChooserMode() {
   return state.route.path === "/workspace/home" && !routeWorkspaceProjectId();
 }
 
+function projectFlowObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function normalizeResearchPaidTariff(value) {
+  const source = projectFlowObject(value);
+  const exactKeys = [
+    "version",
+    "provider",
+    "provider_key",
+    "adapter_version",
+    "model",
+    "currency",
+    "billing_mode",
+    "service_tier",
+    "input_usd_per_million_tokens",
+    "output_usd_per_million_tokens",
+    "long_context_threshold_input_tokens",
+    "long_context_input_usd_per_million_tokens",
+    "long_context_output_usd_per_million_tokens",
+    "web_search_usd_per_call",
+    "max_output_tokens",
+    "max_provider_attempts",
+    "fixed_total",
+    "confirmation_value",
+  ];
+  const requiredText = [
+    "version",
+    "provider",
+    "provider_key",
+    "adapter_version",
+    "model",
+    "currency",
+    "service_tier",
+    "input_usd_per_million_tokens",
+    "output_usd_per_million_tokens",
+    "long_context_input_usd_per_million_tokens",
+    "long_context_output_usd_per_million_tokens",
+    "web_search_usd_per_call",
+    "confirmation_value",
+  ];
+  const decimalRate = (candidate) => {
+    const normalized = String(candidate || "").trim();
+    return /^(?:0|[1-9][0-9]*)(?:[.][0-9]{1,8})?$/u.test(normalized)
+      && Number(normalized) > 0;
+  };
+  if (
+    Object.keys(source).length !== exactKeys.length
+    || exactKeys.some((key) => !Object.hasOwn(source, key))
+    || source.billing_mode !== "metered_actual_usage"
+    || source.service_tier !== "default"
+    || source.fixed_total !== false
+    || requiredText.some((key) => {
+      if (typeof source[key] !== "string") return true;
+      const normalized = source[key].trim();
+      return !normalized || normalized.length > 512;
+    })
+    || source.version !== "openai-api-2026-08-13-gpt-5.5-standard-context-v3"
+    || source.provider !== "openai"
+    || source.provider_key !== "openai_web_search"
+    || source.adapter_version !== "openai-responses-web-search-v1"
+    || source.model !== "gpt-5.5"
+    || source.currency !== "USD"
+    || source.input_usd_per_million_tokens !== "5.00"
+    || source.output_usd_per_million_tokens !== "30.00"
+    || source.long_context_threshold_input_tokens !== 272_000
+    || source.long_context_input_usd_per_million_tokens !== "10.00"
+    || source.long_context_output_usd_per_million_tokens !== "45.00"
+    || source.web_search_usd_per_call !== "0.01"
+    || source.confirmation_value
+      !== "OPENAI_GPT_5_5_WEB_RESEARCH_20260813_DEFAULT_SHORT_IN_5_OUT_30_LONG_GT272K_IN_10_OUT_45_SEARCH_0_01_MAXOUT_18000"
+    || !decimalRate(source.input_usd_per_million_tokens)
+    || !decimalRate(source.output_usd_per_million_tokens)
+    || !decimalRate(source.long_context_input_usd_per_million_tokens)
+    || !decimalRate(source.long_context_output_usd_per_million_tokens)
+    || !decimalRate(source.web_search_usd_per_call)
+    || !Number.isSafeInteger(source.max_output_tokens)
+    || source.max_output_tokens !== 18_000
+    || source.max_provider_attempts !== 1
+  ) return null;
+  try {
+    const snapshot = JSON.parse(JSON.stringify(source));
+    return snapshot && typeof snapshot === "object" && !Array.isArray(snapshot)
+      ? snapshot
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeLatestOwnResearchRun(value) {
+  const source = projectFlowObject(value);
+  const runId = String(source.run_id || "").trim().toLowerCase();
+  if (!isWorkspaceProjectId(runId)) return null;
+  const receiptSource = projectFlowObject(source.ai_receipt);
+  const receiptId = String(receiptSource.receipt_id || "").trim().toLowerCase();
+  const aiReceipt = receiptId && isWorkspaceProjectId(receiptId)
+    ? {
+        receipt_id: receiptId,
+        status: String(receiptSource.status || "").trim().toLowerCase(),
+      }
+    : null;
+  return {
+    run_id: runId,
+    status: String(source.status || "").trim().toLowerCase(),
+    product_category: String(source.product_category || "").trim().toLowerCase(),
+    created_at: String(source.created_at || "").trim(),
+    completed_at: String(source.completed_at || "").trim(),
+    ai_receipt: aiReceipt,
+  };
+}
+
+function normalizeProjectCapabilities(value) {
+  const source = projectFlowObject(value);
+  const research = projectFlowObject(source.product_research);
+  const aiResearch = projectFlowObject(source.ai_research);
+  const researchScope = ["none", "own", "project"].includes(research.run_scope)
+    ? research.run_scope
+    : "none";
+  const receiptScope = ["none", "own", "project"].includes(aiResearch.receipt_scope)
+    ? aiResearch.receipt_scope
+    : "none";
+  return {
+    product_research: {
+      can_open: research.can_open === true,
+      can_start_paid_own: research.can_start_paid_own === true,
+      can_read_own: research.can_read_own === true,
+      can_manage: research.can_manage === true,
+      run_scope: researchScope,
+    },
+    ai_research: {
+      can_open: aiResearch.can_open === true,
+      can_read_receipt: aiResearch.can_read_receipt === true,
+      can_decide_own: aiResearch.can_decide_own === true,
+      can_edit_own: aiResearch.can_edit_own === true,
+      can_view_exact_youtube_sources:
+        aiResearch.can_view_exact_youtube_sources === true,
+      receipt_scope: receiptScope,
+    },
+  };
+}
+
 function normalizeProjectFlow(raw) {
   const source = raw?.data ?? raw ?? {};
   const projects = Array.isArray(source.projects) ? source.projects : [];
@@ -8002,6 +8171,7 @@ function normalizeProjectFlow(raw) {
     ? source.next_action
     : null;
   const counts = source.counts && typeof source.counts === "object" ? source.counts : {};
+  const researchContext = projectFlowObject(source.research_context);
   return {
     ok: source.ok !== false,
     project_id: isWorkspaceProjectId(projectId) ? projectId : null,
@@ -8010,6 +8180,13 @@ function normalizeProjectFlow(raw) {
     stages,
     next_action: nextAction,
     counts,
+    capabilities: normalizeProjectCapabilities(source.capabilities),
+    research_context: {
+      latest_own_run: normalizeLatestOwnResearchRun(
+        researchContext.latest_own_run,
+      ),
+      paid_tariff: normalizeResearchPaidTariff(researchContext.paid_tariff),
+    },
   };
 }
 
@@ -8176,6 +8353,9 @@ function activateWorkspaceProject(projectId, projectName = "Проект") {
   state.productResearch.error = "";
   state.productResearch.notice = "";
   state.productResearch.restoreAttempted = false;
+  state.productResearch.prefill = null;
+  state.productResearch.preservedSnapshot = null;
+  resetResearchStageControl();
   state.contentReview.requestId += 1;
   state.contentReview.phase = "idle";
   state.contentReview.record = null;
@@ -8227,6 +8407,16 @@ function clearWorkspaceProjectSelection(projectId = "") {
     target.data = null;
     target.error = null;
   }
+  stopProductResearchPolling();
+  state.productResearch.requestId += 1;
+  state.productResearch.phase = "idle";
+  state.productResearch.record = null;
+  state.productResearch.error = "";
+  state.productResearch.notice = "";
+  state.productResearch.restoreAttempted = false;
+  state.productResearch.prefill = null;
+  state.productResearch.preservedSnapshot = null;
+  resetResearchStageControl();
   state.aiResearchRecommendation = null;
   state.workspaceBoard.busy = false;
   state.workspaceBoard.projectDraftName = "";
@@ -8335,6 +8525,40 @@ function syncPersistentWorkspaceShell(shell, section) {
   shell.dataset.workspaceSection = section;
   shell.dataset.workspaceRoute = `/workspace/${section}`;
   shell.dataset.workspaceActionKey = workspaceActionKey(state.route);
+  const aiCapabilities = projectAiResearchCapabilities();
+  const previousAiReceiptScope = String(shell.dataset.aiResearchReceiptScope || "none");
+  const previousAiCanDecide = String(
+    shell.dataset.aiResearchCanDecide || "false",
+  );
+  const previousAiCanEdit = String(
+    shell.dataset.aiResearchCanEdit || "false",
+  );
+  const previousExactYoutubeScope = String(
+    shell.dataset.aiExactYoutubeSourceScope || "none",
+  );
+  shell.dataset.aiResearchReceiptScope = canOpenProjectAiResearch()
+    ? aiCapabilities.receipt_scope
+    : "none";
+  shell.dataset.aiResearchCanDecide = String(
+    aiCapabilities.can_decide_own === true,
+  );
+  shell.dataset.aiResearchCanEdit = String(
+    aiCapabilities.can_edit_own === true,
+  );
+  shell.dataset.aiExactYoutubeSourceScope = aiExactYoutubeSourceScope();
+  if (
+    previousAiReceiptScope !== shell.dataset.aiResearchReceiptScope
+    || previousAiCanDecide !== shell.dataset.aiResearchCanDecide
+    || previousAiCanEdit !== shell.dataset.aiResearchCanEdit
+    || previousExactYoutubeScope !== shell.dataset.aiExactYoutubeSourceScope
+  ) {
+    window.queueMicrotask(() => {
+      window.dispatchEvent(new CustomEvent(
+        "contentengine:workspace-capabilities-ready",
+        { detail: Object.freeze({ route: state.route.path }) },
+      ));
+    });
+  }
   if (window.CONTENTENGINE_DESKTOP_V4 === true) {
     shell.dataset.workspaceAuthorizedRoutes = visibleWorkspaceTabs()
       .map(([key]) => `/workspace/${key}`)
@@ -8402,7 +8626,12 @@ function renderWorkspace(section) {
     sectionState.status = "ready";
     sectionState.data = {};
   } else if (section === "ai" && sectionState.status === "idle") {
-    window.queueMicrotask(() => loadAiLearningControlRoom());
+    if (canViewLegacyAiLearning()) {
+      window.queueMicrotask(() => loadAiLearningControlRoom());
+    } else {
+      sectionState.status = "ready";
+      sectionState.data = null;
+    }
   } else if (section === "research" && sectionState.status === "idle") {
     sectionState.status = "ready";
   } else if (sectionState.status === "idle") {
@@ -8738,22 +8967,28 @@ function captureDirtyWorkspaceForms(container) {
     autoGenerationBrief: String(form.dataset.autoGenerationBrief || ""),
     generationScenarioIntent: String(form.dataset.generationScenarioIntent || ""),
     reviewStep: String(form.dataset.reviewStep || ""),
-    fields: Array.from(form.elements).map((field) => {
-      const checkable = field instanceof HTMLInputElement && ["checkbox", "radio"].includes(field.type);
-      return {
-        node: field,
-        name: String(field.name || ""),
-        type: String(field.type || ""),
-        value: field.value,
-        checked: checkable ? field.checked : null,
-        selectedValues: field instanceof HTMLSelectElement && field.multiple
-          ? Array.from(field.selectedOptions).map((option) => option.value)
-          : null,
-        files: field instanceof HTMLInputElement && field.type === "file"
-          ? Array.from(field.files || [])
-          : null,
-      };
-    }),
+    // A metered research confirmation is deliberately one-shot. The runtime
+    // does not persist this checkbox or its server token across a patch render.
+    fields: Array.from(form.elements)
+      .flatMap((field, elementIndex) => {
+        if (field.name === "paid_analysis_confirmation") return [];
+        const checkable = field instanceof HTMLInputElement
+          && ["checkbox", "radio"].includes(field.type);
+        return [{
+          node: field,
+          elementIndex,
+          name: String(field.name || ""),
+          type: String(field.type || ""),
+          value: field.value,
+          checked: checkable ? field.checked : null,
+          selectedValues: field instanceof HTMLSelectElement && field.multiple
+            ? Array.from(field.selectedOptions).map((option) => option.value)
+            : null,
+          files: field instanceof HTMLInputElement && field.type === "file"
+            ? Array.from(field.files || [])
+            : null,
+        }];
+      }),
   }));
 }
 
@@ -8764,6 +8999,10 @@ function restoreDirtyWorkspaceForms(container, snapshots) {
     const form = forms.find((candidate, index) => workspaceFormKey(candidate, index) === snapshot.key);
     if (!form) return;
     Array.from(form.elements).forEach((field, fieldIndex) => {
+      if (field.name === "paid_analysis_confirmation") {
+        if ("checked" in field) field.checked = false;
+        return;
+      }
       const checkable = field instanceof HTMLInputElement
         && ["checkbox", "radio"].includes(field.type);
       const saved = checkable
@@ -8776,7 +9015,7 @@ function restoreDirtyWorkspaceForms(container, snapshots) {
             Boolean(field.name)
             && item.name === field.name
             && item.type === String(field.type || "")
-          )) || snapshot.fields[fieldIndex];
+          )) || snapshot.fields.find((item) => item.elementIndex === fieldIndex);
       if (!saved) return;
       if (field instanceof HTMLInputElement && field.type === "file" && saved.files?.length) {
         if (saved.node === field) return;
@@ -8862,8 +9101,12 @@ function workspaceScaffold(content, activeSection) {
       .map(([key]) => `/workspace/${key}`)
       .join(" ");
     const workspaceRole = String(state.bootstrap?.membership?.role || "");
+    const aiCapabilities = projectAiResearchCapabilities();
+    const aiReceiptScope = canOpenProjectAiResearch()
+      ? aiCapabilities.receipt_scope
+      : "none";
     return `
-      <div class="workspace-shell workspace-shell-v4" data-workspace-section="${escapeHtml(activeSection)}" data-workspace-route="/workspace/${escapeHtml(activeSection)}" data-workspace-authorized-routes="${escapeHtml(authorizedRoutes)}" data-workspace-role="${escapeHtml(workspaceRole)}">
+      <div class="workspace-shell workspace-shell-v4" data-workspace-section="${escapeHtml(activeSection)}" data-workspace-route="/workspace/${escapeHtml(activeSection)}" data-workspace-authorized-routes="${escapeHtml(authorizedRoutes)}" data-workspace-role="${escapeHtml(workspaceRole)}" data-ai-research-receipt-scope="${escapeHtml(aiReceiptScope)}" data-ai-research-can-decide="${aiCapabilities.can_decide_own === true}" data-ai-research-can-edit="${aiCapabilities.can_edit_own === true}" data-ai-exact-youtube-source-scope="${escapeHtml(aiExactYoutubeSourceScope())}">
         ${projectFlowSnapshotMarkup()}
         <section class="workspace-main workspace-main-v4">
           <main id="main-content" class="${transitionClass}" tabindex="-1"><div id="workspace-content">${content}</div></main>
@@ -8882,7 +9125,7 @@ function workspaceScaffold(content, activeSection) {
     })}</div>
   `;
   return `
-    <div class="workspace-shell" data-workspace-section="${escapeHtml(activeSection)}" data-workspace-route="/workspace/${escapeHtml(activeSection)}">
+    <div class="workspace-shell" data-workspace-section="${escapeHtml(activeSection)}" data-workspace-route="/workspace/${escapeHtml(activeSection)}" data-ai-research-receipt-scope="${escapeHtml(canOpenProjectAiResearch() ? projectAiResearchCapabilities().receipt_scope : "none")}" data-ai-research-can-decide="${projectAiResearchCapabilities().can_decide_own === true}" data-ai-research-can-edit="${projectAiResearchCapabilities().can_edit_own === true}" data-ai-exact-youtube-source-scope="${escapeHtml(aiExactYoutubeSourceScope())}">
       ${projectFlowSnapshotMarkup()}
       <aside class="sidebar" aria-label="Основная навигация">
         ${brandMarkup()}
@@ -8955,21 +9198,105 @@ function canManageGenerationSpendPolicy() {
   return ["owner", "admin"].includes(state.bootstrap?.membership?.role);
 }
 
-function canManageProductResearch() {
-  return ["owner", "admin", "producer"].includes(state.bootstrap?.membership?.role);
+function exactProjectFlowSnapshot(projectId = currentWorkspaceProjectId()) {
+  const normalizedProjectId = String(projectId || "").trim().toLowerCase();
+  const flow = normalizeProjectFlow(state.projectFlow?.data || {});
+  if (
+    !isWorkspaceProjectId(normalizedProjectId)
+    || flow.project_id !== normalizedProjectId
+    || !["ready", "refreshing"].includes(state.projectFlow.status)
+  ) return null;
+  return flow;
 }
 
-function canViewAiLearning() {
+function projectScopedRouteCapabilityPending(section) {
+  const normalizedSection = String(section || "").trim().toLowerCase();
+  if (!new Set(["research", "ai"]).has(normalizedSection)) return false;
+  if (state.route.path !== `/workspace/${normalizedSection}`) return false;
+  const projectId = routeWorkspaceProjectId();
+  if (!projectId) return false;
+  if (exactProjectFlowSnapshot(projectId)) return false;
+  if (
+    ["ready", "error"].includes(state.projectFlow.status)
+    && String(state.projectFlow.projectId || "").trim().toLowerCase() === projectId
+  ) return false;
+  return true;
+}
+
+function productResearchCapabilities() {
+  return exactProjectFlowSnapshot()?.capabilities?.product_research || {
+    can_open: false,
+    can_start_paid_own: false,
+    can_read_own: false,
+    can_manage: false,
+    run_scope: "none",
+  };
+}
+
+function projectAiResearchCapabilities() {
+  return exactProjectFlowSnapshot()?.capabilities?.ai_research || {
+    can_open: false,
+    can_read_receipt: false,
+    can_decide_own: false,
+    can_edit_own: false,
+    can_view_exact_youtube_sources: false,
+    receipt_scope: "none",
+  };
+}
+
+function currentResearchPaidTariff() {
+  return exactProjectFlowSnapshot()?.research_context?.paid_tariff || null;
+}
+
+function canOpenProductResearch() {
+  return productResearchCapabilities().can_open === true;
+}
+
+function canStartOwnProductResearch() {
+  const capabilities = productResearchCapabilities();
+  return capabilities.can_start_paid_own === true
+    && capabilities.run_scope === "own";
+}
+
+function canReadOwnProductResearch() {
+  const capabilities = productResearchCapabilities();
+  return capabilities.can_read_own === true
+    && ["own", "project"].includes(capabilities.run_scope);
+}
+
+function canManageProductResearch() {
+  const managerRole = ["owner", "admin", "producer"].includes(
+    state.bootstrap?.membership?.role,
+  );
+  return managerRole && productResearchCapabilities().can_manage === true;
+}
+
+function canViewLegacyAiLearning() {
   return ["owner", "admin", "producer", "reviewer"].includes(
     state.bootstrap?.membership?.role,
   );
 }
 
+function canOpenProjectAiResearch() {
+  const capabilities = projectAiResearchCapabilities();
+  return capabilities.can_open === true
+    && capabilities.can_read_receipt === true
+    && ["own", "project"].includes(capabilities.receipt_scope);
+}
+
+function aiExactYoutubeSourceScope() {
+  const capabilities = projectAiResearchCapabilities();
+  return capabilities.receipt_scope === "project"
+    && capabilities.can_view_exact_youtube_sources === true
+    ? "project"
+    : "none";
+}
+
 function visibleWorkspaceTabs() {
   const accessible = WORKSPACE_TABS.filter(([key]) => (
     (key !== "team" || canManageTeam())
-    && (key !== "research" || canManageProductResearch())
-    && (key !== "ai" || canViewAiLearning())
+    && (key !== "research" || canManageProductResearch() || canOpenProductResearch())
+    && (key !== "ai" || canViewLegacyAiLearning() || canOpenProjectAiResearch())
   ));
   const workTab = accessible.find(([key]) => key === "work");
   return [
@@ -9625,12 +9952,14 @@ async function loadSection(section, options = {}) {
         (reason) => ({ status: "rejected", reason }),
       )
       : null;
-    const routeMediaId = ["generation", "review"].includes(section)
+    const routeMediaId = ["generation", "review", "board"].includes(section)
       ? safeWorkspaceRouteEntityId("media")
       : "";
+    const projectMediaSurface = section === "board" ? "files" : section;
+    let acceptedWorkspaceMediaDeepLink = false;
     const projectMediaRequest = routeMediaId
       ? withUiTimeout(
-        state.api.projectMedia(routeMediaId, { projectId, surface: section }),
+        state.api.projectMedia(routeMediaId, { projectId, surface: projectMediaSurface }),
         WORKSPACE_REQUEST_TIMEOUT_MS,
         "project_media_deep_link_timeout",
       ).then(
@@ -9801,13 +10130,36 @@ async function loadSection(section, options = {}) {
         const exactMedia = mediaOutcome.value?.data
           ?? mediaOutcome.value
           ?? {};
+        const exactMediaRecord = exactProjectMediaDeepLinkRecord(
+          routeMediaId,
+          projectId,
+          projectMediaSurface,
+          exactMedia,
+        );
         data = mergeProjectMediaDeepLink(
           data,
           routeMediaId,
           projectId,
-          section,
+          projectMediaSurface,
           exactMedia,
         );
+        if (section === "board" && exactMediaRecord) {
+          acceptedWorkspaceMediaDeepLink = true;
+          const exactFolderId = String(exactMediaRecord?.folder_id || "").trim();
+          state.workspaceBoard.selectedFolderId = exactFolderId || "root";
+          state.workspaceBoard.selectedItemKey = String(
+            exactMedia?.workspace_item_key || `media:${routeMediaId}`,
+          );
+          state.workspaceBoard.query = "";
+          state.workspaceBoard.entityType = "all";
+          const artifactClass = String(exactMediaRecord?.artifact_class || "").trim();
+          state.workspaceBoard.provenanceFilter = ["source", "generated_output"].includes(artifactClass)
+            ? artifactClass
+            : "all";
+          state.workspaceBoard.hasMore = false;
+          state.workspaceBoard.nextCursor = null;
+          state.workspaceBoard.visibleItemLimit = WORKSPACE_BOARD_VISIBLE_STEP;
+        }
       } else {
         console.warn(
           "Deep-linked project media is unavailable",
@@ -9869,12 +10221,16 @@ async function loadSection(section, options = {}) {
     target.status = "ready";
     if (section === "board") {
       const meta = data?._meta && typeof data._meta === "object" ? data._meta : {};
+      const pagination = workspaceBoardPaginationState(
+        meta,
+        acceptedWorkspaceMediaDeepLink,
+      );
       if (state.workspaceBoard.notice === WORKSPACE_BOARD_FALLBACK_NOTICE) {
         state.workspaceBoard.notice = "";
       }
       state.workspaceBoard.loadingMore = false;
-      state.workspaceBoard.hasMore = meta.has_more === true;
-      state.workspaceBoard.nextCursor = meta.next_cursor || null;
+      state.workspaceBoard.hasMore = pagination.hasMore;
+      state.workspaceBoard.nextCursor = pagination.nextCursor;
     }
     if (section === "generation") {
       const loadedBatches = listFrom(data, "batches");
@@ -12593,10 +12949,7 @@ function exactPlacementItemId(item) {
   return String(item?.id || item?.placement_id || "").trim().toLowerCase();
 }
 
-function mergeProjectMediaDeepLink(data, mediaId, projectId, surface, result) {
-  const source = data && typeof data === "object" && !Array.isArray(data)
-    ? data
-    : {};
+function exactProjectMediaDeepLinkRecord(mediaId, projectId, surface, result) {
   const normalizedMediaId = String(mediaId || "").trim().toLowerCase();
   const normalizedProjectId = String(projectId || "").trim().toLowerCase();
   const normalizedSurface = String(surface || "").trim().toLowerCase();
@@ -12609,17 +12962,31 @@ function mergeProjectMediaDeepLink(data, mediaId, projectId, surface, result) {
   if (
     !normalizedMediaId
     || !normalizedProjectId
-    || !["generation", "review"].includes(normalizedSurface)
+    || !["generation", "review", "files"].includes(normalizedSurface)
     || resultProjectId !== normalizedProjectId
     || resultSurface !== normalizedSurface
     || exactMediaId !== normalizedMediaId
     || String(media?.project_id || "").trim().toLowerCase() !== normalizedProjectId
-  ) return source;
+  ) return null;
+  return media;
+}
 
-  const existing = listFrom(source, "media", "media_items", "artifacts");
+function mergeProjectMediaDeepLink(data, mediaId, projectId, surface, result) {
+  const source = data && typeof data === "object" && !Array.isArray(data)
+    ? data
+    : {};
+  const normalizedMediaId = String(mediaId || "").trim().toLowerCase();
+  const normalizedSurface = String(surface || "").trim().toLowerCase();
+  const media = exactProjectMediaDeepLinkRecord(mediaId, projectId, surface, result);
+  if (!media) return source;
+
+  const targetKey = normalizedSurface === "files" ? "items" : "media";
+  const existing = normalizedSurface === "files"
+    ? listFrom(source, "items")
+    : listFrom(source, "media", "media_items", "artifacts");
   return {
     ...source,
-    media: [
+    [targetKey]: [
       media,
       ...existing.filter((item) => (
         String(item?.public_id || item?.id || "").trim().toLowerCase()
@@ -14070,6 +14437,33 @@ function contentReviewUuid(value) {
   );
 }
 
+function productResearchPaidStartContext() {
+  const managerStart = canManageProductResearch();
+  const exactAuthorizationRequired = !managerStart;
+  const paidTariff = exactAuthorizationRequired
+    ? currentResearchPaidTariff()
+    : null;
+  return {
+    managerStart,
+    exactAuthorizationRequired,
+    paidTariff,
+    allowed: managerStart || canStartOwnProductResearch(),
+  };
+}
+
+function exactYoutubePaidAuthorizationMarkup(context) {
+  if (!context.exactAuthorizationRequired) {
+    return `<label class="acknowledgement"><input name="paid_analysis_ack" type="checkbox" required /><span>Подтверждаю один платный продуктовый ИИ-анализ после бесплатной подготовки кадров.</span></label>`;
+  }
+  const tariff = context.paidTariff;
+  if (!tariff) {
+    return `<div class="alert alert-warning" role="alert"><strong aria-hidden="true">!</strong><span><strong>Свежий точный тариф недоступен.</strong> Платный запуск заблокирован. Обновите проект и подтвердите новый серверный тариф вручную.</span></div>`;
+  }
+  return `
+    <div class="alert alert-warning" role="note"><strong aria-hidden="true">$</strong><span><strong>Платный анализ по фактическому расходу.</strong> ${escapeHtml(tariff.model)}, стандартный режим ${escapeHtml(tariff.service_tier)}: при входе до ${escapeHtml(tariff.long_context_threshold_input_tokens)} токенов включительно — вход $${escapeHtml(tariff.input_usd_per_million_tokens)} и выход $${escapeHtml(tariff.output_usd_per_million_tokens)} за 1 млн токенов; если вход превысит ${escapeHtml(tariff.long_context_threshold_input_tokens)}, повышенный тариф применяется ко всему запросу — вход $${escapeHtml(tariff.long_context_input_usd_per_million_tokens)} и выход $${escapeHtml(tariff.long_context_output_usd_per_million_tokens)} за 1 млн токенов; веб-поиск $${escapeHtml(tariff.web_search_usd_per_call)} за вызов. Максимум выходных токенов: ${escapeHtml(tariff.max_output_tokens)}; попытка провайдера одна. Итоговая сумма заранее не фиксирована и зависит от фактического расхода и от того, пересечён ли порог long context.</span></div>
+    <label class="acknowledgement"><input name="paid_analysis_confirmation" type="checkbox" value="${escapeHtml(tariff.confirmation_value)}" required /><span><strong>Подтверждаю этот точный тариф и один платный запуск.</strong> Версия ${escapeHtml(tariff.version)}. Галочка действует только для этого нажатия и не сохраняется.</span></label>`;
+}
+
 function exactYoutubeResearchEvidenceRouteContext() {
   if (state.route.query.get("purpose") !== "exact_youtube_research") {
     return null;
@@ -14227,6 +14621,13 @@ function exactYoutubeResearchEvidenceMarkup(context, catalog) {
   const sourceProductIdentityReady = Boolean(
     context.productName && context.productSku,
   );
+  const paidStart = productResearchPaidStartContext();
+  const paidTariff = paidStart.paidTariff;
+  const paidStartBlocked = !paidStart.allowed
+    || (paidStart.exactAuthorizationRequired && !paidTariff);
+  const paidAuthorizationMarkup = paidStart.exactAuthorizationRequired
+    ? exactYoutubePaidAuthorizationMarkup(paidStart)
+    : `<label class="acknowledgement"><input name="paid_analysis_ack" type="checkbox" required /><span>Подтверждаю один платный продуктовый ИИ-анализ после бесплатной подготовки кадров.</span></label>`;
   return `
     <div class="page-wrap exact-youtube-research-evidence-page">
       ${pageHeader(
@@ -14270,11 +14671,11 @@ function exactYoutubeResearchEvidenceMarkup(context, catalog) {
         <div class="form-stack">
           <label class="acknowledgement"><input name="media_matches_registered_source" type="checkbox" required /><span>Повторно подтверждаю: этот MP4 — тот же ролик, что зарегистрированная YouTube-ссылка, а не другое видео по теме.</span></label>
           <label class="acknowledgement"><input name="external_ai_processing_ack" type="checkbox" required /><span>Разрешаю передать внешнему ИИ только пять контрольных JPEG и текст этой формы; исходный MP4, аудио и транскрипт не передаются.</span></label>
-          <label class="acknowledgement"><input name="paid_analysis_ack" type="checkbox" required /><span>Подтверждаю один платный продуктовый ИИ-анализ после бесплатной подготовки кадров.</span></label>
+          ${paidAuthorizationMarkup}
           <label class="acknowledgement"><input name="human_review_ack" type="checkbox" required /><span>Проверю выводы в Исследованиях и ИИ-центре до применения в генерации.</span></label>
         </div>
         <div class="inline-actions">
-          <button class="btn" type="submit" ${productPhotos.length ? "" : "disabled"}>Подготовить 5 кадров и запустить исследование</button>
+          <button class="btn" type="submit" ${productPhotos.length && !paidStartBlocked ? "" : "disabled aria-disabled=\"true\""}>Подготовить 5 кадров и запустить исследование</button>
           <a class="btn btn-secondary" href="${workspaceProjectHref("#/workspace/ai")}">Вернуться без запуска</a>
         </div>
         <small data-exact-youtube-research-status role="status" aria-live="polite">${sourceProductIdentityReady ? "Название и SKU предзаполнены из точного источника; перед кадрами портал сверит свежую серверную очередь." : "Источник создан без полной подписи товара; перед кадрами портал сверит выбранный product_id на сервере."} Платный вызов не начнётся до всех подтверждений.</small>
@@ -15444,8 +15845,55 @@ function ensureResearchStageControlLoaded(runId) {
   }));
 }
 
+function latestOwnProjectResearchRun() {
+  if (!canReadOwnProductResearch()) return null;
+  return exactProjectFlowSnapshot()?.research_context?.latest_own_run || null;
+}
+
+function ownProductResearchAiReceiptHref(record) {
+  const runId = String(record?.id || "").trim().toLowerCase();
+  const latest = latestOwnProjectResearchRun();
+  const authoritativeOwnRecord = record?.statusAuthorityVerified === true
+    && record?.projectId === currentWorkspaceProjectId()
+    && ["own", "project"].includes(record?.ownership);
+  const receiptId = String(
+    authoritativeOwnRecord
+      ? record?.aiReceipt?.receiptId
+      : latest?.run_id === runId
+        ? latest?.ai_receipt?.receipt_id
+        : "",
+  )
+    .trim()
+    .toLowerCase();
+  const category = String(
+    authoritativeOwnRecord
+      ? record?.statusProductCategory
+      : latest?.run_id === runId
+        ? latest?.product_category
+        : record?.researchInput?.productCategory || "",
+  ).trim().toLowerCase();
+  const aiCapabilities = projectAiResearchCapabilities();
+  if (
+    !runId
+    || (!authoritativeOwnRecord && latest?.run_id !== runId)
+    || !isWorkspaceProjectId(receiptId)
+    || !aiProductCategoryIds().includes(category)
+    || aiCapabilities.can_read_receipt !== true
+    || !["own", "project"].includes(aiCapabilities.receipt_scope)
+  ) return "";
+  const params = new URLSearchParams({
+    project_id: currentWorkspaceProjectId(),
+    category,
+    receipt: receiptId,
+  });
+  return `#/workspace/ai?${params.toString()}`;
+}
+
 function renderProductResearchSection() {
-  if (!canManageProductResearch()) {
+  if (projectScopedRouteCapabilityPending("research")) {
+    return `<div class="page-wrap product-research-page">${pageHeader("Исследования", "Проверяем ваши права на выбранный проект.", '<span class="badge badge-info">Загрузка</span>')}<section class="card card-pad" aria-busy="true"><p class="muted">Загружаем точный проектный доступ и текущий тариф…</p></section></div>`;
+  }
+  if (!canOpenProductResearch()) {
     return `<div class="page-wrap">${alertMarkup("Разбор товара доступен руководителю и продюсеру.", "danger")}</div>`;
   }
   const research = state.productResearch;
@@ -15455,7 +15903,7 @@ function renderProductResearchSection() {
     window.queueMicrotask(() => loadSection("media", { silent: true, rerenderSection: "research" }));
   }
   const teamState = state.sections.team;
-  if (teamState.status === "idle") {
+  if (canManageProductResearch() && teamState.status === "idle") {
     window.queueMicrotask(() => loadSection("team", { silent: true, rerenderSection: "research" }));
   }
   const media = listFrom(mediaState.data || {}, "media", "items", "artifacts")
@@ -15472,6 +15920,49 @@ function renderProductResearchSection() {
         && (!artifactClass || artifactClass === "source");
     });
   const statusKind = research.record ? productResearchStatusKind(research.record.status) : "";
+  const ownOnly = !canManageProductResearch();
+  if (ownOnly) {
+    let ownContent;
+    if (["starting", "processing"].includes(research.phase) || statusKind === "active") {
+      ownContent = productResearchProgressMarkup(research.record, research.error);
+    } else if (research.record && ["ready", "approved"].includes(statusKind)) {
+      const aiReceiptHref = ownProductResearchAiReceiptHref(research.record);
+      ownContent = productResearchEvidenceMarkup(research.record, {
+        notice: research.notice,
+        error: research.error,
+        aiReceiptHref,
+        aiReceiptPending: !aiReceiptHref
+          && projectAiResearchCapabilities().can_read_receipt === true,
+        canStartNew: canStartOwnProductResearch(),
+      });
+    } else if (research.phase === "error" && research.record) {
+      ownContent = productResearchProgressMarkup(research.record, research.error);
+    } else if (canStartOwnProductResearch()) {
+      ownContent = productResearchInputMarkup({
+        media,
+        mediaLoading: ["idle", "loading"].includes(mediaState.status),
+        error: research.error,
+        notice: research.notice,
+        defaults: research.prefill || {},
+        paidTariff: currentResearchPaidTariff(),
+        exactPaidAuthorizationRequired: true,
+      });
+    } else {
+      ownContent = alertMarkup(
+        "Сервер не разрешил самостоятельный платный запуск в этом проекте.",
+        "danger",
+      );
+    }
+    return `
+      <div class="page-wrap product-research-page">
+        ${pageHeader(
+          "Мои исследования",
+          "Запускайте собственный анализ, проверяйте его доказательства и сами решайте, что передать в ИИ-центр.",
+          '<span class="badge badge-info">Только ваши запуски</span>',
+        )}
+        ${ownContent}
+      </div>`;
+  }
   const requestedView = String(state.route.query.get("view") || "");
   const researchView = ["evidence", "corrections", "brief", "approve", "handoff"].includes(requestedView)
     && (requestedView !== "handoff" || statusKind === "approved")
@@ -15573,19 +16064,38 @@ function stopProductResearchPolling() {
   state.productResearch.pollTimer = null;
 }
 
-function productResearchRunStorageKey() {
+function productResearchRunStorageKey(
+  projectIdValue = currentWorkspaceProjectId(),
+) {
   const userId = String(state.user?.id || "").trim();
   const organizationId = String(state.bootstrap?.organization?.id || state.api?.organizationId || "").trim();
-  const projectId = currentWorkspaceProjectId();
+  const projectId = String(projectIdValue || "").trim().toLowerCase();
   return userId && organizationId && isWorkspaceProjectId(projectId)
     ? `${PRODUCT_RESEARCH_RUN_STORAGE_KEY}:${organizationId}:${userId}:${projectId}`
     : "";
 }
 
-function persistProductResearchRunId(runId) {
-  const key = productResearchRunStorageKey();
-  const normalizedRunId = String(runId || "").trim();
-  if (!key || !normalizedRunId) return;
+function projectResearchRunAllowedByServer(runId) {
+  const normalizedRunId = String(runId || "").trim().toLowerCase();
+  const capabilities = productResearchCapabilities();
+  if (!isWorkspaceProjectId(normalizedRunId) || !canReadOwnProductResearch()) {
+    return false;
+  }
+  if (capabilities.run_scope === "project" && canManageProductResearch()) {
+    return true;
+  }
+  // A route or project-scoped session value is only a candidate. The exact
+  // status RPC below is the authority and rejects sibling/foreign runs.
+  return capabilities.run_scope === "own";
+}
+
+function persistProductResearchRunId(
+  runId,
+  projectIdValue = currentWorkspaceProjectId(),
+) {
+  const key = productResearchRunStorageKey(projectIdValue);
+  const normalizedRunId = String(runId || "").trim().toLowerCase();
+  if (!key || !isWorkspaceProjectId(normalizedRunId)) return;
   try {
     window.sessionStorage.setItem(key, normalizedRunId);
   } catch {
@@ -15593,8 +16103,10 @@ function persistProductResearchRunId(runId) {
   }
 }
 
-function clearProductResearchRunId() {
-  const key = productResearchRunStorageKey();
+function clearProductResearchRunId(
+  projectIdValue = currentWorkspaceProjectId(),
+) {
+  const key = productResearchRunStorageKey(projectIdValue);
   if (!key) return;
   try {
     window.sessionStorage.removeItem(key);
@@ -15605,6 +16117,20 @@ function clearProductResearchRunId() {
 
 function restoreProductResearchSession() {
   const research = state.productResearch;
+  if (projectScopedRouteCapabilityPending("research")) return;
+  if (!canReadOwnProductResearch() && !canManageProductResearch()) return;
+  const selectedProjectId = currentWorkspaceProjectId();
+  if (
+    research.record?.projectId
+    && research.record.projectId !== selectedProjectId
+  ) {
+    stopProductResearchPolling();
+    research.requestId += 1;
+    research.record = null;
+    research.phase = "idle";
+    research.error = "";
+    research.restoreAttempted = false;
+  }
   if (state.route.query.has("run")) {
     const routeProjectId = safeWorkspaceRouteEntityId("project_id");
     const routeRunId = safeWorkspaceRouteEntityId("run");
@@ -15614,16 +16140,22 @@ function restoreProductResearchSession() {
       !routeProjectId
       || routeProjectId !== activeProjectId
       || !routeRunId
+      || !projectResearchRunAllowedByServer(routeRunId)
     ) {
       research.record = null;
       research.phase = "error";
       research.error = "Ссылка на разбор товара не соответствует выбранному проекту.";
       return;
     }
-    if (String(research.record?.id || "").toLowerCase() === routeRunId) return;
+    if (
+      String(research.record?.id || "").toLowerCase() === routeRunId
+      && research.record?.projectId === activeProjectId
+    ) return;
     research.record = normalizeProductResearch({
       run: { id: routeRunId, status: "queued" },
     });
+    research.record.projectId = activeProjectId;
+    research.record.statusAuthorityVerified = false;
     research.phase = "processing";
     research.error = "";
     persistProductResearchRunId(routeRunId);
@@ -15633,6 +16165,7 @@ function restoreProductResearchSession() {
   if (research.restoreAttempted || research.record) return;
   research.restoreAttempted = true;
   let runId = safeWorkspaceRouteEntityId("research");
+  const legacyRouteRunRequested = Boolean(runId);
   if (!runId) {
     const key = productResearchRunStorageKey();
     if (!key) return;
@@ -15642,9 +16175,19 @@ function restoreProductResearchSession() {
       return;
     }
   }
-  if (!runId) return;
+  if (
+    !legacyRouteRunRequested
+    && (!runId || !projectResearchRunAllowedByServer(runId))
+  ) {
+    runId = String(latestOwnProjectResearchRun()?.run_id || "")
+      .trim()
+      .toLowerCase();
+  }
+  if (!runId || !projectResearchRunAllowedByServer(runId)) return;
   persistProductResearchRunId(runId);
   research.record = normalizeProductResearch({ run: { id: runId, status: "queued" } });
+  research.record.projectId = currentWorkspaceProjectId();
+  research.record.statusAuthorityVerified = false;
   research.phase = "processing";
   window.queueMicrotask(() => pollProductResearchStatus({ silent: true }));
 }
@@ -15654,6 +16197,7 @@ function scheduleProductResearchPolling(delay = PRODUCT_RESEARCH_POLL_INTERVAL_M
   if (
     state.route.path !== "/workspace/research"
     || !state.productResearch.record?.id
+    || state.productResearch.phase === "error"
     || productResearchStatusKind(state.productResearch.record.status) !== "active"
   ) return;
   state.productResearch.pollTimer = window.setTimeout(() => {
@@ -15695,8 +16239,16 @@ async function pollProductResearchStatus({ silent = false } = {}) {
       || runId !== String(research.record?.id || "")
       || projectId !== currentWorkspaceProjectId()
     ) return;
+    const normalizedRecord = normalizeProductResearch(raw, research.record);
+    if (!productResearchStatusMatchesContext(normalizedRecord, {
+      runId,
+      projectId,
+      runScope: productResearchCapabilities().run_scope,
+    })) {
+      throw new Error("product_research_status_scope_mismatch");
+    }
     research.record = {
-      ...normalizeProductResearch(raw, research.record),
+      ...normalizedRecord,
       statusNotice: "",
     };
     prepareRecommendedResearchHandoff(research.record);
@@ -15705,12 +16257,29 @@ async function pollProductResearchStatus({ silent = false } = {}) {
     research.error = kind === "failed"
       ? (research.record.failureMessage || "Исследование завершилось с ошибкой. Проверьте вводные или начните новый разбор.")
       : "";
+    if (
+      kind === "ready"
+      && productResearchCapabilities().run_scope === "own"
+    ) {
+      // Refresh the server-owned latest run/receipt link. The status payload
+      // alone never grants access to an AI receipt selected by the browser.
+      await loadProjectFlow({ silent: true, force: true });
+    }
   } catch (error) {
     if (requestId !== research.requestId) return;
     const statusMessage = String(error?.message || "") === "product_research_status_timeout"
       ? "Сервер не ответил вовремя. Запуск не потерян — проверьте статус ещё раз."
       : actionErrorMessage(error);
-    if (productResearchStatusKind(research.record?.status) === "active") {
+    if (research.record?.statusAuthorityVerified !== true) {
+      clearProductResearchRunId(projectId);
+      research.record = {
+        ...research.record,
+        projectId,
+        statusAuthorityVerified: false,
+      };
+      research.phase = "error";
+      research.error = statusMessage;
+    } else if (productResearchStatusKind(research.record?.status) === "active") {
       research.phase = "processing";
       research.error = "";
       research.record = { ...research.record, statusNotice: statusMessage };
@@ -15792,7 +16361,14 @@ function aiLearningMarketDetailMatchesScope(
 }
 
 function renderAiLearningSection(sectionState) {
-  if (!canViewAiLearning()) {
+  if (projectScopedRouteCapabilityPending("ai")) {
+    return `<div class="page-wrap ai-learning-page">${pageHeader("ИИ-центр", "Проверяем ваши права на исследование в выбранном проекте.", '<span class="badge badge-info">Загрузка</span>')}<section class="card card-pad" aria-busy="true"><p class="muted">Загружаем точный проектный доступ…</p></section></div>`;
+  }
+  if (canOpenProjectAiResearch() && !canViewLegacyAiLearning()) {
+    const projectId = currentWorkspaceProjectId();
+    return `<div class="page-wrap ai-learning-page">${pageHeader("ИИ-центр", "Здесь вы проверяете только собственные завершённые исследования и сами решаете, какие выводы превратить в рекомендации.", '<span class="badge badge-info">Только ваши чеки</span>')}<div data-ai-research-training-host data-project-id="${escapeHtml(projectId)}"></div></div>`;
+  }
+  if (!canViewLegacyAiLearning()) {
     return `<div class="page-wrap">${alertMarkup("ИИ‑центр доступен руководителю, продюсеру и проверяющему.", "danger")}</div>`;
   }
   const snapshot = sectionState.data
@@ -15861,6 +16437,7 @@ function scheduleAiLearningPolling(delay = AI_LEARNING_POLL_INTERVAL_MS) {
   stopAiLearningPolling();
   if (
     state.route.path !== "/workspace/ai"
+    || !canViewLegacyAiLearning()
     || document.visibilityState !== "visible"
     || !state.session
     || state.aiLearning.busyCardId
@@ -15879,6 +16456,7 @@ function scheduleAiLearningPolling(delay = AI_LEARNING_POLL_INTERVAL_MS) {
 async function pollAiLearningControlRoom() {
   if (
     state.route.path !== "/workspace/ai"
+    || !canViewLegacyAiLearning()
     || document.visibilityState !== "visible"
     || state.aiLearning.busyCardId
     || state.aiLearning.busyHistoricalCaseId
@@ -15899,7 +16477,7 @@ async function loadAiLearningControlRoom({ silent = false } = {}) {
   if (
     !section
     || !state.api
-    || !canViewAiLearning()
+    || !canViewLegacyAiLearning()
   ) return null;
   const requestId = state.aiLearning.requestId + 1;
   const requestEpoch = state.dataEpoch;
@@ -18247,6 +18825,9 @@ async function handleClick(event) {
   if (action === "select-workspace-folder") {
     state.workspaceBoard.selectedFolderId = String(control.dataset.folderId || "all");
     state.workspaceBoard.selectedItemKey = "";
+    if (state.workspaceBoard.selectedFolderId !== "all") {
+      state.workspaceBoard.provenanceFilter = "all";
+    }
     state.workspaceBoard.notice = "";
     state.workspaceBoard.error = "";
     state.workspaceBoard.pendingArchiveFolderId = "";
@@ -18334,7 +18915,8 @@ async function handleClick(event) {
 
   if (action === "reset-workspace-filters") {
     state.workspaceBoard.query = "";
-    state.workspaceBoard.entityType = "media";
+    state.workspaceBoard.entityType = "all";
+    state.workspaceBoard.provenanceFilter = "all";
     state.workspaceBoard.notice = "";
     state.workspaceBoard.error = "";
     state.workspaceBoard.hasMore = false;
@@ -20270,6 +20852,14 @@ function handleFormActivity(event) {
   const form = event.target.closest?.("#workspace-content form");
   if (form) {
     form.dataset.dirty = "true";
+    if ([
+      "product-research-start-form",
+      "exact-youtube-research-evidence-form",
+    ].includes(form.id)) {
+      // Any changed input invalidates the exact tariff decision. The person
+      // must inspect and check the current server-priced launch again.
+      invalidateProductResearchPaidConfirmation(form, event.target.name);
+    }
     if (form.id === "content-review-form") persistContentReviewDraft(form);
     if (form.id === "mock-batch-form") {
       const priceConfirmationChanged =
@@ -25249,8 +25839,24 @@ async function normalizePasswordFunctionError(error) {
 async function submitProductResearchStart(form) {
   const projectId = requireWorkspaceProjectId();
   if (!projectId) return;
+  const paidStart = productResearchPaidStartContext();
+  const paidTariff = paidStart.paidTariff;
+  if (!paidStart.allowed) {
+    toast("Сервер не разрешил платный анализ в этом проекте.", "error");
+    return;
+  }
   const values = new FormData(form);
-  const paidAnalysisConfirmed = values.has("paid_analysis_ack");
+  const exactPaidAuthorizationRequired = paidStart.exactAuthorizationRequired;
+  const paidAnalysisConfirmation = String(
+    values.get("paid_analysis_confirmation") || "",
+  ).trim();
+  const paidAnalysisConfirmed = exactPaidAuthorizationRequired
+    ? Boolean(
+        paidTariff
+        && paidAnalysisConfirmation
+        && paidAnalysisConfirmation === paidTariff.confirmation_value,
+      )
+    : values.has("paid_analysis_ack");
   const humanReviewConfirmed = values.has("human_review_ack");
   const productName = String(values.get("product_name") || "").trim();
   const sku = String(values.get("sku") || "").trim();
@@ -25267,6 +25873,11 @@ async function submitProductResearchStart(form) {
   const platforms = values.getAll("platforms").map(String).filter((item) =>
     PRODUCT_RESEARCH_PLATFORM_SET.has(item)
   );
+  if (!paidAnalysisConfirmed && exactPaidAuthorizationRequired) {
+    toast("Подтвердите свежий точный тариф платного анализа перед запуском.", "error");
+    form.elements.paid_analysis_confirmation?.focus();
+    return;
+  }
   if (!paidAnalysisConfirmed) {
     toast("Подтвердите платный ИИ-анализ перед запуском.", "error");
     form.elements.paid_analysis_ack?.focus();
@@ -25345,14 +25956,33 @@ async function submitProductResearchStart(form) {
       competitorReferences,
       knownFacts,
     },
+    projectId,
+    statusAuthorityVerified: false,
   };
   stopProductResearchPolling();
   resetResearchStageControl();
   state.productResearch.requestId += 1;
+  const startRequestContext = {
+    requestId: state.productResearch.requestId,
+    projectId,
+  };
+  const startRequestIsCurrent = () => productResearchRequestContextMatches(
+    startRequestContext,
+    {
+      requestId: state.productResearch.requestId,
+      projectId: currentWorkspaceProjectId(),
+    },
+  );
   state.productResearch.phase = "starting";
   state.productResearch.record = previous;
   state.productResearch.error = "";
   state.productResearch.notice = "";
+  if (form.elements.paid_analysis_confirmation) {
+    form.elements.paid_analysis_confirmation.checked = false;
+  }
+  if (form.elements.paid_analysis_ack) {
+    form.elements.paid_analysis_ack.checked = false;
+  }
   renderWorkspace("research");
   try {
     const raw = await state.api.startProductResearch(
@@ -25365,17 +25995,31 @@ async function submitProductResearchStart(form) {
         source_media_ids: sourceMediaIds,
         platforms,
         paid_analysis_ack: true,
+        ...(exactPaidAuthorizationRequired
+          ? { paid_analysis_authorization: paidTariff }
+          : {}),
       },
       {
         projectId,
         onRunCreated: (run) => {
-          persistProductResearchRunId(run?.id);
-          state.productResearch.record = normalizeProductResearch({ run }, previous);
+          persistProductResearchRunId(run?.id, projectId);
+          if (!startRequestIsCurrent()) return;
+          state.productResearch.record = {
+            ...normalizeProductResearch({ run }, previous),
+            projectId,
+            statusAuthorityVerified: false,
+          };
         },
       },
     );
-    state.productResearch.record = normalizeProductResearch(raw, previous);
-    persistProductResearchRunId(state.productResearch.record.id);
+    const startedRecord = {
+      ...normalizeProductResearch(raw, previous),
+      projectId,
+      statusAuthorityVerified: false,
+    };
+    persistProductResearchRunId(startedRecord.id, projectId);
+    if (!startRequestIsCurrent()) return;
+    state.productResearch.record = startedRecord;
     const kind = productResearchStatusKind(state.productResearch.record.status);
     state.productResearch.phase = kind === "ready" ? "ready" : "processing";
     await track("product_research_started", {
@@ -25390,9 +26034,15 @@ async function submitProductResearchStart(form) {
     const recoverableRun = error?.job?.id
       ? normalizeProductResearch({ run: error.job }, previous)
       : null;
+    if (recoverableRun?.id) {
+      persistProductResearchRunId(recoverableRun.id, projectId);
+    }
+    if (!startRequestIsCurrent()) return;
     if (recoverableRun) {
       state.productResearch.record = {
         ...recoverableRun,
+        projectId,
+        statusAuthorityVerified: false,
         statusNotice: `${actionErrorMessage(error)} Запуск сохранён — дождитесь терминального статуса перед новым анализом.`,
       };
       state.productResearch.phase = "processing";
@@ -25403,6 +26053,7 @@ async function submitProductResearchStart(form) {
       state.productResearch.error = actionErrorMessage(error);
     }
   }
+  if (!startRequestIsCurrent()) return;
   if (state.route.path === "/workspace/research") renderWorkspace("research");
   scheduleProductResearchPolling(800);
 }
@@ -27654,6 +28305,26 @@ async function submitExactYoutubeResearchEvidence(form) {
     );
     return;
   }
+  const exactSubmissionIsCurrent = () => {
+    const currentContext = exactYoutubeResearchEvidenceRouteContext();
+    return currentWorkspaceProjectId() === projectId
+      && document.contains(form)
+      && currentContext?.valid === true
+      && currentContext.projectId === context.projectId
+      && currentContext.sourceId === context.sourceId
+      && currentContext.attachmentId === context.attachmentId
+      && currentContext.mediaId === context.mediaId
+      && form.dataset.projectId === context.projectId
+      && form.dataset.sourceId === context.sourceId
+      && form.dataset.attachmentId === context.attachmentId
+      && form.dataset.mediaId === context.mediaId;
+  };
+  const paidStart = productResearchPaidStartContext();
+  const paidTariff = paidStart.paidTariff;
+  if (!paidStart.allowed) {
+    toast("Сервер не разрешил платный анализ в этом проекте.", "error");
+    return;
+  }
   if (
     form.dataset.projectId !== context.projectId
     || form.dataset.sourceId !== context.sourceId
@@ -27664,6 +28335,17 @@ async function submitExactYoutubeResearchEvidence(form) {
     return;
   }
   const values = new FormData(form);
+  const paidAnalysisConfirmation = String(
+    values.get("paid_analysis_confirmation") || "",
+  ).trim();
+  const paidAnalysisConfirmed = paidStart.exactAuthorizationRequired
+    ? Boolean(
+        paidTariff
+        && paidAnalysisConfirmation
+        && paidAnalysisConfirmation
+          === paidTariff.confirmation_value,
+      )
+    : values.get("paid_analysis_ack") === "on";
   const catalog = normalizeContentReviewCatalog(state.sections.review.data || {});
   const video = catalog.media.find((item) => (
     item.id === context.mediaId
@@ -27734,13 +28416,25 @@ async function submitExactYoutubeResearchEvidence(form) {
     toast("Подтвердите передачу внешнему ИИ только пяти контрольных JPEG.", "error");
     return;
   }
-  if (values.get("paid_analysis_ack") !== "on") {
+  if (!paidAnalysisConfirmed && paidStart.exactAuthorizationRequired) {
+    toast("Подтвердите свежий точный тариф платного анализа перед запуском.", "error");
+    form.elements.paid_analysis_confirmation?.focus();
+    return;
+  }
+  if (!paidAnalysisConfirmed) {
     toast("Подтвердите один платный продуктовый ИИ-анализ.", "error");
+    form.elements.paid_analysis_ack?.focus();
     return;
   }
   if (values.get("human_review_ack") !== "on") {
     toast("Подтвердите ручную проверку выводов до генерации.", "error");
     return;
+  }
+  if (form.elements.paid_analysis_confirmation) {
+    form.elements.paid_analysis_confirmation.checked = false;
+  }
+  if (form.elements.paid_analysis_ack) {
+    form.elements.paid_analysis_ack.checked = false;
   }
   const objective = [
     objectiveInput,
@@ -27755,12 +28449,14 @@ async function submitExactYoutubeResearchEvidence(form) {
   let verifiedVideo = video;
   let durableEvidence = null;
   let paidDispatchStarted = false;
+  let exactStartRequestContext = null;
   try {
     setStatus("Сверяем точный источник, attachment, MP4 и подпись товара с актуальной серверной очередью. Платный анализ ещё не начат…");
     const freshSource = await requireFreshExactYoutubeResearchSource(context, {
       productName,
       sku,
     });
+    if (!exactSubmissionIsCurrent()) return;
     const verified = resolveExactYoutubeResearchCaptureMedia(
       video,
       freshSource,
@@ -27787,6 +28483,7 @@ async function submitExactYoutubeResearchEvidence(form) {
           onVerified: () => setStatus("SHA-256 совпал. Бесплатно извлекаем пять контрольных JPEG из локальной копии в браузере. Платный анализ ещё не начат…"),
         },
       );
+      if (!exactSubmissionIsCurrent()) return;
     }
     if (durableEvidence?.status !== "ready") {
       setStatus("Сохраняем пять кадров в защищённом evidence-контуре. Платный анализ ещё не начат…");
@@ -27802,6 +28499,7 @@ async function submitExactYoutubeResearchEvidence(form) {
           clearEvidence: () => clearExactYoutubeResearchEvidence(context),
         },
       );
+      if (!exactSubmissionIsCurrent()) return;
     }
     if (!durableEvidence || durableEvidence.status !== "ready") {
       throw new CreatorApiError(
@@ -27809,6 +28507,11 @@ async function submitExactYoutubeResearchEvidence(form) {
         { code: "exact_video_research_evidence_not_ready" },
       );
     }
+    // All preflight awaits are complete. Revalidate the captured form, route,
+    // project and exact source tuple before touching global Research state or
+    // dispatching the one paid request. A project switch keeps the durable
+    // evidence but never attaches or charges the stale tab.
+    if (!exactSubmissionIsCurrent()) return;
     setStatus("Пять кадров подтверждены. Запускаем один продуктовый ИИ-анализ sampled-only: без MP4, речи, аудио и транскрипта…");
     const previous = {
       ...normalizeProductResearch({ run: { status: "queued" } }, {
@@ -27825,10 +28528,23 @@ async function submitExactYoutubeResearchEvidence(form) {
         exactYoutubeSourceId: context.sourceId,
         exactVideoEvidenceId: durableEvidence.evidenceId,
       },
+      projectId,
+      statusAuthorityVerified: false,
     };
     stopProductResearchPolling();
     resetResearchStageControl();
     state.productResearch.requestId += 1;
+    exactStartRequestContext = {
+      requestId: state.productResearch.requestId,
+      projectId,
+    };
+    const exactStartRequestIsCurrent = () => productResearchRequestContextMatches(
+      exactStartRequestContext,
+      {
+        requestId: state.productResearch.requestId,
+        projectId: currentWorkspaceProjectId(),
+      },
+    );
     state.productResearch.phase = "starting";
     state.productResearch.record = previous;
     state.productResearch.error = "";
@@ -27845,6 +28561,9 @@ async function submitExactYoutubeResearchEvidence(form) {
         source_media_ids: [productPhoto.id],
         platforms,
         paid_analysis_ack: true,
+        ...(paidStart.exactAuthorizationRequired
+          ? { paid_analysis_authorization: paidTariff }
+          : {}),
         exact_youtube_source_id: context.sourceId,
         exact_youtube_attachment_id: context.attachmentId,
         exact_youtube_media_id: context.mediaId,
@@ -27856,16 +28575,24 @@ async function submitExactYoutubeResearchEvidence(form) {
       {
         projectId,
         onRunCreated: (run) => {
-          persistProductResearchRunId(run?.id);
-          state.productResearch.record = normalizeProductResearch(
-            { run },
-            previous,
-          );
+          persistProductResearchRunId(run?.id, projectId);
+          if (!exactStartRequestIsCurrent()) return;
+          state.productResearch.record = {
+            ...normalizeProductResearch({ run }, previous),
+            projectId,
+            statusAuthorityVerified: false,
+          };
         },
       },
     );
-    state.productResearch.record = normalizeProductResearch(raw, previous);
-    persistProductResearchRunId(state.productResearch.record.id);
+    const startedRecord = {
+      ...normalizeProductResearch(raw, previous),
+      projectId,
+      statusAuthorityVerified: false,
+    };
+    persistProductResearchRunId(startedRecord.id, projectId);
+    if (!exactStartRequestIsCurrent()) return;
+    state.productResearch.record = startedRecord;
     state.productResearch.phase = productResearchStatusKind(
       state.productResearch.record.status,
     ) === "ready" ? "ready" : "processing";
@@ -27897,12 +28624,20 @@ async function submitExactYoutubeResearchEvidence(form) {
         })
       : null;
     if (recoverableRun) {
+      persistProductResearchRunId(recoverableRun.id, projectId);
+      if (
+        !productResearchRequestContextMatches(exactStartRequestContext, {
+          requestId: state.productResearch.requestId,
+          projectId: currentWorkspaceProjectId(),
+        })
+      ) return;
       state.productResearch.record = {
         ...recoverableRun,
+        projectId,
+        statusAuthorityVerified: false,
         statusNotice: `${actionErrorMessage(error)} Исследование сохранено; новый платный запуск не создавайте.`,
       };
       state.productResearch.phase = "processing";
-      persistProductResearchRunId(recoverableRun.id);
       clearExactYoutubeResearchEvidence(context);
       const query = new URLSearchParams({
         project_id: projectId,
@@ -27911,6 +28646,7 @@ async function submitExactYoutubeResearchEvidence(form) {
       navigate(`/workspace/research?${query.toString()}`);
       scheduleProductResearchPolling(800);
     } else {
+      if (!exactSubmissionIsCurrent()) return;
       const message = actionErrorMessage(error);
       const recoveryEvidence = readExactYoutubeResearchEvidence(
         context,
@@ -27924,7 +28660,10 @@ async function submitExactYoutubeResearchEvidence(form) {
       toast(message, "error");
     }
   } finally {
-    if (document.contains(form)) setFormBusy(form, false);
+    if (
+      document.contains(form)
+      && currentWorkspaceProjectId() === projectId
+    ) setFormBusy(form, false);
   }
 }
 
@@ -29423,7 +30162,8 @@ function clearAuthenticatedState() {
   state.workspaceBoard.selectedFolderId = "all";
   state.workspaceBoard.selectedItemKey = "";
   state.workspaceBoard.query = "";
-  state.workspaceBoard.entityType = "media";
+  state.workspaceBoard.entityType = "all";
+  state.workspaceBoard.provenanceFilter = "all";
   state.workspaceBoard.busy = false;
   state.workspaceBoard.notice = "";
   state.workspaceBoard.error = "";
@@ -29551,6 +30291,7 @@ function workspaceDeepLinkTarget(section) {
     return null;
   }
   const definitions = {
+    board: ["media", (id) => [`[data-workspace-item-key="media:${id}"]`]],
     tasks: ["item", (id) => [`[data-task-id="${id}"]`]],
     generation: ["job", (id) => [`[data-generation-job-id="${id}"]`]],
     review: ["review", (id) => [

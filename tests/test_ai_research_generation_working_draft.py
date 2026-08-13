@@ -494,7 +494,8 @@ def test_exact_product_identity_blocks_target_shared_and_later_media_mismatch() 
     assert decisions["laterMediaSwitch"] == {"ok": False, "code": "product_mismatch"}
 
     # The executable decision is wired into all three stateful boundaries.
-    assert "if (!applyAuthoritativeRecommendationProduct(form, exactTarget))" in GENERATION
+    assert "if (!recommendationProductIdentityMatches(form, exactTarget))" in GENERATION
+    assert "if (!applyAuthoritativeRecommendationProduct(runtime.form, envelope))" in GENERATION
     assert "if (!applyAuthoritativeRecommendationProduct(form, draft.recommendation))" in GENERATION
     assert "generation_research_recommendation_product_mismatch" in GENERATION
     assert "generationAiResearchProductIdentityMatches(form, identity);" in APP
@@ -1250,8 +1251,22 @@ def test_consumed_deep_link_and_tombstone_guard_prevent_opt_out_resurrection() -
         target,
       );
       const reload = mod.routeAfterResearchRecommendationConsumption(first, target);
+      const targetKey = `${{target.selectionId}}:${{target.recommendationPosition}}`;
+      const application = {{
+        freshIntent: mod.researchRecommendationApplicationAuthorized(target, {{
+          freshRouteTargetKey: targetKey,
+        }}),
+        explicitButton: mod.researchRecommendationApplicationAuthorized(target, {{
+          explicitApplyTargetKey: targetKey,
+        }}),
+        plainRoute: mod.researchRecommendationApplicationAuthorized(target),
+        staleOtherTarget: mod.researchRecommendationApplicationAuthorized(target, {{
+          freshRouteTargetKey: `${{target.selectionId}}:1`,
+        }}),
+      }};
       console.log(JSON.stringify({{
         first, reload, freshIntent, plainReload, expiredIntent, authorizationKeys,
+        application,
       }}));
     """
     result = subprocess.run(
@@ -1271,7 +1286,26 @@ def test_consumed_deep_link_and_tombstone_guard_prevent_opt_out_resurrection() -
     assert value["freshIntent"] is True
     assert value["plainReload"] is False
     assert value["expiredIntent"] is False
+    assert value["application"] == {
+        "freshIntent": True,
+        "explicitButton": True,
+        "plainRoute": False,
+        "staleOtherTarget": False,
+    }
     assert len(set(value["authorizationKeys"])) == 3
+    load_start = GENERATION.index("async function loadRecommendations(")
+    load_end = GENERATION.index("function scheduleLoad(", load_start)
+    load = GENERATION[load_start:load_end]
+    assert "consumeExplicitResearchRecommendationIntent(routedTarget)" in load
+    assert "researchRecommendationApplicationAuthorized(" in load
+    assert "&& (routeRecommendationTarget() || explicitApplyRequested)" not in load
+    mount_start = GENERATION.index("function mount()")
+    mount_end = GENERATION.index("function scheduleMount()", mount_start)
+    off_route = GENERATION[mount_start:mount_end]
+    assert 'runtime.freshRouteApplyTargetKey = ""' in off_route
+    assert 'runtime.freshRouteApplyProjectId = ""' in off_route
+    assert 'runtime.explicitApplyTargetKey = ""' in off_route
+    assert 'runtime.tombstoneReplacementKey = ""' in off_route
     assert "authoritativeDraft?.draft === null" in GENERATION
     assert "Старый deep link не применён повторно" in GENERATION
     assert "allowTombstoneReplacement" not in GENERATION
@@ -1440,8 +1474,8 @@ def test_api_boundary_and_scoped_cache_edges_are_wired() -> None:
     assert '"contentengine_generation_ai_research_working_draft"' in API
     assert "generationResearchRecommendation(input = {})" in API
     assert "generationAiResearchWorkingDraft(input = {})" in API
-    assert '"workspace-ai-research-training.js":\n      "20260811.ai-center-runtime-owned.2"' in BOOTSTRAP
-    assert '"workspace-generation-research-recommendations.js":\n      "20260812.ai-reload-verification.1"' in BOOTSTRAP
+    assert '"workspace-ai-research-training.js":\n      "20260812.os4.38"' in BOOTSTRAP
+    assert '"workspace-generation-research-recommendations.js":\n      "20260812.os4.38"' in BOOTSTRAP
     assert "generation-ai-research-working-draft.js?v=20260811.ai-working-draft.1" in APP
     assert "generation-ai-research-working-draft.js?v=20260811.ai-working-draft.1" in GENERATION
 

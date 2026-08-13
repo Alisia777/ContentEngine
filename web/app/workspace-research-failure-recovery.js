@@ -7,7 +7,7 @@
  * without starting any provider or paid operation.
  */
 
-import { productResearchInputMarkup } from "./product-research-view.js?v=20260812.os4.37";
+import { productResearchInputMarkup } from "./product-research-view.js?v=20260812.os4.38";
 import {
   readExactYoutubeMediaHandoff,
   writeExactYoutubeMediaHandoff,
@@ -34,6 +34,8 @@ const runtime = {
   exactDraftRetryKey: "",
   exactDraftRetryCount: 0,
   exactDraftRetryTimer: 0,
+  recoveryPendingSource: null,
+  recoveryRenderKey: "",
 };
 const EXACT_DRAFT_RETRY_LIMIT = 12;
 const EXACT_DRAFT_RETRY_DELAY_MS = 250;
@@ -58,6 +60,72 @@ function currentProjectId() {
     .trim()
     .toLowerCase();
   return UUID_PATTERN.test(value) ? value : "";
+}
+
+function objectValue(value) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value
+    : {};
+}
+
+export function researchRecoveryPaidContext({
+  projectId,
+  workspaceRole,
+  projectFlow,
+} = {}) {
+  const normalizedProjectId = String(projectId || "").trim().toLowerCase();
+  const role = String(workspaceRole || "").trim().toLowerCase();
+  if (
+    UUID_PATTERN.test(normalizedProjectId)
+    && ["owner", "admin", "producer"].includes(role)
+  ) {
+    return {
+      allowed: true,
+      exactPaidAuthorizationRequired: false,
+      paidTariff: null,
+      scope: "project",
+    };
+  }
+
+  const flow = objectValue(projectFlow);
+  const capabilities = objectValue(objectValue(flow.capabilities).product_research);
+  const researchContext = objectValue(flow.research_context);
+  const paidTariff = objectValue(researchContext.paid_tariff);
+  const operatorOwnAllowed = Boolean(
+    role === "operator"
+    && UUID_PATTERN.test(normalizedProjectId)
+    && String(flow.project_id || "").trim().toLowerCase() === normalizedProjectId
+    && capabilities.can_open === true
+    && capabilities.can_start_paid_own === true
+    && capabilities.can_read_own === true
+    && capabilities.run_scope === "own",
+  );
+  return {
+    allowed: operatorOwnAllowed,
+    exactPaidAuthorizationRequired: true,
+    paidTariff: operatorOwnAllowed && Object.keys(paidTariff).length
+      ? paidTariff
+      : null,
+    scope: operatorOwnAllowed ? "own" : "none",
+  };
+}
+
+function embeddedProjectFlowSnapshot() {
+  const node = document.getElementById("workspace-project-flow-snapshot");
+  try {
+    return objectValue(JSON.parse(String(node?.textContent || "{}")));
+  } catch {
+    return {};
+  }
+}
+
+function currentResearchRecoveryPaidContext(target, projectId) {
+  const shell = target?.closest?.(".workspace-shell[data-workspace-role]");
+  return researchRecoveryPaidContext({
+    projectId,
+    workspaceRole: shell?.dataset?.workspaceRole,
+    projectFlow: embeddedProjectFlowSnapshot(),
+  });
 }
 
 function hashUrl(route, values = {}) {
@@ -438,25 +506,48 @@ function recoveryBannerMarkup(projectId, pending, defaults = {}) {
 
 function renderFreshResearch() {
   if (routePath() !== RESEARCH_ROUTE || routeParams().get("recovery") !== "1") {
+    runtime.recoveryPendingSource = null;
+    runtime.recoveryRenderKey = "";
     return false;
   }
   const target = researchTarget();
   if (!(target instanceof HTMLElement)) return false;
-  const pending = readPendingSource();
-  clearPendingSource();
-  target.querySelectorAll(FAILURE_GUARD_SELECTOR).forEach((node) => node.remove());
-  if (target.getAttribute(RECOVERY_ROOT_ATTRIBUTE) === "true") return true;
-
   const projectId = currentProjectId();
+  const paidContext = currentResearchRecoveryPaidContext(target, projectId);
+  const renderKey = JSON.stringify({
+    projectId,
+    role: String(
+      target.closest?.(".workspace-shell[data-workspace-role]")
+        ?.dataset?.workspaceRole || "",
+    ).trim().toLowerCase(),
+    allowed: paidContext.allowed,
+    exactPaidAuthorizationRequired: paidContext.exactPaidAuthorizationRequired,
+    paidTariff: paidContext.paidTariff,
+  });
+  target.querySelectorAll(FAILURE_GUARD_SELECTOR).forEach((node) => node.remove());
+  if (
+    target.getAttribute(RECOVERY_ROOT_ATTRIBUTE) === "true"
+    && runtime.recoveryRenderKey === renderKey
+  ) return true;
+
+  const pending = runtime.recoveryPendingSource || readPendingSource();
+  runtime.recoveryPendingSource = pending;
+  clearPendingSource();
   const defaults = researchDefaults();
   target.setAttribute(RECOVERY_ROOT_ATTRIBUTE, "true");
+  runtime.recoveryRenderKey = renderKey;
   target.innerHTML = `${recoveryBannerMarkup(projectId, pending, defaults)}${
     productResearchInputMarkup({
       media: [],
       mediaLoading: false,
       notice:
-        "Предыдущий terminal-failure закрыт. Заполните новый запуск либо сначала загрузите MP4.",
+        paidContext.allowed
+          ? "Предыдущий terminal-failure закрыт. Заполните новый запуск либо сначала загрузите MP4. Платный запуск потребует нового ручного подтверждения."
+          : "Предыдущий terminal-failure закрыт. Новый платный запуск заблокирован до получения свежего серверного допуска и тарифа.",
       defaults,
+      paidTariff: paidContext.paidTariff,
+      exactPaidAuthorizationRequired:
+        paidContext.exactPaidAuthorizationRequired,
     })
   }`;
   target.querySelectorAll(FAILURE_GUARD_SELECTOR).forEach((node) => node.remove());

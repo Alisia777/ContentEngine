@@ -63,8 +63,8 @@ if (history.includes('id="content-review-form"')) throw new Error("form stacked 
     assert result.returncode == 0, result.stderr or result.stdout
 
 
-def test_files_default_to_media_and_smart_folders_never_reach_folder_rpcs() -> None:
-    assert 'entityType: "media"' in APP
+def test_files_default_to_all_and_smart_folders_never_reach_folder_rpcs() -> None:
+    assert 'entityType: "all"' in APP
     assert "!isWorkspaceSmartFolderId(folderId)" in APP
     assert "!isWorkspaceSmartFolderId(rawParentId)" not in APP
     assert "isWorkspaceSmartFolderId(rawParentId)" in APP

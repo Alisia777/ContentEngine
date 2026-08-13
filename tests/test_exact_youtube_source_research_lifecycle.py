@@ -327,7 +327,8 @@ def test_ai_card_never_treats_media_integrity_as_completed_research() -> None:
     assert '"Создать с рекомендациями"' in queue
     assert 'unknown ? `${unknown} уточняют статус`' in queue
     assert 'workspaceHash("/workspace/generation"' in queue
-    assert 'research_receipt: clean(latest?.receipt_id' in queue
+    assert 'receipt: clean(latest?.receipt_id' in queue
+    assert 'research_receipt: clean(latest?.receipt_id' not in queue
     assert "Новый платный запуск не нужен" in queue
     assert (
         "Разбор пяти контрольных кадров и визуальной механики ещё не выполнен"
@@ -425,7 +426,7 @@ def test_ai_card_routes_each_authoritative_state_without_restarting_research() -
         notStartedPath: notStarted.primaryHref.split('?')[0],
         awaitingPath: awaiting.primaryHref.split('?')[0],
         awaitingCategory: awaitingParams.get('category'),
-        awaitingReceipt: awaitingParams.get('research_receipt'),
+        awaitingReceipt: awaitingParams.get('receipt'),
         readyPath: ready.primaryHref.split('?')[0],
         failedEffectivePath:
           failedRetryWithOlderApproval.primaryHref.split('?')[0],
@@ -452,10 +453,10 @@ def test_ai_card_routes_each_authoritative_state_without_restarting_research() -
 def test_cache_bump_is_scoped_to_ai_center_runtime_modules() -> None:
     bootstrap = read(BOOTSTRAP)
     index = read(INDEX)
-    assert 'const BUILD = "20260810.research.30"' in bootstrap
+    assert 'const BUILD = "20260812.os4.38"' in bootstrap
     assert (
         '"workspace-ai-exact-youtube-sources.js":\n'
-        '      "20260811.ai-center-runtime-owned.2"'
+        '      "20260812.os4.38"'
         in bootstrap
     )
     assert "ASSET_BUILD_OVERRIDES[file] || BUILD" in bootstrap

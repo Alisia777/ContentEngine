@@ -89,3 +89,14 @@ def test_fixture_is_transactional_and_network_free() -> None:
     assert source.count("disable trigger a_generation_spec_binding_guard") == 1
     assert source.count("enable trigger a_generation_spec_binding_guard") == 1
     assert "disable trigger all" not in source
+
+
+def test_second_operator_does_not_inherit_teammate_learned_queue() -> None:
+    source = _source().casefold()
+
+    assert "jsonb_array_length(queue_value -> 'learned') = 0" in source
+    assert (
+        "the second operator does not inherit teammate learned queue but retains "
+        "project-shared approved advice and binding"
+    ) in source
+    assert "the second member sees learned conclusions" not in source

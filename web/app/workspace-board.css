@@ -409,8 +409,25 @@
   padding: 16px;
   border-bottom: 1px solid var(--workspace-board-line);
   align-items: end;
-  grid-template-columns: minmax(180px, 1fr) minmax(140px, 0.55fr) auto auto;
+  grid-template-columns: minmax(180px, 1fr) minmax(140px, 0.55fr) minmax(150px, 0.65fr) auto auto;
   gap: 10px;
+}
+
+.workspace-board__item[data-entity-type="research"] .workspace-board__item-preview {
+  color: #8ce7d2;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(67, 211, 178, 0.22), transparent 68%),
+    color-mix(in srgb, var(--workspace-board-surface) 90%, #0d4b40);
+}
+
+.workspace-board__item[data-entity-type="research"] .workspace-board__classification > span:first-child {
+  color: #319e85;
+}
+
+.workspace-board__research-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .workspace-board__filters label {

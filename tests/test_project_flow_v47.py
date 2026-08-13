@@ -699,7 +699,7 @@ def test_archiving_a_project_uses_its_dedicated_path_and_clears_stale_scope() ->
 
 
 def test_v47_assets_share_one_release_key() -> None:
-    build = "20260812.os4.37"
+    build = "20260812.os4.38"
     assert f'const BUILD = "{build}"' in LOADER
     assert f'const BUILD = "{build}"' in CORE
     for asset in (
@@ -989,25 +989,30 @@ def test_placement_and_stats_deep_links_prepend_the_exact_project_object() -> No
     assert "return [item, ...withoutExact]" in prepend
 
 
-def test_generation_and_review_deep_links_prepend_exact_media_without_fallback() -> None:
+def test_generation_review_and_files_deep_links_prepend_exact_media_without_fallback() -> None:
     load = _function(APP, "async function loadSection(")
+    exact = _function(APP, "function exactProjectMediaDeepLinkRecord(")
     merge = _function(APP, "function mergeProjectMediaDeepLink(")
     generation = _function(APP, "function renderGenerationSection(")
     review = _function(APP, "function renderContentReviewSection(")
 
-    assert '["generation", "review"].includes(section)' in load
+    assert '["generation", "review", "board"].includes(section)' in load
     assert 'safeWorkspaceRouteEntityId("media")' in load
-    assert "state.api.projectMedia(routeMediaId, { projectId, surface: section })" in load
+    assert 'section === "board" ? "files" : section' in load
+    assert "state.api.projectMedia(routeMediaId, { projectId, surface: projectMediaSurface })" in load
     assert '"project_media_deep_link_timeout"' in load
     assert load.index("const projectMediaRequest") < load.index("let raw = await")
     assert "await projectMediaRequest" in load
     assert "mergeProjectMediaDeepLink(" in load
 
-    assert "resultProjectId !== normalizedProjectId" in merge
-    assert "resultSurface !== normalizedSurface" in merge
-    assert "exactMediaId !== normalizedMediaId" in merge
-    assert "media?.project_id" in merge
+    assert "resultProjectId !== normalizedProjectId" in exact
+    assert "resultSurface !== normalizedSurface" in exact
+    assert '["generation", "review", "files"].includes(normalizedSurface)' in exact
+    assert "exactMediaId !== normalizedMediaId" in exact
+    assert "media?.project_id" in exact
+    assert "return null" in exact
     assert 'listFrom(source, "media", "media_items", "artifacts")' in merge
+    assert 'normalizedSurface === "files" ? "items" : "media"' in merge
     assert "media," in merge
     assert "!== normalizedMediaId" in merge
 

@@ -22,7 +22,7 @@ def test_research_route_bootstrap_uses_content_addressed_ai_center_cache_key() -
     assert build_match is not None
     cache_key = build_match.group(1)
 
-    assert cache_key == "20260810.research.30"
+    assert cache_key == "20260812.os4.38"
     normalized_bootstrap = bootstrap.replace("\r\n", "\n").replace("\r", "\n")
     digest = hashlib.sha256(normalized_bootstrap.encode("utf-8")).hexdigest()
     outer_cache_match = re.search(
@@ -38,12 +38,22 @@ def test_research_route_bootstrap_uses_content_addressed_ai_center_cache_key() -
     assert '"workspace-ai-exact-youtube-sources.js":' in bootstrap
     assert (
         '"workspace-ai-exact-youtube-sources.js":\n'
-        '      "20260811.ai-center-runtime-owned.2"'
+        '      "20260812.os4.38"'
         in bootstrap
     )
     assert (
         '"workspace-ai-research-training.js":\n'
-        '      "20260811.ai-center-runtime-owned.2"'
+        '      "20260812.os4.38"'
+        in bootstrap
+    )
+    assert (
+        '"workspace-generation-research-recommendations.js":\n'
+        '      "20260812.os4.38"'
+        in bootstrap
+    )
+    assert (
+        '"workspace-research-failure-recovery.js":\n'
+        '      "20260812.os4.38"'
         in bootstrap
     )
     assert "ASSET_BUILD_OVERRIDES[file] || BUILD" in bootstrap

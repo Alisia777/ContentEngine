@@ -1231,21 +1231,15 @@ from shared_path_context context_row;
 
 select ok(
   (select jsonb_array_length(queue_value -> 'queue') = 0
-     and queue_value #>> '{learned,0,selection_id}' =
-       (select selection_id::text from shared_path_context)
-     and queue_value #>> '{learned,0,research_summary,conclusions,0}' =
-       'Recommend one editable demonstration concept for the exact SKU.'
-     and jsonb_array_length(
-       queue_value #> '{learned,0,material_snapshot}'
-     ) >= 2
+     and jsonb_array_length(queue_value -> 'learned') = 0
      and recommendation_value #>> '{recommendations,0,selection_id}' =
        (select selection_id::text from shared_path_context)
      and recommendation_value #> '{contract,presets_are_advisory}' =
        'true'::jsonb
-     and binding_value #>> '{binding,selection_id}' =
-       (select selection_id::text from shared_path_context)
+      and binding_value #>> '{binding,selection_id}' =
+        (select selection_id::text from shared_path_context)
    from member_shared_snapshot),
-  'the second member sees learned conclusions, material, advice, and binding'
+  'the second operator does not inherit teammate learned queue but retains project-shared approved advice and binding'
 );
 
 select throws_ok(
