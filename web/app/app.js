@@ -1977,6 +1977,36 @@ function markGenerationFormEdited(form) {
   return revision;
 }
 
+function generationAiResearchHydrationSelectionFingerprint(form) {
+  if (!form?.dataset) return "";
+  return JSON.stringify({
+    working_selection_id: String(
+      form.dataset.generationAiResearchWorkingSelectionId || "",
+    ),
+    working_position: String(
+      form.dataset.generationAiResearchWorkingPosition || "",
+    ),
+    lineage: String(form.dataset.researchRecommendationLineage || ""),
+    selection_id: String(form.dataset.researchRecommendationSelectionId || ""),
+    position: String(form.dataset.researchRecommendationPosition || ""),
+    verification_required: String(
+      form.dataset.researchRecommendationVerificationRequired || "",
+    ),
+    verification_state: String(
+      form.dataset.researchRecommendationVerificationState || "",
+    ),
+    verification_failure: String(
+      form.dataset.researchRecommendationVerificationFailure || "",
+    ),
+    verification_selection_id: String(
+      form.dataset.researchRecommendationVerificationSelectionId || "",
+    ),
+    verification_position: String(
+      form.dataset.researchRecommendationVerificationPosition || "",
+    ),
+  });
+}
+
 function generationAiResearchSessionPrefix() {
   const projectId = currentWorkspaceProjectId();
   return isWorkspaceProjectId(projectId)
@@ -2432,39 +2462,29 @@ function applyGenerationAiResearchWorkingDraft(form, shared) {
       : "";
   if (productFailure) {
     form.dataset.generationAiResearchWorkingRevision = String(shared.revision);
-    form.dataset.generationAiResearchWorkingSelectionId = draft.selectionId;
-    form.dataset.generationAiResearchWorkingPosition = String(
-      draft.recommendationPosition,
-    );
-    form.dataset.researchRecommendationProductId = verifiedProductId;
-    form.dataset.researchRecommendationProductCategory = String(
-      recommendation.product_category || "",
-    ).trim().toLowerCase();
-    form.dataset.researchRecommendationVerificationRequired = "true";
-    form.dataset.researchRecommendationVerificationState = "failed";
-    form.dataset.researchRecommendationVerificationFailure = productFailure;
-    form.dataset.researchRecommendationVerificationSelectionId = draft.selectionId;
-    form.dataset.researchRecommendationVerificationPosition = String(
-      draft.recommendationPosition,
-    );
-    state.aiResearchRecommendation = null;
+    clearStoredGenerationAiResearchSelectionHints();
+    clearGenerationAiResearchLineageFromForm(form);
     state.generationSpec.aiResearchBinding = null;
     state.generationSpec.videoReferenceBinding = null;
-    if (form.elements.real_spend_confirmation) {
-      form.elements.real_spend_confirmation.checked = false;
-    }
+    form.dataset.generationPassiveAiDraftQuarantined = productFailure;
     const status = form.querySelector("#generation-draft-status");
     if (status) {
-      status.textContent =
-        productFailure === "selected_media_product_unverified"
-          ? "Общий вариант ИИ‑центра не применён: сначала явно выберите проверенное фото точного товара. Старый проектный черновик не менял название, SKU, категорию или замысел."
-          : productFailure === "handoff_product_mismatch"
-            ? "Общий вариант ИИ‑центра относится к другому товару, чем активный разбор. Название, SKU, категория и замысел не изменены; выберите медиа текущего товара либо начните вручную."
-            : "Общий вариант ИИ‑центра относится к другому товару, чем выбранные медиа. Его творческие поля не применены; техническое ТЗ и платный запуск заблокированы.";
+      const oldProduct = String(
+        recommendation.source_product_name || "другого товара",
+      ).trim().slice(0, 160);
+      const currentProduct = String(
+        form.elements?.product_name?.value || "текущего товара",
+      ).trim().slice(0, 160);
+      status.textContent = productFailure === "selected_media_product_unverified"
+        ? "Общий ИИ‑черновик не применён: сначала явно выберите проверенное медиа точного товара. Товар, категория и замысел не изменены, ручной режим остаётся доступен."
+        : productFailure === "handoff_product_mismatch"
+          ? `ИИ‑черновик «${oldProduct}» не совпадает с активным разбором «${currentProduct}» и изолирован. Товар, категория и замысел не изменены; ручное ТЗ не заблокировано.`
+        : `В проекте есть ИИ‑черновик «${oldProduct}», а сейчас выбран «${currentProduct}». Старый вариант изолирован: товар, категория и замысел не изменены, ручное ТЗ не заблокировано. Выберите категорию текущего товара и продолжайте вручную либо создайте новый вариант в ИИ‑центре.`;
     }
     return true;
   }
   if (productIdentity.ok) {
+    delete form.dataset.generationPassiveAiDraftQuarantined;
     setValue("sku", recommendation.source_product_sku || "");
     setValue("product_name", recommendation.source_product_name || "");
     form.dataset.researchRecommendationProductId = verifiedProductId;
@@ -2578,8 +2598,14 @@ async function restoreGenerationFormDraft(form) {
   form.dataset.generationDraftHydration = "loading";
   const projectId = currentWorkspaceProjectId();
   const editRevisionAtStart = generationFormEditRevision(form);
+  const selectionFingerprintAtStart =
+    generationAiResearchHydrationSelectionFingerprint(form);
   const userEditedSinceStart = () => (
     generationFormEditRevision(form) !== editRevisionAtStart
+  );
+  const selectionChangedSinceStart = () => (
+    generationAiResearchHydrationSelectionFingerprint(form)
+      !== selectionFingerprintAtStart
   );
   const initialCreativeValues = Object.fromEntries([
     "generation_mode", "product_category", "platform",
@@ -2604,6 +2630,15 @@ async function restoreGenerationFormDraft(form) {
         const status = form.querySelector("#generation-draft-status");
         if (status) {
           status.textContent = "Вы уже изменили товар или замысел. Запоздавший общий черновик не применён и ваши поля не перезаписаны.";
+        }
+        return false;
+      }
+      if (selectionChangedSinceStart()) {
+        form.dataset.generationDraftHydration = "deferred";
+        form.dataset.generationDraftRestored = "true";
+        const status = form.querySelector("#generation-draft-status");
+        if (status) {
+          status.textContent = "Вы уже выбрали вариант ИИ. Запоздавший общий черновик проекта не отменил этот выбор и не изменил поля.";
         }
         return false;
       }
@@ -2668,6 +2703,7 @@ async function restoreGenerationFormDraft(form) {
     && !authoritativeEmptyHandled
     && form.isConnected
     && !userEditedSinceStart()
+    && !selectionChangedSinceStart()
   ) {
     restored = restoreLocalGenerationFormDraft(form);
     const localAiHint = storedGenerationAiResearchSelectionHint();
@@ -2691,16 +2727,20 @@ async function restoreGenerationFormDraft(form) {
   }
   if (form.isConnected) {
     const edited = userEditedSinceStart();
-    form.dataset.generationDraftHydration = edited
+    const selectionChanged = selectionChangedSinceStart();
+    const deferred = edited || selectionChanged;
+    form.dataset.generationDraftHydration = deferred
       ? "deferred"
       : restored
         ? "restored"
         : "empty";
     form.dataset.generationDraftRestored = "true";
-    if (edited) {
+    if (deferred) {
       const status = form.querySelector("#generation-draft-status");
       if (status) {
-        status.textContent = "Вы уже изменили товар или замысел. Старый локальный черновик не применён и ваши поля не перезаписаны.";
+        status.textContent = selectionChanged
+          ? "Вы уже выбрали вариант ИИ. Старый локальный черновик не отменил этот выбор и не изменил поля."
+          : "Вы уже изменили товар или замысел. Старый локальный черновик не применён и ваши поля не перезаписаны.";
       }
     }
   }
@@ -9037,6 +9077,9 @@ function captureDirtyWorkspaceForms(container) {
     autoGenerationBrief: String(form.dataset.autoGenerationBrief || ""),
     generationScenarioIntent: String(form.dataset.generationScenarioIntent || ""),
     reviewStep: String(form.dataset.reviewStep || ""),
+    generationSpendConsentFingerprint: String(
+      form.dataset.generationSpendConsentFingerprint || "",
+    ),
     // A metered research confirmation is deliberately one-shot. The runtime
     // does not persist this checkbox or its server token across a patch render.
     fields: Array.from(form.elements)
@@ -9073,6 +9116,7 @@ function restoreDirtyWorkspaceForms(container, snapshots) {
         if ("checked" in field) field.checked = false;
         return;
       }
+      if (field.name === "real_spend_confirmation") return;
       const checkable = field instanceof HTMLInputElement
         && ["checkbox", "radio"].includes(field.type);
       const saved = checkable
@@ -9128,6 +9172,26 @@ function restoreDirtyWorkspaceForms(container, snapshots) {
     if (form.id === "mock-batch-form") {
       form.dataset.workspaceSnapshotRestored = "true";
       syncGenerationModeForm(form);
+      const confirmation = form.elements.real_spend_confirmation;
+      const savedConfirmation = snapshot.fields.find((item) => (
+        item.name === "real_spend_confirmation"
+        && item.type === "checkbox"
+        && item.value === confirmation?.value
+      ));
+      const fingerprint = generationSpendConsentFingerprint(form);
+      const restoreSpendConsent = Boolean(
+        confirmation
+        && savedConfirmation?.checked === true
+        && snapshot.generationSpendConsentFingerprint
+        && snapshot.generationSpendConsentFingerprint === fingerprint
+      );
+      if (confirmation) confirmation.checked = restoreSpendConsent;
+      if (restoreSpendConsent) {
+        form.dataset.generationSpendConsentFingerprint = fingerprint;
+      } else {
+        delete form.dataset.generationSpendConsentFingerprint;
+      }
+      syncGenerationFormReadiness(form);
     }
     if (form.id === "media-upload-form") {
       showSelectedFiles(form);
@@ -10715,8 +10779,42 @@ async function loadGenerationSpendOverview({ silent = false, force = false } = {
       && requestUserId === state.user?.id
       && requestId === target.requestId
       && ["/workspace/team", "/workspace/generation"].includes(state.route.path)
-    ) render();
+    ) {
+      if (state.route.path === "/workspace/generation") {
+        renderGenerationBackgroundUpdate();
+      } else {
+        render();
+      }
+    }
   }
+}
+
+function renderGenerationBackgroundUpdate() {
+  if (state.route.path !== "/workspace/generation") return false;
+  const form = document.querySelector("#mock-batch-form");
+  const createView = !state.route.query.get("view")
+    || state.route.query.get("view") === "create";
+  const protectActiveForm = Boolean(
+    createView
+    && form?.isConnected
+    && (
+      form.dataset.dirty === "true"
+      || form.dataset.busy === "true"
+      || form.contains(document.activeElement)
+    )
+  );
+  if (!protectActiveForm) {
+    render();
+    return true;
+  }
+
+  // Spend hydration and job polling are read-only background updates. They
+  // must not replace the form that currently owns the person's product,
+  // concept, reference and one-shot price decision.
+  syncGenerationSpendSnapshotUi(form);
+  syncGenerationFormReadiness(form);
+  syncGenerationArchiveCardUi();
+  return false;
 }
 
 function syncGenerationModelAcceptanceUi() {
@@ -12174,7 +12272,6 @@ function renderGenerationSection(sectionState) {
   const routeFilteredBatches = routeJobId
     ? batches.filter((item) => generationBatchDetails(item).jobId === routeJobId)
     : filteredBatches;
-  const visibleBatches = routeFilteredBatches.slice(0, archiveFilters.visible);
   const media = listFrom(data, "media", "media_items");
   const exactMedia = media.filter((item) => ["product_photo", "packshot"].includes(item.kind));
   const aliases = listFrom(data, "wb_aliases", "aliases");
@@ -12596,19 +12693,7 @@ function renderGenerationSection(sectionState) {
           ` : ""}
         </section>
 
-        <section class="card generation-archive-card">
-          <div class="card-header"><div><p class="eyebrow">Архив и очередь</p><h2>Контент по неделям</h2><small class="muted">${activeRealJobs.length ? `Автопроверка активных запусков каждые ${REAL_GENERATION_POLL_INTERVAL_MS / 1_000} секунд` : (reconciliationRealJobs.length ? `${reconciliationRealJobs.length} запуск(а) ждут ручной сверки без повторной оплаты` : "Активных платных запусков нет")}</small></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="generation">Обновить</button></div>
-          ${generationModelAcceptanceMarkup(
-            state.generationModelAcceptance,
-          )}
-          ${sectionBody(sectionState, generationArchiveMarkup(
-            batches,
-            routeFilteredBatches,
-            visibleBatches,
-            archiveFilters,
-            Boolean(routeJobId),
-          ))}
-        </section>
+        ${generationArchiveCardMarkup(sectionState)}
       </div>
       ${(canManageAliases || aliases.length) ? `
         <section class="card card-pad generation-product-tools" style="margin-top:22px">
@@ -12633,6 +12718,51 @@ function renderGenerationSection(sectionState) {
       ` : ""}
     </div>
   `;
+}
+
+function generationArchiveCardMarkup(sectionState = state.sections.generation) {
+  const data = sectionState?.data || {};
+  const batches = listFrom(data, "batches");
+  const routeJobId = safeWorkspaceRouteEntityId("job");
+  const filters = normalizeGenerationFilters(state.generationArchive.filters);
+  const filteredBatches = filterGenerationBatches(batches, filters);
+  const routeFilteredBatches = routeJobId
+    ? batches.filter((item) => generationBatchDetails(item).jobId === routeJobId)
+    : filteredBatches;
+  const visibleBatches = routeFilteredBatches.slice(0, filters.visible);
+  const activeRealJobs = realGenerationJobsFromBatches(batches);
+  const reconciliationRealJobs = realGenerationReconciliationJobsFromBatches(batches);
+  const activity = activeRealJobs.length
+    ? `Автопроверка активных запусков каждые ${REAL_GENERATION_POLL_INTERVAL_MS / 1_000} секунд`
+    : reconciliationRealJobs.length
+      ? `${reconciliationRealJobs.length} запуск(а) ждут ручной сверки без повторной оплаты`
+      : "Активных платных запусков нет";
+  return `
+    <section class="card generation-archive-card" data-generation-archive-card>
+      <div class="card-header"><div><p class="eyebrow">Архив и очередь</p><h2>Контент по неделям</h2><small class="muted">${escapeHtml(activity)}</small></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="generation">Обновить</button></div>
+      ${generationModelAcceptanceMarkup(state.generationModelAcceptance)}
+      ${sectionBody(sectionState, generationArchiveMarkup(
+        batches,
+        routeFilteredBatches,
+        visibleBatches,
+        filters,
+        Boolean(routeJobId),
+      ))}
+    </section>
+  `;
+}
+
+function syncGenerationArchiveCardUi() {
+  const current = document.querySelector("[data-generation-archive-card]");
+  if (!current) return false;
+  const activeForm = current.querySelector("form[data-dirty], form[data-busy='true']");
+  if (activeForm || current.contains(document.activeElement)) return false;
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = generationArchiveCardMarkup().trim();
+  const next = wrapper.firstElementChild;
+  if (!next) return false;
+  current.replaceWith(next);
+  return true;
 }
 
 function generationArchiveMarkup(batches, filteredBatches, visibleBatches, filters, interactive = false) {
@@ -13632,7 +13762,9 @@ function applyRealGenerationResult(jobId, result, options = {}) {
   ) {
     scheduleGeneratedVideoTechnicalQa(job, safeSignedUrl || previous?.signedUrl || "");
   }
-  if (options.renderNow !== false && state.route.path === "/workspace/generation") render();
+  if (options.renderNow !== false && state.route.path === "/workspace/generation") {
+    renderGenerationBackgroundUpdate();
+  }
 }
 
 function applyRealGenerationStatusError(jobId, error) {
@@ -13653,7 +13785,9 @@ function applyRealGenerationStatusError(jobId, error) {
     checkedAt: new Date().toISOString(),
     transientError: safeMessage,
   });
-  if (state.route.path === "/workspace/generation") render();
+  if (state.route.path === "/workspace/generation") {
+    renderGenerationBackgroundUpdate();
+  }
 }
 
 function markGenerationStatusStillRunning(jobId) {
@@ -13662,7 +13796,9 @@ function markGenerationStatusStillRunning(jobId) {
     ...previous,
     transientError: "Проверка продолжается в фоне. Новый платный запуск не требуется.",
   });
-  if (state.route.path === "/workspace/generation") render();
+  if (state.route.path === "/workspace/generation") {
+    renderGenerationBackgroundUpdate();
+  }
 }
 
 function patchGenerationBatch(jobId, job) {
@@ -19596,7 +19732,8 @@ async function handleClick(event) {
             identity,
           });
           if (!compiled?.ready) {
-            throw new Error(compiled?.blockers?.[0]?.message || "Не удалось собрать безопасное ТЗ.");
+            const failure = generationSpecPreparationFailure(form, compiled);
+            throw new CreatorApiError(failure.message, { code: failure.code });
           }
         }
         const requestedTargetVersion = Number(
@@ -21087,6 +21224,16 @@ function handleFormActivity(event) {
         syncGenerationFormReadiness(form);
       }
       if (approvalReviewCleared) syncGenerationSpecUi(form);
+      if (priceConfirmationChanged) {
+        if (event.target.checked === true) {
+          form.dataset.generationSpendConsentFingerprint =
+            generationSpendConsentFingerprint(form);
+        } else {
+          delete form.dataset.generationSpendConsentFingerprint;
+        }
+      } else {
+        delete form.dataset.generationSpendConsentFingerprint;
+      }
       if (!priceConfirmationChanged) scheduleGenerationFormDraftSave(form);
     }
   }
@@ -22981,6 +23128,121 @@ function generationSpecPreparePayload(form) {
   };
 }
 
+function generationSpendConsentFingerprint(form) {
+  if (!form) return "";
+  const confirmation = form.elements?.real_spend_confirmation;
+  const spec = state.generationSpec.data?.generationSpec || {};
+  const selectedMediaIds = Array.from(
+    form.querySelectorAll?.('input[name="media_id"]:checked:not(:disabled)') || [],
+  ).map((input) => String(input.value || "").trim().toLowerCase())
+    .filter(contentReviewUuid)
+    .sort();
+  return JSON.stringify({
+    organization_id: String(
+      state.api?.organizationId || state.bootstrap?.organization?.id || "",
+    ).trim().toLowerCase(),
+    actor_id: String(state.user?.id || "").trim().toLowerCase(),
+    project_id: currentWorkspaceProjectId(),
+    product_id: String(form.dataset?.identityProductId || "").trim().toLowerCase(),
+    sku: String(form.elements?.sku?.value || "").trim(),
+    product_name: String(form.elements?.product_name?.value || "").trim(),
+    product_category: String(form.elements?.product_category?.value || "")
+      .trim().toLowerCase(),
+    generation_mode: String(form.elements?.generation_mode?.value || ""),
+    duration_seconds: String(form.elements?.duration_seconds?.value || ""),
+    format: String(form.elements?.format?.value || ""),
+    platform: String(form.elements?.platform?.value || ""),
+    destination_ref: String(form.elements?.destination_ref?.value || "").trim(),
+    campaign_id: String(form.elements?.campaign_id?.value || "")
+      .trim().toLowerCase(),
+    brief: String(form.elements?.brief?.value || "").trim(),
+    confirmation_value: String(confirmation?.value || ""),
+    media_ids: selectedMediaIds,
+    primary_media_id: String(
+      form.querySelector?.('input[name="primary_media_id"]:checked')?.value || "",
+    ).trim().toLowerCase(),
+    reference_url: String(form.elements?.generation_reference_url?.value || "").trim(),
+    reference_mechanics: String(
+      form.elements?.generation_reference_mechanics?.value || "",
+    ).trim(),
+    reference_access_confirmed:
+      form.elements?.generation_reference_source_access_confirmed?.checked === true,
+    reference_transform_confirmed:
+      form.elements?.generation_reference_transformative_use_confirmed?.checked === true,
+    spec_id: String(spec.spec_id || "").trim().toLowerCase(),
+    spec_version: Number(spec.spec_version || 0),
+    spec_hash: String(spec.spec_hash || "").trim().toLowerCase(),
+  });
+}
+
+function generationSpecPreparationFailure(form, compiled = null) {
+  const verificationFailure = String(
+    form?.dataset?.researchRecommendationVerificationFailure || "",
+  );
+  const verificationMessages = {
+    provider_prompt_fragment_unverified:
+      "У выбранного варианта ИИ нет полного проверенного фрагмента для генерации. Откройте другой вариант в ИИ‑центре либо отключите эту рекомендацию и продолжайте с ручным замыслом.",
+    product_mismatch:
+      "Выбранный вариант ИИ относится к другому товару. Он не применён: выберите вариант точного товара либо полностью перейдите в ручной режим.",
+    handoff_product_mismatch:
+      "Выбранный вариант ИИ относится к другому товару, чем активный разбор. Он не применён и не может участвовать в ТЗ.",
+    selected_media_product_unverified:
+      "Сначала выберите проверенное медиа точного товара; ИИ‑вариант не может быть подтверждён без него.",
+    category_mismatch:
+      "Категория изменилась после выбора варианта ИИ. Верните категорию рекомендации либо отключите вариант и продолжайте вручную.",
+    selection_context_unverified:
+      "Сервер не подтвердил происхождение выбранного варианта ИИ. Обновите варианты либо полностью перейдите в ручной режим.",
+    working_draft_unverified:
+      "Сервер пока не подтвердил общий ИИ‑черновик проекта. Обновите раздел; ручной замысел без ИИ‑связи остаётся доступен.",
+  };
+  if (verificationMessages[verificationFailure]) {
+    return {
+      code: verificationFailure,
+      message: verificationMessages[verificationFailure],
+    };
+  }
+  const sku = String(form?.elements?.sku?.value || "").trim();
+  const productName = String(form?.elements?.product_name?.value || "").trim();
+  if (!sku || !productName) {
+    return {
+      code: "generation_product_identity_required",
+      message: "Укажите артикул/SKU и точное название товара.",
+    };
+  }
+  if (!String(form?.elements?.product_category?.value || "").trim()) {
+    return {
+      code: "generation_product_category_required",
+      message: "Один раз выберите точную категорию текущего товара. Старый ИИ‑черновик другого товара для этого не используется.",
+    };
+  }
+  if (!String(form?.elements?.brief?.value || "").trim()) {
+    return {
+      code: "generation_brief_required",
+      message: "Заполните «Замысел» вручную либо явно вставьте проверенный вариант ИИ.",
+    };
+  }
+  if (!selectedGenerationProductIdentity(form)) {
+    return {
+      code: "generation_media_required",
+      message: "Выберите проверенный исходник точного товара.",
+    };
+  }
+  const reference = generationVideoReferenceForForm(form);
+  if (reference.present && !reference.ready) {
+    return {
+      code: reference.code || "generation_video_reference_incomplete",
+      message: "Видеореференс заполнен не полностью: проверьте YouTube‑ссылку, механику и оба подтверждения использования.",
+    };
+  }
+  return {
+    code: String(compiled?.blockers?.[0]?.code || "generation_spec_prepare_unavailable"),
+    message: String(
+      compiled?.blockers?.[0]?.message
+        || "Не удалось собрать безопасное ТЗ. Проверьте товар, категорию, замысел и исходники.",
+    ),
+  };
+}
+
 function generationSpecPayloadKey(payload) {
   if (!payload) return "";
   return JSON.stringify({
@@ -23473,9 +23735,10 @@ async function runGenerationSpecControl(form, action, {
     || generationSpecPreparePayload(form);
   const current = state.generationSpec.data?.generationSpec || null;
   if (!preparedPayload || (action !== "prepare" && !current)) {
+    const failure = generationSpecPreparationFailure(form);
     throw new CreatorApiError(
-      "Заполните замысел, выберите точный товар и повторите запуск.",
-      { code: "generation_spec_prepare_unavailable" },
+      failure.message,
+      { code: failure.code },
     );
   }
   const currentInputChanged = state.generationSpec.dirty === true
@@ -23610,9 +23873,10 @@ async function runGenerationSpecControl(form, action, {
 async function ensurePreparedGenerationSpecForPaidStart(form) {
   const preparedPayload = generationSpecPreparePayload(form);
   if (!preparedPayload) {
+    const failure = generationSpecPreparationFailure(form);
     throw new CreatorApiError(
-      "Портал не смог собрать техническое ТЗ из заполненного замысла. Проверьте товар, исходники и категорию.",
-      { code: "generation_spec_prepare_unavailable" },
+      failure.message,
+      { code: failure.code },
     );
   }
 
@@ -23869,6 +24133,24 @@ function syncGenerationDestination(form) {
   return resolution;
 }
 
+function syncGenerationSpendSnapshotUi(form) {
+  const spendSnapshot = form?.closest(".card")?.querySelector(
+    ".generation-spend-snapshot",
+  );
+  if (!spendSnapshot) return false;
+  const sku = generationSkuForForm(form);
+  const campaignId = form.elements?.campaign_id?.value || "";
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = generationSpendSnapshotMarkup(state.generationSpend, {
+    requestMinor:
+      sku?.estimatedMinor ?? REAL_GENERATION_SKUS[REAL_GEN4_MODE].estimatedMinor,
+    campaignId,
+  }).trim();
+  if (!wrapper.firstElementChild) return false;
+  spendSnapshot.replaceWith(wrapper.firstElementChild);
+  return true;
+}
+
 function syncGenerationModeForm(form) {
   const mode = String(form.elements.generation_mode?.value || "mock");
   const baseSku = realGenerationSku(mode);
@@ -24077,15 +24359,7 @@ function syncGenerationModeForm(form) {
           : "Ваш замысел анимации"
       : "Заметка для dry-run задачи";
   }
-  const spendSnapshot = form.closest(".card")?.querySelector(".generation-spend-snapshot");
-  if (spendSnapshot) {
-    const wrapper = document.createElement("div");
-    wrapper.innerHTML = generationSpendSnapshotMarkup(state.generationSpend, {
-      requestMinor: sku?.estimatedMinor ?? REAL_GENERATION_SKUS[REAL_GEN4_MODE].estimatedMinor,
-      campaignId: campaignSelect?.value || "",
-    }).trim();
-    if (wrapper.firstElementChild) spendSnapshot.replaceWith(wrapper.firstElementChild);
-  }
+  syncGenerationSpendSnapshotUi(form);
   if (submit) {
     syncGenerationFormReadiness(form);
   }

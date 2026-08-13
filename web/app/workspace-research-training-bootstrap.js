@@ -17,7 +17,7 @@
     "workspace-ai-research-training.js":
       "20260812.os4.38.bad-context.1",
     "workspace-generation-research-recommendations.js":
-      "20260812.os4.38.bad-context.1",
+      "20260812.os4.38.ai-concept.1",
     "workspace-research-failure-recovery.js":
       "20260812.os4.38.bad-context.1",
   });

@@ -48,7 +48,7 @@ def test_research_route_bootstrap_uses_content_addressed_ai_center_cache_key() -
     )
     assert (
         '"workspace-generation-research-recommendations.js":\n'
-        '      "20260812.os4.38.bad-context.1"'
+        '      "20260812.os4.38.ai-concept.1"'
         in bootstrap
     )
     assert (
