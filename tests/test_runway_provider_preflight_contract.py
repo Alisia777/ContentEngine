@@ -18,7 +18,7 @@ def test_preflight_checks_runway_organization_without_creating_a_task() -> None:
     helper = _between(
         EDGE,
         "async function checkRunwayProviderReadiness",
-        "async function fetchWithTimeout",
+        "async function withFetchDeadline",
     )
     assert '`${RUNWAY_API_ORIGIN}/v1/organization`' in helper
     assert 'method: "GET"' in helper
@@ -64,7 +64,10 @@ def test_server_rechecks_provider_immediately_before_paid_post() -> None:
         claim,
     )
     provider_endpoint = EDGE.index("const providerEndpoint", readiness)
-    provider_post = EDGE.index("createResponse = await fetchWithTimeout", provider_endpoint)
+    provider_post = EDGE.index(
+        "createResponse = await fetchProviderJsonWithDeadline",
+        provider_endpoint,
+    )
     assert claim < readiness < provider_endpoint < provider_post
     guard = EDGE[readiness:provider_endpoint]
     assert "if (!providerReadiness.ready)" in guard

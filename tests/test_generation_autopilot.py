@@ -95,6 +95,52 @@ def test_unique_safe_media_is_selected_without_guessing_between_candidates() -> 
     ) == ""
 
 
+def test_research_handoff_never_auto_selects_media_from_an_old_product() -> None:
+    media = json.dumps(
+        [
+            {
+                "public_id": "old-airfryer",
+                "identity_verified": True,
+                "rights_confirmed": True,
+                "sku": "AIR-425",
+                "product_name": "Аэрогриль MILIO",
+            },
+            {
+                "public_id": "lion-mane",
+                "identity_verified": True,
+                "rights_confirmed": True,
+                "sku": "BAD-LION-001",
+                "product_name": "Ежовик гребенчатый",
+            },
+        ],
+        ensure_ascii=False,
+    )
+    expected = (
+        '{ real: true, expectedSku: "BAD-LION-001", '
+        'expectedProductName: "Ежовик гребенчатый" }'
+    )
+
+    assert _evaluate(
+        f"subject.chooseInitialGenerationMedia({media}, {expected})"
+    ) == "lion-mane"
+    assert _evaluate(
+        f"subject.chooseInitialGenerationMedia([{media}[0]], {expected})"
+    ) == ""
+    assert _evaluate(
+        "subject.chooseInitialGenerationMedia(" + media
+        + ', { real: true, expectedSku: "BAD-LION-001" })'
+    ) == ""
+
+    automatic_start = APP.index("function syncGenerationAutomaticMedia(form)")
+    automatic_end = APP.index("function syncGenerationDestination(form)", automatic_start)
+    automatic = APP[automatic_start:automatic_end]
+    assert automatic.index("const checked =") < automatic.index("if (touched) return")
+    assert "const checkedMediaId = chooseInitialGenerationMedia" in automatic
+    assert "if (checkedMediaId === checked.value) return checked.value" in automatic
+    assert "checked.checked = false" in automatic
+    assert "...expectedProduct" in automatic
+
+
 def test_platform_autopilot_uses_content_specific_defaults_and_respects_manual_choice() -> None:
     expression = """
     [
@@ -515,7 +561,7 @@ def test_preflight_cache_reuses_only_fresh_results_and_never_duplicates_loading(
 
 
 def test_generation_form_wires_autopilot_with_visible_override_and_cache_busting() -> None:
-    assert 'from "./generation-autopilot.js?v=20260812.os4.38"' in APP
+    assert 'from "./generation-autopilot.js?v=20260812.os4.38.bad-context.1"' in APP
     assert "chooseInitialGenerationMedia(exactMedia" in APP
     assert (
         "generationMediaOptionMarkup(item, defaultIsReal, automaticMediaId)"

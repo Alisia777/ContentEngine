@@ -85,6 +85,7 @@ import {
   applyResearchMarketCategoryResolution,
   applyResearchOutcomeLearningMutation,
   normalizeProductResearch,
+  normalizeProductResearchFreshRoute,
   normalizeResearchCategoryLearning,
   normalizeResearchSourceAnalysisInput,
   normalizeResearchYoutubeObservationAnalysisInput,
@@ -101,7 +102,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260812.os4.38";
+} from "./product-research-view.js?v=20260812.os4.38.bad-context.1";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -112,7 +113,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260812.os4.38";
+} from "./ai-learning-control-room.js?v=20260812.os4.38.bad-context.1";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -151,7 +152,8 @@ import {
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
-} from "./generation-ai-research-working-draft.js?v=20260811.ai-working-draft.1";
+  resolveGenerationExpectedProductMatch,
+} from "./generation-ai-research-working-draft.js?v=20260812.os4.38.bad-context.1";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -163,7 +165,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260812.os4.38";
+} from "./generation-autopilot.js?v=20260812.os4.38.bad-context.1";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -1963,6 +1965,18 @@ function scheduleGenerationFormDraftSave(form, options = {}) {
   }, 180);
 }
 
+function generationFormEditRevision(form) {
+  const revision = Number(form?.dataset?.generationUserEditRevision || 0);
+  return Number.isSafeInteger(revision) && revision >= 0 ? revision : 0;
+}
+
+function markGenerationFormEdited(form) {
+  if (!form) return 0;
+  const revision = generationFormEditRevision(form) + 1;
+  form.dataset.generationUserEditRevision = String(revision);
+  return revision;
+}
+
 function generationAiResearchSessionPrefix() {
   const projectId = currentWorkspaceProjectId();
   return isWorkspaceProjectId(projectId)
@@ -2154,11 +2168,18 @@ async function hydrateGenerationAiResearchProviderPrompt(
     const productIdentity = resolveGenerationAiResearchProductIdentity(
       resolved.productId,
       selectedMediaProductId,
+      { requireSelectedMedia: true },
     );
-    if (selectedMediaProductId && !productIdentity.ok) {
+    if (!productIdentity.ok) {
       throw new CreatorApiError(
-        "Выбранные медиа не совпадают с товаром серверной рекомендации ИИ‑центра.",
-        { code: "generation_research_recommendation_product_mismatch" },
+        productIdentity.code === "selected_media_product_unverified"
+          ? "Сначала выберите проверенное медиа точного товара; старый provider-контекст проекта не загружен."
+          : "Выбранные медиа не совпадают с товаром серверной рекомендации ИИ‑центра.",
+        {
+          code: productIdentity.code === "selected_media_product_unverified"
+            ? "generation_research_selected_media_required"
+            : "generation_research_recommendation_product_mismatch",
+        },
       );
     }
     state.aiResearchRecommendation = {
@@ -2393,11 +2414,23 @@ function applyGenerationAiResearchWorkingDraft(form, shared) {
     .trim().toLowerCase();
   const selectedMediaProductId = String(form.dataset.identityProductId || "")
     .trim().toLowerCase();
+  const handoffProduct = resolveGenerationExpectedProductMatch({
+    expectedSku: form.dataset.generationHandoffSku,
+    expectedProductName: form.dataset.generationHandoffProductName,
+    candidateSku: recommendation.source_product_sku,
+    candidateProductName: recommendation.source_product_name,
+  });
   const productIdentity = resolveGenerationAiResearchProductIdentity(
     verifiedProductId,
     selectedMediaProductId,
+    { requireSelectedMedia: true },
   );
-  if (!productIdentity.ok && productIdentity.code === "product_mismatch") {
+  const productFailure = !handoffProduct.ok
+    ? handoffProduct.code
+    : !productIdentity.ok
+      ? productIdentity.code
+      : "";
+  if (productFailure) {
     form.dataset.generationAiResearchWorkingRevision = String(shared.revision);
     form.dataset.generationAiResearchWorkingSelectionId = draft.selectionId;
     form.dataset.generationAiResearchWorkingPosition = String(
@@ -2409,7 +2442,7 @@ function applyGenerationAiResearchWorkingDraft(form, shared) {
     ).trim().toLowerCase();
     form.dataset.researchRecommendationVerificationRequired = "true";
     form.dataset.researchRecommendationVerificationState = "failed";
-    form.dataset.researchRecommendationVerificationFailure = "product_mismatch";
+    form.dataset.researchRecommendationVerificationFailure = productFailure;
     form.dataset.researchRecommendationVerificationSelectionId = draft.selectionId;
     form.dataset.researchRecommendationVerificationPosition = String(
       draft.recommendationPosition,
@@ -2423,7 +2456,11 @@ function applyGenerationAiResearchWorkingDraft(form, shared) {
     const status = form.querySelector("#generation-draft-status");
     if (status) {
       status.textContent =
-        "Общий вариант ИИ‑центра относится к другому товару, чем выбранные медиа. Его творческие поля не применены; техническое ТЗ и платный запуск заблокированы.";
+        productFailure === "selected_media_product_unverified"
+          ? "Общий вариант ИИ‑центра не применён: сначала явно выберите проверенное фото точного товара. Старый проектный черновик не менял название, SKU, категорию или замысел."
+          : productFailure === "handoff_product_mismatch"
+            ? "Общий вариант ИИ‑центра относится к другому товару, чем активный разбор. Название, SKU, категория и замысел не изменены; выберите медиа текущего товара либо начните вручную."
+            : "Общий вариант ИИ‑центра относится к другому товару, чем выбранные медиа. Его творческие поля не применены; техническое ТЗ и платный запуск заблокированы.";
     }
     return true;
   }
@@ -2540,6 +2577,10 @@ async function restoreGenerationFormDraft(form) {
   ) return false;
   form.dataset.generationDraftHydration = "loading";
   const projectId = currentWorkspaceProjectId();
+  const editRevisionAtStart = generationFormEditRevision(form);
+  const userEditedSinceStart = () => (
+    generationFormEditRevision(form) !== editRevisionAtStart
+  );
   const initialCreativeValues = Object.fromEntries([
     "generation_mode", "product_category", "platform",
     "duration_seconds", "format", "brief",
@@ -2555,6 +2596,15 @@ async function restoreGenerationFormDraft(form) {
         { force: true },
       );
       if (!form.isConnected || currentWorkspaceProjectId() !== projectId) {
+        return false;
+      }
+      if (userEditedSinceStart()) {
+        form.dataset.generationDraftHydration = "deferred";
+        form.dataset.generationDraftRestored = "true";
+        const status = form.querySelector("#generation-draft-status");
+        if (status) {
+          status.textContent = "Вы уже изменили товар или замысел. Запоздавший общий черновик не применён и ваши поля не перезаписаны.";
+        }
         return false;
       }
       if (shared?.draft) {
@@ -2613,7 +2663,12 @@ async function restoreGenerationFormDraft(form) {
     serverUnavailable = true;
     console.warn("Shared AI recommendation draft unavailable", error);
   }
-  if (!restored && !authoritativeEmptyHandled && form.isConnected) {
+  if (
+    !restored
+    && !authoritativeEmptyHandled
+    && form.isConnected
+    && !userEditedSinceStart()
+  ) {
     restored = restoreLocalGenerationFormDraft(form);
     const localAiHint = storedGenerationAiResearchSelectionHint();
     if (localAiHint) {
@@ -2635,8 +2690,19 @@ async function restoreGenerationFormDraft(form) {
     }
   }
   if (form.isConnected) {
-    form.dataset.generationDraftHydration = restored ? "restored" : "empty";
+    const edited = userEditedSinceStart();
+    form.dataset.generationDraftHydration = edited
+      ? "deferred"
+      : restored
+        ? "restored"
+        : "empty";
     form.dataset.generationDraftRestored = "true";
+    if (edited) {
+      const status = form.querySelector("#generation-draft-status");
+      if (status) {
+        status.textContent = "Вы уже изменили товар или замысел. Старый локальный черновик не применён и ваши поля не перезаписаны.";
+      }
+    }
   }
   return restored;
 }
@@ -3048,6 +3114,10 @@ function bindGlobalEvents() {
   document.addEventListener("submit", handleSubmit);
   document.addEventListener("input", handleFormActivity);
   document.addEventListener("change", handleChange);
+  document.addEventListener(
+    "contentengine:generation-guided-step-committed",
+    handleGenerationGuidedStepCommitted,
+  );
   document.addEventListener(
     "contentengine:generation-research-preset-applied",
     handleGenerationResearchPresetApplied,
@@ -12174,6 +12244,12 @@ function renderGenerationSection(sectionState) {
     defaultCampaignId,
   ) || realGenerationSku(defaultMode) || REAL_GENERATION_SKUS[REAL_SEEDANCE_MODE];
   const defaultIsReal = isRealGenerationMode(defaultMode);
+  const handoffProduct = handoff
+    ? {
+        expectedSku: String(handoff.sku || "").trim(),
+        expectedProductName: String(handoff.productName || "").trim(),
+      }
+    : {};
   const finderSelection = readStoredGenerationMediaSelection();
   const finderSelectedMedia = finderSelection
     ? exactMedia.find((item) => (
@@ -12181,24 +12257,31 @@ function renderGenerationSection(sectionState) {
         && (!defaultIsReal || generationMediaIdentity(item).paidReady)
       ))
     : null;
-  const finderSelectedMediaId = String(
-    finderSelectedMedia?.public_id || finderSelectedMedia?.id || "",
-  );
+  const finderSelectedMediaId = finderSelectedMedia
+    ? chooseInitialGenerationMedia([finderSelectedMedia], {
+        real: defaultIsReal,
+        ...handoffProduct,
+      })
+    : "";
   const routeSelectedMedia = routeMediaId
     ? exactMedia.find((item) => (
         String(item.public_id || item.id || "") === routeMediaId
         && (!defaultIsReal || generationMediaIdentity(item).paidReady)
       ))
     : null;
-  const routeSelectedMediaId = String(
-    routeSelectedMedia?.public_id || routeSelectedMedia?.id || "",
-  );
+  const routeSelectedMediaId = routeSelectedMedia
+    ? chooseInitialGenerationMedia([routeSelectedMedia], {
+        real: defaultIsReal,
+        ...handoffProduct,
+      })
+    : "";
   const automaticMediaId = repairReady
     ? repairPolicy.inputMediaId
     : routeMediaId
       ? routeSelectedMediaId
       : finderSelectedMediaId || chooseInitialGenerationMedia(exactMedia, {
         real: defaultIsReal,
+        ...handoffProduct,
       });
   const defaultPlatform = repairReady ? repairPolicy.platform : "instagram";
   const defaultDestinationRef = repairReady
@@ -12344,7 +12427,7 @@ function renderGenerationSection(sectionState) {
           ${state.realGenerationStartNotice ? alertMarkup(state.realGenerationStartNotice, "warning") : ""}
           ${startingRealJobs.length ? alertMarkup("Платный запуск сейчас сверяется с видеосервисом. Не запускайте его повторно: сначала дождитесь проверки статуса — так мы исключаем двойное списание.", "warning") : ""}
           ${reconciliationRealJobs.length ? alertMarkup("Автопроверка одного или нескольких запусков остановлена безопасно: исход запроса к Runway неизвестен. Не создавайте новый платный запуск, пока владелец или администратор не выполнит ручную сверку в очереди.", "warning") : ""}
-          <form id="mock-batch-form" class="form-stack" style="margin-top:18px" novalidate>
+          <form id="mock-batch-form" class="form-stack" style="margin-top:18px" data-generation-handoff-sku="${escapeHtml(handoffProduct.expectedSku || "")}" data-generation-handoff-product-name="${escapeHtml(handoffProduct.expectedProductName || "")}" novalidate>
             <p id="generation-draft-status" class="muted tiny" role="status">Сначала проверяем общий творческий черновик проекта, затем резервную копию этой вкладки. Кампания, медиа и подтверждение оплаты в общий черновик не входят.</p>
             ${generationReadinessMarkup(initialGenerationReadiness)}
             ${generationSpecCardMarkup({
@@ -13554,9 +13637,17 @@ function applyRealGenerationResult(jobId, result, options = {}) {
 
 function applyRealGenerationStatusError(jobId, error) {
   const previous = state.realGenerationResults.get(jobId) || {};
-  const safeMessage = error?.isUserSafe === true || error?.name === "CreatorApiError"
-    ? String(error.message || "Сервис временно недоступен.")
-    : "Связь с видеосервисом временно прервалась. Проверка повторится автоматически.";
+  const outputCode = String(error?.code || "");
+  const safeMessage = new Set([
+    "output_download_failed",
+    "output_validation_failed",
+    "output_upload_failed",
+    "output_access_failed",
+  ]).has(outputCode)
+    ? generationFailureMessage(outputCode)
+    : error?.isUserSafe === true || error?.name === "CreatorApiError"
+      ? String(error.message || "Сервис временно недоступен.")
+      : "Связь с видеосервисом временно прервалась. Проверка повторится автоматически.";
   state.realGenerationResults.set(jobId, {
     ...previous,
     checkedAt: new Date().toISOString(),
@@ -13621,6 +13712,7 @@ function generationFailureMessage(code) {
     output_download_failed: "Ролик создан у видеосервиса, но портал пока не смог забрать файл. Повторите проверку статуса без нового запуска.",
     output_validation_failed: "Полученный файл не прошёл безопасную проверку. Обратитесь к руководителю до нового запуска.",
     output_upload_failed: "Ролик создан, но пока не сохранён в защищённой папке. Повторите проверку без нового запуска.",
+    output_access_failed: "Ролик сохранён, но защищённая ссылка временно не создана. Повторите проверку этого же задания — новый платный запуск не нужен.",
     internal_error: "Портал не завершил обработку ролика. Обратитесь к руководителю и не запускайте оплату повторно.",
   };
   return messages[String(code || "")] || "Видеосервис не смог создать ролик. Проверьте фактическую стоимость перед новым платным запуском.";
@@ -16115,10 +16207,92 @@ function clearProductResearchRunId(
   }
 }
 
+function replaceFreshProductResearchRoute(projectId, productCategory = "") {
+  const params = new URLSearchParams({ project_id: projectId });
+  if (productCategory) params.set("category", productCategory);
+  const hash = `#/workspace/research?${params.toString()}`;
+  if (window.location.hash === hash) return;
+  const next = new URL(window.location.href);
+  next.hash = hash;
+  window.history.replaceState({}, "", next);
+  window.ContentEngineDesktopV4?.syncRoute?.();
+  state.route = parseRoute();
+}
+
+function prepareFreshProductResearchRoute() {
+  const context = normalizeProductResearchFreshRoute({
+    newValues: state.route.query.getAll("new"),
+    projectValues: state.route.query.getAll("project_id"),
+    categoryValues: state.route.query.getAll("category"),
+    activeProjectId: currentWorkspaceProjectId(),
+  });
+  if (!context.requested) return false;
+
+  const research = state.productResearch;
+  const activeRecord = research.record
+    && research.record.projectId === currentWorkspaceProjectId()
+    && productResearchStatusKind(research.record.status) === "active";
+  const latest = latestOwnProjectResearchRun();
+  const activeLatest = latest
+    && productResearchStatusKind(latest.status) === "active";
+
+  if (activeRecord || activeLatest) {
+    research.notice = "В этом проекте уже идёт платный анализ. Показан его сохранённый статус; второй запуск не создан.";
+    replaceFreshProductResearchRoute(
+      context.valid ? context.projectId : currentWorkspaceProjectId(),
+      context.valid ? context.productCategory : "",
+    );
+    return false;
+  }
+
+  stopProductResearchPolling();
+  research.requestId += 1;
+  research.record = null;
+  research.phase = "idle";
+  research.notice = "";
+  research.restoreAttempted = true;
+  research.prefill = null;
+  research.preservedSnapshot = null;
+  resetResearchStageControl();
+
+  if (!context.valid) {
+    research.error = "Ссылка на новый разбор неполна или относится к другому проекту. Старое исследование не подставлено.";
+    replaceFreshProductResearchRoute(currentWorkspaceProjectId());
+    return true;
+  }
+
+  clearProductResearchRunId(context.projectId);
+  // A confirmed fresh-product route starts a new local presentation context.
+  // Durable research, generation jobs, media and history stay on the server;
+  // only stale tab-scoped Airfryer-era handoff/draft/spec pointers are removed.
+  cancelGenerationFormDraftSave();
+  clearGenerationFormDraft();
+  clearContentGenerationHandoff();
+  clearGenerationMediaSelection();
+  clearGenerationRepair();
+  clearStoredGenerationAiResearchSelectionHints();
+  state.aiResearchProviderPromptRequestId =
+    Number(state.aiResearchProviderPromptRequestId || 0) + 1;
+  state.aiResearchRecommendation = null;
+  resetGenerationSpecState();
+  state.sections.generation.status = "idle";
+  state.sections.generation.error = null;
+  state.realGenerationStartNotice = "";
+  research.error = "";
+  research.notice = "Открыта чистая форма для выбранной категории. Данные и выводы прошлого товара не переносились; платный анализ ещё не запущен.";
+  research.prefill = { productCategory: context.productCategory };
+  replaceFreshProductResearchRoute(
+    context.projectId,
+    context.productCategory,
+  );
+  return true;
+}
+
 function restoreProductResearchSession() {
   const research = state.productResearch;
   if (projectScopedRouteCapabilityPending("research")) return;
   if (!canReadOwnProductResearch() && !canManageProductResearch()) return;
+  if (prepareFreshProductResearchRoute()) return;
   const selectedProjectId = currentWorkspaceProjectId();
   if (
     research.record?.projectId
@@ -16401,6 +16575,7 @@ function renderAiLearningSection(sectionState) {
       loading: ["idle", "loading", "refreshing"].includes(sectionState.status),
       error: state.aiLearning.marketError,
       requiresProject: !isWorkspaceProjectId(currentWorkspaceProjectId()),
+      researchCategory: currentAiLearningCategory(),
     },
   );
   return aiLearningControlRoomMarkup(snapshot, {
@@ -20862,6 +21037,7 @@ function handleFormActivity(event) {
     }
     if (form.id === "content-review-form") persistContentReviewDraft(form);
     if (form.id === "mock-batch-form") {
+      markGenerationFormEdited(form);
       const priceConfirmationChanged =
         event.target.name === "real_spend_confirmation";
       const approvalReviewCleared = clearGenerationSpecApprovalReview(form, {
@@ -20914,6 +21090,13 @@ function handleFormActivity(event) {
       if (!priceConfirmationChanged) scheduleGenerationFormDraftSave(form);
     }
   }
+}
+
+function handleGenerationGuidedStepCommitted(event) {
+  const form = event.target?.closest?.("#mock-batch-form");
+  if (!form || form.dataset.busy === "true") return;
+  cancelGenerationFormDraftSave();
+  persistGenerationFormDraft(form);
 }
 
 function clearWorkspaceDropTargets() {
@@ -23606,11 +23789,34 @@ function syncGenerationProductIdentity(form) {
 }
 
 function syncGenerationAutomaticMedia(form) {
-  if (!form || form.dataset.generationMediaSelectionTouched === "true") return "";
+  if (!form) return "";
+  const touched = form.dataset.generationMediaSelectionTouched === "true";
   const real = isRealGenerationMode(form.elements.generation_mode?.value);
   const inputs = Array.from(form.querySelectorAll('input[name="media_id"]'));
   const checked = inputs.find((input) => input.checked && !input.disabled);
-  if (checked) return checked.value;
+  const expectedProduct = state.contentGenerationHandoff
+    ? {
+        expectedSku: state.contentGenerationHandoff.sku,
+        expectedProductName: state.contentGenerationHandoff.productName,
+      }
+    : {};
+  if (checked) {
+    const checkedMediaId = chooseInitialGenerationMedia([{
+      public_id: checked.value,
+      identity_verified: checked.dataset.mediaIdentityVerified === "true",
+      rights_confirmed: checked.dataset.mediaRightsConfirmed === "true",
+      sku: checked.dataset.mediaSku,
+      product_name: checked.dataset.mediaProductName,
+    }], { real, ...expectedProduct });
+    if (checkedMediaId === checked.value) return checked.value;
+    if (touched) return "";
+    checked.checked = false;
+    const primary = Array.from(
+      form.querySelectorAll('input[name="primary_media_id"]'),
+    ).find((input) => input.value === checked.value);
+    if (primary) primary.checked = false;
+  }
+  if (touched) return "";
   const mediaId = chooseInitialGenerationMedia(
     inputs.map((input) => ({
       public_id: input.value,
@@ -23619,7 +23825,10 @@ function syncGenerationAutomaticMedia(form) {
       sku: input.dataset.mediaSku,
       product_name: input.dataset.mediaProductName,
     })),
-    { real },
+    {
+      real,
+      ...expectedProduct,
+    },
   );
   const target = inputs.find((input) => input.value === mediaId && !input.disabled);
   if (target) {
@@ -30413,6 +30622,15 @@ function authErrorMessage(error) {
 
 function actionErrorMessage(error) {
   console.error("Workspace action failed", error);
+  const generationOutputCode = String(error?.code || "");
+  if (new Set([
+    "output_download_failed",
+    "output_validation_failed",
+    "output_upload_failed",
+    "output_access_failed",
+  ]).has(generationOutputCode)) {
+    return generationFailureMessage(generationOutputCode);
+  }
   if (error?.isUserSafe === true || error?.name === "CreatorApiError") {
     return String(error.message || "Не удалось выполнить действие.");
   }

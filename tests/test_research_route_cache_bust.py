@@ -43,17 +43,17 @@ def test_research_route_bootstrap_uses_content_addressed_ai_center_cache_key() -
     )
     assert (
         '"workspace-ai-research-training.js":\n'
-        '      "20260812.os4.38"'
+        '      "20260812.os4.38.bad-context.1"'
         in bootstrap
     )
     assert (
         '"workspace-generation-research-recommendations.js":\n'
-        '      "20260812.os4.38"'
+        '      "20260812.os4.38.bad-context.1"'
         in bootstrap
     )
     assert (
         '"workspace-research-failure-recovery.js":\n'
-        '      "20260812.os4.38"'
+        '      "20260812.os4.38.bad-context.1"'
         in bootstrap
     )
     assert "ASSET_BUILD_OVERRIDES[file] || BUILD" in bootstrap

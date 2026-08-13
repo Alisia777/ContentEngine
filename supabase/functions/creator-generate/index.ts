@@ -31,7 +31,14 @@ const MIN_PROVIDER_POLL_INTERVAL_MS = 5_000;
 const STARTING_RECONCILIATION_AFTER_MS = 90_000;
 const RECONCILIATION_TASK_EARLY_SKEW_MS = 2 * 60_000;
 const RECONCILIATION_TASK_LATE_SKEW_MS = 10 * 60_000;
-const OUTPUT_TIMEOUT_MS = 120_000;
+// The background worker gives the whole status dispatch 135 seconds. Keep a
+// deterministic margin for hashing, the private Storage upload, the database
+// success transaction, readback and response serialization after the provider
+// poll (20s) and output download have completed.
+const OUTPUT_TIMEOUT_MS = 70_000;
+const OUTPUT_STORAGE_TIMEOUT_MS = 20_000;
+const OUTPUT_DATABASE_TIMEOUT_MS = 5_000;
+const OUTPUT_ACCESS_TIMEOUT_MS = 10_000;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
@@ -95,6 +102,7 @@ const FAILURE_CODES = new Set([
   "output_download_failed",
   "output_validation_failed",
   "output_upload_failed",
+  "output_access_failed",
   "generation_spec_provider_start_stale",
   "internal_error",
 ]);
@@ -2349,9 +2357,9 @@ async function checkRunwayProviderReadiness(
     };
   }
   const estimatedCredits = sku.estimatedCredits;
-  let response: Response;
+  let response: ProviderJsonResult;
   try {
-    response = await fetchWithTimeout(
+    response = await fetchProviderJsonWithDeadline(
       `${RUNWAY_API_ORIGIN}/v1/organization`,
       {
         method: "GET",
@@ -2363,7 +2371,7 @@ async function checkRunwayProviderReadiness(
       },
       PROVIDER_TIMEOUT_MS,
     );
-  } catch {
+  } catch (error) {
     return {
       ready: false,
       model,
@@ -2372,11 +2380,12 @@ async function checkRunwayProviderReadiness(
       balanceSufficient: false,
       modelAvailable: false,
       dailyQuotaAvailable: false,
-      failureCode: "provider_request_failed",
+      failureCode: error instanceof ProviderResponseInvalidError
+        ? "provider_response_invalid"
+        : "provider_request_failed",
     };
   }
   if (!response.ok) {
-    await response.body?.cancel();
     return {
       ready: false,
       model,
@@ -2388,23 +2397,8 @@ async function checkRunwayProviderReadiness(
       failureCode: providerFailureForHttp(response.status),
     };
   }
-  let value: unknown;
-  try {
-    value = await readProviderJson(response);
-  } catch {
-    return {
-      ready: false,
-      model,
-      durationSeconds: sku.durationSeconds,
-      estimatedCredits,
-      balanceSufficient: false,
-      modelAvailable: false,
-      dailyQuotaAvailable: false,
-      failureCode: "provider_response_invalid",
-    };
-  }
   const parsed = parseRunwayOrganizationReadiness(
-    value,
+    response.value,
     model,
     sku.durationSeconds,
   );
@@ -2490,17 +2484,63 @@ function parseProviderReadinessReceipt(
   };
 }
 
-async function fetchWithTimeout(
+async function withFetchDeadline<T>(
   input: string,
   init: RequestInit,
   timeoutMs: number,
-): Promise<Response> {
+  consume: (response: Response) => Promise<T>,
+): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(input, { ...init, signal: controller.signal });
+    const response = await fetch(input, { ...init, signal: controller.signal });
+    // Unlike fetchWithTimeout, this deadline deliberately stays armed while
+    // the response body is consumed. A CDN that sends headers and then stalls
+    // must not strand an already-paid job in `processing` forever.
+    return await consume(response);
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+class OperationDeadlineError extends Error {
+  constructor() {
+    super("operation_deadline_exceeded");
+    this.name = "OperationDeadlineError";
+  }
+}
+
+async function withOperationDeadline<T>(
+  operation: PromiseLike<T>,
+  timeoutMs: number,
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      Promise.resolve(operation),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new OperationDeadlineError()),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
+}
+
+class ResponseSizeInvalidError extends Error {
+  constructor() {
+    super("response_size_invalid");
+    this.name = "ResponseSizeInvalidError";
+  }
+}
+
+class ProviderResponseInvalidError extends Error {
+  constructor() {
+    super("provider_response_invalid");
+    this.name = "ProviderResponseInvalidError";
   }
 }
 
@@ -2512,7 +2552,7 @@ async function readBoundedBytes(
   if (declared !== null) {
     const size = Number(declared);
     if (!Number.isSafeInteger(size) || size < 0 || size > maximum) {
-      throw new Error("response_size_invalid");
+      throw new ResponseSizeInvalidError();
     }
   }
   return await readBoundedStream(response.body, maximum);
@@ -2533,7 +2573,7 @@ async function readBoundedStream(
       size += value.byteLength;
       if (size > maximum) {
         await reader.cancel();
-        throw new Error("response_size_invalid");
+        throw new ResponseSizeInvalidError();
       }
       chunks.push(value);
     }
@@ -2550,12 +2590,39 @@ async function readBoundedStream(
 }
 
 async function readProviderJson(response: Response): Promise<unknown> {
-  const bytes = await readBoundedBytes(response, MAX_PROVIDER_JSON_BYTES);
   try {
+    const bytes = await readBoundedBytes(response, MAX_PROVIDER_JSON_BYTES);
     return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
   } catch {
-    throw new Error("provider_response_invalid");
+    throw new ProviderResponseInvalidError();
   }
+}
+
+type ProviderJsonResult =
+  | { ok: true; status: number; value: unknown }
+  | { ok: false; status: number; value: null };
+
+async function fetchProviderJsonWithDeadline(
+  input: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<ProviderJsonResult> {
+  return await withFetchDeadline(
+    input,
+    init,
+    timeoutMs,
+    async (response) => {
+      if (!response.ok) {
+        await response.body?.cancel();
+        return { ok: false as const, status: response.status, value: null };
+      }
+      return {
+        ok: true as const,
+        status: response.status,
+        value: await readProviderJson(response),
+      };
+    },
+  );
 }
 
 function providerFailureForHttp(status: number): string {
@@ -2836,6 +2903,21 @@ async function handleCreatorGenerate(
     }
   };
 
+  const readCurrentStatusWithinDeadline = async (
+    organizationId: string,
+    jobId: string,
+    projectId: string,
+  ): Promise<StatusJob | null> => {
+    try {
+      return await withOperationDeadline(
+        readCurrentStatus(organizationId, jobId, projectId),
+        OUTPUT_DATABASE_TIMEOUT_MS,
+      );
+    } catch {
+      return null;
+    }
+  };
+
   const updateSystemJob = async (
     payload: Record<string, Json>,
   ): Promise<Json | null> => {
@@ -2979,9 +3061,13 @@ async function handleCreatorGenerate(
 
   const signOutput = async (job: StatusJob): Promise<string | null> => {
     try {
-      const { data, error } = await supabaseAdmin.storage.from(
-        STORAGE_BUCKET,
-      ).createSignedUrl(job.outputObjectName, OUTPUT_URL_TTL_SECONDS);
+      const { data, error } = await withOperationDeadline(
+        supabaseAdmin.storage.from(STORAGE_BUCKET).createSignedUrl(
+          job.outputObjectName,
+          OUTPUT_URL_TTL_SECONDS,
+        ),
+        OUTPUT_ACCESS_TIMEOUT_MS,
+      );
       if (error || data === null) return null;
       return validateSupabaseSignedUrl(data.signedUrl);
     } catch {
@@ -2995,7 +3081,11 @@ async function handleCreatorGenerate(
     batch: { id: string; status: string } | undefined,
     projectId: string,
   ): Promise<Response> => {
-    const current = await readCurrentStatus(organizationId, jobId, projectId);
+    const current = await readCurrentStatusWithinDeadline(
+      organizationId,
+      jobId,
+      projectId,
+    );
     if (current === null) {
       return json(
         request,
@@ -3006,6 +3096,16 @@ async function handleCreatorGenerate(
     const signedUrl = !internalWorker && current.status === "succeeded"
       ? await signOutput(current)
       : null;
+    if (
+      !internalWorker && current.status === "succeeded" && signedUrl === null
+    ) {
+      return json(request, {
+        ok: false,
+        code: "output_access_failed",
+        ...(batch ? { batch } : {}),
+        job: safeJob(current),
+      }, 503);
+    }
     return json(request, {
       ok: true,
       ...(batch ? { batch } : {}),
@@ -3020,10 +3120,41 @@ async function handleCreatorGenerate(
     batch: { id: string; status: string } | undefined,
     projectId: string,
   ): Promise<Response> => {
-    const current = await readCurrentStatus(organizationId, jobId, projectId);
+    const current = await readCurrentStatusWithinDeadline(
+      organizationId,
+      jobId,
+      projectId,
+    );
     return json(request, {
       ok: false,
       code: "provider_unavailable",
+      ...(batch ? { batch } : {}),
+      ...(current ? { job: safeJob(current) } : {}),
+    }, 503);
+  };
+
+  const respondOutputRetryable = async (
+    code:
+      | "output_download_failed"
+      | "output_validation_failed"
+      | "output_upload_failed"
+      | "output_access_failed",
+    organizationId: string,
+    jobId: string,
+    batch: { id: string; status: string } | undefined,
+    projectId: string,
+  ): Promise<Response> => {
+    // Runway has already accepted and completed this paid task. Keep the exact
+    // job recoverable and let status polling retry only finalization; this path
+    // must never create another provider task or mutate the job to failed.
+    const current = await readCurrentStatusWithinDeadline(
+      organizationId,
+      jobId,
+      projectId,
+    );
+    return json(request, {
+      ok: false,
+      code,
       ...(batch ? { batch } : {}),
       ...(current ? { job: safeJob(current) } : {}),
     }, 503);
@@ -3034,7 +3165,7 @@ async function handleCreatorGenerate(
     currentOverride?: StatusJob,
     batch?: { id: string; status: string },
   ): Promise<Response> => {
-    let current = currentOverride ?? await readCurrentStatus(
+    let current = currentOverride ?? await readCurrentStatusWithinDeadline(
       payload.organization_id,
       payload.job_id,
       payload.project_id,
@@ -3048,6 +3179,15 @@ async function handleCreatorGenerate(
     }
     if (current.status === "succeeded") {
       const signedUrl = internalWorker ? null : await signOutput(current);
+      if (!internalWorker && signedUrl === null) {
+        return await respondOutputRetryable(
+          "output_access_failed",
+          payload.organization_id,
+          payload.job_id,
+          batch,
+          payload.project_id,
+        );
+      }
       return json(request, {
         ok: true,
         ...(batch ? { batch } : {}),
@@ -3072,7 +3212,7 @@ async function handleCreatorGenerate(
           current.id,
           "provider_create_state_stale",
         );
-        current = await readCurrentStatus(
+        current = await readCurrentStatusWithinDeadline(
           payload.organization_id,
           payload.job_id,
           payload.project_id,
@@ -3112,9 +3252,9 @@ async function handleCreatorGenerate(
       }, 503);
     }
 
-    let providerResponse: Response;
+    let providerResponse: ProviderJsonResult;
     try {
-      providerResponse = await fetchWithTimeout(
+      providerResponse = await fetchProviderJsonWithDeadline(
         `${RUNWAY_API_ORIGIN}/v1/tasks/${current.providerTaskId}`,
         {
           method: "GET",
@@ -3134,7 +3274,6 @@ async function handleCreatorGenerate(
       }, 503);
     }
     if (!providerResponse.ok) {
-      await providerResponse.body?.cancel();
       return json(request, {
         ok: false,
         code: "provider_unavailable",
@@ -3142,17 +3281,7 @@ async function handleCreatorGenerate(
       }, 503);
     }
 
-    let providerValue: unknown;
-    try {
-      providerValue = await readProviderJson(providerResponse);
-    } catch {
-      return await respondProviderUnavailable(
-        payload.organization_id,
-        payload.job_id,
-        batch,
-        payload.project_id,
-      );
-    }
+    const providerValue = providerResponse.value;
     const providerTask = parseRunwayTask(providerValue);
     if (
       providerTask === null || providerTask.id !== current.providerTaskId
@@ -3175,11 +3304,19 @@ async function handleCreatorGenerate(
       });
     }
     if (providerTask.status === "RUNNING") {
-      const processing = await updateSystemJob({
-        job_id: current.id,
-        provider_task_id: current.providerTaskId,
-        status: "processing",
-      });
+      let processing: Json | null = null;
+      try {
+        processing = await withOperationDeadline(
+          updateSystemJob({
+            job_id: current.id,
+            provider_task_id: current.providerTaskId,
+            status: "processing",
+          }),
+          OUTPUT_DATABASE_TIMEOUT_MS,
+        );
+      } catch {
+        processing = null;
+      }
       if (processing === null) {
         return json(request, {
           ok: false,
@@ -3226,11 +3363,19 @@ async function handleCreatorGenerate(
       );
     }
     if (current.status === "submitted") {
-      const processing = await updateSystemJob({
-        job_id: current.id,
-        provider_task_id: current.providerTaskId,
-        status: "processing",
-      });
+      let processing: Json | null = null;
+      try {
+        processing = await withOperationDeadline(
+          updateSystemJob({
+            job_id: current.id,
+            provider_task_id: current.providerTaskId,
+            status: "processing",
+          }),
+          OUTPUT_DATABASE_TIMEOUT_MS,
+        );
+      } catch {
+        processing = null;
+      }
       if (processing === null) {
         return json(request, {
           ok: false,
@@ -3238,7 +3383,7 @@ async function handleCreatorGenerate(
           job: safeJob(current),
         }, 503);
       }
-      const refreshed = await readCurrentStatus(
+      const refreshed = await readCurrentStatusWithinDeadline(
         payload.organization_id,
         payload.job_id,
         payload.project_id,
@@ -3274,7 +3419,8 @@ async function handleCreatorGenerate(
     }
     const outputUrl = validateRunwayOutputUrl(providerValue.output[0]);
     if (outputUrl === null) {
-      return await respondProviderUnavailable(
+      return await respondOutputRetryable(
+        "output_validation_failed",
         payload.organization_id,
         payload.job_id,
         batch,
@@ -3286,33 +3432,65 @@ async function handleCreatorGenerate(
     const outputMimeType = photoOutput ? "image/png" : "video/mp4";
     let outputBytes: Uint8Array<ArrayBuffer>;
     try {
-      const outputResponse = await fetchWithTimeout(
+      const outputResult = await withFetchDeadline(
         outputUrl,
         { method: "GET", redirect: "manual" },
         OUTPUT_TIMEOUT_MS,
+        async (outputResponse) => {
+          const mimeType = (outputResponse.headers.get("content-type") ?? "")
+            .split(";", 1)[0].trim().toLocaleLowerCase("en-US");
+          if (!outputResponse.ok) {
+            await outputResponse.body?.cancel();
+            return {
+              ok: false as const,
+              code: "output_download_failed" as const,
+            };
+          }
+          const allowedMimeTypes = photoOutput
+            ? new Set(["image/png", "application/octet-stream"])
+            : new Set([
+              "video/mp4",
+              "application/mp4",
+              "application/octet-stream",
+            ]);
+          if (!allowedMimeTypes.has(mimeType)) {
+            await outputResponse.body?.cancel();
+            return {
+              ok: false as const,
+              code: "output_validation_failed" as const,
+            };
+          }
+          try {
+            return {
+              ok: true as const,
+              bytes: await readBoundedBytes(
+                outputResponse,
+                MAX_OUTPUT_BYTES,
+              ),
+            };
+          } catch (error) {
+            return {
+              ok: false as const,
+              code: error instanceof ResponseSizeInvalidError
+                ? "output_validation_failed" as const
+                : "output_download_failed" as const,
+            };
+          }
+        },
       );
-      const mimeType = (outputResponse.headers.get("content-type") ?? "")
-        .split(";", 1)[0].trim().toLocaleLowerCase("en-US");
-      if (
-        !outputResponse.ok ||
-        !(photoOutput
-          ? mimeType === "image/png"
-          : new Set(["video/mp4", "application/mp4"]).has(mimeType))
-      ) {
-        await outputResponse.body?.cancel();
-        return await respondProviderUnavailable(
+      if (!outputResult.ok) {
+        return await respondOutputRetryable(
+          outputResult.code,
           payload.organization_id,
           payload.job_id,
           batch,
           payload.project_id,
         );
       }
-      outputBytes = await readBoundedBytes(
-        outputResponse,
-        MAX_OUTPUT_BYTES,
-      );
+      outputBytes = outputResult.bytes;
     } catch {
-      return await respondProviderUnavailable(
+      return await respondOutputRetryable(
+        "output_download_failed",
         payload.organization_id,
         payload.job_id,
         batch,
@@ -3322,7 +3500,8 @@ async function handleCreatorGenerate(
     if (
       photoOutput ? !isPng(outputBytes) : !isMp4(outputBytes)
     ) {
-      return await respondProviderUnavailable(
+      return await respondOutputRetryable(
+        "output_validation_failed",
         payload.organization_id,
         payload.job_id,
         batch,
@@ -3344,13 +3523,23 @@ async function handleCreatorGenerate(
         upsert: true,
         metadata: { sha256: digest },
       };
-    const { error: uploadError } = await storage.upload(
-      current.outputObjectName,
-      outputBytes,
-      uploadOptions,
-    );
+    let uploadError: unknown;
+    try {
+      const upload = await withOperationDeadline(
+        storage.upload(
+          current.outputObjectName,
+          outputBytes,
+          uploadOptions,
+        ),
+        OUTPUT_STORAGE_TIMEOUT_MS,
+      );
+      uploadError = upload.error;
+    } catch {
+      uploadError = new OperationDeadlineError();
+    }
     if (uploadError) {
-      return await respondProviderUnavailable(
+      return await respondOutputRetryable(
+        "output_upload_failed",
         payload.organization_id,
         payload.job_id,
         batch,
@@ -3367,29 +3556,50 @@ async function handleCreatorGenerate(
       size_bytes: outputBytes.byteLength,
       sha256: digest,
     } satisfies Record<string, Json>;
-    const completed = photoOutput
-      ? await completeSeedreamPhoto(successPayload)
-      : await updateSystemJob(successPayload);
+    let completed: Json | null = null;
+    try {
+      completed = await withOperationDeadline(
+        photoOutput
+          ? completeSeedreamPhoto(successPayload)
+          : updateSystemJob(successPayload),
+        OUTPUT_DATABASE_TIMEOUT_MS,
+      );
+    } catch {
+      completed = null;
+    }
     if (completed === null) {
-      return json(
-        request,
-        { ok: false, code: "generation_unavailable" },
-        503,
+      return await respondOutputRetryable(
+        "output_upload_failed",
+        payload.organization_id,
+        payload.job_id,
+        batch,
+        payload.project_id,
       );
     }
-    current = await readCurrentStatus(
+    current = await readCurrentStatusWithinDeadline(
       payload.organization_id,
       payload.job_id,
       payload.project_id,
     );
     if (current === null || current.status !== "succeeded") {
-      return json(
-        request,
-        { ok: false, code: "generation_unavailable" },
-        503,
+      return await respondOutputRetryable(
+        "output_upload_failed",
+        payload.organization_id,
+        payload.job_id,
+        batch,
+        payload.project_id,
       );
     }
-    const signedUrl = await signOutput(current);
+    const signedUrl = internalWorker ? null : await signOutput(current);
+    if (!internalWorker && signedUrl === null) {
+      return await respondOutputRetryable(
+        "output_access_failed",
+        payload.organization_id,
+        payload.job_id,
+        batch,
+        payload.project_id,
+      );
+    }
     return json(request, {
       ok: true,
       ...(batch ? { batch } : {}),
@@ -3429,9 +3639,9 @@ async function handleCreatorGenerate(
           503,
         );
       }
-      let providerResponse: Response;
+      let providerResponse: ProviderJsonResult;
       try {
-        providerResponse = await fetchWithTimeout(
+        providerResponse = await fetchProviderJsonWithDeadline(
           `${RUNWAY_API_ORIGIN}/v1/tasks/${payload.provider_task_id}`,
           {
             method: "GET",
@@ -3451,7 +3661,6 @@ async function handleCreatorGenerate(
         );
       }
       if (!providerResponse.ok) {
-        await providerResponse.body?.cancel();
         return json(
           request,
           {
@@ -3463,16 +3672,7 @@ async function handleCreatorGenerate(
           providerResponse.status === 404 ? 422 : 503,
         );
       }
-      let providerValue: unknown;
-      try {
-        providerValue = await readProviderJson(providerResponse);
-      } catch {
-        return json(
-          request,
-          { ok: false, code: "provider_unavailable" },
-          503,
-        );
-      }
+      const providerValue = providerResponse.value;
       const providerTask = parseRunwayTask(providerValue);
       const allowedStatuses = new Set([
         "PENDING",
@@ -4200,9 +4400,9 @@ async function handleCreatorGenerate(
     ? `${RUNWAY_API_ORIGIN}/v1/text_to_image`
     : `${RUNWAY_API_ORIGIN}/v1/image_to_video`;
 
-  let createResponse: Response;
+  let createResponse: ProviderJsonResult;
   try {
-    createResponse = await fetchWithTimeout(
+    createResponse = await fetchProviderJsonWithDeadline(
       providerEndpoint,
       {
         method: "POST",
@@ -4216,10 +4416,12 @@ async function handleCreatorGenerate(
       },
       PROVIDER_TIMEOUT_MS,
     );
-  } catch {
+  } catch (error) {
     await markReconciliationRequired(
       startJob.id,
-      "provider_create_timeout",
+      error instanceof ProviderResponseInvalidError
+        ? "provider_create_response_unknown"
+        : "provider_create_timeout",
     );
     return await respondProviderUnavailable(
       startPayload.organization_id,
@@ -4229,7 +4431,6 @@ async function handleCreatorGenerate(
     );
   }
   if (!createResponse.ok) {
-    await createResponse.body?.cancel();
     if (DEFINITIVE_CREATE_HTTP_STATUSES.has(createResponse.status)) {
       await markFailed(
         startJob.id,
@@ -4254,21 +4455,7 @@ async function handleCreatorGenerate(
     );
   }
 
-  let createdValue: unknown;
-  try {
-    createdValue = await readProviderJson(createResponse);
-  } catch {
-    await markReconciliationRequired(
-      startJob.id,
-      "provider_create_response_unknown",
-    );
-    return await respondProviderUnavailable(
-      startPayload.organization_id,
-      startJob.id,
-      batch,
-      startPayload.project_id,
-    );
-  }
+  const createdValue = createResponse.value;
   const providerTask = parseCreatedRunwayTask(createdValue);
   if (providerTask === null) {
     await markReconciliationRequired(

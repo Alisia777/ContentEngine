@@ -315,7 +315,9 @@ def test_edge_marks_every_ambiguous_create_outcome_and_never_reposts() -> None:
         "const submittedPayload",
     )
     assert EDGE.count('`${RUNWAY_API_ORIGIN}/v1/image_to_video`') == 1
-    assert create.count("markReconciliationRequired(") == 4
+    # The deadline helper combines transport timeout and a bounded-but-invalid
+    # response body in one catch, while preserving their two exact reasons.
+    assert create.count("markReconciliationRequired(") == 3
     for reason in (
         "provider_create_timeout",
         "provider_create_http_unknown",
@@ -323,7 +325,7 @@ def test_edge_marks_every_ambiguous_create_outcome_and_never_reposts() -> None:
     ):
         assert f'"{reason}"' in create
     assert "DEFINITIVE_CREATE_HTTP_STATUSES.has(createResponse.status)" in create
-    assert create.count("respondProviderUnavailable(") == 4
+    assert create.count("respondProviderUnavailable(") == 3
 
     reconciliation = _edge_between(
         "const handleReconciliation",

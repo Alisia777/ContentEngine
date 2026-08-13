@@ -1341,8 +1341,8 @@ function renderSnapshot(root, snapshot, expectedProjectId = runtime.projectId) {
       el("strong", "", `В категории «${selectedCategoryLabel}» нет исследований для отбора`),
       el("p", "", "Сначала завершите анализ ролика в «Исследованиях». После этого здесь появятся источники, разбор и варианты рекомендаций."),
     );
-    const link = el("a", "btn btn-secondary btn-small", "Открыть Исследования");
-    link.href = `#/workspace/research?project_id=${encodeURIComponent(source.project_id)}`;
+    const link = el("a", "btn btn-secondary btn-small", "Начать новый разбор");
+    link.href = `#/workspace/research?project_id=${encodeURIComponent(source.project_id)}&category=${encodeURIComponent(selectedCategory)}&new=1`;
     empty.append(link);
     queueHost.append(empty);
   } else {

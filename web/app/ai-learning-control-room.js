@@ -178,6 +178,19 @@ export function aiLearningView(value) {
   return AI_LEARNING_VIEWS.has(candidate) ? candidate : "overview";
 }
 
+/** Builds the exact one-shot route for a clean research form. */
+export function aiLearningFreshResearchHref(projectId, category) {
+  const exactProjectId = exactUuid(projectId);
+  const exactCategory = cleanText(category, 80).toLowerCase();
+  if (!exactProjectId || !AI_CATEGORY_BY_KEY.has(exactCategory)) return "";
+  const params = new URLSearchParams({
+    project_id: exactProjectId,
+    category: exactCategory,
+    new: "1",
+  });
+  return `#/workspace/research?${params.toString()}`;
+}
+
 /**
  * Strictly normalizes the server-owned index of dynamic market-category
  * contexts.  A context is product-specific because automatic collection
@@ -350,6 +363,12 @@ export function aiLearningMarketScopeIndexMarkup(value, options = {}) {
   const error = cleanText(options.error, 800);
   const requiresProject = options.requiresProject === true;
   const detailMarkup = selected ? String(options.detailMarkup || "") : "";
+  const researchCategory = cleanText(options.researchCategory, 80).toLowerCase();
+  const researchCategoryLabel = AI_CATEGORY_BY_KEY.get(researchCategory)?.label || "";
+  const freshResearchHref = aiLearningFreshResearchHref(
+    control.projectId,
+    researchCategory,
+  );
   const selectorMarkup = control.scopes.map((scope) => {
     const active = scope.scopeId === selected?.scopeId;
     const gapHint = scope.guidance.gaps.length
@@ -372,7 +391,7 @@ export function aiLearningMarketScopeIndexMarkup(value, options = {}) {
           <div class="ai-market-learning-detail"><div class="ai-market-learning-empty" role="status"><strong>Выберите актуальный product context</strong><p>UUID из ссылки устарел или больше недоступен. Доступные категории показаны слева; ни одна из них не выбрана автоматически.</p></div></div>
         </div>`
       : !selected
-      ? `<div class="ai-market-learning-empty"><strong>Подтверждённых рыночных категорий пока нет</strong><p>Запустите исследование товара: ИИ предложит границу новой категории, соберёт источники и попросит подтвердить привязку.</p><a class="btn btn-secondary btn-small" href="#/workspace/research">Начать исследование</a></div>`
+      ? `<div class="ai-market-learning-empty"><strong>Для текущего товара ещё нет подтверждённого исследования${researchCategoryLabel ? ` категории «${escapeHtml(researchCategoryLabel)}»` : ""}</strong><p>Архивные кейсы ниже относятся ко всей организации и не являются знаниями об этом товаре. Начните новый разбор: форма откроется без SKU, фото и выводов прошлого товара.</p>${freshResearchHref ? `<a class="btn btn-secondary btn-small" href="${escapeHtml(freshResearchHref)}">Начать новый разбор без старых данных</a>` : `<span class="ai-learning-capability-note">Обновите проект и выберите точную категорию перед новым разбором.</span>`}</div>`
       : `<div class="ai-market-learning-layout">
           <aside class="ai-market-scope-selector" aria-label="Категория и товар">${selectorMarkup}</aside>
           <div class="ai-market-learning-detail" data-learning-context="ai" data-learning-run-id="${escapeHtml(selected.runId)}" data-learning-scope-id="${escapeHtml(selected.scopeId)}">
@@ -744,7 +763,7 @@ export function aiLearningControlRoomMarkup(snapshot, options = {}) {
     && !busy && !legacyReadOnly;
   const canDecideHistoricalCase = control.available
     && control.capabilities.canDecideHistoricalCase
-    && !busy && !legacyReadOnly;
+    && !busy;
   const canDecideResearchInbox = control.available
     && control.capabilities.canDecideResearchInbox
     && !busy && !legacyReadOnly;
@@ -801,7 +820,7 @@ export function aiLearningControlRoomMarkup(snapshot, options = {}) {
 
     ${legacyReadOnly ? `<aside class="ai-learning-legacy-boundary" role="note">
       <strong>Legacy safety bucket · только история</strong>
-      <span>Восемь старых product_category сохранены для совместимости и аудита. Их регистрации и teaching cards не считаются анализом и больше не меняют платную генерацию. Для решений используйте точную market category и evidence ledger выше.</span>
+      <span>Восемь старых product_category сохранены для совместимости и аудита. Их registrations и teaching cards не считаются анализом и больше не меняют платную генерацию. Исторические кейсы можно пометить «Верно» или «Не учить», но даже подтверждённый кейс применяется только после точной связи с товаром и evidence-порога. Для новых решений используйте точную market category выше.</span>
     </aside>` : ""}
 
     <div class="ai-learning-category-strip" role="group" aria-label="Legacy safety categories">
@@ -2738,8 +2757,8 @@ function historicalOutcomeLabel(value) {
   return ({
     good: "Хорошо",
     bad: "Плохо",
-    review: "Проверить",
-  })[value] || "Проверить";
+    review: "Требует проверки",
+  })[value] || "Требует проверки";
 }
 
 function historicalBatchStatusLabel(value) {

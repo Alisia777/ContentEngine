@@ -270,6 +270,68 @@ return {
     }
 
 
+def test_empty_market_scope_routes_to_an_exact_clean_research_form() -> None:
+    result = _run_module(
+        r'''
+const projectId = "90000000-0000-4000-8000-000000000001";
+const href = subject.aiLearningFreshResearchHref(projectId, "baa");
+const invalidProject = subject.aiLearningFreshResearchHref("not-a-project", "baa");
+const invalidCategory = subject.aiLearningFreshResearchHref(projectId, "unknown");
+const empty = subject.normalizeAiLearningMarketScopeIndex({
+  ok: true,
+  version: "ai-learning-market-scope-index-v2",
+  organization_id: "10000000-0000-4000-8000-000000000001",
+  project_id: projectId,
+  metric_kind: "category_evidence_readiness_not_model_iq",
+  as_of: "2026-08-13T12:00:00.000Z",
+  scopes: [],
+  limits: {
+    item_limit: 50,
+    detail_rpc: "creator_research_category_learning_status",
+    score_is_model_iq: false,
+    status_read_only: true,
+    external_call_started: false,
+  },
+});
+const markup = subject.aiLearningMarketScopeIndexMarkup(empty, {
+  researchCategory: "baa",
+});
+const parsed = new URL(`https://example.test/${href.slice(1)}`);
+return {
+  href,
+  project: parsed.searchParams.get("project_id"),
+  category: parsed.searchParams.get("category"),
+  fresh: parsed.searchParams.get("new"),
+  exactCardinality: [...parsed.searchParams.keys()].length,
+  invalidProject,
+  invalidCategory,
+  hasExactHref: markup.includes(
+    `href="${href.replaceAll("&", "&amp;")}"`
+  ),
+  noBareResearchHref: !markup.includes('href="#/workspace/research"'),
+  truthfulEmptyCopy: markup.includes("Архивные кейсы")
+    && markup.includes("не являются знаниями об этом товаре"),
+};
+'''
+    )
+
+    assert result == {
+        "href": (
+            "#/workspace/research?"
+            "project_id=90000000-0000-4000-8000-000000000001&category=baa&new=1"
+        ),
+        "project": "90000000-0000-4000-8000-000000000001",
+        "category": "baa",
+        "fresh": "1",
+        "exactCardinality": 3,
+        "invalidProject": "",
+        "invalidCategory": "",
+        "hasExactHref": True,
+        "noBareResearchHref": True,
+        "truthfulEmptyCopy": True,
+    }
+
+
 def test_spa_reuses_research_detail_and_routes_exact_scope() -> None:
     app = _read(APP)
     api = _read(API)
