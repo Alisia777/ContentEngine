@@ -254,8 +254,11 @@ def test_lazy_queue_decision_and_dynamic_links_keep_the_same_project() -> None:
     assert "Выберите проект для обучения на исследованиях" in training
     assert (
         "#/workspace/research?project_id=${encodeURIComponent(source.project_id)}"
+        "&category=${encodeURIComponent(selectedCategory)}&new=1"
         in training
     )
+    assert "Открыть Исследования" not in training
+    assert "Начать новый разбор" in training
 
     assert (
         "#/workspace/ai?project_id=${encodeURIComponent(projectId())}" in generation

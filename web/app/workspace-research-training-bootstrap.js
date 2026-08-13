@@ -15,11 +15,11 @@
     "workspace-ai-exact-youtube-sources.js":
       "20260812.os4.38",
     "workspace-ai-research-training.js":
-      "20260812.os4.38",
+      "20260812.os4.38.bad-context.1",
     "workspace-generation-research-recommendations.js":
-      "20260812.os4.38",
+      "20260812.os4.38.bad-context.1",
     "workspace-research-failure-recovery.js":
-      "20260812.os4.38",
+      "20260812.os4.38.bad-context.1",
   });
   const SCRIPT_URL = document.currentScript?.src || window.location.href;
   const BASE_URL = new URL(".", SCRIPT_URL);

@@ -77,9 +77,9 @@ def test_photo_uses_campaign_budget_idempotency_and_no_auto_retry() -> None:
     ):
         assert token in MIGRATION
     provider_create = EDGE[EDGE.index("let createResponse"):EDGE.index(
-        "let createdValue"
+        "const createdValue"
     )]
-    assert provider_create.count("fetchWithTimeout(") == 1
+    assert provider_create.count("fetchProviderJsonWithDeadline(") == 1
 
 
 def test_edge_calls_runway_text_to_image_with_product_reference_bundle_and_png() -> None:

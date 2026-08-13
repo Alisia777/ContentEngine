@@ -8,7 +8,7 @@
  */
 
 const ROUTE = "/workspace/generation";
-const SESSION_KEY = "contentengine.desktop.v4.generation-guided.v1";
+const SESSION_KEY = "contentengine.desktop.v4.generation-guided.v2";
 const STEP_ATTRIBUTE = "data-ce-v4-generation-step";
 const SESSION_ATTRIBUTE = "data-ce-v4-generation-session";
 
@@ -71,18 +71,37 @@ function routePath() {
   return (`/${raw.split("?")[0] || ""}`).replace(/\/{2,}/gu, "/").replace(/\/$/u, "") || "/";
 }
 
-function readSession() {
+function generationSessionContext(form) {
+  const raw = String(window.location.hash || "#/workspace/generation").replace(/^#/, "");
+  const query = raw.includes("?") ? raw.slice(raw.indexOf("?") + 1) : "";
+  const projectId = String(new URLSearchParams(query).get("project_id") || "")
+    .trim().toLowerCase();
+  const handoffSku = String(form?.dataset?.generationHandoffSku || "")
+    .trim().toLowerCase();
+  const handoffProductName = String(
+    form?.dataset?.generationHandoffProductName || "",
+  ).replace(/\s+/gu, " ").trim().toLowerCase();
+  return `${projectId}|${handoffSku}|${handoffProductName}`;
+}
+
+function readSession(form) {
   try {
     const value = JSON.parse(window.sessionStorage.getItem(SESSION_KEY) || "{}");
-    return value && typeof value === "object" ? value : {};
+    if (
+      !value
+      || typeof value !== "object"
+      || value.context !== generationSessionContext(form)
+    ) return {};
+    return value;
   } catch {
     return {};
   }
 }
 
-function writeSession(step, maxVisited) {
+function writeSession(form, step, maxVisited) {
   try {
     window.sessionStorage.setItem(SESSION_KEY, JSON.stringify({
+      context: generationSessionContext(form),
       step,
       maxVisited,
       updatedAt: Date.now(),
@@ -306,9 +325,16 @@ function firstInvalidControl(panel) {
 }
 
 function mediaSelectionValid(form, panel) {
-  if (!modeIsReal(form)) return true;
   const available = qa('input[name="media_id"]:not(:disabled)', panel);
   return available.length > 0 && available.some((control) => control.checked);
+}
+
+function requiredTextControl(form, name) {
+  const control = form?.elements?.[name];
+  if (!(control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement)) {
+    return null;
+  }
+  return String(control.value || "").trim() ? null : control;
 }
 
 function controlLabel(control) {
@@ -339,6 +365,31 @@ function panelValidity(form, index) {
   const step = STEPS[index];
   const panel = panelFor(form, step.key);
   if (!panel) return { valid: true, panel: null, control: null, message: "" };
+  if (step.key === "product") {
+    const missingProduct = requiredTextControl(form, "sku")
+      || requiredTextControl(form, "product_name");
+    if (missingProduct) {
+      return {
+        valid: false,
+        panel,
+        control: missingProduct,
+        message: missingProduct.name === "sku"
+          ? "Укажите точный артикул товара — одного названия недостаточно."
+          : "Укажите точное название товара — одного артикула недостаточно.",
+      };
+    }
+  }
+  if (step.key === "brief" && modeIsReal(form)) {
+    const missingBrief = requiredTextControl(form, "brief");
+    if (missingBrief) {
+      return {
+        valid: false,
+        panel,
+        control: missingBrief,
+        message: "Опишите замысел ролика. Пустое описание нельзя отправить в платную генерацию.",
+      };
+    }
+  }
   const invalid = firstInvalidControl(panel);
   if (invalid) {
     return {
@@ -353,10 +404,18 @@ function panelValidity(form, index) {
       valid: false,
       panel,
       control: q('input[name="media_id"]:not(:disabled), a[href*="/workspace/media"]', panel),
-      message: "Выберите хотя бы один точный исходник товара. Без него платный запуск недоступен.",
+      message: "Выберите хотя бы один точный исходник товара. Без него нельзя создать ни dry-run задачу, ни платный результат.",
     };
   }
   return { valid: true, panel, control: null, message: "" };
+}
+
+function firstInvalidStepBefore(form, requestedIndex) {
+  const boundary = Math.max(0, Math.min(STEPS.length - 1, stepIndex(requestedIndex)));
+  for (let index = 0; index < boundary; index += 1) {
+    if (!panelValidity(form, index).valid) return index;
+  }
+  return -1;
 }
 
 function compact(value, limit = 92) {
@@ -404,7 +463,9 @@ function syncSummary(form) {
     const blocker = rawBlocker ? compact(rawBlocker, 240) : "";
     status.dataset.state = ready ? "ready" : busy ? "working" : "pending";
     status.textContent = ready
-      ? "Всё готово. Одно нажатие подготовит техническое ТЗ и создаст результат."
+      ? modeIsReal(form)
+        ? "Всё готово. Одно нажатие подготовит техническое ТЗ и отправит ровно один платный результат на создание."
+        : "Готов только dry-run: он создаст задачи, но не создаст видео или другой медиафайл. Для ролика вернитесь в «Режим и бюджет» и выберите платный видеорежим."
       : busy
         ? "Портал проверяет техническое ТЗ. Не нажимайте запуск повторно."
         : blocker || "Заполните обязательное поле текущего шага.";
@@ -483,7 +544,7 @@ function setStep(form, requestedIndex, { focus = false } = {}) {
       : STEPS[index].hint;
   }
 
-  writeSession(STEPS[index].key, maxVisited);
+  writeSession(form, STEPS[index].key, maxVisited);
   syncSummary(form);
   syncCompletion(form);
 
@@ -520,6 +581,16 @@ function moveTo(form, requestedIndex) {
       }
       clearPanelError(result.panel);
     }
+    form.dispatchEvent(new CustomEvent(
+      "contentengine:generation-guided-step-committed",
+      {
+        bubbles: true,
+        detail: {
+          from: STEPS[current].key,
+          to: STEPS[target].key,
+        },
+      },
+    ));
   }
   setStep(form, target, { focus: true });
   return true;
@@ -577,12 +648,17 @@ function setupForm(form) {
   }
 
   bindForm(form);
-  const saved = readSession();
+  const saved = readSession(form);
   const initial = form.dataset.ceV4GenerationStep || saved.step || STEPS[0].key;
-  const restoredIndex = stepIndex(initial);
+  const requestedIndex = stepIndex(initial);
+  const invalidIndex = firstInvalidStepBefore(form, requestedIndex);
+  const restoredIndex = invalidIndex >= 0 ? invalidIndex : requestedIndex;
   const restoredMax = Math.max(
     restoredIndex,
-    Math.min(STEPS.length - 1, Number(form.dataset.ceV4GenerationMaxVisited || saved.maxVisited) || 0),
+    Math.min(
+      invalidIndex >= 0 ? invalidIndex : STEPS.length - 1,
+      Number(form.dataset.ceV4GenerationMaxVisited || saved.maxVisited) || 0,
+    ),
   );
   form.dataset.ceV4GenerationMaxVisited = String(restoredMax);
   setStep(form, restoredIndex);

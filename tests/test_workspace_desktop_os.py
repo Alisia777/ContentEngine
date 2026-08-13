@@ -37,7 +37,7 @@ def test_legacy_desktop_os_assets_are_absent_from_the_active_graph() -> None:
     )
     assert not any(any(name in asset for name in retired_names) for asset in active_assets)
     assert "./workspace-os-v4.css?v=20260812.os4.38" in active_assets
-    assert "./workspace-os-v4-loader.js?v=20260812.os4.38" in active_assets
+    assert "./workspace-os-v4-loader.js?v=20260812.os4.38.bad-context.1" in active_assets
 
 
 def test_review_is_recomposed_as_real_spaces_not_a_two_column_dashboard() -> None:

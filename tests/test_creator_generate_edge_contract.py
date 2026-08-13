@@ -315,7 +315,12 @@ def test_output_is_allowlisted_bounded_verified_and_privately_persisted() -> Non
     assert 'url.hostname !== RUNWAY_OUTPUT_HOST' in source
     assert 'url.protocol !== "https:"' in source
     assert 'const MAX_OUTPUT_BYTES = 52_428_800' in source
-    assert '["video/mp4", "application/mp4"]' in source
+    for output_mime in (
+        '"video/mp4"',
+        '"application/mp4"',
+        '"application/octet-stream"',
+    ):
+        assert output_mime in source
     assert 'bytes[4] === 0x66' in source
     assert 'crypto.subtle.digest("SHA-256", bytes)' in source
     assert 'const STORAGE_BUCKET = "contentengine-private"' in source
@@ -324,7 +329,10 @@ def test_output_is_allowlisted_bounded_verified_and_privately_persisted() -> Non
     assert 'metadata: { sha256: digest }' in source
     assert 'output_object_name: current.outputObjectName' in source
     assert 'sha256: digest' in source
-    assert 'createSignedUrl(job.outputObjectName, OUTPUT_URL_TTL_SECONDS)' in source
+    assert ".createSignedUrl(" in source
+    assert "job.outputObjectName" in source
+    assert "OUTPUT_URL_TTL_SECONDS" in source
+    assert "OUTPUT_ACCESS_TIMEOUT_MS" in source
     assert 'signed_url' in source
 
 

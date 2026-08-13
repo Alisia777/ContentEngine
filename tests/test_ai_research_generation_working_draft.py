@@ -476,6 +476,18 @@ def test_exact_product_identity_blocks_target_shared_and_later_media_mismatch() 
         laterMediaSwitch: mod.resolveGenerationAiResearchProductIdentity(
           recommendation, otherMedia, {{ requireSelectedMedia: true }}
         ),
+        exactHandoff: mod.resolveGenerationExpectedProductMatch({{
+          expectedSku: 'BAD-LION-001',
+          expectedProductName: 'Ежовик гребенчатый',
+          candidateSku: 'BAD-LION-001',
+          candidateProductName: 'Ежовик гребенчатый',
+        }}),
+        oldAirfryerHandoff: mod.resolveGenerationExpectedProductMatch({{
+          expectedSku: 'BAD-LION-001',
+          expectedProductName: 'Ежовик гребенчатый',
+          candidateSku: 'AIR-425',
+          candidateProductName: 'Аэрогриль MILIO',
+        }}),
       }}));
     """
     result = subprocess.run(
@@ -492,6 +504,16 @@ def test_exact_product_identity_blocks_target_shared_and_later_media_mismatch() 
     assert decisions["exactMedia"] == {"ok": True, "code": "exact_product_match"}
     assert decisions["targetedMismatch"] == {"ok": False, "code": "product_mismatch"}
     assert decisions["laterMediaSwitch"] == {"ok": False, "code": "product_mismatch"}
+    assert decisions["exactHandoff"] == {
+        "required": True,
+        "ok": True,
+        "code": "exact_handoff_product_match",
+    }
+    assert decisions["oldAirfryerHandoff"] == {
+        "required": True,
+        "ok": False,
+        "code": "handoff_product_mismatch",
+    }
 
     # The executable decision is wired into all three stateful boundaries.
     assert "if (!recommendationProductIdentityMatches(form, exactTarget))" in GENERATION
@@ -501,6 +523,64 @@ def test_exact_product_identity_blocks_target_shared_and_later_media_mismatch() 
     assert "generationAiResearchProductIdentityMatches(form, identity);" in APP
     assert "if (!generationAiResearchProductIdentityMatches(form, identity)) return null;" in APP
     assert 'form.elements.real_spend_confirmation.checked = false' in APP
+
+
+def test_passive_shared_draft_requires_exact_selected_product_before_writing_fields() -> None:
+    app_start = APP.index("function applyGenerationAiResearchWorkingDraft(")
+    app_end = APP.index("async function restoreGenerationFormDraft(", app_start)
+    app_apply = APP[app_start:app_end]
+    shared_start = GENERATION.index("function applySharedWorkingDraft(")
+    shared_end = GENERATION.index(
+        "async function hydrateSharedWorkingDraft(", shared_start
+    )
+    shared_apply = GENERATION[shared_start:shared_end]
+    provider_start = APP.index(
+        "async function hydrateGenerationAiResearchProviderPrompt("
+    )
+    provider_end = min(
+        index
+        for index in (
+            APP.find("\nfunction ", provider_start + 1),
+            APP.find("\nasync function ", provider_start + 1),
+        )
+        if index >= 0
+    )
+    provider = APP[provider_start:provider_end]
+
+    for source in (app_apply, shared_apply, provider):
+        assert "requireSelectedMedia: true" in source
+    assert "if (productFailure)" in app_apply
+    assert app_apply.index("if (productFailure)") < app_apply.index(
+        'setValue("sku"'
+    )
+    assert "if (passiveProductFailure)" in shared_apply
+    assert shared_apply.index("if (passiveProductFailure)") < shared_apply.index(
+        "applyAuthoritativeRecommendationProduct(form, draft.recommendation)"
+    )
+    assert "selected_media_product_unverified" in app_apply
+    assert "selected_media_product_unverified" in provider
+    assert "generation_research_selected_media_required" in provider
+    assert "resolveGenerationExpectedProductMatch" in app_apply
+    assert "handoff_product_mismatch" in app_apply
+    assert "resolveGenerationExpectedProductMatch" in shared_apply
+    assert "passiveProductFailure" in shared_apply
+
+    render_start = APP.index("function renderGenerationSection(")
+    render_end = APP.index("function ", render_start + 1)
+    render = APP[render_start:render_end]
+    assert "const handoffProduct = handoff" in render
+    assert "expectedSku: String(handoff.sku" in render
+    assert "expectedProductName: String(handoff.productName" in render
+    assert render.count("...handoffProduct") >= 2
+    assert 'data-generation-handoff-sku="${escapeHtml(' in render
+    assert 'data-generation-handoff-product-name="${escapeHtml(' in render
+    route_selection = render[
+        render.index("const routeSelectedMedia =") : render.index(
+            "const automaticMediaId ="
+        )
+    ]
+    assert "chooseInitialGenerationMedia([routeSelectedMedia]" in route_selection
+    assert "...handoffProduct" in route_selection
 
 
 def test_verified_media_identity_survives_exact_resolver_and_shared_draft_reapply() -> None:
@@ -1474,10 +1554,10 @@ def test_api_boundary_and_scoped_cache_edges_are_wired() -> None:
     assert '"contentengine_generation_ai_research_working_draft"' in API
     assert "generationResearchRecommendation(input = {})" in API
     assert "generationAiResearchWorkingDraft(input = {})" in API
-    assert '"workspace-ai-research-training.js":\n      "20260812.os4.38"' in BOOTSTRAP
-    assert '"workspace-generation-research-recommendations.js":\n      "20260812.os4.38"' in BOOTSTRAP
-    assert "generation-ai-research-working-draft.js?v=20260811.ai-working-draft.1" in APP
-    assert "generation-ai-research-working-draft.js?v=20260811.ai-working-draft.1" in GENERATION
+    assert '"workspace-ai-research-training.js":\n      "20260812.os4.38.bad-context.1"' in BOOTSTRAP
+    assert '"workspace-generation-research-recommendations.js":\n      "20260812.os4.38.bad-context.1"' in BOOTSTRAP
+    assert "generation-ai-research-working-draft.js?v=20260812.os4.38.bad-context.1" in APP
+    assert "generation-ai-research-working-draft.js?v=20260812.os4.38.bad-context.1" in GENERATION
 
 
 def test_pgtap_executes_read_clear_conflict_and_second_user_semantics() -> None:

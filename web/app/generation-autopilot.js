@@ -33,16 +33,32 @@ const GENERATION_PREFLIGHT_RETRY_DELAYS_MS = Object.freeze([
 const SEEDANCE_SPOKEN_WORD_LIMIT = 22;
 export const MAX_REAL_GENERATION_REFERENCES = 5;
 
-export function chooseInitialGenerationMedia(items, { real = false } = {}) {
+export function chooseInitialGenerationMedia(items, {
+  real = false,
+  expectedSku = "",
+  expectedProductName = "",
+} = {}) {
+  const exactSku = String(expectedSku || "").trim();
+  const exactProductName = String(expectedProductName || "").trim();
+  const expectedProductRequired = Boolean(exactSku || exactProductName);
+  if (expectedProductRequired && !(exactSku && exactProductName)) return "";
   const candidates = (Array.isArray(items) ? items : [])
     .map((item) => ({
       id: String(item?.public_id || item?.id || "").trim(),
+      sku: String(item?.sku || "").trim(),
+      productName: String(item?.product_name || "").trim(),
       paidReady: item?.identity_verified === true
         && item?.rights_confirmed === true
         && Boolean(String(item?.sku || "").trim())
         && Boolean(String(item?.product_name || "").trim()),
     }))
-    .filter((item) => item.id && (!real || item.paidReady));
+    .filter((item) => (
+      item.id
+      && (!real || item.paidReady)
+      && (!expectedProductRequired || (
+        item.sku === exactSku && item.productName === exactProductName
+      ))
+    ));
   return candidates.length === 1 ? candidates[0].id : "";
 }
 

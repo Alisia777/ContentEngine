@@ -13,8 +13,9 @@ import {
   preferAuthoritativeGenerationAiResearchWorkingDraft,
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
+  resolveGenerationExpectedProductMatch,
   saveGenerationAiResearchWorkingDraft,
-} from "./generation-ai-research-working-draft.js?v=20260811.ai-working-draft.1";
+} from "./generation-ai-research-working-draft.js?v=20260812.os4.38.bad-context.1";
 
 const ROUTE = "/workspace/generation";
 const RPC_RECOMMENDATIONS = "contentengine_generation_research_recommendations";
@@ -1093,6 +1094,40 @@ function formContext(form) {
   };
 }
 
+export function captureGenerationResearchWorkingDraftHydration(form) {
+  const read = (name) => String(form?.elements?.[name]?.value ?? "");
+  const revision = Number(form?.dataset?.generationUserEditRevision || 0);
+  return JSON.stringify({
+    revision: Number.isSafeInteger(revision) && revision >= 0 ? revision : 0,
+    productName: read("product_name"),
+    sku: read("sku"),
+    productCategory: read("product_category"),
+    platform: read("platform"),
+    generationMode: read("generation_mode"),
+    durationSeconds: read("duration_seconds"),
+    format: read("format"),
+    brief: read("brief"),
+    mediaId: read("media_id"),
+    primaryMediaId: read("primary_media_id"),
+    identityProductId: String(form?.dataset?.identityProductId || ""),
+    handoffSku: String(form?.dataset?.generationHandoffSku || ""),
+    handoffProductName: String(
+      form?.dataset?.generationHandoffProductName || "",
+    ),
+  });
+}
+
+export function generationResearchWorkingDraftHydrationUnchanged(
+  form,
+  captured,
+) {
+  return Boolean(
+    form
+    && typeof captured === "string"
+    && captureGenerationResearchWorkingDraftHydration(form) === captured,
+  );
+}
+
 function stateKey(context) {
   return [
     STATE_PREFIX,
@@ -1343,6 +1378,13 @@ export function resolveAuthoritativeRecommendationProductFields({
 
 export function recommendationProductIdentityMatches(form, envelope) {
   const source = object(envelope);
+  const handoffProduct = resolveGenerationExpectedProductMatch({
+    expectedSku: form?.dataset?.generationHandoffSku,
+    expectedProductName: form?.dataset?.generationHandoffProductName,
+    candidateSku: source.source_product_sku,
+    candidateProductName: source.source_product_name,
+  });
+  if (!handoffProduct.ok) return false;
   const productId = normalizedUuid(source.product_id);
   const selectedMediaProductId = normalizedUuid(
     form?.dataset?.identityProductId,
@@ -1382,13 +1424,17 @@ export function applyAuthoritativeRecommendationProduct(form, envelope) {
   return true;
 }
 
-function blockRecommendationProductMismatch(form, envelope) {
+function blockRecommendationProductMismatch(
+  form,
+  envelope,
+  failure = "product_mismatch",
+) {
   const selectionId = recommendationSelectionId(envelope);
   const position = recommendationPosition(envelope);
   if (form?.dataset) {
     form.dataset.researchRecommendationVerificationRequired = "true";
     form.dataset.researchRecommendationVerificationState = "failed";
-    form.dataset.researchRecommendationVerificationFailure = "product_mismatch";
+    form.dataset.researchRecommendationVerificationFailure = failure;
     if (selectionId) {
       form.dataset.researchRecommendationVerificationSelectionId = selectionId;
     }
@@ -1400,7 +1446,9 @@ function blockRecommendationProductMismatch(form, envelope) {
     form.elements.real_spend_confirmation.checked = false;
   }
   setStatus(
-    "Выбранные медиа относятся к другому товару, чем рекомендация ИИ‑центра. Поля рекомендации не применены, техническое ТЗ и платный запуск заблокированы. Выберите проверенные медиа рекомендованного товара либо полностью перейдите в ручной режим.",
+    failure === "selected_media_product_unverified"
+      ? "Общий черновик проекта не применён: сначала явно выберите проверенное медиа точного товара. Название, SKU, категория и замысел текущей формы не изменены."
+      : "Выбранные медиа относятся к другому товару, чем рекомендация ИИ‑центра. Поля рекомендации не применены, техническое ТЗ и платный запуск заблокированы. Выберите проверенные медиа рекомендованного товара либо полностью перейдите в ручной режим.",
     "danger",
   );
 }
@@ -1561,6 +1609,30 @@ function applySharedWorkingDraft(form, shared) {
       || routeTarget.recommendationPosition !== draft.recommendationPosition
     )
   ) return false;
+  const passiveProductIdentity = resolveGenerationAiResearchProductIdentity(
+    normalizedUuid(draft.recommendation.product_id),
+    normalizedUuid(form?.dataset?.identityProductId),
+    { requireSelectedMedia: true },
+  );
+  const passiveHandoffProduct = resolveGenerationExpectedProductMatch({
+    expectedSku: form?.dataset?.generationHandoffSku,
+    expectedProductName: form?.dataset?.generationHandoffProductName,
+    candidateSku: draft.recommendation.source_product_sku,
+    candidateProductName: draft.recommendation.source_product_name,
+  });
+  const passiveProductFailure = !passiveHandoffProduct.ok
+    ? passiveHandoffProduct.code
+    : !passiveProductIdentity.ok
+      ? passiveProductIdentity.code
+      : "";
+  if (passiveProductFailure) {
+    blockRecommendationProductMismatch(
+      form,
+      draft.recommendation,
+      passiveProductFailure,
+    );
+    return false;
+  }
   if (!applyAuthoritativeRecommendationProduct(form, draft.recommendation)) {
     blockRecommendationProductMismatch(form, draft.recommendation);
     return false;
@@ -1637,6 +1709,7 @@ async function hydrateSharedWorkingDraft(form, context) {
   if (runtime.workingDraftAuthorityProjectId !== context.projectId) {
     setWorkingDraftAuthority(context.projectId, "unknown");
   }
+  const hydrationSnapshot = captureGenerationResearchWorkingDraftHydration(form);
   runtime.workingDraftHydrating = true;
   setStatus("Проверяем общий творческий черновик проекта…");
   try {
@@ -1653,6 +1726,13 @@ async function hydrateSharedWorkingDraft(form, context) {
     ) return;
     const authoritative = authoritativeWorkingDraft(context, shared);
     setWorkingDraftAuthority(context.projectId, "verified");
+    if (!generationResearchWorkingDraftHydrationUnchanged(form, hydrationSnapshot)) {
+      setStatus(
+        "Вы уже изменили товар или параметры запуска. Поздний общий черновик не применён, ваши поля сохранены.",
+        "neutral",
+      );
+      return;
+    }
     applySharedWorkingDraft(form, authoritative);
   } catch (error) {
     console.warn("Generation AI research working draft hydrate failed", error);

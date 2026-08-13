@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Generation guided state guardrails v4.9.3</title>
+  </head>
+  <body>
+    <main id="workspace-content">
+      <form id="mock-batch-form">
+        <section data-fixture-section="mode">
+          <label>
+            <span>Режим</span>
+            <select name="generation_mode">
+              <option value="mock">Dry-run</option>
+              <option value="video" selected>Платное видео</option>
+            </select>
+          </label>
+        </section>
+
+        <section data-fixture-section="product">
+          <label><span>Артикул</span><input name="sku" value="" required /></label>
+          <label><span>Точное название товара</span><input name="product_name" value="" required minlength="2" /></label>
+          <label><span>Категория</span><input name="product_category" value="БАД" /></label>
+        </section>
+
+        <section data-fixture-section="destination">
+          <label>
+            <span>Площадка</span>
+            <select name="platform"><option value="instagram" selected>Instagram</option></select>
+          </label>
+          <label><span>Назначение</span><input name="destination_ref" value="TEST" /></label>
+        </section>
+
+        <section data-fixture-section="brief">
+          <label><span>Замысел</span><textarea name="brief" required></textarea></label>
+        </section>
+
+        <section data-fixture-section="media">
+          <label>
+            <input type="checkbox" name="media_id" value="bad-product-photo" />
+            Фото товара БАД
+          </label>
+        </section>
+
+        <button id="generation-submit" type="submit">Создать</button>
+      </form>
+    </main>
+    <output id="result">WAIT</output>
+
+    <script type="module">
+      const result = document.querySelector("#result");
+      const checks = {};
+      window.addEventListener("error", (event) => {
+        result.dataset.error = String(event.message || "runtime error");
+        result.textContent = "ERROR";
+      });
+      window.addEventListener("unhandledrejection", (event) => {
+        result.dataset.error = String(event.reason?.stack || event.reason || "unhandled rejection");
+        result.textContent = "ERROR";
+      });
+
+      window.ContentEngineDesktopV4 = {
+        route: () => "/workspace/generation",
+        registerAdapter(name, mount) {
+          if (name === "generation-guided") window.__generationGuidedMount = mount;
+        },
+      };
+
+      location.hash = "#/workspace/generation?project_id=project-guided-regression";
+      sessionStorage.setItem("contentengine.desktop.v4.generation-guided.v2", JSON.stringify({
+        context: "project-guided-regression||",
+        step: "launch",
+        maxVisited: 5,
+        updatedAt: Date.now(),
+      }));
+
+      await import("../../web/app/workspace-os-v4-generation-guided.js?fixture=v493-state-guardrails");
+      window.__generationGuidedMount();
+
+      const form = document.querySelector("#mock-batch-form");
+      const sku = form.elements.sku;
+      const productName = form.elements.product_name;
+      const brief = form.elements.brief;
+      const media = form.elements.media_id;
+
+      checks.persistedLaunchClampsToProduct = form.dataset.ceV4GenerationStep === "product";
+      checks.productPanelIsVisible = !form.querySelector('[data-ce-v4-generation-panel="product"]').hidden;
+      checks.launchPanelIsHidden = form.querySelector('[data-ce-v4-generation-panel="launch"]').hidden;
+
+      productName.value = "Ежовик гребенчатый";
+      checks.nameWithoutSkuIsRejected = (
+        window.ContentEngineGenerationGuidedV4.goToStep("brief") === false
+        && form.dataset.ceV4GenerationStep === "product"
+      );
+
+      productName.value = "";
+      sku.value = "BAD-001";
+      checks.skuWithoutNameIsRejected = (
+        window.ContentEngineGenerationGuidedV4.goToStep("brief") === false
+        && form.dataset.ceV4GenerationStep === "product"
+      );
+
+      productName.value = "Ежовик гребенчатый";
+      checks.completeProductAdvances = (
+        window.ContentEngineGenerationGuidedV4.goToStep("brief") === true
+        && form.dataset.ceV4GenerationStep === "brief"
+      );
+
+      checks.emptyRealBriefIsRejected = (
+        window.ContentEngineGenerationGuidedV4.goToStep("media") === false
+        && form.dataset.ceV4GenerationStep === "brief"
+      );
+
+      brief.value = "Показать упаковку, фактуру капсул и понятный сценарий применения.";
+      checks.realWithoutMediaIsRejected = (
+        window.ContentEngineGenerationGuidedV4.goToStep("launch") === false
+        && form.dataset.ceV4GenerationStep === "media"
+      );
+
+      media.checked = true;
+      checks.completeRealInputReachesLaunch = (
+        window.ContentEngineGenerationGuidedV4.goToStep("launch") === true
+        && form.dataset.ceV4GenerationStep === "launch"
+      );
+
+      form.elements.generation_mode.value = "mock";
+      media.checked = false;
+      window.ContentEngineGenerationGuidedV4.goToStep("media");
+      checks.mockWithoutMediaIsRejected = (
+        window.ContentEngineGenerationGuidedV4.goToStep("launch") === false
+        && form.dataset.ceV4GenerationStep === "media"
+      );
+
+      media.checked = true;
+      checks.completeMockInputReachesLaunch = (
+        window.ContentEngineGenerationGuidedV4.goToStep("launch") === true
+        && form.dataset.ceV4GenerationStep === "launch"
+      );
+      form.elements.generation_mode.dispatchEvent(new Event("change", { bubbles: true }));
+
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      const finalCopy = String(
+        form.querySelector("[data-ce-v4-generation-launch-status]")?.textContent || "",
+      ).toLocaleLowerCase("ru");
+      checks.mockNamesDryRun = /dry[- ]?run|тестов/.test(finalCopy);
+      checks.mockExplicitlyCreatesNoVideo = finalCopy.includes("видео") && /не\s+(?:созда|будет)|без/.test(finalCopy);
+      checks.mockExplicitlyCreatesNoFile = finalCopy.includes("файл") && /не\s+(?:созда|будет)|без/.test(finalCopy);
+
+      const passed = Object.values(checks).every(Boolean);
+      result.dataset.passed = String(passed);
+      result.dataset.checks = JSON.stringify(checks);
+      result.dataset.finalCopy = finalCopy;
+      result.textContent = passed ? "PASS" : "FAIL";
+    </script>
+  </body>
+</html>

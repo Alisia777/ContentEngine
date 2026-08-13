@@ -80,6 +80,87 @@ def _run_api_module(body: str) -> dict:
     return json.loads(result.stdout)
 
 
+def test_ai_center_fresh_research_route_is_exact_and_fail_closed() -> None:
+    result = _run_view_module(
+        """
+        const project = "90000000-0000-4000-8000-000000000001";
+        const normalize = (overrides = {}) =>
+          subject.normalizeProductResearchFreshRoute({
+            newValues: ["1"],
+            projectValues: [project],
+            categoryValues: ["baa"],
+            activeProjectId: project,
+            ...overrides,
+          });
+        return {
+          valid: normalize(),
+          noIntent: normalize({newValues: []}),
+          duplicateIntent: normalize({newValues: ["1", "1"]}),
+          missingProject: normalize({projectValues: []}),
+          otherProject: normalize({
+            projectValues: ["90000000-0000-4000-8000-000000000002"],
+          }),
+          duplicateCategory: normalize({categoryValues: ["baa", "food"]}),
+          unknownCategory: normalize({categoryValues: ["lion-mane"]}),
+          normalizedCategory: normalize({categoryValues: [" BAA "]}),
+        };
+        """
+    )
+
+    assert result["valid"] == {
+        "requested": True,
+        "valid": True,
+        "projectId": "90000000-0000-4000-8000-000000000001",
+        "productCategory": "baa",
+        "reason": "",
+    }
+    assert result["noIntent"] == {
+        "requested": False,
+        "valid": False,
+        "projectId": "",
+        "productCategory": "",
+        "reason": "",
+    }
+    assert result["duplicateIntent"]["reason"] == "fresh_intent_invalid"
+    assert result["missingProject"]["reason"] == "project_context_invalid"
+    assert result["otherProject"]["reason"] == "project_context_invalid"
+    assert result["duplicateCategory"]["reason"] == "product_category_invalid"
+    assert result["unknownCategory"]["reason"] == "product_category_invalid"
+    assert result["normalizedCategory"] == result["valid"]
+
+
+def test_fresh_research_route_preempts_old_project_session_and_is_one_shot() -> None:
+    prepare = _between(
+        APP,
+        "function prepareFreshProductResearchRoute()",
+        "function restoreProductResearchSession()",
+    )
+    restore = _between(
+        APP,
+        "function restoreProductResearchSession()",
+        "function scheduleProductResearchPolling(",
+    )
+
+    assert restore.index("prepareFreshProductResearchRoute()") < restore.index(
+        "productResearchRunStorageKey()"
+    )
+    assert restore.index("prepareFreshProductResearchRoute()") < restore.index(
+        "latestOwnProjectResearchRun()"
+    )
+    assert "stopProductResearchPolling()" in prepare
+    assert "research.requestId += 1" in prepare
+    assert "research.record = null" in prepare
+    assert "research.preservedSnapshot = null" in prepare
+    assert "resetResearchStageControl()" in prepare
+    assert "clearProductResearchRunId(context.projectId)" in prepare
+    assert "research.prefill = { productCategory: context.productCategory }" in prepare
+    assert "productResearchPrefillFromSnapshot" not in prepare
+    assert prepare.count("replaceFreshProductResearchRoute(") == 3
+    assert "replaceFreshProductResearchRoute(currentWorkspaceProjectId())" in prepare
+    assert "уже идёт платный анализ" in prepare
+    assert "второй запуск не создан" in prepare
+
+
 def test_modern_shot_object_preserves_browser_compiler_text_boundary() -> None:
     result = _run_view_module(
         """

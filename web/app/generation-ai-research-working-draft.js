@@ -85,6 +85,33 @@ export function resolveGenerationAiResearchProductIdentity(
   return { ok: true, code: "exact_product_match" };
 }
 
+export function resolveGenerationExpectedProductMatch({
+  expectedSku = "",
+  expectedProductName = "",
+  candidateSku = "",
+  candidateProductName = "",
+} = {}) {
+  const expectedSkuValue = String(expectedSku || "").trim();
+  const expectedNameValue = String(expectedProductName || "").trim();
+  const candidateSkuValue = String(candidateSku || "").trim();
+  const candidateNameValue = String(candidateProductName || "").trim();
+  const expected = Boolean(expectedSkuValue || expectedNameValue);
+  if (!expected) return { required: false, ok: true, code: "expected_product_absent" };
+  if (!(expectedSkuValue && expectedNameValue)) {
+    return { required: true, ok: false, code: "expected_product_invalid" };
+  }
+  if (!(candidateSkuValue && candidateNameValue)) {
+    return { required: true, ok: false, code: "candidate_product_unverified" };
+  }
+  if (
+    candidateSkuValue !== expectedSkuValue
+    || candidateNameValue !== expectedNameValue
+  ) {
+    return { required: true, ok: false, code: "handoff_product_mismatch" };
+  }
+  return { required: true, ok: true, code: "exact_handoff_product_match" };
+}
+
 function boundedString(value, limit) {
   const normalized = String(value ?? "");
   return normalized.length <= limit ? normalized : normalized.slice(0, limit);

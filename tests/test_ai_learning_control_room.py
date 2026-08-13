@@ -777,6 +777,64 @@ return {
     }
 
 
+def test_legacy_archive_keeps_only_historical_case_decisions_actionable() -> None:
+    result = _run_module(
+        VIEW_PATH,
+        AI_CONTROL_ROOM_FIXTURE
+        + r"""
+const normalized = subject.normalizeAiLearningControlRoom(envelope, {
+  category: "cosmetics",
+});
+const casesMarkup = subject.aiLearningControlRoomMarkup(normalized, {
+  category: "cosmetics",
+  view: "cases",
+  legacyReadOnly: true,
+});
+const teachingMarkup = subject.aiLearningControlRoomMarkup(normalized, {
+  category: "cosmetics",
+  view: "teach",
+  legacyReadOnly: true,
+});
+const knowledgeMarkup = subject.aiLearningControlRoomMarkup(normalized, {
+  category: "cosmetics",
+  view: "knowledge",
+  legacyReadOnly: true,
+});
+const card = (id) => {
+  const start = casesMarkup.indexOf(`data-case-id="${id}"`);
+  return casesMarkup.slice(start, casesMarkup.indexOf("</article>", start));
+};
+const matched = card("31000000-0000-4000-8000-000000000001");
+const quarantined = card("31000000-0000-4000-8000-000000000003");
+const disabled = (markup, decision) => new RegExp(
+  `data-decision="${decision}"[^>]*disabled`, "u"
+).test(markup);
+return {
+  matchedConfirmDisabled: disabled(matched, "confirm"),
+  matchedRejectDisabled: disabled(matched, "reject"),
+  quarantineConfirmDisabled: disabled(quarantined, "confirm"),
+  quarantineRejectDisabled: disabled(quarantined, "reject"),
+  reviewBadgeTruthful: casesMarkup.includes("Требует проверки")
+    && !casesMarkup.includes(">Проверить</span>"),
+  teachingStillDisabled: /data-action="decide-ai-teaching-card"[^>]*disabled/u
+    .test(teachingMarkup),
+  knowledgeStillDisabled: /id="ai-knowledge-link-form"[\s\S]*?<button type="submit" disabled/u
+    .test(knowledgeMarkup),
+};
+""",
+    )
+
+    assert result == {
+        "matchedConfirmDisabled": False,
+        "matchedRejectDisabled": False,
+        "quarantineConfirmDisabled": True,
+        "quarantineRejectDisabled": False,
+        "reviewBadgeTruthful": True,
+        "teachingStillDisabled": True,
+        "knowledgeStillDisabled": True,
+    }
+
+
 def test_ai_signals_use_plain_russian_and_offer_one_decision_at_a_time() -> None:
     view = _read(VIEW_PATH)
     labels_match = re.search(

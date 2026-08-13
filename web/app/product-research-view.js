@@ -3143,6 +3143,59 @@ export function normalizeProductResearchAiCategory(value, fallback = "") {
     : "";
 }
 
+/**
+ * Validates the one-shot route used when AI Center asks for a brand-new
+ * product research form. Project and category are routing context only: no
+ * product identity, media, SKU or previous research fields are inferred.
+ */
+export function normalizeProductResearchFreshRoute({
+  newValues = [],
+  projectValues = [],
+  categoryValues = [],
+  activeProjectId = "",
+} = {}) {
+  const freshValues = Array.isArray(newValues) ? newValues : [];
+  const requested = freshValues.length > 0;
+  if (!requested) {
+    return {
+      requested: false,
+      valid: false,
+      projectId: "",
+      productCategory: "",
+      reason: "",
+    };
+  }
+  const projects = Array.isArray(projectValues) ? projectValues : [];
+  const categories = Array.isArray(categoryValues) ? categoryValues : [];
+  const projectId = projects.length === 1
+    ? String(projects[0] || "").trim().toLowerCase()
+    : "";
+  const selectedProjectId = String(activeProjectId || "").trim().toLowerCase();
+  const productCategory = categories.length === 1
+    ? normalizeProductResearchAiCategory(categories[0])
+    : "";
+  const intentValid = freshValues.length === 1
+    && String(freshValues[0] || "").trim() === "1";
+  const projectValid = RESEARCH_UUID_PATTERN.test(projectId)
+    && RESEARCH_UUID_PATTERN.test(selectedProjectId)
+    && projectId === selectedProjectId;
+  const categoryValid = Boolean(productCategory);
+  const reason = !intentValid
+    ? "fresh_intent_invalid"
+    : !projectValid
+      ? "project_context_invalid"
+      : !categoryValid
+        ? "product_category_invalid"
+        : "";
+  return {
+    requested: true,
+    valid: !reason,
+    projectId: projectValid ? projectId : "",
+    productCategory: categoryValid ? productCategory : "",
+    reason,
+  };
+}
+
 const PRODUCT_RESEARCH_SOURCE_MEDIA_KINDS = new Set([
   "product_photo",
   "packshot",

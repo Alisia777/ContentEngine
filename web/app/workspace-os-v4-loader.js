@@ -34,7 +34,7 @@ const ROUTE_ASSETS = Object.freeze({
   generation: Object.freeze({
     match: (route) => route === "/workspace/generation",
     styles: [`workspace-os-v4-generation-guided.css?v=${BUILD}`],
-    modules: [`workspace-os-v4-generation-guided.js?v=${BUILD}`],
+    modules: ["workspace-os-v4-generation-guided.js?v=20260812.os4.38.bad-context.1"],
   }),
   review: Object.freeze({
     match: (route) => route === "/workspace/review",
