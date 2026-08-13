@@ -17,19 +17,19 @@ MANIFEST = json.loads((APP_DIR / "build.json").read_text(encoding="utf-8"))
 
 def test_build_id_is_consistent_across_entrypoints() -> None:
     build_id = MANIFEST["id"]
-    assert build_id == "20260812.os4.38"
+    assert build_id == "20260813.os4.39"
     assert f'content="{build_id}"' in APP_INDEX
     assert f'content="{build_id}"' in ROOT_INDEX
     assert f'const CURRENT_BUILD = "{build_id}"' in SCRIPT
-    assert MANIFEST["label"] == "ContentEngine Desktop v4.38"
-    assert MANIFEST["released_at"] == "2026-08-12"
-    assert 'const BUILD_BADGE = "Desktop · 4.14"' in SCRIPT
+    assert MANIFEST["label"] == "ContentEngine Desktop v4.39"
+    assert MANIFEST["released_at"] == "2026-08-13"
+    assert 'const BUILD_BADGE = "Desktop · 4.39"' in SCRIPT
 
 
 def test_desktop_flag_loader_runs_before_app_and_build_guard_runs_last() -> None:
     build_id = MANIFEST["id"]
-    loader_cache_key = f"{build_id}.bad-context.1"
-    app_cache_key = f"{build_id}.ai-concept.1"
+    loader_cache_key = build_id
+    app_cache_key = build_id
     assert f'<link rel="stylesheet" href="./workspace-os-v4.css?v={build_id}" />' in APP_INDEX
     assert f'<script type="module" src="./workspace-os-v4-loader.js?v={loader_cache_key}"></script>' in APP_INDEX
     assert f'<script type="module" src="./app.js?v={app_cache_key}"></script>' in APP_INDEX

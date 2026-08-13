@@ -1,4 +1,4 @@
-import { CreatorApi } from "./supabase-api.js?v=20260812.os4.38";
+import { CreatorApi } from "./supabase-api.js?v=20260813.os4.39";
 
 /*
  * ContentEngine Desktop v4 · Context menus and Trash.
@@ -377,7 +377,7 @@ function finderItemActions(entity) {
     && finderSelection.some((item) => item.type === entity.type && item.id === entity.id);
   if (selectedBatch) {
     return [
-      menuAction("Открыть", "open", () => window.ContentEngineFinderV4?.openQuickLook?.(entity.node)),
+      menuAction("Быстрый просмотр", "open", () => window.ContentEngineFinderV4?.openQuickLook?.(entity.node)),
       menuAction(`Переместить выбранные (${finderSelection.length})…`, "folder", () => {
         window.ContentEngineFinderV4?.focusBatchMove?.();
       }),
@@ -391,7 +391,7 @@ function finderItemActions(entity) {
     ];
   }
   const actions = [];
-  actions.push(menuAction("Открыть", "open", () => {
+  actions.push(menuAction("Быстрый просмотр", "open", () => {
     if (window.ContentEngineFinderV4?.openQuickLook) {
       return window.ContentEngineFinderV4.openQuickLook(entity.node);
     }
@@ -830,6 +830,7 @@ function ensureTrashDock() {
   if (!button) {
     const separator = create("span", "ce-v4-dock__separator ce-v4-trash-separator");
     button = create("button", "ce-v4-dock__item ce-v4-dock__utility ce-v4-trash-dock");
+    button.dataset.ceV4TrashFallback = "true";
     button.type = "button";
     button.setAttribute("aria-label", "Корзина");
     const tooltip = create("span", "ce-v4-dock__tooltip", "Корзина");

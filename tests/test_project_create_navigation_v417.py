@@ -61,22 +61,30 @@ def _run_node(script: str) -> None:
 
 def test_projects_dock_and_project_menu_have_explicit_unscoped_routes() -> None:
     navigate_primary = _function(CORE, "function navigatePrimaryRoute(")
-    dock = _function(CORE, "function ensureDock(")
+    active_dock_key = _function(CORE, "function activeDockKey(")
+    dock_destination = _function(CORE, "function dockDestination(")
+    dock_mount = _function(CORE, "function ensureDock(")
+    dock_activation = _function(CORE, "function activateDockKey(")
     update = _function(CORE, "function updateDock(")
     menu = _function(CORE, "function syncProjectSwitcher(")
     menubar = _function(CORE, "function ensureMenubar(")
 
     assert 'return navigate("/workspace/home", { preserveProject: false })' in navigate_primary
-    assert 'const opensProjectCatalog = routeParts(destination).path === "/workspace/home"' in dock
-    assert "navigatePrimaryRoute(destination)" in dock
-    assert 'item.dataset.ceV4Route === "/workspace/home"' in update
-    assert '? "/workspace/home"' in update
+    assert 'if (path === "/workspace/home") return workspaceDesktopRoute(route) ? "" : "finder"' in active_dock_key
+    assert 'if (record.key === "finder")' in dock_destination
+    assert 'return snapshot.id ? projectRoute("/workspace/board", context) : "/workspace/home?view=projects"' in dock_destination
+    assert "link.dataset.ceV4Route = item.route" in dock_mount
+    assert 'const opensProjectCatalog = routeParts(destination).path === "/workspace/home"' in dock_activation
+    assert "navigatePrimaryRoute(destination)" in dock_activation
+    assert "const destination = dockDestination(record, snapshot)" in update
+    assert 'item.href = `#${destination}`' in update
 
     assert 'ceV4AllProjects = "true"' in menu
     assert 'ceV4CreateProject = "true"' in menu
     assert '"owner", "admin", "producer"' in menu
-    assert 'navigate("/workspace/home", { preserveProject: false })' in menubar
+    assert 'if (target?.closest("[data-ce-v4-home]")) navigate("/workspace/home")' in menubar
     assert 'navigate("/workspace/home?view=new", { preserveProject: false })' in menubar
+    assert 'navigate("/workspace/home?view=projects", { preserveProject: false })' in menubar
     assert 'routeWithProject("/workspace/home", snapshot.id)' not in menu
 
 

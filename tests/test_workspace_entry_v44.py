@@ -29,7 +29,7 @@ def _function_source(source: str, name: str, next_name: str) -> str:
 
 
 def test_v44_preserves_mandatory_learning_and_normalizes_only_the_obsolete_alias() -> None:
-    assert 'content="20260812.os4.38"' in INDEX
+    assert 'content="20260813.os4.39"' in INDEX
     assert './startup-route.js?v=20260803.entry1' in INDEX
     assert INDEX.index("./startup-route.js") < INDEX.index("./app.js")
     assert '/^#\\/academy' in STARTUP
@@ -498,6 +498,11 @@ def test_workspace_tabs_without_permission_open_an_explicit_access_screen_not_ac
 
 def test_visible_menubar_search_opens_finder_without_another_window() -> None:
     menubar = _between(CORE, "function ensureMenubar() {", "\n}\n\nfunction updateClock")
+    workspace_window = _between(
+        CORE,
+        "function ensureWorkspaceWindow() {",
+        "\nfunction removeWorkspaceWindow()",
+    )
     search = _between(CORE, "function focusFinderSearch(", "\n}\n\nfunction fullscreenElement")
     public_api = CORE[CORE.index("window.ContentEngineDesktopV4 = Object.freeze({") :]
     assert 'create("form", "ce-v4-menubar__search")' in menubar
@@ -514,7 +519,11 @@ def test_visible_menubar_search_opens_finder_without_another_window() -> None:
     assert "ce-v4-menubar__location" not in CORE
     assert "ceV4Spotlight" not in menubar
     assert "openSpotlight();" not in menubar
-    assert "ce-v4-traffic" in menubar
+    assert "ce-v4-window__traffic" not in menubar
+    assert 'create("div", "ce-v4-window__traffic")' in workspace_window
+    assert 'windowControl("close"' in workspace_window
+    assert 'windowControl("minimize"' in workspace_window
+    assert 'windowControl("zoom"' in workspace_window
     assert "ceV4Fullscreen" in menubar
     assert "void toggleFullscreen()" in menubar
     for retired_window in ("openMission,", "openSpotlight,", "openZen,", "closeZen,"):

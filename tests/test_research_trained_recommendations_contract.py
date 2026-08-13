@@ -92,6 +92,7 @@ def test_exact_youtube_short_is_canonicalized_and_merged_into_research() -> None
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     value = json.loads(result.stdout)
     assert value["canonical"] == "https://youtube.com/watch?v=CXssfXBVInw"
@@ -166,6 +167,7 @@ def test_generation_is_ai_first_but_never_overwrites_human_edits() -> None:
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     value = json.loads(result.stdout)
     assert value["auto"] is False
@@ -422,6 +424,7 @@ def test_category_recommendation_and_manual_opt_out_are_non_blocking() -> None:
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     value = json.loads(result.stdout)
     assert value["automatic"] == []
@@ -545,6 +548,7 @@ def test_generation_preset_restore_and_duration_contract() -> None:
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     value = json.loads(result.stdout)
     assert value["before"] == value["after"]

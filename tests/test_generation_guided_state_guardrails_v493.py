@@ -6,11 +6,16 @@ requirements, then verifies the guided adapter's cross-step and media rules.
 
 from __future__ import annotations
 
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import json
 import re
 import shutil
 import subprocess
 import tempfile
+import threading
+import urllib.request
 
 import pytest
 
@@ -18,6 +23,11 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = ROOT / "web" / "app" / "workspace-os-v4-generation-guided.js"
 HARNESS = ROOT / "tests" / "fixtures" / "workspace_generation_guided_state_v493_harness.html"
+
+
+class _QuietHandler(SimpleHTTPRequestHandler):
+    def log_message(self, _format: str, *args: object) -> None:
+        del args
 
 
 def _chrome_path() -> str | None:
@@ -53,46 +63,161 @@ def test_generation_guided_restores_only_a_valid_step_and_tells_the_truth_about_
     if chrome is None:
         pytest.skip("Chrome/Chromium is unavailable for generation wizard runtime QA")
 
-    result = None
-    last_stdout = ""
-    # Chrome can occasionally dump a file:// document before its cold dynamic
-    # module import has entered the virtual-time queue. Retry only the explicit
-    # untouched WAIT sentinel; a real FAIL/ERROR remains immediately visible.
-    for _attempt in range(3):
-        with tempfile.TemporaryDirectory(prefix="ce-generation-guided-v493-") as profile:
-            completed = subprocess.run(
-                [
-                    chrome,
-                    "--headless=new",
-                    "--disable-gpu",
-                    "--no-sandbox",
-                    "--no-first-run",
-                    "--no-default-browser-check",
-                    "--allow-file-access-from-files",
-                    "--virtual-time-budget=8000",
-                    "--window-size=1280,900",
-                    f"--user-data-dir={profile}",
-                    "--dump-dom",
-                    HARNESS.resolve().as_uri(),
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=30,
-            )
-        last_stdout = completed.stdout
-        result = re.search(
-            r'<output id="result"[^>]*>[^<]*</output>',
-            completed.stdout,
-        )
-        assert result, completed.stdout[-4_000:]
-        if result.group(0) != '<output id="result">WAIT</output>':
-            break
+    try:
+        from websockets.sync.client import connect
+    except ImportError:
+        pytest.skip("websockets is required for deterministic generation wizard QA")
 
-    assert result, last_stdout[-4_000:]
-    assert 'data-passed="true"' in result.group(0), result.group(0)
+    handler = partial(_QuietHandler, directory=str(ROOT))
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    url = (
+        f"http://127.0.0.1:{server.server_port}/"
+        f"{HARNESS.relative_to(ROOT).as_posix()}"
+    )
+    profile = tempfile.mkdtemp(prefix="ce-generation-guided-v493-")
+    process = subprocess.Popen(
+        [
+            chrome,
+            "--headless=new",
+            "--disable-gpu",
+            "--disable-extensions",
+            "--no-sandbox",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--remote-debugging-port=0",
+            "--remote-allow-origins=*",
+            "--window-size=1280,900",
+            f"--user-data-dir={profile}",
+            "about:blank",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    try:
+        browser_endpoint = ""
+        assert process.stderr is not None
+        for line in process.stderr:
+            match = re.search(r"DevTools listening on (ws://\S+)", line)
+            if match:
+                browser_endpoint = match.group(1)
+                break
+        assert browser_endpoint, "Chrome DevTools endpoint did not become ready"
+        port_match = re.search(r"ws://[^:/]+:(\d+)/", browser_endpoint)
+        assert port_match is not None
+        pages = json.load(
+            urllib.request.urlopen(
+                f"http://127.0.0.1:{int(port_match.group(1))}/json/list",
+                timeout=5,
+            )
+        )
+        page = next(
+            item
+            for item in pages
+            if item.get("type") == "page" and item.get("url") == "about:blank"
+        )
+
+        with connect(
+            page["webSocketDebuggerUrl"],
+            origin="http://localhost",
+            open_timeout=5,
+        ) as websocket:
+            request_id = 0
+            events: list[dict[str, object]] = []
+
+            def cdp(
+                method: str,
+                params: dict[str, object] | None = None,
+                *,
+                timeout: float = 30,
+            ) -> dict[str, object]:
+                nonlocal request_id
+                request_id += 1
+                expected_id = request_id
+                websocket.send(json.dumps({
+                    "id": expected_id,
+                    "method": method,
+                    "params": params or {},
+                }))
+                while True:
+                    response = json.loads(websocket.recv(timeout=timeout))
+                    if response.get("id") == expected_id:
+                        return response
+                    events.append(response)
+
+            def wait_for_event(method: str) -> dict[str, object]:
+                for index, event in enumerate(events):
+                    if event.get("method") == method:
+                        return events.pop(index)
+                while True:
+                    event = json.loads(websocket.recv(timeout=30))
+                    if event.get("method") == method:
+                        return event
+                    events.append(event)
+
+            cdp("Page.enable")
+            cdp("Runtime.enable")
+            navigation = cdp("Page.navigate", {"url": url})
+            assert "error" not in navigation, navigation
+            wait_for_event("Page.loadEventFired")
+            result = cdp(
+                "Runtime.evaluate",
+                {
+                    "expression": """
+                      new Promise((resolve, reject) => {
+                        const output = document.querySelector("#result");
+                        if (!output) {
+                          reject(new Error("generation-guided-result-missing"));
+                          return;
+                        }
+                        let observer = null;
+                        const abort = window.setTimeout(
+                          () => reject(new Error("generation-guided-result-not-ready")),
+                          30_000,
+                        );
+                        const finish = () => {
+                          if (String(output.textContent || "").trim() === "WAIT") return;
+                          observer?.disconnect();
+                          window.clearTimeout(abort);
+                          resolve(output.outerHTML);
+                        };
+                        if (String(output.textContent || "").trim() !== "WAIT") {
+                          finish();
+                          return;
+                        }
+                        observer = new MutationObserver(finish);
+                        observer.observe(output, {
+                          attributes: true,
+                          childList: true,
+                          characterData: true,
+                          subtree: true,
+                        });
+                      })
+                    """,
+                    "awaitPromise": True,
+                    "returnByValue": True,
+                },
+            )
+            assert "error" not in result, result
+            assert "exceptionDetails" not in result.get("result", {}), result
+            output = result.get("result", {}).get("result", {}).get("value")
+            assert isinstance(output, str), result
+            assert 'data-passed="true"' in output, output
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+        server.shutdown()
+        server.server_close()
+        worker.join(timeout=3)
+        shutil.rmtree(profile, ignore_errors=True)
 
 
 def test_generation_guided_module_is_valid_javascript() -> None:

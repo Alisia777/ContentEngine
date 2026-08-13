@@ -1554,10 +1554,10 @@ def test_api_boundary_and_scoped_cache_edges_are_wired() -> None:
     assert '"contentengine_generation_ai_research_working_draft"' in API
     assert "generationResearchRecommendation(input = {})" in API
     assert "generationAiResearchWorkingDraft(input = {})" in API
-    assert '"workspace-ai-research-training.js":\n      "20260812.os4.38.bad-context.1"' in BOOTSTRAP
-    assert '"workspace-generation-research-recommendations.js":\n      "20260812.os4.38.ai-concept.1"' in BOOTSTRAP
-    assert "generation-ai-research-working-draft.js?v=20260812.os4.38.bad-context.1" in APP
-    assert "generation-ai-research-working-draft.js?v=20260812.os4.38.bad-context.1" in GENERATION
+    assert '"workspace-ai-research-training.js":\n      "20260813.os4.39"' in BOOTSTRAP
+    assert '"workspace-generation-research-recommendations.js":\n      "20260813.os4.39"' in BOOTSTRAP
+    assert "generation-ai-research-working-draft.js?v=20260813.os4.39" in APP
+    assert "generation-ai-research-working-draft.js?v=20260813.os4.39" in GENERATION
 
 
 def test_pgtap_executes_read_clear_conflict_and_second_user_semantics() -> None:

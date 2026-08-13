@@ -14,6 +14,23 @@ const ROOT_ATTRIBUTE = "data-ai-research-training-root";
 const CATEGORY_KEY = "contentengine.ai-research-training.category";
 const PROJECT_CONTEXT_KEY = "contentengine.desktop-v4.project";
 const GENERATION_INTENT_PREFIX = "contentengine.ai-research-generation.intent.v1:";
+const DECISION_INTENT_PREFIX = "contentengine.ai-research-training.decision-intent.v1:";
+const DECISION_INTENT_VERSION = "ai-research-training-decision-intent-v1";
+const DECISION_INSIGHT_KEYS = Object.freeze([
+  "category",
+  "competitors",
+  "trends",
+  "brief",
+]);
+const DECISION_EDIT_FIELDS = Object.freeze([
+  "title",
+  "hook",
+  "spoken_script",
+  "shot_list",
+  "key_message",
+  "visual_direction",
+  "cta",
+]);
 const CATEGORIES = Object.freeze([
   ["cosmetics", "Косметика и уход"],
   ["baa", "БАД"],
@@ -414,6 +431,706 @@ function idempotencyKey(prefix) {
   const uuid = globalThis.crypto?.randomUUID?.()
     || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   return `${prefix}-${uuid}`.slice(0, 178);
+}
+
+function decisionError(code, message, cause = null) {
+  const error = new Error(message);
+  error.name = "AiResearchTrainingDecisionError";
+  error.code = code;
+  if (cause) error.cause = cause;
+  return error;
+}
+
+function decisionText(value) {
+  return String(value ?? "").replace(/\r\n?/gu, "\n").trim();
+}
+
+function decisionUuid(value) {
+  return normalizedProjectId(value);
+}
+
+function normalizedDecisionList(values, allowed) {
+  const selected = new Set(
+    (Array.isArray(values) ? values : [])
+      .map((value) => clean(value, 40).toLowerCase())
+      .filter((value) => allowed.includes(value)),
+  );
+  return allowed.filter((value) => selected.has(value));
+}
+
+function normalizedDecisionPositions(values) {
+  return [...new Set(
+    (Array.isArray(values) ? values : [])
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value >= 1 && value <= 3),
+  )].sort((left, right) => left - right);
+}
+
+function normalizedDecisionEdits(values, positions) {
+  if (!Array.isArray(values)) return [];
+  const selected = new Set(positions);
+  const byPosition = new Map();
+  values.forEach((value) => {
+    const source = object(value);
+    const position = Number(source.position);
+    if (!selected.has(position) || byPosition.has(position)) return;
+    const edit = { position };
+    DECISION_EDIT_FIELDS.forEach((fieldName) => {
+      edit[fieldName] = decisionText(source[fieldName]);
+    });
+    byPosition.set(position, edit);
+  });
+  return positions
+    .filter((position) => byPosition.has(position))
+    .map((position) => byPosition.get(position));
+}
+
+export function normalizeTrainingDecisionScope(value = {}) {
+  const source = object(value);
+  const scope = {
+    actorId: decisionUuid(source.actorId || source.actor_id),
+    organizationId: decisionUuid(
+      source.organizationId || source.organization_id,
+    ),
+    projectId: decisionUuid(source.projectId || source.project_id),
+    receiptId: decisionUuid(source.receiptId || source.receipt_id),
+  };
+  return Object.values(scope).every(Boolean) ? scope : null;
+}
+
+export function canonicalTrainingDecisionRequest(value = {}) {
+  const source = object(value);
+  const decision = clean(source.decision, 20).toLowerCase();
+  const positions = decision === "approve"
+    ? normalizedDecisionPositions(source.selected_scenario_positions)
+    : [];
+  const request = {
+    organization_id: decisionUuid(source.organization_id),
+    project_id: decisionUuid(source.project_id),
+    product_category: normalizedCategory(source.product_category),
+    receipt_id: decisionUuid(source.receipt_id),
+    receipt_hash: clean(source.receipt_hash, 80).toLowerCase(),
+    decision,
+    selected_insight_keys: decision === "approve"
+      ? normalizedDecisionList(
+          source.selected_insight_keys,
+          DECISION_INSIGHT_KEYS,
+        )
+      : [],
+    selected_scenario_positions: positions,
+    edits: decision === "approve"
+      ? normalizedDecisionEdits(source.edits, positions)
+      : [],
+    operator_notes: decisionText(source.operator_notes),
+    confirmation: source.confirmation === true,
+  };
+  if (
+    !request.organization_id
+    || !request.project_id
+    || !request.product_category
+    || !request.receipt_id
+    || !/^[0-9a-f]{64}$/u.test(request.receipt_hash)
+    || !["approve", "reject"].includes(request.decision)
+    || request.confirmation !== true
+    || (
+      request.decision === "approve"
+      && (
+        !request.selected_insight_keys.length
+        || !request.selected_scenario_positions.length
+      )
+    )
+  ) {
+    throw decisionError(
+      "ai_research_training_decision_scope_invalid",
+      "Не удалось зафиксировать точный контур выбранного решения. Обновите ИИ-центр и повторите выбор.",
+    );
+  }
+  return request;
+}
+
+function trainingDecisionIntentFingerprint(scopeValue, requestValue) {
+  const scope = normalizeTrainingDecisionScope(scopeValue);
+  const request = canonicalTrainingDecisionRequest(requestValue);
+  if (!scope) return "";
+  return JSON.stringify({
+    actor_id: scope.actorId,
+    organization_id: scope.organizationId,
+    project_id: scope.projectId,
+    receipt_id: scope.receiptId,
+    request,
+  });
+}
+
+export function trainingDecisionIntentStorageKey(scopeValue) {
+  const scope = normalizeTrainingDecisionScope(scopeValue);
+  if (!scope) {
+    throw decisionError(
+      "ai_research_training_decision_scope_invalid",
+      "Не удалось определить пользователя, команду, проект и чек решения.",
+    );
+  }
+  return `${DECISION_INTENT_PREFIX}${[
+    scope.actorId,
+    scope.organizationId,
+    scope.projectId,
+    scope.receiptId,
+  ].join(":")}`;
+}
+
+function validDecisionIdempotencyKey(value) {
+  const key = String(value || "").trim().toLowerCase();
+  return /^[a-z0-9][a-z0-9._:-]{7,177}$/u.test(key) ? key : "";
+}
+
+function sameDecisionScope(left, right) {
+  const a = normalizeTrainingDecisionScope(left);
+  const b = normalizeTrainingDecisionScope(right);
+  return Boolean(
+    a
+    && b
+    && a.actorId === b.actorId
+    && a.organizationId === b.organizationId
+    && a.projectId === b.projectId
+    && a.receiptId === b.receiptId,
+  );
+}
+
+function readTrainingDecisionIntent(storage, scope) {
+  const key = trainingDecisionIntentStorageKey(scope);
+  let parsed = null;
+  try {
+    parsed = JSON.parse(storage?.getItem?.(key) || "null");
+  } catch {
+    parsed = null;
+  }
+  const createdAt = Number(parsed?.created_at);
+  const idempotencyKeyValue = validDecisionIdempotencyKey(
+    parsed?.idempotency_key,
+  );
+  let request = null;
+  try {
+    request = canonicalTrainingDecisionRequest(parsed?.request);
+  } catch {
+    request = null;
+  }
+  const valid = parsed?.version === DECISION_INTENT_VERSION
+    && sameDecisionScope(parsed?.scope, scope)
+    && idempotencyKeyValue
+    && request
+    && parsed?.request_fingerprint
+      === trainingDecisionIntentFingerprint(scope, request)
+    && Number.isFinite(createdAt)
+    && createdAt > 0;
+  if (!valid) {
+    try {
+      storage?.removeItem?.(key);
+    } catch {
+      // A broken storage backend must not make a stale intent reusable.
+    }
+    return null;
+  }
+  return {
+    version: DECISION_INTENT_VERSION,
+    scope: normalizeTrainingDecisionScope(scope),
+    request,
+    requestFingerprint: parsed.request_fingerprint,
+    idempotencyKey: idempotencyKeyValue,
+    createdAt,
+  };
+}
+
+function writeTrainingDecisionIntent(storage, intent) {
+  const key = trainingDecisionIntentStorageKey(intent.scope);
+  const record = {
+    version: DECISION_INTENT_VERSION,
+    scope: {
+      actor_id: intent.scope.actorId,
+      organization_id: intent.scope.organizationId,
+      project_id: intent.scope.projectId,
+      receipt_id: intent.scope.receiptId,
+    },
+    request: intent.request,
+    request_fingerprint: intent.requestFingerprint,
+    idempotency_key: intent.idempotencyKey,
+    created_at: intent.createdAt,
+  };
+  try {
+    storage?.setItem?.(key, JSON.stringify(record));
+  } catch (cause) {
+    throw decisionError(
+      "ai_research_training_decision_storage_unavailable",
+      "Браузер не смог сохранить ключ безопасного повтора. Решение не отправлено.",
+      cause,
+    );
+  }
+  const persisted = readTrainingDecisionIntent(
+    storage,
+    intent.scope,
+  );
+  if (!persisted || persisted.idempotencyKey !== intent.idempotencyKey) {
+    throw decisionError(
+      "ai_research_training_decision_storage_unavailable",
+      "Браузер не подтвердил сохранение ключа безопасного повтора. Решение не отправлено.",
+    );
+  }
+  return persisted;
+}
+
+export function clearTrainingDecisionIntent(storage, scope) {
+  try {
+    storage?.removeItem?.(trainingDecisionIntentStorageKey(scope));
+  } catch {
+    // Terminal state is authoritative even if optional browser cleanup fails.
+  }
+}
+
+function acquireTrainingDecisionIntent({
+  storage,
+  scope: scopeValue,
+  request: requestValue,
+  createIdempotencyKey = () => idempotencyKey("research-training"),
+  now = Date.now(),
+}) {
+  const scope = normalizeTrainingDecisionScope(scopeValue);
+  const request = canonicalTrainingDecisionRequest(requestValue);
+  if (
+    !scope
+    || scope.organizationId !== request.organization_id
+    || scope.projectId !== request.project_id
+    || scope.receiptId !== request.receipt_id
+  ) {
+    throw decisionError(
+      "ai_research_training_decision_scope_invalid",
+      "Контур решения не совпал с текущими пользователем, командой, проектом и чеком.",
+    );
+  }
+  const requestFingerprint = trainingDecisionIntentFingerprint(scope, request);
+  const existing = readTrainingDecisionIntent(storage, scope);
+  if (existing) {
+    return {
+      intent: existing,
+      existed: true,
+      requestMatches: existing.requestFingerprint === requestFingerprint,
+      requested: request,
+    };
+  }
+  const idempotencyKeyValue = validDecisionIdempotencyKey(
+    createIdempotencyKey(),
+  );
+  if (!idempotencyKeyValue) {
+    throw decisionError(
+      "ai_research_training_decision_idempotency_invalid",
+      "Не удалось создать безопасный ключ решения. Решение не отправлено.",
+    );
+  }
+  const intent = writeTrainingDecisionIntent(storage, {
+    version: DECISION_INTENT_VERSION,
+    scope,
+    request,
+    requestFingerprint,
+    idempotencyKey: idempotencyKeyValue,
+    createdAt: now,
+  });
+  return {
+    intent,
+    existed: false,
+    requestMatches: true,
+    requested: request,
+  };
+}
+
+function decisionArrayEquals(left, right) {
+  return Array.isArray(left)
+    && Array.isArray(right)
+    && left.length === right.length
+    && left.every((value, index) => value === right[index]);
+}
+
+function decisionRecommendationText(value) {
+  if (Array.isArray(value)) return decisionText(value.join("\n"));
+  return decisionText(value);
+}
+
+function selectionMatchesTrainingDecision(selectionValue, intent) {
+  const selection = object(selectionValue);
+  const request = intent.request;
+  if (
+    !decisionUuid(selection.selection_id)
+    || decisionUuid(selection.receipt_id) !== intent.scope.receiptId
+    || decisionUuid(selection.project_id) !== intent.scope.projectId
+    || decisionUuid(selection.selected_by) !== intent.scope.actorId
+    || clean(selection.receipt_hash, 80).toLowerCase()
+      !== request.receipt_hash
+    || normalizedCategory(selection.product_category)
+      !== request.product_category
+    || clean(selection.decision, 20).toLowerCase() !== request.decision
+    || !decisionArrayEquals(
+      normalizedDecisionList(
+        selection.selected_insight_keys,
+        DECISION_INSIGHT_KEYS,
+      ),
+      request.selected_insight_keys,
+    )
+    || !decisionArrayEquals(
+      normalizedDecisionPositions(selection.selected_scenario_positions),
+      request.selected_scenario_positions,
+    )
+    || decisionText(selection.operator_notes) !== request.operator_notes
+  ) return false;
+  if (request.decision !== "approve") return true;
+  const recommendations = Array.isArray(selection.recommendations)
+    ? selection.recommendations
+    : [];
+  return request.edits.every((edit) => {
+    const recommendation = recommendations.find((candidate) => (
+      Number(candidate?.position) === edit.position
+    ));
+    if (!recommendation) return false;
+    return DECISION_EDIT_FIELDS.every((fieldName) => {
+      const expected = decisionText(edit[fieldName]);
+      if (!expected) return true;
+      return decisionRecommendationText(recommendation[fieldName]) === expected;
+    });
+  });
+}
+
+function trainingDecisionSnapshot(value) {
+  const source = unwrap(value);
+  const nested = object(source.snapshot);
+  return Object.keys(nested).length ? unwrap(nested) : source;
+}
+
+export function classifyTrainingDecisionSnapshot(
+  value,
+  intentValue,
+  receiptScope = "project",
+) {
+  const intent = object(intentValue);
+  const scope = normalizeTrainingDecisionScope(intent.scope);
+  if (!scope || !intent.request) return { state: "invalid", snapshot: null };
+  const snapshot = trainingDecisionSnapshot(value);
+  if (decisionUuid(snapshot.organization_id) !== scope.organizationId) {
+    return { state: "invalid", snapshot: null };
+  }
+  const scoped = projectScopedTrainingSnapshot(
+    snapshot,
+    scope.projectId,
+    receiptScope,
+  );
+  if (
+    !scoped
+    || normalizedCategory(scoped.product_category)
+      !== intent.request.product_category
+  ) return { state: "invalid", snapshot: null };
+  const learned = (Array.isArray(scoped.learned) ? scoped.learned : [])
+    .filter((selection) => (
+      decisionUuid(selection?.receipt_id) === scope.receiptId
+    ));
+  const matched = learned.find((selection) => (
+    selectionMatchesTrainingDecision(selection, intent)
+  ));
+  if (matched) return { state: "matched", snapshot: scoped, selection: matched };
+  if (learned.length) {
+    return { state: "conflict", snapshot: scoped, selection: learned[0] };
+  }
+  const queue = (Array.isArray(scoped.queue) ? scoped.queue : [])
+    .filter((receipt) => (
+      decisionUuid(receipt?.receipt_id) === scope.receiptId
+      && clean(receipt?.receipt_hash, 80).toLowerCase()
+        === intent.request.receipt_hash
+    ));
+  if (queue.length) return { state: "pending", snapshot: scoped };
+  return { state: "unavailable", snapshot: scoped };
+}
+
+function trainingDecisionServerCode(error) {
+  const candidates = [
+    error?.serverCode,
+    error?.server_code,
+    error?.details?.serverCode,
+    error?.details?.server_code,
+    error?.details?.message,
+    error?.code,
+    error?.message,
+  ];
+  return candidates
+    .map((value) => String(value || "").trim().toLowerCase())
+    .find((value) => /^[a-z][a-z0-9_]{2,95}$/u.test(value)) || "";
+}
+
+function terminalTrainingDecisionError(error) {
+  const code = trainingDecisionServerCode(error);
+  if (new Set([
+    "ai_research_training_decision_response_ambiguous",
+    "ai_research_training_decision_unconfirmed",
+    "ai_research_training_decision_reconcile_unavailable",
+    "ai_research_training_decision_reconcile_invalid",
+  ]).has(code)) return false;
+  return code.startsWith("ai_research_training_")
+    || new Set([
+      "authentication_required",
+      "auth_session_required",
+      "auth_session_actor_changed",
+      "auth_session_actor_invalid",
+      "auth_session_context_changed",
+      "membership_required",
+      "project_not_found",
+      "rpc_transport_config_invalid",
+      "role_not_allowed",
+    ]).has(code);
+}
+
+async function reconcileTrainingDecision({
+  storage,
+  intent,
+  reload,
+  receiptScope,
+  originalError = null,
+}) {
+  let snapshotResponse;
+  try {
+    snapshotResponse = await reload();
+  } catch (cause) {
+    if (
+      originalError
+      && terminalTrainingDecisionError(originalError)
+      && trainingDecisionServerCode(originalError)
+        !== "ai_research_training_already_decided"
+    ) {
+      clearTrainingDecisionIntent(storage, intent.scope);
+      throw originalError;
+    }
+    throw decisionError(
+      "ai_research_training_decision_reconcile_unavailable",
+      "Итог решения пока нельзя подтвердить по точному чеку. Новый запрос не отправлен; повторите тот же выбор после восстановления связи.",
+      originalError || cause,
+    );
+  }
+  const resolution = classifyTrainingDecisionSnapshot(
+    snapshotResponse,
+    intent,
+    receiptScope,
+  );
+  if (
+    resolution.state === "invalid"
+    && originalError
+    && terminalTrainingDecisionError(originalError)
+    && trainingDecisionServerCode(originalError)
+      !== "ai_research_training_already_decided"
+  ) {
+    clearTrainingDecisionIntent(storage, intent.scope);
+    throw originalError;
+  }
+  if (resolution.state === "matched") {
+    clearTrainingDecisionIntent(storage, intent.scope);
+    return {
+      status: "success",
+      recovered: true,
+      snapshot: resolution.snapshot,
+      selection: resolution.selection,
+      intent,
+    };
+  }
+  if (resolution.state === "conflict") {
+    clearTrainingDecisionIntent(storage, intent.scope);
+    const error = decisionError(
+      "ai_research_training_decision_conflict",
+      "По этому чеку уже сохранено другое неизменяемое решение. Показан авторитетный серверный результат; новое решение не создавалось.",
+      originalError,
+    );
+    error.snapshot = resolution.snapshot;
+    throw error;
+  }
+  if (resolution.state === "unavailable") {
+    clearTrainingDecisionIntent(storage, intent.scope);
+    const error = decisionError(
+      "ai_research_training_receipt_unavailable",
+      "Точный чек больше не доступен в очереди или истории. Новое решение не создавалось.",
+      originalError,
+    );
+    error.snapshot = resolution.snapshot;
+    throw error;
+  }
+  if (resolution.state === "pending" && originalError) {
+    if (
+      terminalTrainingDecisionError(originalError)
+      && trainingDecisionServerCode(originalError)
+        !== "ai_research_training_already_decided"
+    ) {
+      clearTrainingDecisionIntent(storage, intent.scope);
+      throw originalError;
+    }
+    throw decisionError(
+      "ai_research_training_decision_unconfirmed",
+      "Сервер пока не подтвердил фиксацию решения. Ключ безопасного повтора сохранён; повторите тот же выбор — новый логический запрос создан не будет.",
+      originalError,
+    );
+  }
+  if (resolution.state === "pending") return resolution;
+  throw decisionError(
+    "ai_research_training_decision_reconcile_invalid",
+    "Сервер вернул ответ не из текущего контура пользователя, команды, проекта и чека. Решение повторно не отправлено.",
+    originalError,
+  );
+}
+
+export async function performTrainingDecisionMutation({
+  storage,
+  scope,
+  request,
+  send,
+  reload,
+  receiptScope = "project",
+  createIdempotencyKey,
+  now = Date.now(),
+} = {}) {
+  if (typeof send !== "function" || typeof reload !== "function") {
+    throw decisionError(
+      "ai_research_training_decision_transport_invalid",
+      "Сервис решения или точной сверки недоступен. Решение не отправлено.",
+    );
+  }
+  let acquired = acquireTrainingDecisionIntent({
+    storage,
+    scope,
+    request,
+    createIdempotencyKey,
+    now,
+  });
+  if (acquired.existed) {
+    const beforeRetry = await reconcileTrainingDecision({
+      storage,
+      intent: acquired.intent,
+      reload,
+      receiptScope,
+    });
+    if (beforeRetry.state !== "pending") return beforeRetry;
+    if (!acquired.requestMatches) {
+      clearTrainingDecisionIntent(storage, acquired.intent.scope);
+      acquired = acquireTrainingDecisionIntent({
+        storage,
+        scope,
+        request: acquired.requested,
+        createIdempotencyKey,
+        now,
+      });
+    }
+  }
+
+  const intent = acquired.intent;
+  let response;
+  try {
+    response = await send({
+      ...intent.request,
+      idempotency_key: intent.idempotencyKey,
+    });
+  } catch (error) {
+    return reconcileTrainingDecision({
+      storage,
+      intent,
+      reload,
+      receiptScope,
+      originalError: error,
+    });
+  }
+
+  const direct = classifyTrainingDecisionSnapshot(
+    response,
+    intent,
+    receiptScope,
+  );
+  if (direct.state === "matched") {
+    clearTrainingDecisionIntent(storage, intent.scope);
+    return {
+      status: "success",
+      recovered: false,
+      snapshot: direct.snapshot,
+      selection: direct.selection,
+      intent,
+    };
+  }
+  if (direct.state === "conflict") {
+    clearTrainingDecisionIntent(storage, intent.scope);
+    const error = decisionError(
+      "ai_research_training_decision_conflict",
+      "Сервер подтвердил другое неизменяемое решение по этому чеку. Новое решение не создавалось.",
+    );
+    error.snapshot = direct.snapshot;
+    throw error;
+  }
+  return reconcileTrainingDecision({
+    storage,
+    intent,
+    reload,
+    receiptScope,
+    originalError: decisionError(
+      "ai_research_training_decision_response_ambiguous",
+      "Ответ фиксации потерян или неполон.",
+    ),
+  });
+}
+
+async function authenticatedTrainingDecisionScope(api, projectId, receiptId) {
+  const getSession = api?.supabase?.auth?.getSession;
+  if (typeof getSession !== "function") {
+    throw decisionError(
+      "auth_session_required",
+      "Не удалось подтвердить текущего пользователя. Решение не отправлено.",
+    );
+  }
+  const { data, error } = await getSession.call(api.supabase.auth);
+  const actorId = decisionUuid(data?.session?.user?.id);
+  const organizationId = decisionUuid(api?.organizationId);
+  if (error || !actorId || !organizationId) {
+    throw decisionError(
+      "auth_session_required",
+      "Сессия пользователя или команда не подтверждены. Войдите снова перед решением.",
+      error,
+    );
+  }
+  const sharedContext = window.ContentEngineWorkspaceRuntime
+    ?.getExactYoutubeHandoffContext?.() || {};
+  const contextActorId = decisionUuid(sharedContext.user_id);
+  const contextOrganizationId = decisionUuid(sharedContext.organization_id);
+  const contextProjectId = decisionUuid(sharedContext.project_id);
+  if (
+    (contextActorId && contextActorId !== actorId)
+    || (
+      contextOrganizationId
+      && contextOrganizationId !== organizationId
+    )
+    || (contextProjectId && contextProjectId !== projectId)
+  ) {
+    throw decisionError(
+      "ai_research_training_decision_scope_changed",
+      "Пользователь, команда или проект изменились перед отправкой. Решение не отправлено.",
+    );
+  }
+  const scope = normalizeTrainingDecisionScope({
+    actorId,
+    organizationId,
+    projectId,
+    receiptId,
+  });
+  if (!scope) {
+    throw decisionError(
+      "ai_research_training_decision_scope_invalid",
+      "Не удалось подтвердить точный контур решения. Решение не отправлено.",
+    );
+  }
+  return scope;
+}
+
+function trainingDecisionStorage() {
+  try {
+    return window.sessionStorage;
+  } catch (cause) {
+    throw decisionError(
+      "ai_research_training_decision_storage_unavailable",
+      "Хранилище безопасного повтора недоступно. Решение не отправлено.",
+      cause,
+    );
+  }
 }
 
 function setStatus(root, message, tone = "neutral") {
@@ -1667,11 +2384,12 @@ async function decide(card, decision) {
   );
   try {
     const api = await getApi();
-    const response = await api.call(
-      RPC_DECIDE,
-      payloadWithOrganization(api, projectScopedTrainingPayload({
+    const receiptId = decisionUuid(card.dataset.receiptId);
+    const request = payloadWithOrganization(
+      api,
+      projectScopedTrainingPayload({
         product_category: category,
-        receipt_id: card.dataset.receiptId,
+        receipt_id: receiptId,
         receipt_hash: card.dataset.receiptHash,
         decision,
         selected_insight_keys: insights,
@@ -1679,9 +2397,48 @@ async function decide(card, decision) {
         edits: decision === "approve" ? scenarioEdits(card, positions) : [],
         ...(notes ? { operator_notes: notes } : {}),
         confirmation: true,
-        idempotency_key: idempotencyKey("research-training"),
-      }, projectId)),
+      }, projectId),
     );
+    const scope = await authenticatedTrainingDecisionScope(
+      api,
+      projectId,
+      receiptId,
+    );
+    const decisionScopeIsCurrent = () => Boolean(
+      routePath() === ROUTE
+      && runtime.root === mutationRoot
+      && mutationRoot.isConnected
+      && runtime.category === category
+      && runtime.projectId === projectId
+      && currentTrainingProjectId() === projectId
+      && decisionUuid(api.organizationId) === scope.organizationId
+    );
+    const callWithinDecisionScope = (rpcName, payload) => {
+      if (!decisionScopeIsCurrent()) {
+        throw decisionError(
+          "ai_research_training_decision_scope_changed",
+          "Пользователь, команда, проект или открытый чек изменились. Решение не отправлено; откройте чек заново.",
+        );
+      }
+      return api.callAsExpectedActor(rpcName, payload, scope.actorId, {
+        isContextCurrent: decisionScopeIsCurrent,
+      });
+    };
+    const result = await performTrainingDecisionMutation({
+      storage: trainingDecisionStorage(),
+      scope,
+      request,
+      receiptScope: shellAccess.receiptScope,
+      send: (payload) => callWithinDecisionScope(RPC_DECIDE, payload),
+      reload: () => callWithinDecisionScope(
+        RPC_QUEUE,
+        payloadWithOrganization(api, projectScopedTrainingPayload({
+          product_category: request.product_category,
+          receipt_id: receiptId,
+          limit: 30,
+        }, projectId)),
+      ),
+    });
     if (
       routePath() !== ROUTE
       || runtime.root !== mutationRoot
@@ -1689,12 +2446,13 @@ async function decide(card, decision) {
       || runtime.projectId !== projectId
       || currentTrainingProjectId() !== projectId
     ) return;
-    if (!renderSnapshot(mutationRoot, unwrap(response).snapshot || response, projectId)) {
+    if (!renderSnapshot(mutationRoot, result.snapshot, projectId)) {
       throw new Error("ai_research_training_project_scope_mismatch");
     }
+    const savedDecision = result.intent.request.decision;
     setStatus(
       runtime.root,
-      decision === "approve"
+      savedDecision === "approve"
         ? "Готово: выбранные выводы стали редактируемыми рекомендациями для создания."
         : "Исследование исключено из обучения.",
       "ready",
@@ -1705,6 +2463,9 @@ async function decide(card, decision) {
       || runtime.projectId !== projectId
       || currentTrainingProjectId() !== projectId
     ) return;
+    if (error?.snapshot) {
+      renderSnapshot(mutationRoot, error.snapshot, projectId);
+    }
     console.warn("Research training decision failed", error);
     setStatus(
       runtime.root,

@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="ru" data-portal-theme="obsidian">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ContentEngine generation model picker v1</title>
+    <link rel="stylesheet" href="../../web/app/styles.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-generation-guided.css" />
+    <style>
+      html, body { margin: 0; min-width: 0; background: #0e0c0a; }
+      body { padding: 12px; }
+      .generation-launch-card { width: 100%; min-width: 0; padding: 0; }
+      body:not([data-fixture-generation-models-ready="true"]) #mock-batch-form { visibility: hidden; }
+      #fixture-loading { margin: 24px; color: #d7c8ba; font: 600 14px/1.4 system-ui, sans-serif; }
+      body[data-fixture-generation-models-ready="true"] #fixture-loading { display: none; }
+    </style>
+  </head>
+  <body>
+    <p id="fixture-loading" role="status">Готовим стабильное состояние интерфейса…</p>
+    <section class="generation-launch-card">
+      <form id="mock-batch-form" novalidate>
+        <p id="generation-draft-status">Черновик</p>
+        <label class="field" data-original-mode-field>
+          <span>Режим генерации</span>
+          <select name="generation_mode" required>
+            <option value="mock">Dry-run</option>
+            <option value="real_photo">Фото</option>
+            <option value="real_seedance">UGC-видео</option>
+            <option value="real_gen4" selected>Анимация товара</option>
+          </select>
+        </label>
+        <label class="field" id="generation-duration-field">
+          <span>Длительность</span>
+          <select name="duration_seconds">
+            <option value="5">5 секунд</option>
+            <option value="8" selected>8 секунд</option>
+            <option value="10">10 секунд</option>
+          </select>
+        </label>
+        <label class="field" id="generation-format-field">
+          <span>Соотношение сторон</span>
+          <select name="format">
+            <option value="9:16" selected>9:16</option>
+            <option value="16:9">16:9</option>
+          </select>
+        </label>
+        <label class="field" id="generation-campaign-field">
+          <span>Кампания</span>
+          <select name="campaign_id"><option value="campaign-1">Кампания · $25</option></select>
+        </label>
+        <div id="real-generation-confirmation">
+          <div class="inline-actions">
+            <button type="button" data-action="check-runway-readiness" hidden tabindex="-1" aria-hidden="true">Проверить доступность и стоимость</button>
+            <small id="runway-readiness-status" role="status"></small>
+          </div>
+          <label><input name="real_spend_confirmation" type="checkbox" /> Подтверждаю оплату</label>
+        </div>
+        <label><span>Артикул</span><input name="sku" value="BOMBBAR-001" /></label>
+        <label><span>Название</span><input name="product_name" value="Bombbar" /></label>
+        <label><span>Категория</span><select name="product_category"><option value="food">Еда</option></select></label>
+        <label><span>Площадка</span><select name="platform"><option>TikTok</option></select></label>
+        <label><span>Карточка</span><input name="destination_ref" value="Bombbar" /></label>
+        <label><span>Замысел</span><textarea name="brief">Показать товар крупным планом</textarea></label>
+        <fieldset><legend>Исходники</legend><label><input name="media_id" type="checkbox" value="photo-1" checked /> Фото товара</label></fieldset>
+        <button id="generation-submit" type="submit">Создать</button>
+      </form>
+    </section>
+    <output id="fixture-result" hidden></output>
+    <script>
+      location.hash = "#/workspace/generation";
+      window.__generationFixture = { apiCalls: 0, submitCalls: 0, mount: null, errors: [] };
+      window.addEventListener("error", (event) => {
+        window.__generationFixture.errors.push(String(event.error?.stack || event.message || "error"));
+      });
+      window.addEventListener("unhandledrejection", (event) => {
+        window.__generationFixture.errors.push(String(event.reason?.stack || event.reason || "rejection"));
+      });
+      window.ContentEngineDesktopV4 = {
+        route: () => "/workspace/generation",
+        registerAdapter(_name, mount) { window.__generationFixture.mount = mount; },
+      };
+      document.querySelector("#mock-batch-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        window.__generationFixture.submitCalls += 1;
+      });
+      window.__generationFixture.originalMode = document.querySelector('[name="generation_mode"]');
+    </script>
+    <script type="module">
+      const catalogModule = await import("../../supabase/functions/_shared/generation-model-catalog.js");
+      const rawCatalog = catalogModule.publicGenerationModelCatalog();
+      const launchable = new Set([
+        "runway:seedream5_lite",
+        "runway:gen4_turbo",
+        "runway:seedance2_fast",
+        "runway:gen4.5",
+        "runway:seedance2_mini",
+        "runway:veo3.1_fast",
+        "runway:gemini_omni_flash",
+      ]);
+      const defaults = {
+        "runway:seedream5_lite": { inputMode: "image", durationSeconds: 0, format: "1:1", resolution: "2K", audio: false, lastFrame: false },
+        "runway:gen4_turbo": { inputMode: "image", durationSeconds: 5, format: "9:16", resolution: "720p", audio: false, lastFrame: false },
+        "runway:seedance2_fast": { inputMode: "image", durationSeconds: 8, format: "9:16", resolution: "720p", audio: true, lastFrame: false },
+        "runway:gen4.5": { inputMode: "image", durationSeconds: 5, format: "9:16", resolution: "720p", audio: false, lastFrame: false },
+        "runway:seedance2_mini": { inputMode: "image", durationSeconds: 4, format: "9:16", resolution: "720p", audio: true, lastFrame: false },
+        "runway:veo3.1_fast": { inputMode: "image", durationSeconds: 8, format: "9:16", resolution: "720p", audio: true, lastFrame: false },
+        "runway:gemini_omni_flash": { inputMode: "image", durationSeconds: 5, format: "9:16", resolution: "720p", audio: true, lastFrame: false },
+        "google:veo-3.1-lite-generate-preview": { inputMode: "image", durationSeconds: 8, format: "9:16", resolution: "720p", audio: true, lastFrame: false },
+      };
+      const catalog = {
+        ...rawCatalog,
+        models: rawCatalog.models.map((model) => {
+          const key = `${model.provider}:${model.model}`;
+          const executionSupported = launchable.has(key) || key === "google:veo-3.1-lite-generate-preview";
+          const referenceBundle = [
+            "runway:seedream5_lite",
+            "runway:seedance2_fast",
+            "runway:seedance2_mini",
+          ].includes(key);
+          const exactImageCapability = executionSupported ? {
+            ...(model.inputCapabilities?.image || {}),
+            ...(key === "runway:seedream5_lite"
+              ? { allowedRatios: ["1:1"], allowedResolutions: ["2K"] }
+              : {}),
+            maxReferenceImages: referenceBundle ? 5 : 0,
+            supportsReferenceVideo: false,
+            supportsFirstFrame: !referenceBundle,
+            supportsLastFrame: ["runway:veo3.1_fast", "google:veo-3.1-lite-generate-preview"].includes(key),
+          } : null;
+          return {
+            ...model,
+            ...(executionSupported ? {
+              inputModes: ["image"],
+              inputCapabilities: { image: exactImageCapability },
+              allowedRatios: exactImageCapability.allowedRatios,
+              allowedResolutions: exactImageCapability.allowedResolutions,
+              supportsReferenceImages: referenceBundle,
+              maxReferenceImages: exactImageCapability.maxReferenceImages,
+              supportsReferenceVideo: false,
+              supportsFirstFrame: exactImageCapability.supportsFirstFrame,
+              supportsLastFrame: exactImageCapability.supportsLastFrame,
+            } : {}),
+            ...(key === "runway:gemini_omni_flash" ? {
+              bestFor: ["быстрый ролик со звуком из одного исходного кадра", "короткий UGC-черновик с речью"],
+              avoidFor: ["вариация готового видео в текущем маршруте", "1080p, 4K или точный последний кадр"],
+            } : {}),
+            executionSupported,
+            launchEnabled: launchable.has(key),
+            disabledReasonCode: key === "google:veo-3.1-lite-generate-preview"
+              ? "direct_google_disabled"
+              : ["runway:veo3.1", "runway:seedance2"].includes(key)
+                ? "premium_model_launch_unsupported"
+                : null,
+            selectionDefaults: defaults[key] || { inputMode: "image", durationSeconds: model.allowedDurations[0], format: model.allowedRatios[0], resolution: model.allowedResolutions[0], audio: false, lastFrame: false },
+            audioModes: key === "runway:veo3.1_fast" ? [false, true] : [defaults[key]?.audio === true],
+            lastFrameSupported: ["runway:veo3.1_fast", "google:veo-3.1-lite-generate-preview"].includes(key),
+          };
+        }),
+      };
+      window.ContentEngineWorkspaceRuntime = {
+        setGenerationModelCatalog: () => true,
+        getGenerationModelAcceptance: () => ({ normalized: { models: [] } }),
+        getGenerationProviderReadiness: () => null,
+        getApi: () => ({
+          generationModelCatalog: async () => {
+            window.__generationFixture.apiCalls += 1;
+            await new Promise((resolve) => setTimeout(resolve, 30));
+            return { ok: true, catalog };
+          },
+        }),
+      };
+      await import("../../web/app/workspace-os-v4-generation-guided.js");
+      window.__generationFixture.mount();
+      const form = document.querySelector("#mock-batch-form");
+      form.elements.real_spend_confirmation.checked = true;
+      form.dispatchEvent(new CustomEvent("contentengine:generation-repeat-settings", {
+        detail: {
+          provider: "runway",
+          model: "gen4_turbo",
+          durationSeconds: 8,
+          ratio: "16:9",
+          resolution: "720p",
+          audio: false,
+          inputMode: "image",
+        },
+      }));
+      const pendingRepeatPaymentUnchecked = form.elements.real_spend_confirmation.checked === false;
+      await new Promise((resolve) => setTimeout(resolve, 90));
+      const settle = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const selectedBefore = form.querySelector('[name="generation_model"]:checked')?.value || "";
+      const pendingRepeatSummary = form.querySelector("[data-ce-v4-model-selection-summary-body]")?.textContent || "";
+      form.querySelector('[data-ce-v4-model-filter="all"]')?.click();
+      await settle();
+      const seedance = form.querySelector('[name="generation_model"][value="runway:seedance2_fast"]');
+      seedance?.click();
+      const selectedAfterManual = form.querySelector('[name="generation_model"]:checked')?.value || "";
+      const legacyModeAfterManual = form.elements.generation_mode.value;
+      form.elements.duration_seconds.value = "10";
+      form.elements.duration_seconds.dispatchEvent(new Event("change", { bubbles: true }));
+      await settle();
+      const selectedAfterContextChange = form.querySelector('[name="generation_model"]:checked')?.value || "";
+      const recommendationModelBeforeApply = form.querySelector('.ce-v4-model-card[data-recommended="true"]')?.dataset.model || "";
+      const comparisonBeforeApply = Boolean(form.querySelector("[data-ce-v4-model-comparison]"));
+      const whyRecommendationAvailable = Boolean(form.querySelector(".ce-v4-model-recommendation__why > summary"));
+      form.elements.real_spend_confirmation.checked = true;
+      form.querySelector("[data-ce-v4-apply-model-recommendation]")?.click();
+      await settle();
+      const appliedRecommendationSelection = form.querySelector('[name="generation_model"]:checked')?.value || "";
+      const appliedRecommendationMode = form.elements.generation_mode.value;
+      const appliedRecommendationPaymentUnchecked = form.elements.real_spend_confirmation.checked === false;
+
+      form.querySelector('[name="generation_model"][value="runway:seedance2_fast"]')?.click();
+      await settle();
+      form.elements.real_spend_confirmation.checked = true;
+      form.dispatchEvent(new CustomEvent("contentengine:generation-repeat-settings", {
+        detail: {
+          provider: "runway",
+          model: "gen4.5",
+          durationSeconds: 8,
+          ratio: "9:16",
+          resolution: "720p",
+          audio: false,
+          inputMode: "image",
+        },
+      }));
+      await settle();
+      const repeatSelection = form.querySelector('[name="generation_model"]:checked')?.value || "";
+      const repeatMode = form.elements.generation_mode.value;
+      const repeatBlocked = form.dataset.ceV4ModelSelectionBlocked === "true";
+      const repeatModeValidation = form.elements.generation_mode.validationMessage;
+      const repeatSummary = form.querySelector("[data-ce-v4-model-selection-summary-body]")?.textContent || "";
+      const repeatPaymentUnchecked = form.elements.real_spend_confirmation.checked === false;
+      const repeatResolution = form.elements.generation_resolution.value;
+      const repeatAudio = form.elements.generation_audio.value;
+      form.querySelector('[name="generation_model"][value="runway:gen4_turbo"]')?.click();
+      await settle();
+      const recoveredSelection = form.querySelector('[name="generation_model"]:checked')?.value || "";
+      const recoveredModeValidation = form.elements.generation_mode.validationMessage;
+
+      form.elements.real_spend_confirmation.checked = true;
+      form.dispatchEvent(new CustomEvent("contentengine:generation-repeat-settings", {
+        detail: {
+          provider: "runway",
+          model: "seedance2_fast",
+          durationSeconds: 8,
+          ratio: "9:16",
+          resolution: "720p",
+          audio: true,
+          inputMode: "image",
+        },
+      }));
+      await settle();
+      const supportedRepeatSelection = form.querySelector('[name="generation_model"]:checked')?.value || "";
+      const supportedRepeatMode = form.elements.generation_mode.value;
+      const supportedRepeatSummary = form.querySelector("[data-ce-v4-model-selection-summary-body]")?.textContent || "";
+      const supportedRepeatPaymentUnchecked = form.elements.real_spend_confirmation.checked === false;
+      const supportedRepeatModeValidation = form.elements.generation_mode.validationMessage;
+
+      form.querySelector('[data-ce-v4-model-filter="all"]')?.click();
+      await settle();
+      form.querySelector('[name="generation_model"][value="runway:veo3.1_fast"]')?.click();
+      await settle();
+      form.elements.generation_audio.value = "false";
+      form.elements.generation_audio.dispatchEvent(new Event("change", { bubbles: true }));
+      await settle();
+      const veoSilentProxyMode = form.elements.generation_mode.value;
+      const veoExactProvider = form.elements.generation_provider.value;
+      const veoExactModel = form.elements.generation_model_id.value;
+      const exactSettingsInsideOwnerForm = form.elements.generation_resolution?.form === form
+        && form.elements.generation_audio?.form === form
+        && form.elements.generation_last_frame?.form === form;
+      const ratioStillSubmitted = !form.elements.format.disabled;
+      const exactAudioStillSubmitted = !form.elements.generation_audio.disabled;
+      const capabilityStatus = form.querySelector("[data-ce-v4-model-capability-status]")?.textContent || "";
+
+      form.querySelector('[data-ce-v4-model-filter="premium"]')?.click();
+      const emptyPremiumFilterExplained = /пока нет моделей/u.test(
+        form.querySelector(".ce-v4-model-advisor__empty-filter")?.textContent || "",
+      );
+      form.querySelector('[data-ce-v4-model-filter="experimental"]')?.click();
+      const experimentalFilterPressed = form.querySelector('[data-ce-v4-model-filter="experimental"]')?.getAttribute("aria-pressed") === "true";
+      const experimentalCardsShown = form.querySelectorAll('[data-model-group="experimental"] .ce-v4-model-card').length;
+      form.querySelector('[data-ce-v4-model-filter="all"]')?.click();
+      window.__generationFixture.mount();
+      await settle();
+      const cards = [...form.querySelectorAll(".ce-v4-model-card")];
+      const geminiCard = cards.find((card) => card.dataset.model === "gemini_omni_flash");
+      const seedreamCard = cards.find((card) => card.dataset.model === "seedream5_lite");
+      const googleCard = cards.find((card) => card.dataset.provider === "google");
+      const premiumCard = cards.find((card) => card.dataset.disabledReasonCode === "premium_model_launch_unsupported");
+      const nativeRadioCount = form.querySelectorAll('input[type="radio"][name="generation_model"]').length;
+      form.querySelector('[data-ce-v4-model-filter="relevant"]')?.click();
+      await settle();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      const defaultVisibleModelCount = form.querySelectorAll(".ce-v4-model-card").length;
+      const defaultFilterPressed = form.querySelector('[data-ce-v4-model-filter="relevant"]')?.getAttribute("aria-pressed") === "true";
+      const mobileInteractiveTargets = [...form.querySelectorAll([
+        ".ce-v4-model-advisor__filter",
+        ".ce-v4-model-recommendation__actions > button",
+        ".ce-v4-model-recommendation__why summary",
+        ".ce-v4-model-comparison summary",
+        ".ce-v4-model-card__technical > summary",
+      ].join(","))].map((control) => control.getBoundingClientRect().height);
+      const freePreflightControl = form.querySelector('[data-action="check-runway-readiness"]');
+      const submit = form.querySelector("#generation-submit");
+      submit.dataset.launchPhase = "preflight";
+      window.__generationFixture.mount();
+      await settle();
+      const preflightPhaseCopy = form.querySelector("[data-ce-v4-generation-launch-status]")?.textContent || "";
+      submit.dataset.launchPhase = "paid";
+      window.__generationFixture.mount();
+      await settle();
+      const paidPhaseCopy = form.querySelector("[data-ce-v4-generation-launch-status]")?.textContent || "";
+      for (let stepIndex = 0; stepIndex < 5; stepIndex += 1) {
+        form.querySelector("[data-ce-v4-generation-next]")?.click();
+        await settle();
+      }
+      const finalPreflightControl = form.querySelector('[data-action="check-runway-readiness"]');
+      const finalSubmitControl = form.querySelector("#generation-submit");
+      const finalStepActive = form.getAttribute("data-ce-v4-generation-step") === "launch";
+      const finalPreflightActuallyVisible = Boolean(
+        finalPreflightControl
+        && finalPreflightControl.getClientRects().length > 0
+        && finalPreflightControl.getBoundingClientRect().height >= 44
+      );
+      const finalSubmitActuallyVisible = Boolean(
+        finalSubmitControl
+        && finalSubmitControl.getClientRects().length > 0
+        && finalSubmitControl.getBoundingClientRect().height >= 44
+      );
+      for (let stepIndex = 0; stepIndex < 5; stepIndex += 1) {
+        form.querySelector("[data-ce-v4-generation-back]")?.click();
+        await settle();
+      }
+      const result = document.querySelector("#fixture-result");
+      result.dataset.ready = "true";
+      result.textContent = JSON.stringify({
+        modelCount: cards.length,
+        executableCount: cards.filter((card) => card.dataset.available === "true").length,
+        advisorCount: form.querySelectorAll("[data-ce-v4-model-advisor]").length,
+        formCount: document.querySelectorAll("#mock-batch-form").length,
+        originalModePreserved: form.elements.generation_mode === window.__generationFixture.originalMode,
+        pendingRepeatPaymentUnchecked,
+        pendingRepeatSummary,
+        selectedBefore,
+        selectedAfterManual,
+        selectedAfterContextChange,
+        legacyModeAfterManual,
+        recommendationModelBeforeApply,
+        comparisonBeforeApply,
+        whyRecommendationAvailable,
+        appliedRecommendationSelection,
+        appliedRecommendationMode,
+        appliedRecommendationPaymentUnchecked,
+        repeatSelection,
+        repeatMode,
+        repeatBlocked,
+        repeatModeValidation,
+        repeatSummary,
+        repeatPaymentUnchecked,
+        repeatResolution,
+        repeatAudio,
+        recoveredSelection,
+        recoveredModeValidation,
+        supportedRepeatSelection,
+        supportedRepeatMode,
+        supportedRepeatSummary,
+        supportedRepeatPaymentUnchecked,
+        supportedRepeatModeValidation,
+        veoSilentProxyMode,
+        veoExactProvider,
+        veoExactModel,
+        exactSettingsInsideOwnerForm,
+        ratioStillSubmitted,
+        exactAudioStillSubmitted,
+        capabilityStatus,
+        emptyPremiumFilterExplained,
+        experimentalFilterPressed,
+        experimentalCardsShown,
+        manualCopy: form.querySelector("[data-ce-v4-model-advisor-status]")?.textContent || "",
+        recommendationCopy: form.querySelector("[data-ce-v4-model-recommendation]")?.textContent || "",
+        newModelVisible: cards.some((card) => card.dataset.model === "gen4.5"),
+        newModelDisabled: Boolean(cards.find((card) => card.dataset.model === "gen4.5")?.querySelector('input[name="generation_model"]')?.disabled),
+        geminiExecutableFit: geminiCard?.querySelector(".ce-v4-model-card__fact")?.textContent || "",
+        seedreamExecutableOutput: seedreamCard?.querySelectorAll(".ce-v4-model-card__fact")?.[3]?.textContent || "",
+        providerCount: new Set(cards.map((card) => card.dataset.provider)).size,
+        defaultVisibleModelCount,
+        defaultFilterPressed,
+        mobileInteractiveTargetCount: mobileInteractiveTargets.length,
+        mobileInteractiveTargetMinHeight: Math.min(...mobileInteractiveTargets),
+        freePreflightVisible: Boolean(
+          freePreflightControl
+          && !freePreflightControl.hidden
+          && freePreflightControl.getAttribute("aria-hidden") === "false"
+          && freePreflightControl.tabIndex >= 0
+        ),
+        preflightPhaseCopy,
+        paidPhaseCopy,
+        googleDisabledReasonCopy: googleCard?.querySelector(".ce-v4-model-card__explanation")?.textContent || "",
+        premiumDisabledReasonCopy: premiumCard?.querySelector(".ce-v4-model-card__explanation")?.textContent || "",
+        finalStepActive,
+        finalPreflightActuallyVisible,
+        finalSubmitActuallyVisible,
+        contentKindChoiceCount: form.querySelectorAll("[data-ce-v4-content-kind]").length,
+        numberedHeadingCount: form.querySelectorAll(".ce-v4-model-section-heading").length,
+        filterCount: form.querySelectorAll("[data-ce-v4-model-filter]").length,
+        selectionSummaryCount: form.querySelectorAll("[data-ce-v4-model-selection-summary]").length,
+        nativeRadioCount,
+        technicalDetailsCollapsed: cards.every((card) => !card.querySelector(".ce-v4-model-card__technical")?.open),
+        disabledCardsKeyboardReachable: cards.filter((card) => card.dataset.available === "false").every((card) => card.tabIndex === 0),
+        completeCardCopy: cards.every((card) => (
+          card.querySelectorAll(".ce-v4-model-card__fact").length >= 4
+          && Boolean(card.querySelector(".ce-v4-model-card__cost"))
+          && Boolean(card.querySelector(".ce-v4-model-card__readiness"))
+          && Boolean(card.querySelector(".ce-v4-model-card__quality"))
+        )),
+        paymentStillUnchecked: form.elements.real_spend_confirmation.checked === false,
+        apiCalls: window.__generationFixture.apiCalls,
+        submitCalls: window.__generationFixture.submitCalls,
+        browserErrors: [...window.__generationFixture.errors],
+        rootFits: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+        formFits: form.scrollWidth <= form.clientWidth,
+        advisorFits: form.querySelector("[data-ce-v4-model-advisor]").scrollWidth <= form.querySelector("[data-ce-v4-model-advisor]").clientWidth,
+      });
+      document.body.dataset.fixtureGenerationModelsReady = "true";
+    </script>
+  </body>
+</html>

@@ -3,12 +3,12 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260812.os4.38";
+} from "./supabase-api.js?v=20260813.os4.39";
 import {
   adminPeopleMarkup,
   normalizeAdminSnapshot,
   normalizeAdminView,
-} from "./admin-people-view.js?v=20260812.os4.38";
+} from "./admin-people-view.js?v=20260813.os4.39";
 import {
   clearExactYoutubeMediaHandoff,
   exactYoutubeRegisteredMediaId,
@@ -32,9 +32,13 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
-} from "./generation-spec.js?v=20260812.generation-spec-consent.1";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260812.os4.38";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260812.os4.38";
+} from "./generation-spec.js?v=20260813.os4.39";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260813.os4.39";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260813.os4.39";
+import {
+  normalizeWorkspaceInternalTarget,
+  resolveWorkspaceCommand,
+} from "./workspace-command-registry.js?v=20260813.os4.39";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -66,15 +70,15 @@ import {
   generationSpendSnapshotMarkup,
   managerGenerationSpendMarkup,
   normalizeGenerationSpendOverview,
-} from "./generation-spend-view.js?v=20260725.1";
+} from "./generation-spend-view.js?v=20260813.os4.39";
 import {
   generationProviderReadinessPreflights,
   normalizeGenerationProviderPreflight,
-} from "./generation-provider-readiness.js?v=20260728.2";
+} from "./generation-provider-readiness.js?v=20260813.os4.39";
 import {
   generationModelAcceptanceMarkup,
   normalizeGenerationModelAcceptance,
-} from "./generation-model-acceptance-view.js?v=20260728.1";
+} from "./generation-model-acceptance-view.js?v=20260813.os4.39";
 import {
   accessCenterMarkup,
   ensureAccessCenterStyles,
@@ -102,7 +106,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260812.os4.38.bad-context.1";
+} from "./product-research-view.js?v=20260813.os4.39";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -113,7 +117,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260812.os4.38.bad-context.1";
+} from "./ai-learning-control-room.js?v=20260813.os4.39";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -129,7 +133,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260812.os4.38";
+} from "./content-generation-handoff.js?v=20260813.os4.39";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -142,18 +146,18 @@ import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
   normalizeGenerationVideoReferenceContext,
-} from "./generation-video-reference.js?v=20260812.os4.38";
+} from "./generation-video-reference.js?v=20260813.os4.39";
 import {
   buildGenerationFormDraft,
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260812.os4.38";
+} from "./generation-form-draft.js?v=20260813.os4.39";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
   resolveGenerationExpectedProductMatch,
-} from "./generation-ai-research-working-draft.js?v=20260812.os4.38.bad-context.1";
+} from "./generation-ai-research-working-draft.js?v=20260813.os4.39";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -165,7 +169,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260812.os4.38.bad-context.1";
+} from "./generation-autopilot.js?v=20260813.os4.39";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -187,7 +191,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260812.os4.38";
+} from "./content-review-view.js?v=20260813.os4.39";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -209,7 +213,7 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260730.1";
+} from "./portal-experience.js?v=20260813.os4.39";
 import {
   isWorkspaceSmartFolderId,
   normalizeWorkspaceBoard,
@@ -217,7 +221,7 @@ import {
   workspaceBoardItemKey,
   workspaceBoardPaginationState,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260812.os4.38";
+} from "./workspace-board-view.js?v=20260813.os4.39";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -246,7 +250,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260812.os4.38";
+} from "./training-journey.js?v=20260813.os4.39";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -265,7 +269,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260812.os4.38";
+} from "./training-practical-review.js?v=20260813.os4.39";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -284,7 +288,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260812.os4.38";
+} from "./my-work-view.js?v=20260813.os4.39";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -528,6 +532,12 @@ const REAL_GEN4_MODE = "real_gen4";
 const REAL_SEEDANCE_MODE = "real_seedance";
 const REAL_PHOTO_MODE = "real_photo";
 const GENERATION_LEARNING_GATE_VERSION = "2026-07-29.v8";
+const GENERATION_READINESS_V4_RUNWAY_MODELS = new Set([
+  "gen4.5",
+  "seedance2_mini",
+  "veo3.1_fast",
+  "gemini_omni_flash",
+]);
 const REAL_GENERATION_SKUS = Object.freeze({
   [REAL_GEN4_MODE]: Object.freeze({
     contentKind: "video",
@@ -573,6 +583,25 @@ const REAL_GENERATION_SKUS = Object.freeze({
     label: "Фото товара · квадрат 2K · ≈ $0.04",
   }),
 });
+const GENERATION_SELECTION_SNAPSHOT_FIELDS = Object.freeze([
+  "provider",
+  "model",
+  "model_public_label",
+  "selection_source",
+  "recommendation_reason_codes",
+  "recommendation_warning_codes",
+  "recommendation_catalog_version",
+  "pricing_version",
+  "estimated_cost_minor",
+  "requested_duration_seconds",
+  "requested_ratio",
+  "requested_resolution",
+  "requested_audio",
+  "input_mode",
+  "reference_count",
+  "acceptance_status_at_launch",
+  "provider_readiness_receipt_id",
+]);
 const MEMBERSHIP_LOCK_COPY = Object.freeze({
   membership_suspended: Object.freeze({
     title: "Доступ приостановлен",
@@ -1049,6 +1078,17 @@ const COURSE_VISUAL_EXAMPLES = Object.freeze({
 });
 
 const FIRST_SHIFT_STORAGE_PREFIX = "contentengine.first-shift.v2";
+const NOTIFICATION_RUNTIME_REQUEST_EVENT =
+  "contentengine:notification-center-request-v491";
+const NOTIFICATION_RUNTIME_RESPONSE_EVENT =
+  "contentengine:notification-center-response-v491";
+const NOTIFICATION_RUNTIME_VERSION = "4.9.1";
+const NOTIFICATION_RUNTIME_FILTERS = Object.freeze([
+  "all", "unread", "action_required",
+]);
+const NOTIFICATION_RUNTIME_ACTIONS = Object.freeze([
+  "ai.open-decisions", "process.open", "review.open-object", "object.open",
+]);
 const FIRST_SHIFT_FULL_EVENT_TYPES = Object.freeze({
   [FIRST_SHIFT_FULL_ACTIONS.select]: "select",
   [FIRST_SHIFT_FULL_ACTIONS.check]: "check",
@@ -1086,6 +1126,7 @@ const state = {
   mobileNavOpen: false,
   mediaUploadInFlight: false,
   realGenerationStartInFlight: false,
+  realGenerationStartRequestId: 0,
   realGenerationStartNotice: "",
   generationDraftSaveTimer: null,
   realGenerationPollTimer: null,
@@ -1138,6 +1179,7 @@ const state = {
     requestId: 0,
     updatedAt: 0,
   },
+  generationModelCatalog: null,
   generationLearning: {
     status: "idle",
     data: null,
@@ -1791,6 +1833,15 @@ function generationFormDraftValues(form) {
   if (!form) return null;
   return {
     generation_mode: String(form.elements.generation_mode?.value || "mock"),
+    generation_provider: String(form.elements.generation_provider?.value || ""),
+    generation_model_id: String(form.elements.generation_model_id?.value || ""),
+    generation_input_mode: String(form.elements.generation_input_mode?.value || ""),
+    generation_resolution: String(form.elements.generation_resolution?.value || ""),
+    generation_audio: String(form.elements.generation_audio?.value || ""),
+    generation_last_frame: form.elements.generation_last_frame?.checked === true,
+    generation_catalog_version: String(form.elements.generation_catalog_version?.value || ""),
+    generation_pricing_version: String(form.elements.generation_pricing_version?.value || ""),
+    generation_selection_source: String(form.elements.generation_selection_source?.value || ""),
     duration_seconds: String(form.elements.duration_seconds?.value || ""),
     campaign_id: String(form.elements.campaign_id?.value || ""),
     sku: String(form.elements.sku?.value || ""),
@@ -1859,6 +1910,19 @@ function restoreGenerationLaunchSnapshot(form, snapshot) {
   };
 
   setValue("generation_mode", values.generation_mode);
+  for (const name of [
+    "generation_provider",
+    "generation_model_id",
+    "generation_input_mode",
+    "generation_resolution",
+    "generation_audio",
+    "generation_catalog_version",
+    "generation_pricing_version",
+    "generation_selection_source",
+  ]) setValue(name, values[name]);
+  if (form.elements.generation_last_frame) {
+    form.elements.generation_last_frame.checked = values.generation_last_frame === true;
+  }
   setValue("campaign_id", values.campaign_id);
   form.dataset.generationMediaSelectionTouched = "true";
   form.dataset.generationScenarioIntent = String(
@@ -2255,7 +2319,7 @@ async function hydrateGenerationAiResearchProviderPrompt(
       blockGenerationAiResearchVerification(
         form,
         "provider_prompt_fragment_unverified",
-        "Сервер не подтвердил обязательный provider-фрагмент выбранного варианта. Техническое ТЗ и платный запуск заблокированы; Runway не вызывался.",
+        "Сервер не подтвердил обязательный provider-фрагмент выбранного варианта. Техническое ТЗ и платный запуск заблокированы; платный провайдер не вызывался.",
       );
       syncAutomaticGenerationBrief(form, {
         identity: selectedGenerationProductIdentity(form),
@@ -2912,6 +2976,382 @@ function retryAuthLinkIfIdle() {
   return true;
 }
 
+const WORKSPACE_DOCK_COMMAND_GESTURES = new Set();
+const WORKSPACE_DOCK_APP_ROUTES = Object.freeze({
+  results: "/workspace/stats",
+  research: "/workspace/research",
+  ai: "/workspace/ai",
+  create: "/workspace/generation",
+  review: "/workspace/review",
+  publish: "/workspace/placement",
+  processes: "/workspace/work",
+  settings: "/workspace/team",
+});
+
+function workspaceDockAuthenticatedScope() {
+  const organizationId = String(
+    state.bootstrap?.organization?.id || state.api?.organizationId || "",
+  ).trim().toLowerCase();
+  const apiOrganizationId = String(state.api?.organizationId || "").trim().toLowerCase();
+  const userId = String(state.user?.id || "").trim().toLowerCase();
+  const sessionUserId = String(state.session?.user?.id || "").trim().toLowerCase();
+  if (
+    !state.session
+    || state.bootstrapStatus !== "ready"
+    || membershipLockDetails(state.bootstrap)
+    || !contentReviewUuid(organizationId)
+    || !contentReviewUuid(userId)
+    || organizationId !== apiOrganizationId
+    || userId !== sessionUserId
+  ) return null;
+  return Object.freeze({ organizationId, userId });
+}
+
+function workspaceDockScopeMatches(expected) {
+  const current = workspaceDockAuthenticatedScope();
+  return Boolean(
+    current
+    && expected
+    && current.organizationId === expected.organizationId
+    && current.userId === expected.userId
+  );
+}
+
+function workspaceDockLibrarySnapshot() {
+  const scope = workspaceDockAuthenticatedScope();
+  if (!scope) return null;
+  const flow = normalizeProjectFlow(state.projectFlow?.data || {});
+  const currentProjectId = currentWorkspaceProjectId();
+  const projects = [];
+  [flow.project, ...flow.projects].forEach((project) => {
+    const projectId = String(project?.id || "").trim().toLowerCase();
+    if (!isWorkspaceProjectId(projectId) || projects.some((item) => item.id === projectId)) return;
+    const rootFolderId = String(project?.root_folder_id || project?.rootFolderId || projectId)
+      .trim().toLowerCase();
+    projects.push(Object.freeze({
+      id: projectId,
+      rootFolderId: contentReviewUuid(rootFolderId) ? rootFolderId : projectId,
+      name: String(project?.name || "Проект").trim().slice(0, 120) || "Проект",
+      permission: "read",
+      current: projectId === currentProjectId,
+    }));
+  });
+
+  const folders = [];
+  const files = [];
+  if (
+    isWorkspaceProjectId(currentProjectId)
+    && state.sections.board?.data
+    && !["idle", "loading", "error"].includes(state.sections.board.status)
+  ) {
+    const board = currentWorkspaceBoard();
+    board.folders.forEach((folder) => {
+      const id = String(folder?.id || "").trim().toLowerCase();
+      const folderProjectId = String(folder?.projectId || "").trim().toLowerCase();
+      if (!contentReviewUuid(id) || folder?.systemRole || folderProjectId !== currentProjectId) return;
+      folders.push(Object.freeze({
+        id,
+        projectId: currentProjectId,
+        name: String(folder.name || "Папка").trim().slice(0, 120) || "Папка",
+        kind: folder.kind === "project" ? "project" : "folder",
+        permission: folder.editable ? "edit" : "read",
+      }));
+    });
+    board.items.forEach((item) => {
+      const id = String(item?.id || "").trim().toLowerCase();
+      const itemProjectId = String(item?.projectId || "").trim().toLowerCase();
+      if (
+        item?.entityType !== "media"
+        || !contentReviewUuid(id)
+        || itemProjectId !== currentProjectId
+      ) return;
+      files.push(Object.freeze({
+        id,
+        projectId: currentProjectId,
+        folderId: contentReviewUuid(String(item.folderId || "").toLowerCase())
+          ? String(item.folderId).toLowerCase()
+          : "",
+        name: String(item.title || "Файл").trim().slice(0, 160) || "Файл",
+        permission: item.readOnly ? "read" : item.movable ? "edit" : "read",
+      }));
+    });
+  }
+  return Object.freeze({
+    scope,
+    currentProjectId: isWorkspaceProjectId(currentProjectId) ? currentProjectId : "",
+    projects: Object.freeze(projects),
+    folders: Object.freeze(folders),
+    files: Object.freeze(files),
+  });
+}
+
+function workspaceDockAuthority(stateName, extras = {}) {
+  const live = stateName === "live";
+  return Object.freeze({
+    state: stateName,
+    authority: Object.freeze({
+      permission: live ? "allowed" : extras.permission || "unknown",
+      existence: live ? "present" : extras.existence || "unknown",
+      freshness: live ? "current" : extras.freshness || "unknown",
+    }),
+    ...extras,
+  });
+}
+
+function workspaceDockRpcErrorCode(error) {
+  return String(
+    error?.code || error?.serverCode || error?.details?.code || error?.cause?.code || "",
+  ).trim().toLowerCase();
+}
+
+async function resolveWorkspaceDockShortcut(rawDescriptor) {
+  const scope = workspaceDockAuthenticatedScope();
+  const descriptor = rawDescriptor && typeof rawDescriptor === "object" && !Array.isArray(rawDescriptor)
+    ? rawDescriptor
+    : {};
+  const type = String(descriptor.type || "");
+  const projectId = String(descriptor.sectionKey || "").trim().toLowerCase();
+  if (!scope) {
+    return workspaceDockAuthority("unavailable", { reason: "dock_authenticated_scope_required" });
+  }
+  const internalTarget = type === "internal_link_shortcut"
+    ? normalizeWorkspaceInternalTarget(String(descriptor.canonicalTarget || ""))
+    : null;
+  if (type === "internal_link_shortcut" && !internalTarget) {
+    return workspaceDockAuthority("unavailable", { reason: "dock_internal_target_invalid" });
+  }
+  if (internalTarget?.kind === "desktop") {
+    return workspaceDockAuthority("live", {
+      targetType: "desktop",
+      label: String(descriptor.labelOverride || "Рабочий стол").trim().slice(0, 160) || "Рабочий стол",
+    });
+  }
+  if (internalTarget?.kind === "app") {
+    const route = WORKSPACE_DOCK_APP_ROUTES[internalTarget.appId];
+    const tab = visibleWorkspaceTabs().find(([section]) => `/workspace/${section}` === route);
+    if (!isWorkspaceProjectId(projectId)) {
+      return workspaceDockAuthority("unavailable", { reason: "dock_exact_project_required" });
+    }
+    return route && tab
+      ? workspaceDockAuthority("live", {
+        targetType: "app",
+        projectId,
+        label: String(descriptor.labelOverride || tab[1] || "Приложение").trim().slice(0, 160) || "Приложение",
+      })
+      : workspaceDockAuthority("unavailable", {
+        reason: "dock_app_route_not_authorized",
+        permission: "denied",
+        existence: route ? "present" : "missing",
+        freshness: "current",
+      });
+  }
+  if (!isWorkspaceProjectId(projectId)) {
+    return workspaceDockAuthority("unavailable", { reason: "dock_exact_project_required" });
+  }
+  const requestApi = state.api;
+  const expectedActorId = scope.userId;
+  const invokeAsPinnedActor = async (rpcName, payload) => {
+    if (typeof requestApi?.callAsExpectedActor !== "function") {
+      throw new CreatorApiError("Защищённый контур проверки Dock недоступен.", {
+        code: "dock_expected_actor_transport_required",
+      });
+    }
+    return requestApi.callAsExpectedActor(rpcName, payload, expectedActorId, {
+      isContextCurrent: () => workspaceDockScopeMatches(scope) && requestApi === state.api,
+    });
+  };
+  try {
+    if (type === "file_shortcut") {
+      const objectId = String(descriptor.objectId || "").trim().toLowerCase();
+      if (!contentReviewUuid(objectId)) {
+        return workspaceDockAuthority("unavailable", { reason: "dock_file_id_invalid" });
+      }
+      const raw = await invokeAsPinnedActor("creator_project_media", requestApi.withOrganization({
+        project_id: projectId,
+        media_id: objectId,
+        surface: "files",
+      }));
+      if (!workspaceDockScopeMatches(scope) || requestApi !== state.api) {
+        return workspaceDockAuthority("unavailable", { reason: "dock_identity_changed" });
+      }
+      const source = raw?.data ?? raw ?? {};
+      const media = source.media || source.item || source;
+      const exactId = String(media?.id || media?.media_id || "").trim().toLowerCase();
+      if (exactId !== objectId) {
+        return workspaceDockAuthority("unavailable", { reason: "dock_file_response_mismatch" });
+      }
+      return workspaceDockAuthority("live", {
+        targetType: "file",
+        objectId,
+        projectId,
+        parentId: String(media.folder_id || "").trim().toLowerCase(),
+        label: String(
+          media.original_filename || media.title || media.name || descriptor.labelOverride || "Файл",
+        ).trim().slice(0, 160) || "Файл",
+        permission: media.can_move === true ? "edit" : "read",
+      });
+    }
+
+    if (type !== "internal_link_shortcut") {
+      return workspaceDockAuthority("unavailable", { reason: "dock_shortcut_type_unresolved" });
+    }
+    const owner = internalTarget.kind;
+    const objectId = String(internalTarget.objectRef?.id || "").trim().toLowerCase();
+    if (!contentReviewUuid(objectId) || !["folder", "object"].includes(owner)) {
+      return workspaceDockAuthority("unavailable", { reason: "dock_internal_target_unresolved" });
+    }
+    if (owner === "object") {
+      const raw = await invokeAsPinnedActor("creator_project_media", requestApi.withOrganization({
+        project_id: projectId,
+        media_id: objectId,
+        surface: "files",
+      }));
+      if (!workspaceDockScopeMatches(scope) || requestApi !== state.api) {
+        return workspaceDockAuthority("unavailable", { reason: "dock_identity_changed" });
+      }
+      const source = raw?.data ?? raw ?? {};
+      const media = source.media || source.item || source;
+      if (String(media?.id || media?.media_id || "").trim().toLowerCase() !== objectId) {
+        return workspaceDockAuthority("unavailable", { reason: "dock_object_response_mismatch" });
+      }
+      return workspaceDockAuthority("live", {
+        targetType: "file",
+        objectId,
+        projectId,
+        label: String(media.original_filename || media.title || descriptor.labelOverride || "Файл")
+          .trim().slice(0, 160) || "Файл",
+      });
+    }
+    const raw = await invokeAsPinnedActor("creator_workspace_browser", requestApi.withOrganization({
+      project_id: projectId,
+      folder_id: objectId,
+      page_size: 1,
+    }));
+    if (!workspaceDockScopeMatches(scope) || requestApi !== state.api) {
+      return workspaceDockAuthority("unavailable", { reason: "dock_identity_changed" });
+    }
+    const source = raw?.data ?? raw ?? {};
+    const candidates = [source.current_folder, ...(Array.isArray(source.folders) ? source.folders : [])];
+    const folder = candidates.find((item) => (
+      String(item?.id || item?.folder_id || "").trim().toLowerCase() === objectId
+    ));
+    if (!folder && objectId !== projectId) {
+      return workspaceDockAuthority("unavailable", { reason: "dock_folder_response_mismatch" });
+    }
+    return workspaceDockAuthority("live", {
+      targetType: objectId === projectId || folder?.kind === "project" ? "project" : "folder",
+      objectId,
+      projectId,
+      label: String(folder?.name || descriptor.labelOverride || "Папка").trim().slice(0, 160) || "Папка",
+      permission: folder?.can_edit === true ? "edit" : "read",
+    });
+  } catch (error) {
+    if (!workspaceDockScopeMatches(scope) || requestApi !== state.api) {
+      return workspaceDockAuthority("unavailable", { reason: "dock_identity_changed" });
+    }
+    const code = workspaceDockRpcErrorCode(error);
+    const accessRevoked = /(?:access|permission|role|membership).*(?:denied|revoked|not_allowed)|project_access_required/u.test(code);
+    const missing = /(?:not_found|purged|deleted)/u.test(code);
+    return workspaceDockAuthority("unavailable", {
+      reason: code || "dock_authoritative_recheck_failed",
+      permission: accessRevoked ? "denied" : "unknown",
+      existence: missing ? "missing" : "unknown",
+      freshness: "unknown",
+      purgeEligible: accessRevoked || missing,
+      projectId,
+    });
+  }
+}
+
+function workspaceDockOpenExactMedia(projectId, mediaId) {
+  navigate(
+    `/workspace/board?project_id=${encodeURIComponent(projectId)}&media=${encodeURIComponent(mediaId)}`,
+  );
+  let attempts = 0;
+  const open = () => {
+    if (
+      currentWorkspaceProjectId() !== projectId
+      || state.route.path !== "/workspace/board"
+      || String(state.route.query.get("media") || "").toLowerCase() !== mediaId
+    ) return;
+    const card = document.querySelector(
+      `[data-workspace-item-key="media:${CSS.escape(mediaId)}"]`,
+    );
+    if (card && window.ContentEngineFinderV4?.openQuickLook) {
+      void window.ContentEngineFinderV4.openQuickLook(card);
+      return;
+    }
+    attempts += 1;
+    if (attempts < 36) window.requestAnimationFrame(open);
+  };
+  window.requestAnimationFrame(open);
+}
+
+function executeWorkspaceDockCommand(envelope, executionContext = {}) {
+  const scope = workspaceDockAuthenticatedScope();
+  const requestedScope = executionContext?.scope;
+  const gestureId = String(envelope?.gestureId || "").trim();
+  if (
+    !scope
+    || !workspaceDockScopeMatches(requestedScope)
+    || !gestureId
+    || WORKSPACE_DOCK_COMMAND_GESTURES.has(gestureId)
+    || envelope?.source !== "dock"
+    || envelope?.policy?.dispatchCount !== 1
+    || envelope?.policy?.paidAction !== false
+    || envelope?.policy?.startsAnalysis !== false
+    || envelope?.policy?.startsGeneration !== false
+  ) return false;
+  const projectId = String(executionContext.projectId || "").trim().toLowerCase();
+  const internalDescriptor = envelope.actionKey === "internal-target.open"
+    ? envelope.target?.descriptor
+    : null;
+  if (internalDescriptor?.kind !== "desktop" && !isWorkspaceProjectId(projectId)) return false;
+  WORKSPACE_DOCK_COMMAND_GESTURES.add(gestureId);
+  if (WORKSPACE_DOCK_COMMAND_GESTURES.size > 512) {
+    const oldest = WORKSPACE_DOCK_COMMAND_GESTURES.values().next().value;
+    WORKSPACE_DOCK_COMMAND_GESTURES.delete(oldest);
+  }
+
+  if (envelope.actionKey === "object.open") {
+    const objectRef = envelope.target?.objectRef;
+    const mediaId = String(objectRef?.id || "").trim().toLowerCase();
+    if (!contentReviewUuid(mediaId) || !["file", "content_object"].includes(objectRef?.type)) return false;
+    workspaceDockOpenExactMedia(projectId, mediaId);
+    return true;
+  }
+  if (envelope.actionKey !== "internal-target.open") return false;
+  const descriptor = internalDescriptor;
+  if (descriptor?.kind === "folder") {
+    const folderId = String(descriptor.objectRef?.id || "").trim().toLowerCase();
+    if (!contentReviewUuid(folderId)) return false;
+    navigate(
+      `/workspace/board?project_id=${encodeURIComponent(projectId)}&folder=${encodeURIComponent(folderId)}`,
+    );
+    return true;
+  }
+  if (descriptor?.kind === "object") {
+    const mediaId = String(descriptor.objectRef?.id || "").trim().toLowerCase();
+    if (!contentReviewUuid(mediaId)) return false;
+    workspaceDockOpenExactMedia(projectId, mediaId);
+    return true;
+  }
+  if (descriptor?.kind === "desktop") {
+    navigate("/workspace/home", false, { scopeProject: false });
+    return true;
+  }
+  if (descriptor?.kind === "app") {
+    const route = WORKSPACE_DOCK_APP_ROUTES[descriptor.appId];
+    const authorized = visibleWorkspaceTabs().some(([section]) => `/workspace/${section}` === route);
+    if (!route || !authorized) return false;
+    const query = new URLSearchParams({ project_id: projectId });
+    if (descriptor.tab) query.set("view", descriptor.tab);
+    navigate(`${route}?${query.toString()}`);
+    return true;
+  }
+  return false;
+}
+
 async function initialize() {
   bindGlobalEvents();
 
@@ -2937,6 +3377,37 @@ async function initialize() {
   window.ContentEngineWorkspaceRuntime = Object.freeze({
     getApi: () => state.api,
     isAuthenticated: () => Boolean(state.session),
+    getDockScope: workspaceDockAuthenticatedScope,
+    getDockLibrarySnapshot: workspaceDockLibrarySnapshot,
+    resolveDockShortcut: resolveWorkspaceDockShortcut,
+    executeDockCommand: executeWorkspaceDockCommand,
+    setGenerationModelCatalog: (catalog) => {
+      if (
+        !catalog
+        || typeof catalog !== "object"
+        || typeof catalog.version !== "string"
+        || !Array.isArray(catalog.models)
+      ) return false;
+      state.generationModelCatalog = catalog;
+      syncGenerationModelAcceptanceUi();
+      return true;
+    },
+    getGenerationModelAcceptance: () => Object.freeze({
+      status: state.generationModelAcceptance.status,
+      updatedAt: state.generationModelAcceptance.updatedAt,
+      normalized: normalizeGenerationModelAcceptance(
+        state.generationModelAcceptance.data,
+        state.generationModelCatalog,
+      ),
+    }),
+    getGenerationProviderReadiness: () => {
+      const form = document.querySelector("#mock-batch-form");
+      const sku = generationSkuForForm(form);
+      const entry = sku
+        ? state.generationPreflight.entries.get(generationPreflightKey(sku))
+        : null;
+      return entry?.status === "ready" ? entry.preflight : null;
+    },
     getExactYoutubeHandoffContext: () => Object.freeze({
       organization_id: String(
         state.api?.organizationId || state.bootstrap?.organization?.id || "",
@@ -3008,6 +3479,457 @@ async function completeInitialization(authLink) {
 
   establishDefaultRoute();
   render();
+}
+
+function notificationRuntimeHasExactKeys(value, allowed, required = allowed) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const allowedSet = new Set(allowed);
+  const keys = Object.keys(value);
+  return keys.every((key) => allowedSet.has(key))
+    && required.every((key) => Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function notificationRuntimeRequest(detail) {
+  if (!notificationRuntimeHasExactKeys(
+    detail,
+    ["version", "requestId", "kind", "filter", "notificationIds", "notification"],
+    ["version", "requestId", "kind", "filter"],
+  )) return null;
+  const requestId = String(detail.requestId || "");
+  const kind = String(detail.kind || "");
+  const filter = String(detail.filter || "");
+  if (
+    detail.version !== NOTIFICATION_RUNTIME_VERSION
+    || !/^[A-Za-z0-9][A-Za-z0-9_.:@-]{7,159}$/u.test(requestId)
+    || !["refresh", "mark_read", "open"].includes(kind)
+    || !NOTIFICATION_RUNTIME_FILTERS.includes(filter)
+  ) return null;
+
+  if (kind === "refresh") {
+    if (detail.notificationIds !== undefined || detail.notification !== undefined) return null;
+    return Object.freeze({ requestId, kind, filter });
+  }
+  if (kind === "mark_read") {
+    if (
+      detail.notification !== undefined
+      || !Array.isArray(detail.notificationIds)
+      || detail.notificationIds.length < 1
+      || detail.notificationIds.length > 100
+    ) return null;
+    const ids = detail.notificationIds.map((id) => String(id || "").trim().toLowerCase());
+    if (new Set(ids).size !== ids.length || ids.some((id) => !isWorkspaceProjectId(id))) {
+      return null;
+    }
+    return Object.freeze({
+      requestId,
+      kind,
+      filter,
+      notificationIds: Object.freeze(ids),
+    });
+  }
+  if (
+    detail.notificationIds !== undefined
+    || !notificationRuntimeHasExactKeys(detail.notification, [
+      "notificationId", "actionKey", "projectId", "objectId", "processId",
+    ])
+  ) return null;
+  const notification = Object.freeze({
+    notificationId: String(detail.notification.notificationId || "").trim().toLowerCase(),
+    actionKey: String(detail.notification.actionKey || "").trim().toLowerCase(),
+    projectId: String(detail.notification.projectId || "").trim().toLowerCase(),
+    objectId: String(detail.notification.objectId || "").trim().toLowerCase(),
+    processId: String(detail.notification.processId || "").trim().toLowerCase(),
+  });
+  if (
+    !isWorkspaceProjectId(notification.notificationId)
+    || !NOTIFICATION_RUNTIME_ACTIONS.includes(notification.actionKey)
+    || (notification.projectId && !isWorkspaceProjectId(notification.projectId))
+    || (notification.objectId && !isWorkspaceProjectId(notification.objectId))
+    || (notification.processId && !isWorkspaceProjectId(notification.processId))
+  ) return null;
+  return Object.freeze({ requestId, kind, filter, notification });
+}
+
+function notificationRuntimeScope() {
+  const organizationId = String(
+    state.api?.organizationId || state.bootstrap?.organization?.id || "",
+  ).trim().toLowerCase();
+  const bootstrapOrganizationId = String(
+    state.bootstrap?.organization?.id || "",
+  ).trim().toLowerCase();
+  const userId = String(state.user?.id || "").trim().toLowerCase();
+  const sessionUserId = String(state.session?.user?.id || "").trim().toLowerCase();
+  const role = String(state.bootstrap?.membership?.role || "").trim().toLowerCase();
+  if (
+    !state.api
+    || !state.session
+    || !isWorkspaceProjectId(organizationId)
+    || bootstrapOrganizationId !== organizationId
+    || !isWorkspaceProjectId(userId)
+    || sessionUserId !== userId
+    || !["owner", "admin", "producer", "reviewer", "operator", "trainee", "viewer"]
+      .includes(role)
+  ) return null;
+  return Object.freeze({
+    api: state.api,
+    epoch: state.dataEpoch,
+    organizationId,
+    userId,
+    role,
+  });
+}
+
+function notificationRuntimeScopeIsCurrent(scope) {
+  return Boolean(
+    scope
+    && scope.api === state.api
+    && scope.epoch === state.dataEpoch
+    && scope.organizationId === String(state.api?.organizationId || "").trim().toLowerCase()
+    && scope.userId === String(state.user?.id || "").trim().toLowerCase()
+    && scope.userId === String(state.session?.user?.id || "").trim().toLowerCase()
+    && scope.role === String(state.bootstrap?.membership?.role || "").trim().toLowerCase()
+  );
+}
+
+function dispatchNotificationRuntimeResponse(request, response = {}) {
+  document.dispatchEvent(new CustomEvent(NOTIFICATION_RUNTIME_RESPONSE_EVENT, {
+    detail: Object.freeze({
+      version: NOTIFICATION_RUNTIME_VERSION,
+      requestId: request.requestId,
+      kind: request.kind,
+      filter: request.filter,
+      ok: response.ok === true,
+      reason: response.ok === true ? null : String(response.reason || "notification_request_failed"),
+      message: response.ok === true ? "" : String(response.message || ""),
+      projection: response.projection || null,
+      notificationIds: Object.freeze([...(response.notificationIds || [])]),
+    }),
+  }));
+}
+
+function notificationRuntimeFailure(error) {
+  const candidate = String(error?.serverCode || error?.code || "")
+    .trim()
+    .toLowerCase();
+  const reason = /^[a-z][a-z0-9_]{2,95}$/u.test(candidate)
+    ? candidate
+    : "notification_request_failed";
+  return { reason, message: actionErrorMessage(error) };
+}
+
+function notificationProjectionMatchesScope(projection, scope, filter) {
+  if (!projection || typeof projection !== "object" || Array.isArray(projection)) return false;
+  const organizationId = String(projection.organization_id || "").trim().toLowerCase();
+  const recipientUserId = String(projection.recipient_user_id || "").trim().toLowerCase();
+  const roles = Array.isArray(projection.active_role_ids)
+    ? projection.active_role_ids.map((role) => String(role || "").trim().toLowerCase())
+    : [];
+  return organizationId === scope.organizationId
+    && recipientUserId === scope.userId
+    && roles.length === 1
+    && roles[0] === scope.role
+    && projection.filter === filter
+    && Array.isArray(projection.items)
+    && projection.counts
+    && typeof projection.counts === "object"
+    && !Array.isArray(projection.counts);
+}
+
+function notificationReadResponseMatchesScope(response, scope, filter, notificationIds) {
+  if (!response || typeof response !== "object" || Array.isArray(response)) return false;
+  const organizationId = String(response.organization_id || "").trim().toLowerCase();
+  const recipientUserId = String(response.recipient_user_id || "").trim().toLowerCase();
+  const roles = Array.isArray(response.active_role_ids)
+    ? response.active_role_ids.map((role) => String(role || "").trim().toLowerCase())
+    : [];
+  const responseIds = Array.isArray(response.notification_ids)
+    ? response.notification_ids.map((id) => String(id || "").trim().toLowerCase())
+    : [];
+  const expectedIds = [...notificationIds].map((id) => String(id || "").trim().toLowerCase());
+  return response.ok === true
+    && organizationId === scope.organizationId
+    && recipientUserId === scope.userId
+    && roles.length === 1
+    && roles[0] === scope.role
+    && response.scope === "visible_filter"
+    && response.filter === filter
+    && response.read_state_version === "contentengine-notification-read-v4.9.1"
+    && Number.isInteger(response.updated_count)
+    && response.updated_count >= 0
+    && Number.isInteger(response.remaining_unread)
+    && response.remaining_unread >= 0
+    && responseIds.length === expectedIds.length
+    && new Set(responseIds).size === responseIds.length
+    && expectedIds.every((id) => responseIds.includes(id));
+}
+
+async function loadNotificationRuntimeProjection(scope, filter) {
+  const projection = await withUiTimeout(
+    scope.api.notificationCenter({ filter, page_size: 100 }),
+    WORKSPACE_REQUEST_TIMEOUT_MS,
+    "notification_center_timeout",
+  );
+  if (
+    !notificationRuntimeScopeIsCurrent(scope)
+    || !notificationProjectionMatchesScope(projection, scope, filter)
+  ) {
+    throw new CreatorApiError("Контекст уведомлений изменился. Откройте панель заново.", {
+      code: "notification_center_scope_changed",
+    });
+  }
+  return projection;
+}
+
+function notificationCommandDestination(actionKey, rawDestination, envelope) {
+  if (!rawDestination || typeof rawDestination !== "object" || Array.isArray(rawDestination)) {
+    return null;
+  }
+  const allowed = [
+    "section", "view", "surface", "entity_parameter", "entity_id", "project_id",
+  ];
+  if (!notificationRuntimeHasExactKeys(
+    rawDestination,
+    allowed,
+    ["section", "view", "project_id"],
+  )) return null;
+  const projectId = String(rawDestination.project_id || "").trim().toLowerCase();
+  if (!isWorkspaceProjectId(projectId)) return null;
+
+  const exact = actionKey === "ai.open-decisions"
+    ? { section: "ai", view: "decisions", surface: "ai_decisions", entityParameter: "" }
+    : actionKey === "object.open"
+      ? { section: "board", view: "browse", surface: "", entityParameter: "media" }
+      : actionKey === "review.open-object"
+        ? { section: "review", view: "new", surface: "", entityParameter: "media" }
+        : null;
+  let expected = exact;
+  if (actionKey === "process.open") {
+    const processDestinations = Object.freeze({
+      generation: Object.freeze({ view: "history", entityParameter: "job" }),
+      review: Object.freeze({ view: "current", entityParameter: "review" }),
+      placement: Object.freeze({ view: "next", entityParameter: "placement" }),
+    });
+    const processDestination = processDestinations[String(rawDestination.section || "")];
+    if (processDestination) {
+      expected = {
+        section: String(rawDestination.section),
+        view: processDestination.view,
+        surface: "",
+        entityParameter: processDestination.entityParameter,
+      };
+    }
+  }
+  if (
+    !expected
+    || rawDestination.section !== expected.section
+    || rawDestination.view !== expected.view
+    || String(rawDestination.surface || "") !== expected.surface
+    || String(rawDestination.entity_parameter || "") !== expected.entityParameter
+  ) return null;
+
+  const envelopeTarget = envelope?.target;
+  const entityId = String(rawDestination.entity_id || "").trim().toLowerCase();
+  if (expected.entityParameter) {
+    if (
+      !isWorkspaceProjectId(entityId)
+      || envelopeTarget?.kind !== "object"
+      || envelopeTarget.objectRef?.id !== entityId
+    ) return null;
+  } else if (
+    rawDestination.entity_parameter !== undefined
+    || rawDestination.entity_id !== undefined
+    || envelopeTarget?.kind !== "internal"
+    || envelopeTarget.descriptor?.appId !== "ai"
+    || envelopeTarget.descriptor?.tab !== "decisions"
+  ) return null;
+
+  const params = new URLSearchParams();
+  params.set("view", expected.view);
+  if (expected.entityParameter) params.set(expected.entityParameter, entityId);
+  params.set("project_id", projectId);
+  return `/workspace/${expected.section}?${params.toString()}`;
+}
+
+function resolveNotificationRuntimeCommand(request, validation) {
+  if (
+    validation?.ok !== true
+    || validation?.status !== "ready"
+    || validation.notification_id !== request.notification.notificationId
+    || validation.action_key !== request.notification.actionKey
+    || validation.contract?.version !== NOTIFICATION_RUNTIME_VERSION
+    || validation.contract?.read_mutated !== false
+    || validation.contract?.paid_action !== false
+    || validation.contract?.starts_analysis !== false
+    || validation.contract?.starts_generation !== false
+    || validation.contract?.arbitrary_url_returned !== false
+  ) return { ok: false, reason: String(validation?.reason || "stale_notification") };
+  const command = validation.command;
+  if (
+    !command
+    || command.action_key !== request.notification.actionKey
+    || !notificationRuntimeHasExactKeys(
+      command,
+      ["action_key", "target", "authority", "destination"],
+    )
+  ) return { ok: false, reason: "notification_command_invalid" };
+  const resolved = resolveWorkspaceCommand({
+    gestureId: request.requestId,
+    source: "notification",
+    actionKey: command.action_key,
+    target: command.target,
+    authority: command.authority,
+  });
+  if (
+    !resolved.ok
+    || resolved.envelope?.policy?.dispatchCount !== 1
+    || resolved.envelope?.policy?.paidAction !== false
+    || resolved.envelope?.policy?.startsAnalysis !== false
+    || resolved.envelope?.policy?.startsGeneration !== false
+  ) return { ok: false, reason: resolved.reason || "notification_command_blocked" };
+  const destination = notificationCommandDestination(
+    command.action_key,
+    command.destination,
+    resolved.envelope,
+  );
+  return destination
+    ? { ok: true, envelope: resolved.envelope, destination }
+    : { ok: false, reason: "notification_command_destination_invalid" };
+}
+
+async function handleNotificationRuntimeRequest(event) {
+  const request = notificationRuntimeRequest(event?.detail);
+  if (!request) return;
+  const scope = notificationRuntimeScope();
+  if (!scope) {
+    dispatchNotificationRuntimeResponse(request, {
+      ok: false,
+      reason: "auth_session_required",
+      message: "Сессия завершилась. Войдите в портал снова.",
+    });
+    return;
+  }
+  try {
+    if (request.kind === "refresh") {
+      const projection = await loadNotificationRuntimeProjection(scope, request.filter);
+      dispatchNotificationRuntimeResponse(request, { ok: true, projection });
+      return;
+    }
+    if (request.kind === "mark_read") {
+      const readResponse = await withUiTimeout(
+        scope.api.markVisibleNotificationsRead(request.notificationIds, request.filter),
+        WORKSPACE_REQUEST_TIMEOUT_MS,
+        "notification_mark_read_timeout",
+      );
+      if (
+        !notificationRuntimeScopeIsCurrent(scope)
+        || !notificationReadResponseMatchesScope(
+          readResponse,
+          scope,
+          request.filter,
+          request.notificationIds,
+        )
+      ) {
+        throw new CreatorApiError("Контекст уведомлений изменился. Откройте панель заново.", {
+          code: "notification_center_scope_changed",
+        });
+      }
+      let projection = null;
+      try {
+        projection = await loadNotificationRuntimeProjection(scope, request.filter);
+      } catch (refreshError) {
+        console.warn("Notification projection refresh after read failed", refreshError);
+      }
+      dispatchNotificationRuntimeResponse(request, {
+        ok: true,
+        projection,
+        notificationIds: request.notificationIds,
+      });
+      return;
+    }
+
+    const validation = await withUiTimeout(
+      scope.api.validateNotificationAction({
+        notification_id: request.notification.notificationId,
+        action_key: request.notification.actionKey,
+        project_id: request.notification.projectId || null,
+        object_id: request.notification.objectId || null,
+        process_id: request.notification.processId || null,
+      }),
+      WORKSPACE_REQUEST_TIMEOUT_MS,
+      "notification_action_validation_timeout",
+    );
+    if (!notificationRuntimeScopeIsCurrent(scope)) {
+      throw new CreatorApiError("Контекст уведомлений изменился. Откройте панель заново.", {
+        code: "notification_center_scope_changed",
+      });
+    }
+    if (validation?.ok !== true) {
+      dispatchNotificationRuntimeResponse(request, {
+        ok: false,
+        reason: String(validation?.reason || "notification_action_blocked"),
+        message: "Точное действие больше недоступно. Уведомление осталось непрочитанным.",
+      });
+      return;
+    }
+    const command = resolveNotificationRuntimeCommand(request, validation);
+    if (!command.ok) {
+      dispatchNotificationRuntimeResponse(request, {
+        ok: false,
+        reason: command.reason,
+        message: "Точное действие больше недоступно. Уведомление осталось непрочитанным.",
+      });
+      return;
+    }
+
+    // The existing router is the sole command owner. Only after it accepts the
+    // exact allowlisted destination may the exact notification be marked read.
+    navigate(command.destination, false, { scopeProject: false });
+    if (window.location.hash !== `#${command.destination}`) {
+      throw new CreatorApiError("Рабочий раздел не подтвердил точный переход. Уведомление осталось непрочитанным.", {
+        code: "notification_command_failed",
+      });
+    }
+    if (!notificationRuntimeScopeIsCurrent(scope)) {
+      throw new CreatorApiError("Контекст уведомлений изменился во время перехода.", {
+        code: "notification_center_scope_changed",
+      });
+    }
+    const readResponse = await withUiTimeout(
+      scope.api.markVisibleNotificationsRead(
+        [request.notification.notificationId],
+        request.filter,
+      ),
+      WORKSPACE_REQUEST_TIMEOUT_MS,
+      "notification_mark_read_timeout",
+    );
+    if (
+      !notificationRuntimeScopeIsCurrent(scope)
+      || !notificationReadResponseMatchesScope(
+        readResponse,
+        scope,
+        request.filter,
+        [request.notification.notificationId],
+      )
+    ) {
+      throw new CreatorApiError("Контекст уведомлений изменился. Откройте панель заново.", {
+        code: "notification_center_scope_changed",
+      });
+    }
+    let projection = null;
+    try {
+      projection = await loadNotificationRuntimeProjection(scope, request.filter);
+    } catch (refreshError) {
+      console.warn("Notification projection refresh after open failed", refreshError);
+    }
+    dispatchNotificationRuntimeResponse(request, {
+      ok: true,
+      projection,
+      notificationIds: [request.notification.notificationId],
+    });
+  } catch (error) {
+    const failure = notificationRuntimeFailure(error);
+    dispatchNotificationRuntimeResponse(request, { ok: false, ...failure });
+  }
 }
 
 function bindGlobalEvents() {
@@ -3151,6 +4073,10 @@ function bindGlobalEvents() {
   });
 
   document.addEventListener("click", handleClick);
+  document.addEventListener(
+    NOTIFICATION_RUNTIME_REQUEST_EVENT,
+    (event) => { void handleNotificationRuntimeRequest(event); },
+  );
   document.addEventListener("submit", handleSubmit);
   document.addEventListener("input", handleFormActivity);
   document.addEventListener("change", handleChange);
@@ -7657,6 +8583,8 @@ function renderLearningScaffold(content, activePath) {
 
 function renderWorkspaceBoardSection(sectionState) {
   const board = normalizeWorkspaceBoard(sectionState.data || {});
+  const boardRoute = state.route.path === "/workspace/board" ? state.route.query : null;
+  const viewer = displayProfile();
   const markup = workspaceBoardMarkup(board, {
     selectedFolderId: state.workspaceBoard.selectedFolderId,
     selectedItemKey: state.workspaceBoard.selectedItemKey,
@@ -7668,6 +8596,15 @@ function renderWorkspaceBoardSection(sectionState) {
     error: state.workspaceBoard.error,
     pendingArchiveFolderId: state.workspaceBoard.pendingArchiveFolderId,
     visibleItemLimit: state.workspaceBoard.visibleItemLimit,
+    landingOverview: Boolean(
+      boardRoute
+      && !boardRoute.has("folder")
+      && !boardRoute.has("media")
+      && !boardRoute.has("view")
+      && !boardRoute.has("create")
+    ),
+    viewerProfileId: state.bootstrap?.profile?.id || state.user?.id || "",
+    viewerName: viewer.name,
   });
   const pagination = state.workspaceBoard.hasMore
     ? `
@@ -10049,6 +10986,11 @@ async function loadSection(section, options = {}) {
         state.api.generationArchive({
           period: initialGenerationFilters.period,
           status: initialGenerationFilters.status,
+          provider: initialGenerationFilters.provider,
+          model: initialGenerationFilters.model,
+          contentKind: initialGenerationFilters.contentKind,
+          selectionSource: initialGenerationFilters.selectionSource,
+          qualityStatus: initialGenerationFilters.qualityStatus,
           query: initialGenerationFilters.query,
           page_size: GENERATION_ARCHIVE_PAGE_SIZE,
           projectId,
@@ -10826,10 +11768,14 @@ function syncGenerationModelAcceptanceUi() {
   const wrapper = document.createElement("div");
   wrapper.innerHTML = generationModelAcceptanceMarkup(
     state.generationModelAcceptance,
+    state.generationModelCatalog,
   ).trim();
   const next = wrapper.firstElementChild;
   if (!next) return false;
   current.replaceWith(next);
+  window.dispatchEvent(new CustomEvent(
+    "contentengine:generation-model-acceptance-updated",
+  ));
   return true;
 }
 
@@ -11697,7 +12643,191 @@ function workspaceSequenceSwitch(className, label, activeView, items) {
   `;
 }
 
+function generationBooleanControl(form, name) {
+  const control = form?.elements?.[name];
+  if (control instanceof HTMLInputElement && control.type === "checkbox") {
+    return control.checked;
+  }
+  const value = String(control?.value || "").trim().toLowerCase();
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return null;
+}
+
+function canonicalGenerationSelection(form) {
+  const provider = String(form?.elements?.generation_provider?.value || "")
+    .trim().toLowerCase();
+  const model = String(form?.elements?.generation_model_id?.value || "")
+    .trim();
+  if (!provider && !model) return null;
+  const catalogModel = state.generationModelCatalog?.models?.find((entry) => (
+    entry?.provider === provider && entry?.model === model
+  ));
+  const inputMode = String(
+    form?.elements?.generation_input_mode?.value || "",
+  ).trim().toLowerCase();
+  const durationSeconds = Number(form?.elements?.duration_seconds?.value || 0);
+  const format = String(form?.elements?.format?.value || "").trim();
+  const resolution = String(
+    form?.elements?.generation_resolution?.value || "",
+  ).trim();
+  const audio = generationBooleanControl(form, "generation_audio");
+  const lastFrame = generationBooleanControl(form, "generation_last_frame");
+  const capability = catalogModel?.inputCapabilities?.[inputMode];
+  const durationsForResolution = capability?.allowedDurationsByResolution?.[resolution];
+  const allowedDurations = Array.isArray(durationsForResolution)
+    ? durationsForResolution
+    : catalogModel?.allowedDurations;
+  const lastFrameDuration = Number(capability?.lastFrameDurationSeconds);
+  const selectionSource = String(
+    form?.elements?.generation_selection_source?.value || "",
+  ).trim();
+  if (
+    !catalogModel
+    || catalogModel.enabled !== true
+    || catalogModel.executionSupported !== true
+    || catalogModel.launchEnabled !== true
+    || form?.elements?.generation_launch_enabled?.value !== "true"
+    || form?.elements?.generation_catalog_version?.value
+      !== state.generationModelCatalog?.version
+    || form?.elements?.generation_pricing_version?.value
+      !== catalogModel.pricingVersion
+    || form?.elements?.generation_content_kind?.value
+      !== catalogModel.contentKind
+    || Number(form?.elements?.generation_prompt_limit?.value)
+      !== Number(catalogModel.promptLimit)
+    || !new Set([
+      "system_recommendation",
+      "research_recommendation",
+      "performance_recommendation",
+      "manual_choice",
+      "alternative_after_block",
+    ]).has(selectionSource)
+    || inputMode !== "image"
+    || !capability
+    || typeof capability !== "object"
+    || Array.isArray(capability)
+    || !Number.isSafeInteger(durationSeconds)
+    || !Array.isArray(allowedDurations)
+    || !allowedDurations.includes(durationSeconds)
+    || !Array.isArray(capability.allowedRatios)
+    || !capability.allowedRatios.includes(format)
+    || !Array.isArray(capability.allowedResolutions)
+    || !capability.allowedResolutions.includes(resolution)
+    || !Array.isArray(catalogModel.audioModes)
+    || !catalogModel.audioModes.includes(audio)
+    || typeof lastFrame !== "boolean"
+    || (lastFrame && (
+      catalogModel.lastFrameSupported !== true
+      || capability.supportsLastFrame !== true
+      || (Number.isSafeInteger(lastFrameDuration)
+        && durationSeconds !== lastFrameDuration)
+    ))
+  ) return null;
+  return Object.freeze({
+    canonical: true,
+    provider,
+    model,
+    publicLabel: String(catalogModel.publicLabel || model),
+    contentKind: catalogModel.contentKind,
+    inputMode,
+    durationSeconds,
+    durationOptions: Object.freeze([...allowedDurations]),
+    format,
+    resolution,
+    audio,
+    lastFrame,
+    promptMaxLength: Number(catalogModel.promptLimit || 0),
+    pricingVersion: String(catalogModel.pricingVersion || ""),
+    catalogVersion: String(state.generationModelCatalog?.version || ""),
+    selectionSource,
+  });
+}
+
+function generationReadinessRequiresV4(selection) {
+  return selection?.provider === "runway"
+    && GENERATION_READINESS_V4_RUNWAY_MODELS.has(selection?.model);
+}
+
+function generationReadinessSpecBindingForForm(form, selection) {
+  if (!generationReadinessRequiresV4(selection)) return null;
+  const projectId = currentWorkspaceProjectId();
+  const spec = state.generationSpec.data?.generationSpec || null;
+  const context = normalizeGenerationSpecContext({
+    spec_id: spec?.spec_id,
+    spec_version: spec?.spec_version,
+    spec_hash: spec?.spec_hash,
+  });
+  const scope = spec?.exact_scope;
+  const identity = selectedGenerationProductIdentity(form);
+  const mediaIds = identity?.mediaIds || [];
+  const scopeMediaIds = Array.isArray(scope?.media_ids)
+    ? scope.media_ids.map((value) => String(value || "").toLowerCase())
+    : [];
+  if (
+    !form
+    || !isWorkspaceProjectId(projectId)
+    || !context
+    || !scope
+    || spec.status === "rejected"
+    || state.generationSpec.dirty === true
+    || scope.provider !== selection.provider
+    || scope.model !== selection.model
+    || scope.input_mode !== selection.inputMode
+    || scope.duration_seconds !== selection.durationSeconds
+    || scope.format !== selection.format
+    || scope.resolution !== selection.resolution
+    || scope.audio !== selection.audio
+    || scope.last_frame !== selection.lastFrame
+    || scope.platform !== String(form.elements.platform?.value || "")
+      .trim().toLowerCase()
+    || scope.product_category !== String(
+      form.elements.product_category?.value || "",
+    ).trim().toLowerCase()
+    || mediaIds.length !== scopeMediaIds.length
+    || mediaIds.some((value, index) => (
+      String(value || "").toLowerCase() !== scopeMediaIds[index]
+    ))
+  ) return null;
+  return Object.freeze({
+    projectId,
+    generationSpecContext: context,
+  });
+}
+
 function generationSkuForForm(form) {
+  const exact = canonicalGenerationSelection(form);
+  if (exact) {
+    const specBinding = generationReadinessSpecBindingForForm(form, exact);
+    const keyedSelection = specBinding ? { ...exact, ...specBinding } : exact;
+    const entry = state.generationPreflight.entries.get(
+      generationPreflightKey(keyedSelection),
+    );
+    const preflight = entry?.status === "ready" ? entry.preflight : null;
+    const estimatedMinor = Number(preflight?.estimated_cost_minor);
+    return Object.freeze({
+      ...exact,
+      ...(specBinding || {}),
+      readinessVersion: generationReadinessRequiresV4(exact) ? "v4" : "v3",
+      estimatedMinor: Number.isSafeInteger(estimatedMinor)
+        ? estimatedMinor
+        : null,
+      estimatedCredits: Number.isSafeInteger(preflight?.estimated_credits)
+        ? preflight.estimated_credits
+        : null,
+      estimatedUsd: Number.isSafeInteger(estimatedMinor)
+        ? (estimatedMinor / 100).toFixed(2)
+        : null,
+      confirmation: String(preflight?.spend_confirmation || ""),
+      providerReadinessReceiptId: String(preflight?.receipt_id || ""),
+      providerReadinessReceiptHash: String(preflight?.receipt_hash || ""),
+      preflight,
+    });
+  }
+  if (
+    form?.elements?.generation_provider
+    || form?.elements?.generation_model_id
+  ) return null;
   return realGenerationSku(
     form?.elements?.generation_mode?.value,
     form?.elements?.duration_seconds?.value,
@@ -11771,6 +12901,16 @@ function isRealGenerationMode(mode) {
 function generationOutcomeCopy(mode, sku = realGenerationSku(mode)) {
   if (!isRealGenerationMode(mode) || !sku) {
     return `До ${MAX_MOCK_BATCH_SIZE} задач для проверки процесса. Изображение и видео в dry-run не создаются. Для готового файла выберите платный режим.`;
+  }
+  if (sku.canonical === true) {
+    const cost = Number.isSafeInteger(sku.estimatedMinor)
+      ? `точная стоимость $${(sku.estimatedMinor / 100).toFixed(2)} по свежей проверке сервера`
+      : "стоимость появится после бесплатной проверки сервера";
+    const label = sku.publicLabel || sku.model;
+    if (sku.contentKind === "photo") {
+      return `${label}: одно платное фото ${sku.format}, ${sku.resolution}; ${cost}. После готовности запустится проверка качества.`;
+    }
+    return `${label}: одно платное видео ${sku.durationSeconds} секунд, ${sku.format}, ${sku.resolution}, ${sku.audio ? "со сгенерированным звуком" : "без сгенерированного звука"}; ${cost}. После готовности запустится проверка качества.`;
   }
   if (sku.contentKind === "photo") {
     return `Одно платное квадратное фото 2K по выбранным ракурсам · около $${sku.estimatedUsd}. После готовности запустится проверка качества.`;
@@ -11941,6 +13081,11 @@ function generationFormReadiness(form) {
   const mediaCount = form
     ? form.querySelectorAll('input[name="media_id"]:checked:not(:disabled)').length
     : 0;
+  const readinessV4NeedsReceipt = Boolean(
+    sku?.readinessVersion === "v4"
+    && sku.preflight?.version !==
+      "generation-provider-readiness-receipt-v4",
+  );
   return evaluateGenerationFormReadiness({
     mode,
     sku: form?.elements?.sku?.value,
@@ -12108,15 +13253,25 @@ function syncGenerationFormReadiness(form) {
       ? safety.promptInspection?.blockers?.[0]?.message
         || "Технические ограничения не помещаются в лимит выбранной модели."
       : "";
-    const blocker = !readiness.ready
+    const readinessV4NeedsReceipt = Boolean(
+      sku?.readinessVersion === "v4"
+      && sku.preflight?.version !==
+        "generation-provider-readiness-receipt-v4",
+    );
+    const confirmationIsOnlyBlocker = readinessV4NeedsReceipt
+      && readiness.next?.key === "confirmation";
+    const blocker = !readiness.ready && !confirmationIsOnlyBlocker
         ? readiness.next?.hint || "Заполните обязательные поля."
         : promptBlocker;
     submit.disabled = busy || Boolean(blocker);
     submit.dataset.launchBlocker = blocker;
+    submit.dataset.launchPhase = readinessV4NeedsReceipt ? "preflight" : "paid";
     submit.textContent = busy
       ? sku
         ? "Готовим ТЗ и проверяем запуск — не повторяйте"
         : "Создаём dry-run задачи…"
+      : readinessV4NeedsReceipt
+        ? "Подготовить ТЗ и проверить цену бесплатно"
       : sku && !spendAllowed
         ? "Платный запуск остановлен лимитом"
         : !readiness.ready
@@ -12523,7 +13678,7 @@ function renderGenerationSection(sectionState) {
           })}
           ${state.realGenerationStartNotice ? alertMarkup(state.realGenerationStartNotice, "warning") : ""}
           ${startingRealJobs.length ? alertMarkup("Платный запуск сейчас сверяется с видеосервисом. Не запускайте его повторно: сначала дождитесь проверки статуса — так мы исключаем двойное списание.", "warning") : ""}
-          ${reconciliationRealJobs.length ? alertMarkup("Автопроверка одного или нескольких запусков остановлена безопасно: исход запроса к Runway неизвестен. Не создавайте новый платный запуск, пока владелец или администратор не выполнит ручную сверку в очереди.", "warning") : ""}
+          ${reconciliationRealJobs.length ? alertMarkup("Автопроверка одного или нескольких запусков остановлена безопасно: исход запроса к сервису генерации неизвестен. Не создавайте новый платный запуск, пока владелец или администратор не выполнит ручную сверку в очереди.", "warning") : ""}
           <form id="mock-batch-form" class="form-stack" style="margin-top:18px" data-generation-handoff-sku="${escapeHtml(handoffProduct.expectedSku || "")}" data-generation-handoff-product-name="${escapeHtml(handoffProduct.expectedProductName || "")}" novalidate>
             <p id="generation-draft-status" class="muted tiny" role="status">Сначала проверяем общий творческий черновик проекта, затем резервную копию этой вкладки. Кампания, медиа и подтверждение оплаты в общий черновик не входят.</p>
             ${generationReadinessMarkup(initialGenerationReadiness)}
@@ -12740,7 +13895,10 @@ function generationArchiveCardMarkup(sectionState = state.sections.generation) {
   return `
     <section class="card generation-archive-card" data-generation-archive-card>
       <div class="card-header"><div><p class="eyebrow">Архив и очередь</p><h2>Контент по неделям</h2><small class="muted">${escapeHtml(activity)}</small></div><button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="generation">Обновить</button></div>
-      ${generationModelAcceptanceMarkup(state.generationModelAcceptance)}
+      ${generationModelAcceptanceMarkup(
+        state.generationModelAcceptance,
+        state.generationModelCatalog,
+      )}
       ${sectionBody(sectionState, generationArchiveMarkup(
         batches,
         routeFilteredBatches,
@@ -12789,9 +13947,49 @@ function generationArchiveMarkup(batches, filteredBatches, visibleBatches, filte
             <option value="issue" ${filters.status === "issue" ? "selected" : ""}>Ошибки и отменённые</option>
           </select>
         </label>
+        <label class="field">
+          <span>Провайдер</span>
+          <select name="provider">
+            <option value="all" ${filters.provider === "all" ? "selected" : ""}>Все провайдеры</option>
+            <option value="runway" ${filters.provider === "runway" ? "selected" : ""}>Runway</option>
+            <option value="google" ${filters.provider === "google" ? "selected" : ""}>Google</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Модель</span>
+          <input name="model" maxlength="80" value="${escapeHtml(filters.model === "all" ? "" : filters.model)}" placeholder="Например, gen4_turbo" autocomplete="off" />
+        </label>
+        <label class="field">
+          <span>Результат</span>
+          <select name="content_kind">
+            <option value="all" ${filters.contentKind === "all" ? "selected" : ""}>Фото и видео</option>
+            <option value="video" ${filters.contentKind === "video" ? "selected" : ""}>Видео</option>
+            <option value="photo" ${filters.contentKind === "photo" ? "selected" : ""}>Фото</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Как выбрана модель</span>
+          <select name="selection_source">
+            <option value="all" ${filters.selectionSource === "all" ? "selected" : ""}>Любой источник</option>
+            <option value="system_recommendation" ${filters.selectionSource === "system_recommendation" ? "selected" : ""}>Рекомендация системы</option>
+            <option value="research_recommendation" ${filters.selectionSource === "research_recommendation" ? "selected" : ""}>Рекомендация исследования</option>
+            <option value="performance_recommendation" ${filters.selectionSource === "performance_recommendation" ? "selected" : ""}>Рекомендация по результатам</option>
+            <option value="manual_choice" ${filters.selectionSource === "manual_choice" ? "selected" : ""}>Ручной выбор</option>
+            <option value="alternative_after_block" ${filters.selectionSource === "alternative_after_block" ? "selected" : ""}>Альтернатива после блокировки</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Качество модели</span>
+          <select name="quality_status">
+            <option value="all" ${filters.qualityStatus === "all" ? "selected" : ""}>Любой статус</option>
+            <option value="accepted" ${filters.qualityStatus === "accepted" ? "selected" : ""}>Проверено</option>
+            <option value="needs_revalidation" ${filters.qualityStatus === "needs_revalidation" ? "selected" : ""}>Нужна перепроверка</option>
+            <option value="unproven" ${filters.qualityStatus === "unproven" ? "selected" : ""}>Экспериментально</option>
+          </select>
+        </label>
         <label class="field generation-archive-search">
-          <span>Товар или запуск</span>
-          <input name="query" maxlength="120" value="${escapeHtml(filters.query)}" placeholder="Артикул, название или ID" autocomplete="off" />
+          <span>Товар, запуск или модель</span>
+          <input name="query" maxlength="120" value="${escapeHtml(filters.query)}" placeholder="Артикул, название, модель или ID" autocomplete="off" />
         </label>
         <button id="generation-archive-submit" class="btn btn-small" type="submit" ${archive.loading ? "disabled" : ""}>${archive.loading ? "Ищем…" : "Показать"}</button>
       </form>`}
@@ -12810,7 +14008,7 @@ function generationArchiveMarkup(batches, filteredBatches, visibleBatches, filte
         ${filteredBatches.length > visibleBatches.length && filters.visible >= GENERATION_VISIBLE_CAP ? `<span class="muted tiny">Уточните период или поиск, чтобы не выводить больше ${GENERATION_VISIBLE_CAP} строк сразу</span>` : ""}
         ${!archive.exhausted ? `<button class="btn btn-secondary btn-small" type="button" data-action="load-more-generation" ${archive.loading || archive.loadingMore ? "disabled" : ""}>${archive.loadingMore ? "Загружаем…" : archive.error ? "Повторить загрузку истории" : `Загрузить ещё ${GENERATION_ARCHIVE_PAGE_SIZE} старых`}</button>` : `<span class="muted tiny">Загружена вся доступная история по выбранным фильтрам</span>`}
       </div>`}
-      <p class="generation-archive-note">${interactive ? "Показана только запись из точной ссылки; фильтры общей истории к ней не применяются." : "Период, статус и поиск применяются на сервере ко всему архиву. Кнопка «Загрузить ещё» добавляет следующую страницу без повторов."} <span class="generation-mobile-hint">На телефоне таблицу можно листать по горизонтали.</span></p>
+      <p class="generation-archive-note">${interactive ? "Показана только запись из точной ссылки; фильтры общей истории к ней не применяются." : "Период, статус и поиск применяются на сервере ко всему архиву. Провайдер, модель, тип результата, источник выбора и качество фильтруются там же. Кнопка «Загрузить ещё» добавляет следующую страницу без повторов."} <span class="generation-mobile-hint">На телефоне таблицу можно листать по горизонтали.</span></p>
     </div>
   `;
 }
@@ -12821,6 +14019,11 @@ async function submitGenerationArchiveFilters(form) {
   state.generationArchive.filters = normalizeGenerationFilters({
     period: values.get("period"),
     status: values.get("status"),
+    provider: values.get("provider"),
+    model: values.get("model") || "all",
+    contentKind: values.get("content_kind"),
+    selectionSource: values.get("selection_source"),
+    qualityStatus: values.get("quality_status"),
     query: values.get("query"),
     visible: GENERATION_VISIBLE_STEP,
   });
@@ -12853,6 +14056,11 @@ async function reloadGenerationArchive() {
       state.api.generationArchive({
         period: filters.period,
         status: filters.status,
+        provider: filters.provider,
+        model: filters.model,
+        contentKind: filters.contentKind,
+        selectionSource: filters.selectionSource,
+        qualityStatus: filters.qualityStatus,
         query: filters.query,
         page_size: GENERATION_ARCHIVE_PAGE_SIZE,
         projectId: currentWorkspaceProjectId(),
@@ -12915,6 +14123,11 @@ async function loadMoreGenerationArchive() {
         ? state.api.generationArchive({
           period: filters.period,
           status: filters.status,
+          provider: filters.provider,
+          model: filters.model,
+          contentKind: filters.contentKind,
+          selectionSource: filters.selectionSource,
+          qualityStatus: filters.qualityStatus,
           query: filters.query,
           page_size: GENERATION_ARCHIVE_PAGE_SIZE,
           cursor,
@@ -12975,6 +14188,9 @@ function generationTable(items, interactive = false) {
           ? `<tr class="generation-week-heading"><th colspan="5" scope="rowgroup">Неделя ${escapeHtml(weekLabel)}</th></tr>`
           : "";
         const details = generationBatchDetails(item);
+        const selectionMarkup = details.selectionSnapshot
+          ? generationSelectionArchiveMarkup(details)
+          : `<div class="generation-model-record is-legacy"><strong>Модель не зафиксирована · старый запуск</strong><span>Система не подставляет сегодняшнюю модель вместо исторических данных.</span></div>`;
         const archiveAction = ["queued", "starting", "submitted", "processing"]
           .includes(details.status)
           ? ""
@@ -12982,7 +14198,7 @@ function generationTable(items, interactive = false) {
         if (!details.real) {
           return `${weekHeading}
             <tr>
-              <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">Dry-run задач · медиафайлы не создавались</small><br />${archiveAction}</td>
+              <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">Dry-run задач · медиафайлы не создавались</small>${selectionMarkup}<br />${archiveAction}</td>
               <td>${escapeHtml(item.sku || details.parameters.sku || "—")}</td>
               <td>${statusBadge(details.status)}<br /><small class="muted">Готово ${formatNumber(item.total_accepted ?? item.completed ?? 0)} из ${formatNumber(item.total_requested ?? item.count ?? 0)}</small></td>
               <td>0 ₽</td>
@@ -12994,8 +14210,10 @@ function generationTable(items, interactive = false) {
         const failure = details.failureCode ? generationFailureMessage(details.failureCode) : "";
         const contentLabel = details.photo ? "Фото" : "Ролик";
         const previewUrl = trustedCachedGenerationUrl(details.jobId);
+        const providerLabel = details.provider === "google" ? "Google" : "Runway";
+        const providerOperationLabel = details.provider === "google" ? "operation" : "task";
         const startingWarning = details.reconciliationRequired
-          ? `<div class="generation-reconcile-warning generation-reconcile-warning-critical" role="alert"><strong>Нужна ручная сверка Runway.</strong><span>Автоопрос остановлен, потому что исход платного POST неизвестен. Новый запуск запрещён до фиксации существующего task ID или подтверждения его отсутствия.</span></div>`
+          ? `<div class="generation-reconcile-warning generation-reconcile-warning-critical" role="alert"><strong>Нужна ручная сверка ${providerLabel}.</strong><span>Автоопрос остановлен, потому что исход платного POST неизвестен. Новый запуск запрещён до фиксации существующего ${providerOperationLabel} ID или подтверждения его отсутствия.</span></div>`
           : details.status === "starting"
             ? `<div class="generation-reconcile-warning"><strong>Идёт сверка запуска.</strong><span>Не запускайте видео повторно и не повторяйте фото — сначала система проверит, был ли запрос принят сервисом.</span></div>`
           : "";
@@ -13018,7 +14236,7 @@ function generationTable(items, interactive = false) {
           : "";
         return `${weekHeading}
           <tr data-generation-job-id="${escapeHtml(details.jobId)}" tabindex="-1">
-            <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">${details.photo ? "Платное фото · квадрат 2K" : `Платный ролик · ${details.duration} секунд${details.audio ? " · с озвучкой" : " · без голоса"}`}</small>${archiveAction ? `<br />${archiveAction}` : ""}</td>
+            <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">${details.photo ? "Платное фото" : `Платный ролик · ${details.duration} секунд${details.audio ? " · с озвучкой" : " · без голоса"}`}</small>${selectionMarkup}${archiveAction ? `<br />${archiveAction}` : ""}</td>
             <td>${escapeHtml(item.sku || details.parameters.sku || "—")}</td>
             <td>
               ${generationStageMarkup(details.status)}
@@ -13039,17 +14257,157 @@ function generationTable(items, interactive = false) {
   `;
 }
 
+function generationSelectionArchiveMarkup(details) {
+  const snapshot = details?.selectionSnapshot;
+  if (!snapshot) {
+    return `<div class="generation-model-record is-legacy"><strong>Модель не зафиксирована · старый запуск</strong><span>Система не подставляет сегодняшнюю модель вместо исторических данных.</span></div>`;
+  }
+  const qualityLabels = {
+    accepted: "Проверено",
+    needs_revalidation: "Нужна перепроверка",
+    unproven: "Экспериментально",
+  };
+  const sourceLabels = {
+    system_recommendation: "Рекомендация системы",
+    research_recommendation: "Рекомендация исследования",
+    performance_recommendation: "Рекомендация по результатам",
+    manual_choice: "Ручной выбор человека",
+    alternative_after_block: "Альтернатива после блокировки",
+  };
+  const reasonLabels = {
+    content_kind_match: "Подходит для выбранного типа результата",
+    input_mode_match: "Поддерживает выбранные исходники",
+    duration_supported: "Поддерживает выбранную длительность",
+    ratio_supported: "Поддерживает выбранное соотношение сторон",
+    resolution_supported: "Поддерживает выбранное разрешение",
+    audio_supported: "Поддерживает нужный звук",
+    spoken_dialogue_supported: "Поддерживает речь и диалог",
+    reference_images_supported: "Работает с выбранными фото-референсами",
+    reference_video_supported: "Принимает готовое видео как референс",
+    first_frame_supported: "Использует точный первый кадр",
+    last_frame_supported: "Поддерживает первый и последний кадр",
+    provider_model_ready: "Провайдер подтвердил готовность модели",
+    within_budget: "Укладывается в бюджет кампании",
+    accepted_output_evidence: "Качество подтверждено принятыми результатами",
+    research_recommendation_match: "Совпадает с рекомендацией исследования",
+    performance_recommendation_match: "Совпадает с выводом по прошлым результатам",
+    intent_declared_best_for: "Подходит для заявленного замысла",
+    quality_preference_match: "Соответствует приоритету качества",
+    speed_preference_match: "Соответствует приоритету скорости",
+    audio_required: "Нужны естественный звук или речь",
+    dialogue_required: "Нужна сцена с диалогом",
+    product_fidelity_required: "Важно точно сохранить товар",
+    image_reference_available: "Есть точный главный кадр товара",
+    video_reference_available: "Есть готовое видео для вариации",
+    within_campaign_budget: "Укладывается в бюджет кампании",
+    economy_preferred: "Выбран экономный вариант",
+    quality_preferred: "Приоритет — лучшее качество",
+    manual_override: "Сотрудник выбрал эту модель вручную",
+  };
+  const reasons = Array.isArray(snapshot.recommendation_reason_codes)
+    ? snapshot.recommendation_reason_codes
+      .map((code) => reasonLabels[String(code || "")])
+      .filter(Boolean)
+      .slice(0, 3)
+    : [];
+  const resolution = String(snapshot.requested_resolution || "").trim();
+  const ratio = String(snapshot.requested_ratio || "").trim();
+  const inputModeLabels = { text: "Текст", image: "Фото", video: "Видео" };
+  const contentKind = details.photo ? "Фото" : "Видео";
+  const estimated = snapshot.estimated_cost_minor === null || snapshot.estimated_cost_minor === undefined
+    ? "—"
+    : formatGenerationUsd(snapshot.estimated_cost_minor);
+  const actual = details.actualMinor === null || details.actualMinor === undefined
+    ? "пока не известна"
+    : formatGenerationUsd(details.actualMinor);
+  return `
+    <section class="generation-model-record" aria-label="Модель и настройки запуска">
+      <div class="generation-model-record__head">
+        <span class="generation-model-record__kind">${escapeHtml(contentKind)}</span>
+        <strong>${escapeHtml(snapshot.model_public_label)}</strong>
+        <span class="generation-model-record__quality" data-quality="${escapeHtml(snapshot.acceptance_status_at_launch)}">${escapeHtml(qualityLabels[snapshot.acceptance_status_at_launch] || "Статус уточняется")}</span>
+      </div>
+      <p>${escapeHtml(String(snapshot.provider || "").toUpperCase())} · ${escapeHtml(sourceLabels[snapshot.selection_source] || "Источник выбора зафиксирован")}</p>
+      <ul>
+        <li>${snapshot.requested_duration_seconds ? `${escapeHtml(snapshot.requested_duration_seconds)} сек.` : "Статичное изображение"}</li>
+        <li>${escapeHtml([ratio, resolution].filter(Boolean).join(" · ") || "Формат зафиксирован")}</li>
+        <li>${escapeHtml(inputModeLabels[snapshot.input_mode] || snapshot.input_mode)}${snapshot.reference_count ? ` · ${escapeHtml(snapshot.reference_count)} реф.` : ""}</li>
+        <li>${snapshot.requested_audio ? "Со звуком или речью" : "Без звука"}</li>
+      </ul>
+      ${reasons.length ? `<p class="generation-model-record__reason">${escapeHtml(reasons.join(" · "))}</p>` : ""}
+      <p class="generation-model-record__cost">Оценка ${escapeHtml(estimated)} · фактически ${escapeHtml(actual)}</p>
+      <details>
+        <summary>Технические детали</summary>
+        <dl>
+          <div><dt>Модель</dt><dd><code>${escapeHtml(snapshot.model)}</code></dd></div>
+          <div><dt>Каталог</dt><dd><code>${escapeHtml(snapshot.recommendation_catalog_version)}</code></dd></div>
+          <div><dt>Цены</dt><dd><code>${escapeHtml(snapshot.pricing_version)}</code></dd></div>
+        </dl>
+      </details>
+      <button class="btn btn-secondary btn-small" type="button" data-action="repeat-generation-settings" data-batch-id="${escapeHtml(details.item?.id || "")}">Повторить настройки</button>
+      <small>Создаст только новый черновик: стоимость и доступность будут проверены заново.</small>
+    </section>
+  `;
+}
+
 function generationBatchDetails(item) {
   const parameters = item?.parameters && typeof item.parameters === "object" ? item.parameters : {};
+  // The archive RPC's top-level field is authoritative by presence. `null`
+  // means an honest legacy launch and must not fall through to an untrusted
+  // input/parameters snapshot from before the archive contract existed.
+  const hasAuthoritativeSnapshot = Boolean(item)
+    && Object.prototype.hasOwnProperty.call(item, "generation_selection_snapshot");
+  const rawSelectionSnapshot = (hasAuthoritativeSnapshot
+    ? [item.generation_selection_snapshot]
+    : [
+      item?.selection_snapshot,
+      parameters.generation_selection_snapshot,
+      parameters.selection_snapshot,
+    ]
+  ).find((value) => value && typeof value === "object" && !Array.isArray(value));
+  const selectionSnapshot = rawSelectionSnapshot
+    && String(rawSelectionSnapshot.provider || "").trim()
+    && String(rawSelectionSnapshot.model || "").trim()
+    && String(rawSelectionSnapshot.model_public_label || "").trim()
+    && String(rawSelectionSnapshot.selection_source || "").trim()
+    && String(rawSelectionSnapshot.recommendation_catalog_version || "").trim()
+    && String(rawSelectionSnapshot.pricing_version || "").trim()
+    ? {
+      provider: String(rawSelectionSnapshot.provider).trim().toLowerCase(),
+      model: String(rawSelectionSnapshot.model).trim().toLowerCase(),
+      model_public_label: String(rawSelectionSnapshot.model_public_label).trim(),
+      selection_source: String(rawSelectionSnapshot.selection_source).trim().toLowerCase(),
+      recommendation_reason_codes: Array.isArray(rawSelectionSnapshot.recommendation_reason_codes)
+        ? rawSelectionSnapshot.recommendation_reason_codes.map((value) => String(value || "").trim()).filter(Boolean)
+        : [],
+      recommendation_warning_codes: Array.isArray(rawSelectionSnapshot.recommendation_warning_codes)
+        ? rawSelectionSnapshot.recommendation_warning_codes.map((value) => String(value || "").trim()).filter(Boolean)
+        : [],
+      recommendation_catalog_version: String(rawSelectionSnapshot.recommendation_catalog_version).trim(),
+      pricing_version: String(rawSelectionSnapshot.pricing_version).trim(),
+      estimated_cost_minor: firstFiniteNumber(rawSelectionSnapshot.estimated_cost_minor),
+      requested_duration_seconds: firstFiniteNumber(rawSelectionSnapshot.requested_duration_seconds) ?? 0,
+      requested_ratio: String(rawSelectionSnapshot.requested_ratio || "").trim(),
+      requested_resolution: String(rawSelectionSnapshot.requested_resolution || "").trim(),
+      requested_audio: normalizeBoolean(rawSelectionSnapshot.requested_audio),
+      input_mode: String(rawSelectionSnapshot.input_mode || "").trim().toLowerCase(),
+      reference_count: firstFiniteNumber(rawSelectionSnapshot.reference_count) ?? 0,
+      acceptance_status_at_launch: String(rawSelectionSnapshot.acceptance_status_at_launch || "").trim().toLowerCase(),
+      provider_readiness_receipt_id: String(rawSelectionSnapshot.provider_readiness_receipt_id || "").trim(),
+    }
+    : null;
   const real = String(item?.mode || parameters.mode || "mock").toLowerCase() === "real";
   const jobId = real ? String(parameters.job_id || "") : "";
   const cached = jobId ? state.realGenerationResults.get(jobId) : null;
   const job = cached?.job && typeof cached.job === "object" ? cached.job : {};
   const billing = parameters.billing && typeof parameters.billing === "object" ? parameters.billing : {};
-  const model = String(job.model || item?.model || parameters.model || "");
+  const provider = String(
+    selectionSnapshot?.provider || job.provider || item?.provider || parameters.provider || "runway",
+  ).trim().toLowerCase();
+  const model = String(selectionSnapshot?.model || job.model || item?.model || parameters.model || "");
   const photo = model === "seedream5_lite";
   const status = String(job.status || item?.status || parameters.job_status || "queued").toLowerCase();
-  const estimatedMinor = firstFiniteNumber(job.estimated_cost_minor, item?.estimated_cost_minor, billing.estimated_cost_minor);
+  const estimatedMinor = firstFiniteNumber(selectionSnapshot?.estimated_cost_minor, job.estimated_cost_minor, item?.estimated_cost_minor, billing.estimated_cost_minor);
   const actualMinor = firstFiniteNumber(job.actual_cost_minor, item?.actual_cost_minor, parameters.actual_cost_minor);
   return {
     item,
@@ -13057,8 +14415,10 @@ function generationBatchDetails(item) {
     real,
     jobId,
     status,
+    provider,
     model,
     photo,
+    selectionSnapshot,
     outputMediaId: String(job.output_media_id || parameters.output_media_id || ""),
     duration: firstFiniteNumber(
       job.duration_seconds,
@@ -13109,6 +14469,7 @@ function mergeGenerationDeepLinkedBatch(data, jobId, result) {
     job_id: normalizedJobId,
     job_status: job.status,
     mode: "real",
+    provider: job.provider,
     model: job.model,
     duration_seconds: job.duration_seconds,
     audio: job.audio,
@@ -13399,19 +14760,26 @@ function generationActionsMarkup(details) {
         </div>
       `;
     }
+    const provider = details.provider === "google" ? "google" : "runway";
+    const providerLabel = provider === "google" ? "Google" : "Runway";
+    const operationLabel = provider === "google" ? "operation" : "task";
+    const idLabel = provider === "google" ? "Google operation name" : "Runway task ID";
+    const example = provider === "google"
+      ? "Например: Google operations, 16.07 14:35"
+      : "Например: Runway dashboard, 16.07 14:35";
     return `
-      <form class="generation-reconciliation-form" data-job-id="${escapeHtml(details.jobId)}" data-incident-id="${escapeHtml(details.reconciliationIncidentId)}" novalidate>
+      <form class="generation-reconciliation-form" data-job-id="${escapeHtml(details.jobId)}" data-incident-id="${escapeHtml(details.reconciliationIncidentId)}" data-provider="${provider}" novalidate>
         <div class="generation-reconciliation-heading">
-          <strong>Сверить с панелью Runway</strong>
-          <span>Проверяйте только task, созданный рядом со временем этого запуска. Портал дополнительно сверит ID, статус и createdAt через API.</span>
+          <strong>Сверить с панелью ${providerLabel}</strong>
+          <span>Проверяйте только ${operationLabel}, созданный рядом со временем этого запуска. Портал дополнительно сверит ID, статус и createdAt через API.</span>
         </div>
         <label class="field">
-          <span>Runway task ID</span>
-          <input name="provider_task_id" maxlength="128" placeholder="Нужен для кнопки «Прикрепить task»" autocomplete="off" />
+          <span>${idLabel}</span>
+          <input name="provider_task_id" maxlength="340" placeholder="Нужен для кнопки «Прикрепить ${operationLabel}»" autocomplete="off" />
         </label>
         <label class="field">
           <span>Основание проверки *</span>
-          <input name="evidence_reference" required minlength="8" maxlength="500" placeholder="Например: Runway dashboard, 16.07 14:35" autocomplete="off" />
+          <input name="evidence_reference" required minlength="8" maxlength="500" placeholder="${example}" autocomplete="off" />
         </label>
         <label class="field">
           <span>Что именно проверено *</span>
@@ -13419,11 +14787,11 @@ function generationActionsMarkup(details) {
         </label>
         <label class="option generation-reconciliation-confirmation">
           <input type="checkbox" name="manual_confirmation" value="confirmed" required />
-          <span>Подтверждаю ручную проверку в Runway и понимаю, что портал не повторяет платный POST автоматически.</span>
+          <span>Подтверждаю ручную проверку в ${providerLabel} и понимаю, что портал не повторяет платный POST автоматически.</span>
         </label>
         <div class="generation-result-actions">
-          <button class="btn btn-small" type="submit" name="resolution" value="attach_existing_task">Прикрепить найденный task</button>
-          <button class="btn btn-secondary btn-small" type="submit" name="resolution" value="confirm_no_submission">Подтвердить: task отсутствует</button>
+          <button class="btn btn-small" type="submit" name="resolution" value="attach_existing_task">Прикрепить найденный ${operationLabel}</button>
+          <button class="btn btn-secondary btn-small" type="submit" name="resolution" value="confirm_no_submission">Подтвердить: ${operationLabel} отсутствует</button>
         </div>
         <small class="generation-reconciliation-note">Подтверждение отсутствия станет доступно не раньше чем через две минуты после фиксации инцидента.</small>
       </form>
@@ -13844,7 +15212,7 @@ function generationFailureMessage(code) {
     provider_task_failed: "Видеосервис начал работу, но не смог создать ролик. Стоимость показана рядом с задачей.",
     provider_timeout: "Видеосервис не завершил ролик вовремя. Новый запуск делайте только после проверки стоимости.",
     provider_response_invalid: "Видеосервис вернул неполный ответ. Обратитесь к руководителю до нового платного запуска.",
-    provider_submission_not_found: "Руководитель подтвердил, что Runway task для этого запуска отсутствует. Списание не зафиксировано; новый запуск создаётся отдельно с новым подтверждением цены.",
+    provider_submission_not_found: "Руководитель подтвердил, что задача провайдера для этого запуска отсутствует. Списание не зафиксировано; новый запуск создаётся отдельно с новым подтверждением цены.",
     output_download_failed: "Ролик создан у видеосервиса, но портал пока не смог забрать файл. Повторите проверку статуса без нового запуска.",
     output_validation_failed: "Полученный файл не прошёл безопасную проверку. Обратитесь к руководителю до нового запуска.",
     output_upload_failed: "Ролик создан, но пока не сохранён в защищённой папке. Повторите проверку без нового запуска.",
@@ -14663,6 +16031,54 @@ function contentReviewUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
     String(value || ""),
   );
+}
+
+function repeatGenerationSettingsFromArchive(batchId) {
+  const batches = listFrom(state.sections.generation.data || {}, "batches");
+  const item = batches.find((candidate) => String(candidate?.id || "") === String(batchId || ""));
+  const snapshot = item ? generationBatchDetails(item).selectionSnapshot : null;
+  if (!snapshot) {
+    toast("У старого запуска нет точной записи модели. Заполните новый черновик вручную.", "info");
+    return;
+  }
+  const detail = Object.freeze({
+    provider: snapshot.provider,
+    model: snapshot.model,
+    durationSeconds: snapshot.requested_duration_seconds,
+    ratio: snapshot.requested_ratio,
+    resolution: snapshot.requested_resolution,
+    audio: snapshot.requested_audio,
+    inputMode: snapshot.input_mode,
+    referenceCount: snapshot.reference_count,
+  });
+  const projectId = currentWorkspaceProjectId();
+  navigate(workspaceProjectHref("/workspace/generation?view=create", projectId));
+  let attempts = 0;
+  const applyToCurrentForm = () => {
+    const form = document.querySelector("#mock-batch-form");
+    if ((!form || !form.isConnected) && attempts < 12) {
+      attempts += 1;
+      window.requestAnimationFrame(applyToCurrentForm);
+      return;
+    }
+    if (!form || !form.isConnected) {
+      toast("Не удалось открыть новый черновик. Повторите действие из архива.", "error");
+      return;
+    }
+    clearAllGenerationPreflightRetries();
+    state.generationPreflight.requestId += 1;
+    state.generationPreflight.entries.clear();
+    resetGenerationSpecState();
+    if (form.elements.real_spend_confirmation) {
+      form.elements.real_spend_confirmation.checked = false;
+    }
+    form.dispatchEvent(new CustomEvent("contentengine:generation-repeat-settings", {
+      bubbles: true,
+      detail,
+    }));
+    toast("Настройки перенесены в новый черновик. Стоимость, доступ и исходники нужно проверить заново.", "success");
+  };
+  window.requestAnimationFrame(applyToCurrentForm);
 }
 
 function productResearchPaidStartContext() {
@@ -16619,6 +18035,13 @@ function currentAiLearningCategory() {
 }
 
 function currentAiLearningView() {
+  const requestedViews = state.route.path === "/workspace/ai"
+    ? state.route.query.getAll("view")
+    : [];
+  // Notification Center's canonical decisions destination uses the v4.9.1
+  // registry tab name. The existing governed teaching surface remains the
+  // sole renderer/decision owner; this is a route alias, not a second tab.
+  if (requestedViews.length === 1 && requestedViews[0] === "decisions") return "teach";
   const action = workspaceActionDescriptor(state.route);
   return aiLearningView(action.path === "/workspace/ai" ? action.view : "overview");
 }
@@ -19154,6 +20577,29 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "select-workspace-provenance") {
+    const provenanceFilter = String(control.dataset.provenanceFilter || "")
+      .trim()
+      .toLowerCase();
+    if (!["source", "research", "generated_output"].includes(provenanceFilter)) {
+      toast("Не удалось определить раздел файлов. Обновите страницу.", "error");
+      return;
+    }
+    state.workspaceBoard.selectedFolderId = "all";
+    state.workspaceBoard.selectedItemKey = "";
+    state.workspaceBoard.query = "";
+    state.workspaceBoard.entityType = "all";
+    state.workspaceBoard.provenanceFilter = provenanceFilter;
+    state.workspaceBoard.notice = "";
+    state.workspaceBoard.error = "";
+    state.workspaceBoard.pendingArchiveFolderId = "";
+    state.workspaceBoard.hasMore = false;
+    state.workspaceBoard.nextCursor = null;
+    state.workspaceBoard.visibleItemLimit = WORKSPACE_BOARD_VISIBLE_STEP;
+    await loadSection("board");
+    return;
+  }
+
   if (action === "open-workspace-item") {
     state.workspaceBoard.selectedItemKey = String(
       control.dataset.itemKey
@@ -19723,7 +21169,7 @@ async function handleClick(event) {
     try {
       if (specAction === "refresh") {
         await refreshGenerationSpec(form, { force: true });
-        toast("Статус управляемого ТЗ обновлён без Runway и списания.", "success");
+        toast("Статус управляемого ТЗ обновлён без вызова провайдера и списания.", "success");
       } else {
         if (["prepare", "patch"].includes(specAction)) {
           const identity = syncGenerationProductIdentity(form);
@@ -19749,7 +21195,7 @@ async function handleClick(event) {
         toast(
           specAction === "approve"
             ? "Эта серверная версия утверждена. Платный запуск всё ещё требует отдельного подтверждения цены."
-            : "История управляемого ТЗ обновлена бесплатно; Runway не запускался.",
+            : "История управляемого ТЗ обновлена бесплатно; платный провайдер не запускался.",
           "success",
         );
       }
@@ -20456,6 +21902,11 @@ async function handleClick(event) {
 
   if (action === "repeat-real-generation") {
     restoreRealGenerationDraft(control.dataset.jobId);
+    return;
+  }
+
+  if (action === "repeat-generation-settings") {
+    repeatGenerationSettingsFromArchive(control.dataset.batchId);
     return;
   }
 
@@ -21177,6 +22628,16 @@ function handleFormActivity(event) {
       markGenerationFormEdited(form);
       const priceConfirmationChanged =
         event.target.name === "real_spend_confirmation";
+      const exactGenerationSettingChanged = new Set([
+        "generation_provider",
+        "generation_model_id",
+        "generation_input_mode",
+        "duration_seconds",
+        "format",
+        "generation_resolution",
+        "generation_audio",
+        "generation_last_frame",
+      ]).has(event.target.name);
       const approvalReviewCleared = clearGenerationSpecApprovalReview(form, {
         render: false,
         // The checkbox is the explicit human price decision. Clearing it from
@@ -21184,6 +22645,14 @@ function handleFormActivity(event) {
         // Every other form mutation continues to revoke price consent.
         clearPriceConfirmation: !priceConfirmationChanged,
       });
+      if (exactGenerationSettingChanged) {
+        delete form.dataset.autoGenerationPreflightKey;
+        invalidateGenerationSpec(
+          form,
+          "Параметры модели изменились после последней серверной версии. Проверьте новое точное сочетание перед запуском.",
+        );
+        syncGenerationModeForm(form);
+      }
       if ([
         "generation_reference_url",
         "generation_reference_mechanics",
@@ -21266,16 +22735,26 @@ function workspaceBoardOrganizeMode() {
 function handleDragStart(event) {
   const handle = event.target.closest?.("[data-workspace-drag-item]");
   if (!handle || state.workspaceBoard.busy) return;
-  if (!workspaceBoardOrganizeMode()) {
-    event.preventDefault();
-    clearWorkspaceDropTargets();
-    return;
-  }
   const entityType = String(handle.dataset.entityType || "");
   const entityId = String(handle.dataset.entityId || "");
   const itemKey = String(handle.dataset.itemKey || workspaceBoardItemKey(entityType, entityId));
   if (!entityType || !entityId || !itemKey) {
     event.preventDefault();
+    return;
+  }
+  const dockFileDrag = entityType === "media"
+    && window.ContentEngineDesktopV4?.acceptsDockFileDrag?.(entityId) === true;
+  if (!workspaceBoardOrganizeMode() && !dockFileDrag) {
+    event.preventDefault();
+    clearWorkspaceDropTargets();
+    return;
+  }
+  if (dockFileDrag && !workspaceBoardOrganizeMode()) {
+    clearWorkspaceDropTargets();
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = "link";
+      event.dataTransfer.setData("text/plain", itemKey);
+    }
     return;
   }
   state.workspaceBoard.dragging = { entityType, entityId, itemKey };
@@ -21833,7 +23312,7 @@ function generationLearningMarkup(form = null) {
     && recovery
   ) {
     title = "ИИ рекомендует другой режим";
-    copy = `${recovery.fromLabel} показал слабые результаты. Можно выбрать ${recovery.toLabel}, но портал ничего не переключил: тема, способ съёмки и длительность остаются вашим выбором. Runway не вызывался, списания не было.`;
+    copy = `${recovery.fromLabel} показал слабые результаты. Можно выбрать ${recovery.toLabel}, но портал ничего не переключил: тема, способ съёмки и длительность остаются вашим выбором. Платный провайдер не вызывался, списания не было.`;
     stateName = "recommendation";
   } else if (current.status === "loading") {
     copy = "Сверяем публикации и метрики. Совет появится отдельно и не задержит выбранный вами запуск.";
@@ -22011,6 +23490,7 @@ async function prepareGenerationLearningFallback(
   const acceptedModels = new Set(
     normalizeGenerationModelAcceptance(
       state.generationModelAcceptance.data,
+      state.generationModelCatalog,
     ).models
       .filter((item) => item.status === "accepted")
       .map((item) => item.model),
@@ -22144,7 +23624,7 @@ async function prepareGenerationLearningFallback(
   syncGenerationLearningStatus(form);
   syncGenerationFormReadiness(form);
   toast(
-    `ИИ рекомендует ${candidate.sku.label}. Ваш выбор не изменён; Runway и списания не было.`,
+    `ИИ рекомендует ${candidate.sku.label}. Ваш выбор не изменён; вызова платного провайдера и списания не было.`,
     "info",
   );
   return null;
@@ -22332,6 +23812,19 @@ function automaticGenerationBriefCandidate(form, identity) {
   if (!form || !identity) return null;
   const mode = String(form.elements.generation_mode?.value || "mock");
   if (!isRealGenerationMode(mode)) return null;
+  const exactSku = generationSkuForForm(form);
+  const generationSelection = exactSku?.canonical === true
+    && !new Set(["seedream5_lite", "gen4_turbo", "seedance2_fast"])
+      .has(exactSku.model)
+    ? {
+      provider: exactSku.provider,
+      model: exactSku.model,
+      format: exactSku.format,
+      durationSeconds: exactSku.durationSeconds,
+      promptLimit: exactSku.promptMaxLength,
+      audio: exactSku.audio,
+    }
+    : null;
   const handoff = state.contentGenerationHandoff;
   const handoffMatchesIdentity = handoff
     && handoff.sku === identity.sku
@@ -22355,7 +23848,8 @@ function automaticGenerationBriefCandidate(form, identity) {
       learningPolicy,
       repairPolicy,
       generationReferenceFragment,
-      durationSeconds: generationSkuForForm(form)?.durationSeconds,
+      durationSeconds: exactSku?.durationSeconds,
+      generationSelection,
       productCategory: form.elements.product_category?.value,
       selectedRecommendation,
     });
@@ -22368,7 +23862,8 @@ function automaticGenerationBriefCandidate(form, identity) {
     learningPolicy,
     repairPolicy,
     generationReferenceFragment,
-    durationSeconds: generationSkuForForm(form)?.durationSeconds,
+    durationSeconds: exactSku?.durationSeconds,
+    generationSelection,
     productCategory: form.elements.product_category?.value,
     selectedRecommendation,
   });
@@ -22480,35 +23975,132 @@ function generationRepairContext(form) {
   };
 }
 
+function generationSelectionSnapshot(form, sku, exactScope) {
+  const metadata = window.ContentEngineGenerationGuidedV4
+    ?.getSelectionSnapshotMetadata?.(form);
+  const receipt = sku?.preflight;
+  const tokenPattern = /^[a-z][a-z0-9_]{0,63}$/u;
+  const codes = (value) => Array.isArray(value)
+    && value.length <= 32
+    && new Set(value).size === value.length
+    && value.every((item) => tokenPattern.test(item));
+  const snapshot = {
+    provider: sku?.provider,
+    model: sku?.model,
+    model_public_label: metadata?.modelPublicLabel,
+    selection_source: metadata?.selectionSource,
+    recommendation_reason_codes: metadata?.recommendationReasonCodes,
+    recommendation_warning_codes: metadata?.recommendationWarningCodes,
+    recommendation_catalog_version: metadata?.recommendationCatalogVersion,
+    pricing_version: receipt?.pricing_version,
+    estimated_cost_minor: receipt?.estimated_cost_minor,
+    requested_duration_seconds: sku?.durationSeconds,
+    requested_ratio: sku?.format,
+    requested_resolution: sku?.resolution,
+    requested_audio: sku?.audio,
+    input_mode: sku?.inputMode,
+    reference_count: exactScope?.reference_count,
+    acceptance_status_at_launch: metadata?.acceptanceStatusAtLaunch,
+    provider_readiness_receipt_id: receipt?.receipt_id,
+  };
+  if (
+    Object.keys(snapshot).length !== GENERATION_SELECTION_SNAPSHOT_FIELDS.length
+    || Object.keys(snapshot).some(
+      (key) => !GENERATION_SELECTION_SNAPSHOT_FIELDS.includes(key),
+    )
+    || snapshot.provider !== metadata?.provider
+    || snapshot.model !== metadata?.model
+    || snapshot.recommendation_catalog_version !== sku?.catalogVersion
+    || snapshot.pricing_version !== sku?.pricingVersion
+    || !["runway", "google"].includes(snapshot.provider)
+    || !["system_recommendation", "research_recommendation", "performance_recommendation", "manual_choice", "alternative_after_block"].includes(snapshot.selection_source)
+    || !codes(snapshot.recommendation_reason_codes)
+    || !codes(snapshot.recommendation_warning_codes)
+    || !Number.isSafeInteger(snapshot.estimated_cost_minor)
+    || snapshot.estimated_cost_minor < 0
+    || !Number.isSafeInteger(snapshot.requested_duration_seconds)
+    || typeof snapshot.requested_audio !== "boolean"
+    || snapshot.input_mode !== "image"
+    || !Number.isSafeInteger(snapshot.reference_count)
+    || !["accepted", "needs_revalidation", "unproven"].includes(snapshot.acceptance_status_at_launch)
+    || !contentReviewUuid(snapshot.provider_readiness_receipt_id)
+  ) return null;
+  return Object.freeze({
+    ...snapshot,
+    recommendation_reason_codes: Object.freeze([...snapshot.recommendation_reason_codes]),
+    recommendation_warning_codes: Object.freeze([...snapshot.recommendation_warning_codes]),
+  });
+}
+
 function generationSpecExactScope(
   form,
   identity = selectedGenerationProductIdentity(form),
 ) {
   const sku = generationSkuForForm(form);
   if (!form || !identity || !sku) return null;
+  const mediaCount = identity.mediaIds.length;
+  const semantics = (() => {
+    if (sku.model === "seedream5_lite" && mediaCount >= 1 && mediaCount <= 5) {
+      return { spokenDialogue: false, referenceCount: mediaCount, firstFrame: false };
+    }
+    if (["gen4_turbo", "gen4.5"].includes(sku.model) && mediaCount === 1) {
+      return { spokenDialogue: false, referenceCount: 0, firstFrame: true };
+    }
+    if (sku.model === "gemini_omni_flash" && mediaCount === 1 && sku.audio === true) {
+      return { spokenDialogue: sku.audio, referenceCount: 0, firstFrame: true };
+    }
+    if (["seedance2_fast", "seedance2_mini"].includes(sku.model) && mediaCount >= 1 && mediaCount <= 5) {
+      return {
+        spokenDialogue: sku.audio,
+        referenceCount: mediaCount,
+        firstFrame: false,
+      };
+    }
+    if (["veo3.1_fast", "veo-3.1-lite-generate-preview"].includes(sku.model)
+      && mediaCount === (sku.lastFrame ? 2 : 1)) {
+      return { spokenDialogue: sku.audio, referenceCount: 0, firstFrame: true };
+    }
+    return null;
+  })();
+  if (!semantics) return null;
   return normalizeGenerationSpecScope({
     primary_media_id: identity.mediaId,
     media_ids: identity.mediaIds,
     platform: String(form.elements.platform?.value || "").trim().toLowerCase(),
+    provider: sku.provider || "runway",
     model: sku.model,
+    input_mode: sku.inputMode || "image",
     duration_seconds: sku.durationSeconds,
     product_category: String(
       form.elements.product_category?.value || "",
     ).trim().toLowerCase(),
     format: sku.format || String(form.elements.format?.value || "").trim(),
+    ratio: sku.format || String(form.elements.format?.value || "").trim(),
+    resolution: sku.resolution || (sku.contentKind === "photo" ? "2K" : "720p"),
     audio: sku.audio === true,
+    spoken_dialogue: semantics.spokenDialogue,
+    reference_count: semantics.referenceCount,
+    reference_video: false,
+    first_frame: semantics.firstFrame,
+    last_frame: sku.lastFrame === true,
   });
 }
 
 function applyGenerationSpecScopeToForm(form, scope) {
   const normalized = normalizeGenerationSpecScope(scope);
   if (!form || !normalized) return false;
-  const mode = {
+  const legacyMode = {
     gen4_turbo: REAL_GEN4_MODE,
     seedance2_fast: REAL_SEEDANCE_MODE,
     seedream5_lite: REAL_PHOTO_MODE,
   }[normalized.model];
-  if (!mode || !form.elements.generation_mode) return false;
+  form.dispatchEvent(new CustomEvent("contentengine:generation-apply-exact-scope", {
+    bubbles: false,
+    cancelable: true,
+    detail: normalized,
+  }));
+  const mode = legacyMode || (normalized.audio ? REAL_SEEDANCE_MODE : REAL_GEN4_MODE);
+  if (!form.elements.generation_mode) return false;
   form.elements.generation_mode.value = mode;
   if (form.elements.duration_seconds) {
     form.elements.duration_seconds.value = String(normalized.duration_seconds);
@@ -23037,7 +24629,7 @@ function generationAiResearchSelectionContextMatches(form) {
     return blockGenerationAiResearchVerification(
       form,
       "provider_prompt_fragment_unverified",
-      "Серверный provider-фрагмент выбранной рекомендации не подтверждён. Техническое ТЗ и платный запуск заблокированы; Runway не вызывался.",
+      "Серверный provider-фрагмент выбранной рекомендации не подтверждён. Техническое ТЗ и платный запуск заблокированы; платный провайдер не вызывался.",
     );
   }
   if (!authoritativeCategory || authoritativeCategory !== currentCategory) {
@@ -23149,6 +24741,24 @@ function generationSpendConsentFingerprint(form) {
     product_category: String(form.elements?.product_category?.value || "")
       .trim().toLowerCase(),
     generation_mode: String(form.elements?.generation_mode?.value || ""),
+    generation_provider: String(form.elements?.generation_provider?.value || "")
+      .trim().toLowerCase(),
+    generation_model_id: String(form.elements?.generation_model_id?.value || "")
+      .trim().toLowerCase(),
+    generation_input_mode: String(form.elements?.generation_input_mode?.value || "")
+      .trim().toLowerCase(),
+    generation_resolution: String(form.elements?.generation_resolution?.value || "")
+      .trim().toLowerCase(),
+    generation_audio: String(form.elements?.generation_audio?.value || "")
+      .trim().toLowerCase(),
+    generation_last_frame:
+      form.elements?.generation_last_frame?.checked === true,
+    generation_catalog_version: String(
+      form.elements?.generation_catalog_version?.value || "",
+    ).trim(),
+    generation_pricing_version: String(
+      form.elements?.generation_pricing_version?.value || "",
+    ).trim(),
     duration_seconds: String(form.elements?.duration_seconds?.value || ""),
     format: String(form.elements?.format?.value || ""),
     platform: String(form.elements?.platform?.value || ""),
@@ -23437,6 +25047,14 @@ function invalidateGenerationSpec(form, reason = "") {
   state.generationSpec.aiResearchBinding = null;
   state.generationSpec.videoReferenceBinding = null;
   state.generationSpec.approvalReview = null;
+  for (const [key, entry] of state.generationPreflight.entries) {
+    if (entry?.preflight?.version ===
+      "generation-provider-readiness-receipt-v4") {
+      clearGenerationPreflightRetry(entry);
+      state.generationPreflight.entries.delete(key);
+    }
+  }
+  if (form) delete form.dataset.autoGenerationPreflightKey;
   if (form?.elements?.real_spend_confirmation) {
     form.elements.real_spend_confirmation.checked = false;
   }
@@ -23454,6 +25072,13 @@ function resetGenerationSpecState() {
   state.generationSpec.aiResearchBinding = null;
   state.generationSpec.videoReferenceBinding = null;
   state.generationSpec.approvalReview = null;
+  for (const [key, entry] of state.generationPreflight.entries) {
+    if (entry?.preflight?.version ===
+      "generation-provider-readiness-receipt-v4") {
+      clearGenerationPreflightRetry(entry);
+      state.generationPreflight.entries.delete(key);
+    }
+  }
   const form = document.querySelector("#mock-batch-form");
   if (form) delete form.dataset.generationSpecPromptLocked;
 }
@@ -24142,8 +25767,11 @@ function syncGenerationSpendSnapshotUi(form) {
   const campaignId = form.elements?.campaign_id?.value || "";
   const wrapper = document.createElement("div");
   wrapper.innerHTML = generationSpendSnapshotMarkup(state.generationSpend, {
-    requestMinor:
-      sku?.estimatedMinor ?? REAL_GENERATION_SKUS[REAL_GEN4_MODE].estimatedMinor,
+    requestMinor: Number.isSafeInteger(sku?.estimatedMinor)
+      ? sku.estimatedMinor
+      : sku?.canonical === true
+        ? null
+        : REAL_GENERATION_SKUS[REAL_GEN4_MODE].estimatedMinor,
     campaignId,
   }).trim();
   if (!wrapper.firstElementChild) return false;
@@ -24153,13 +25781,19 @@ function syncGenerationSpendSnapshotUi(form) {
 
 function syncGenerationModeForm(form) {
   const mode = String(form.elements.generation_mode?.value || "mock");
-  const baseSku = realGenerationSku(mode);
+  const canonicalControlsPresent = Boolean(
+    form.elements.generation_provider
+    || form.elements.generation_model_id
+  );
+  const legacyBaseSku = canonicalControlsPresent ? null : realGenerationSku(mode);
+  const baseSku = generationSkuForForm(form) || legacyBaseSku;
   const durationField = form.querySelector("#generation-duration-field");
   const durationControl = form.elements.duration_seconds;
   const durationHint = form.querySelector("#generation-duration-hint");
   const real = baseSku !== null;
-  const seedance = mode === REAL_SEEDANCE_MODE;
-  const photo = mode === REAL_PHOTO_MODE;
+  const canonical = baseSku?.canonical === true;
+  const seedance = baseSku?.audio === true;
+  const photo = baseSku?.contentKind === "photo";
   for (const choiceMode of [
     REAL_PHOTO_MODE,
     REAL_SEEDANCE_MODE,
@@ -24182,7 +25816,7 @@ function syncGenerationModeForm(form) {
       const unavailable = Boolean(
         real
         && !photo
-        && !baseSku.durationOptions.includes(Number(option.value)),
+        && !baseSku.durationOptions?.includes(Number(option.value)),
       );
       option.disabled = unavailable;
       option.hidden = unavailable;
@@ -24190,17 +25824,23 @@ function syncGenerationModeForm(form) {
     if (
       real
       && !photo
-      && !baseSku.durationOptions.includes(Number(durationControl.value))
+      && !baseSku.durationOptions?.includes(Number(durationControl.value))
     ) {
       durationControl.value = String(baseSku.durationSeconds);
     }
   }
   if (durationHint && real && !photo) {
-    durationHint.textContent = seedance
+    durationHint.textContent = canonical
+      ? `${baseSku.publicLabel}: ${baseSku.durationOptions.join(", ")} сек. Вы выбираете длительность сами; точную стоимость сервер пересчитает до подтверждения.`
+      : seedance
       ? "Seedance 2 Fast поддерживает 4, 8, 12 или 15 секунд. Вы выбираете длительность сами; цена пересчитается до подтверждения."
       : "Gen‑4 Turbo поддерживает 2, 5, 8 или 10 секунд. Вы выбираете длительность сами; цена пересчитается до подтверждения.";
   }
-  const sku = realGenerationSku(mode, durationControl?.value);
+  const sku = generationSkuForForm(form) || (
+    canonicalControlsPresent
+      ? null
+      : realGenerationSku(mode, durationControl?.value)
+  );
   cancelInactiveGenerationPreflightRetries(sku);
   const count = form.elements.count;
   const brief = form.elements.brief;
@@ -24226,10 +25866,14 @@ function syncGenerationModeForm(form) {
   const videoReferencePanel = form.querySelector(
     "#generation-video-reference",
   );
-  const spendAllowed = !real || realGenerationSpendAllowed(
-    mode,
-    campaignSelect?.value || "",
-    sku?.durationSeconds,
+  const spendAllowed = !real || (
+    Number.isSafeInteger(sku?.estimatedMinor)
+    && state.generationSpend.data
+    && generationSpendAllowsMinor(
+      normalizeGenerationSpendOverview(state.generationSpend.data),
+      sku.estimatedMinor,
+      campaignSelect?.value || "",
+    )
   );
   const videoReferenceEnabled = real && !photo;
   if (videoReferencePanel) videoReferencePanel.hidden = !videoReferenceEnabled;
@@ -24278,8 +25922,24 @@ function syncGenerationModeForm(form) {
   }
   syncGenerationDestination(form);
   if (format) {
-    format.disabled = Boolean(sku?.format);
-    if (sku?.format) format.value = sku.format;
+    if (sku?.canonical === true) {
+      const catalogModel = state.generationModelCatalog?.models?.find((entry) => (
+        entry?.provider === sku.provider && entry?.model === sku.model
+      ));
+      const ratios = catalogModel?.inputCapabilities?.[sku.inputMode]?.allowedRatios;
+      format.disabled = false;
+      format.setAttribute(
+        "aria-disabled",
+        Array.isArray(ratios) && ratios.length === 1 ? "true" : "false",
+      );
+      if (Array.from(format.options).some((option) => option.value === sku.format)) {
+        format.value = sku.format;
+      }
+    } else {
+      format.removeAttribute("aria-disabled");
+      format.disabled = Boolean(sku?.format);
+      if (sku?.format) format.value = sku.format;
+    }
   }
   if (confirmation) confirmation.hidden = !real;
   if (mockExplanation) mockExplanation.hidden = false;
@@ -24291,10 +25951,12 @@ function syncGenerationModeForm(form) {
   }
   if (confirmationInput) {
     confirmationInput.required = real;
+    confirmationInput.disabled = real && !sku?.confirmation;
     if (!real) {
       confirmationInput.checked = false;
-    } else if (confirmationInput.value !== sku.confirmation) {
-      confirmationInput.value = sku.confirmation;
+      confirmationInput.value = "";
+    } else if (confirmationInput.value !== (sku?.confirmation || "")) {
+      confirmationInput.value = sku?.confirmation || "";
       confirmationInput.checked = false;
     }
   }
@@ -24318,11 +25980,21 @@ function syncGenerationModeForm(form) {
   }
   if (mediaHint) {
     mediaHint.textContent = real
-      ? `Выберите от 1 до ${MAX_REAL_GENERATION_REFERENCES} ракурсов одного товара и отметьте главное фото.`
+      ? canonical && ["seedream5_lite", "seedance2_fast", "seedance2_mini"].includes(sku.model)
+        ? `Выберите от 1 до ${MAX_REAL_GENERATION_REFERENCES} ракурсов одного товара и отметьте главное фото.`
+        : canonical && ["veo3.1_fast", "veo-3.1-lite-generate-preview"].includes(sku.model)
+          ? sku.lastFrame
+            ? "Выберите ровно два фото: главное станет первым кадром, второе — точным финальным кадром."
+            : "Выберите ровно одно главное фото. Включите финальный кадр, чтобы использовать второе выбранное фото."
+          : canonical
+            ? "Выберите ровно одно главное фото товара для первого кадра."
+            : `Выберите от 1 до ${MAX_REAL_GENERATION_REFERENCES} ракурсов одного товара и отметьте главное фото.`
       : "Для dry-run можно выбрать один или несколько исходников.";
   }
   if (price && sku) {
-    price.textContent = `Ориентировочная стоимость: $${sku.estimatedUsd} (${sku.estimatedCredits} кредитов). Итоговая сумма зависит от тарифа сервиса.`;
+    price.textContent = Number.isSafeInteger(sku.estimatedMinor)
+      ? `Точная стоимость по свежей проверке сервера: $${(sku.estimatedMinor / 100).toFixed(2)}${Number.isSafeInteger(sku.estimatedCredits) ? ` (${sku.estimatedCredits} кредитов)` : ""}.`
+      : "Стоимость подтвердит сервер после бесплатной проверки выбранной модели.";
   }
   if (note && sku) {
     note.textContent = seedance
@@ -24335,11 +26007,13 @@ function syncGenerationModeForm(form) {
     confirmationTitle.textContent = `Подтверждаю создание одного платного ${photo ? "фото" : "видео"}`;
   }
   if (confirmationCopy && sku) {
-    confirmationCopy.textContent = `${photo ? "квадрат 2K · одно фото" : `${sku.durationSeconds} секунд · одно видео`} · около $${sku.estimatedUsd} · обязательная AI-проверка запустится автоматически${photo ? "" : ", без транскрипции"}`;
+    confirmationCopy.textContent = sku.confirmation
+      ? `${photo ? `одно фото · ${sku.resolution}` : `${sku.durationSeconds} секунд · одно видео · ${sku.resolution}`} · точная стоимость $${(sku.estimatedMinor / 100).toFixed(2)} · квитанция относится только к этому выбору.`
+      : "Сначала выполните бесплатную проверку выбранной модели. Затем здесь появится точная стоимость и отдельное подтверждение человека.";
   }
   if (preflightButton) {
     preflightButton.dataset.runwayModel = sku?.model || "";
-    syncGenerationPreflightUi(form, sku, { automaticAllowed: spendAllowed });
+    syncGenerationPreflightUi(form, sku, { automaticAllowed: true });
   }
   if (briefHint) {
     briefHint.textContent = seedance
@@ -24365,7 +26039,7 @@ function syncGenerationModeForm(form) {
   }
   syncGenerationSpecUi(form);
   syncGenerationRepairStatus(form);
-  if (real && spendAllowed) scheduleAutomaticGenerationPreflight(form);
+  if (real) scheduleAutomaticGenerationPreflight(form);
 }
 
 
@@ -24740,16 +26414,24 @@ async function submitGenerationBatch(form) {
 
 function validateGenerationPreflight(result, sku) {
   const preflight = normalizeGenerationProviderPreflight(
-    result?.preflight,
-    { gateVersion: GENERATION_LEARNING_GATE_VERSION },
+    result?.preflight ?? result,
+    {
+      organizationId: state.api?.organizationId
+        || state.bootstrap?.organization?.id,
+      actorId: state.user?.id,
+      gateVersion: GENERATION_LEARNING_GATE_VERSION,
+      catalogVersion: sku.catalogVersion || "",
+      pricingVersion: sku.pricingVersion || "",
+      expectedSelection: sku,
+      requiredVersion: generationReadinessRequiresV4(sku)
+        ? "generation-provider-readiness-receipt-v4"
+        : "generation-provider-readiness-receipt-v3",
+      projectId: sku.projectId || "",
+      generationSpecContext: sku.generationSpecContext || null,
+    },
   );
-  if (
-    preflight === null
-    || preflight.model !== sku.model
-    || preflight.duration_seconds !== sku.durationSeconds
-    || preflight.estimated_credits !== sku.estimatedCredits
-  ) {
-    const failure = new Error("Runway preflight response invalid");
+  if (preflight === null) {
+    const failure = new Error("Provider preflight response invalid");
     failure.code = "provider_preflight_invalid";
     throw failure;
   }
@@ -24759,13 +26441,39 @@ function validateGenerationPreflight(result, sku) {
 function hydrateGenerationProviderReadiness(value) {
   const nowMs = Date.now();
   const receipts = generationProviderReadinessPreflights(value, {
+    organizationId: state.api?.organizationId
+      || state.bootstrap?.organization?.id,
+    actorId: state.user?.id,
     gateVersion: GENERATION_LEARNING_GATE_VERSION,
     nowMs,
   });
   for (const preflight of receipts) {
+    // A legacy v3 receipt for a newly spec-bound model may still be present in
+    // bootstrap data during rollout. Never surface its price or consent token:
+    // new4 is usable only through an exact project/spec-bound v4 receipt.
+    if (
+      generationReadinessRequiresV4(preflight)
+      && preflight.version !==
+        "generation-provider-readiness-receipt-v4"
+    ) continue;
     const key = generationPreflightKey({
+      provider: preflight.provider,
       model: preflight.model,
+      inputMode: preflight.input_mode,
       durationSeconds: preflight.duration_seconds,
+      format: preflight.format,
+      resolution: preflight.resolution,
+      audio: preflight.audio,
+      lastFrame: preflight.last_frame,
+      projectId: preflight.project_id,
+      generationSpecContext: preflight.version ===
+          "generation-provider-readiness-receipt-v4"
+        ? {
+            specId: preflight.spec_id,
+            specVersion: preflight.spec_version,
+            specHash: preflight.spec_hash,
+          }
+        : undefined,
     });
     const previous = state.generationPreflight.entries.get(
       key,
@@ -24808,10 +26516,76 @@ function generationPreflightErrorCode(error) {
     : "real_generation_request_failed";
 }
 
+function generationPreflightSelectionKey(sku) {
+  if (!sku) return "";
+  return JSON.stringify([
+    sku.provider || "runway",
+    sku.model,
+    sku.inputMode || sku.input_mode || "image",
+    Number(sku.durationSeconds ?? sku.duration_seconds),
+    sku.format || sku.ratio || (sku.contentKind === "photo" ? "1:1" : "9:16"),
+    sku.resolution || (sku.contentKind === "photo" ? "2K" : "720p"),
+    sku.audio === true,
+    (sku.lastFrame ?? sku.last_frame) === true,
+  ]);
+}
+
 function generationPreflightKey(sku) {
-  return sku
-    ? `${sku.model}:${sku.durationSeconds}`
-    : "";
+  if (!sku) return "";
+  const key = [generationPreflightSelectionKey(sku)];
+  if (generationReadinessRequiresV4(sku)) {
+    const context = sku.generationSpecContext
+      || sku.generation_spec_context
+      || {};
+    key.push(
+      String(sku.projectId || sku.project_id || "").trim().toLowerCase(),
+      String(context.specId || context.spec_id || "").trim().toLowerCase(),
+      Number(context.specVersion ?? context.spec_version),
+      String(context.specHash || context.spec_hash || "").trim().toLowerCase(),
+    );
+  }
+  return JSON.stringify(key);
+}
+
+function captureGenerationRequestContext(
+  form,
+  projectId = currentWorkspaceProjectId(),
+) {
+  return Object.freeze({
+    epoch: state.dataEpoch,
+    userId: String(state.user?.id || ""),
+    projectId: String(projectId || "").trim().toLowerCase(),
+    route: String(state.route?.path || ""),
+    form,
+  });
+}
+
+function generationRequestIdentityIsCurrent(context) {
+  if (!context || typeof context !== "object") return false;
+  return Boolean(
+    context.epoch === state.dataEpoch
+    && context.userId === String(state.user?.id || "")
+    && context.route === "/workspace/generation"
+    && state.route?.path === context.route
+    && context.projectId
+    && currentWorkspaceProjectId() === context.projectId
+  );
+}
+
+function generationRequestContextIsCurrent(context) {
+  const form = context?.form;
+  return Boolean(
+    generationRequestIdentityIsCurrent(context)
+    && form?.isConnected
+    && document.querySelector("#mock-batch-form") === form
+  );
+}
+
+function generationPreflightContextIsCurrent(context, key) {
+  return Boolean(
+    generationRequestContextIsCurrent(context)
+    && generationPreflightKey(generationSkuForForm(context.form)) === key
+  );
 }
 
 function clearGenerationPreflightRetry(entry) {
@@ -24844,7 +26618,7 @@ function clearAllGenerationPreflightRetries() {
 function queueGenerationPreflightRetry(
   sku,
   entry,
-  { awaitRetry = false } = {},
+  { awaitRetry = false, requestContext = null } = {},
 ) {
   const delay = generationPreflightRetryDelay({
     attempt: entry?.retryAttempt,
@@ -24858,8 +26632,10 @@ function queueGenerationPreflightRetry(
       retryExhausted: true,
     });
   }
-  const requestEpoch = state.dataEpoch;
-  const requestUserId = state.user?.id;
+  const retryContext = requestContext
+    || captureGenerationRequestContext(
+      document.querySelector("#mock-batch-form"),
+    );
   entry.retryAt = Date.now() + delay;
   const wait = new Promise((resolve) => {
     entry.retryResolve = resolve;
@@ -24867,34 +26643,22 @@ function queueGenerationPreflightRetry(
       entry.retryTimer = null;
       entry.retryResolve = null;
       entry.retryAt = 0;
-      const form = document.querySelector("#mock-batch-form");
+      const form = retryContext.form;
       const currentSku = generationSkuForForm(form);
       const currentEntry = state.generationPreflight.entries.get(
         generationPreflightKey(sku),
       );
-      const spendAllowed = Boolean(
-        form
-        && realGenerationSpendAllowed(
-          String(form.elements.generation_mode?.value || ""),
-          form.elements.campaign_id?.value || "",
-          currentSku?.durationSeconds,
-        )
-      );
       resolve(Boolean(
-        requestEpoch === state.dataEpoch
-        && requestUserId === state.user?.id
-        && form?.isConnected
+        generationPreflightContextIsCurrent(retryContext, generationPreflightKey(sku))
         && generationPreflightKey(currentSku) === generationPreflightKey(sku)
         && currentEntry === entry
-        && spendAllowed
       ));
     }, delay);
   });
   syncCurrentGenerationPreflightUi(generationPreflightKey(sku));
   const recovery = wait.then((current) => {
     if (!current) return { ok: false, stale: true };
-    const form = document.querySelector("#mock-batch-form");
-    return runGenerationPreflight(form, {
+    return runGenerationPreflight(retryContext.form, {
       force: true,
       automaticRetry: true,
       awaitRetry,
@@ -24910,7 +26674,7 @@ function syncGenerationPreflightUi(form, sku, { automaticAllowed = true } = {}) 
   if (!control || !status) return;
   if (!sku) {
     control.disabled = true;
-    control.textContent = "Проверить Runway бесплатно";
+    control.textContent = "Проверить доступность и стоимость";
     status.textContent = "";
     status.removeAttribute("data-status");
     return;
@@ -24929,24 +26693,24 @@ function syncGenerationPreflightUi(form, sku, { automaticAllowed = true } = {}) 
   );
   status.removeAttribute("data-status");
   if (entry.status === "loading") {
-    control.textContent = "Проверяем Runway…";
-    status.textContent = "Автоматически проверяем ключ, кредиты, модель и дневной лимит. Списаний нет…";
+    control.textContent = "Проверяем модель…";
+    status.textContent = "Сервер бесплатно проверяет доступ, модель, квоту и точную стоимость. Списаний нет…";
   } else if (entry.status === "ready") {
     control.textContent = "Проверить снова бесплатно";
     status.dataset.status = "ready";
-    status.textContent = "Runway предварительно готов: модель, кредиты и дневной лимит подтверждены. Перед оплатой сервер проверит всё ещё раз.";
+    status.textContent = "Модель доступна: сервер зафиксировал точную стоимость и свежую квитанцию для этого выбора.";
   } else if (entry.status === "error") {
     control.textContent = retryScheduled
       ? `Автоповтор ${entry.retryAttempt} из 2…`
       : "Повторить бесплатную проверку";
     status.dataset.status = "error";
     status.textContent = retryScheduled
-      ? `Runway временно не ответил. Портал сам повторит бесплатную проверку; задача не создаётся и списания нет.`
-      : `Платный запуск не создан. ${entry.errorMessage || "Runway пока не подтвердил готовность."}`;
+      ? `Провайдер временно не ответил. Портал повторит только бесплатную проверку; задача не создаётся и списания нет.`
+      : `Платный запуск не создан. ${entry.errorMessage || "Провайдер пока не подтвердил доступность модели."}`;
   } else {
-    control.textContent = "Проверить Runway бесплатно";
+    control.textContent = "Проверить доступность и стоимость";
     status.textContent = automaticAllowed
-      ? "Портал проверит Runway автоматически. Проверка не создаёт задачу и ничего не списывает."
+      ? "Портал проверит выбранную модель автоматически. Проверка не создаёт задачу и ничего не списывает."
       : "Автопроверка начнётся после выбора активной кампании; вручную её можно запустить бесплатно.";
   }
 }
@@ -24955,17 +26719,16 @@ function syncCurrentGenerationPreflightUi(key) {
   const form = document.querySelector("#mock-batch-form");
   const sku = generationSkuForForm(form);
   if (!form || !sku || generationPreflightKey(sku) !== key) return;
-  const spendAllowed = realGenerationSpendAllowed(
-    String(form.elements.generation_mode?.value || ""),
-    form.elements.campaign_id?.value || "",
-    sku.durationSeconds,
-  );
-  syncGenerationPreflightUi(form, sku, { automaticAllowed: spendAllowed });
+  syncGenerationPreflightUi(form, sku, { automaticAllowed: true });
 }
 
 function scheduleAutomaticGenerationPreflight(form) {
   const sku = generationSkuForForm(form);
   if (!form || !sku || !state.api || state.realGenerationStartInFlight) return;
+  if (
+    sku.readinessVersion === "v4"
+    && (!sku.projectId || !sku.generationSpecContext)
+  ) return;
   const key = generationPreflightKey(sku);
   if (form.dataset.autoGenerationPreflightKey === key) return;
   form.dataset.autoGenerationPreflightKey = key;
@@ -24994,7 +26757,22 @@ async function runGenerationPreflight(
       errorMessage: "Выберите платный режим, который нужно проверить.",
     };
   }
+  if (
+    sku.readinessVersion === "v4"
+    && (!sku.projectId || !sku.generationSpecContext)
+  ) {
+    return {
+      ok: false,
+      errorCode: "generation_spec_context_required",
+      errorMessage:
+        "Сначала подготовьте точную серверную версию ТЗ для выбранной модели.",
+    };
+  }
   const key = generationPreflightKey(sku);
+  const requestContext = captureGenerationRequestContext(form);
+  if (!generationPreflightContextIsCurrent(requestContext, key)) {
+    return { ok: false, stale: true };
+  }
   const previous = state.generationPreflight.entries.get(key) || {
     status: "idle",
   };
@@ -25003,7 +26781,12 @@ async function runGenerationPreflight(
     readyTtlMs: GENERATION_PREFLIGHT_READY_TTL_MS,
     errorCooldownMs: GENERATION_PREFLIGHT_ERROR_COOLDOWN_MS,
   });
-  if (decision === "join" && previous.promise) return previous.promise;
+  if (decision === "join" && previous.promise) {
+    const joined = await previous.promise;
+    return generationPreflightContextIsCurrent(requestContext, key)
+      ? joined
+      : { ok: false, stale: true };
+  }
   if (decision === "reuse_ready") {
     syncGenerationPreflightUi(form, sku);
     return { ok: true, preflight: previous.preflight, cached: true };
@@ -25023,8 +26806,6 @@ async function runGenerationPreflight(
     && Number.isSafeInteger(previous.retryAttempt),
   );
   clearGenerationPreflightRetry(previous);
-  const requestEpoch = state.dataEpoch;
-  const requestUserId = state.user?.id;
   const entry = {
     status: "loading",
     checkedAt: 0,
@@ -25047,38 +26828,42 @@ async function runGenerationPreflight(
   const request = (async () => {
     try {
       const result = await withUiTimeout(
-        state.api.realGenerationPreflight(
-          sku.model,
-          sku.durationSeconds,
-        ),
+        state.api.realGenerationPreflight({
+          provider: sku.provider || "runway",
+          model: sku.model,
+          input_mode: sku.inputMode || "image",
+          duration_seconds: sku.durationSeconds,
+          format: sku.format,
+          resolution: sku.resolution,
+          audio: sku.audio === true,
+          last_frame: sku.lastFrame === true,
+          ...(sku.readinessVersion === "v4"
+            ? {
+                project_id: sku.projectId,
+                generation_spec_context: {
+                  spec_id: sku.generationSpecContext.spec_id,
+                  spec_version: sku.generationSpecContext.spec_version,
+                  spec_hash: sku.generationSpecContext.spec_hash,
+                },
+              }
+            : {}),
+        }),
         REAL_GENERATION_SOFT_TIMEOUT_MS,
-        "Runway preflight timeout",
+        "Provider preflight timeout",
       );
       const preflight = validateGenerationPreflight(result, sku);
-      const currentForm = document.querySelector("#mock-batch-form");
-      if (
-        requestEpoch !== state.dataEpoch
-        || requestUserId !== state.user?.id
-        || !currentForm?.isConnected
-        || generationPreflightKey(
-          generationSkuForForm(currentForm),
-        ) !== key
-      ) return { ok: false, stale: true };
+      if (!generationPreflightContextIsCurrent(requestContext, key)) {
+        return { ok: false, stale: true };
+      }
       entry.status = "ready";
       entry.checkedAt = Date.now();
       entry.preflight = preflight;
       entry.errorCode = "";
       return { ok: true, preflight, cached: false };
     } catch (error) {
-      const currentForm = document.querySelector("#mock-batch-form");
-      if (
-        requestEpoch !== state.dataEpoch
-        || requestUserId !== state.user?.id
-        || !currentForm?.isConnected
-        || generationPreflightKey(
-          generationSkuForForm(currentForm),
-        ) !== key
-      ) return { ok: false, stale: true };
+      if (!generationPreflightContextIsCurrent(requestContext, key)) {
+        return { ok: false, stale: true };
+      }
       entry.status = "error";
       entry.checkedAt = Date.now();
       entry.errorMessage = actionErrorMessage(error);
@@ -25096,7 +26881,14 @@ async function runGenerationPreflight(
       };
     } finally {
       entry.promise = null;
-      syncCurrentGenerationPreflightUi(key);
+      const requestStillCurrent = generationPreflightContextIsCurrent(
+        requestContext,
+        key,
+      );
+      if (!requestStillCurrent && state.generationPreflight.entries.get(key) === entry) {
+        state.generationPreflight.entries.delete(key);
+      }
+      if (requestStillCurrent) syncGenerationModeForm(form);
     }
   })();
   entry.promise = request;
@@ -25104,6 +26896,7 @@ async function runGenerationPreflight(
   if (outcome.retryable) {
     const recovery = queueGenerationPreflightRetry(sku, entry, {
       awaitRetry,
+      requestContext,
     });
     if (awaitRetry) return await recovery;
     return { ...outcome, retryScheduled: true };
@@ -25111,10 +26904,35 @@ async function runGenerationPreflight(
   return outcome;
 }
 
+async function ensureGenerationV4ReadinessContext(
+  form,
+  requestContext = captureGenerationRequestContext(form),
+) {
+  const selected = canonicalGenerationSelection(form);
+  if (!generationReadinessRequiresV4(selected)) {
+    return generationSkuForForm(form);
+  }
+  let sku = generationSkuForForm(form);
+  if (sku?.projectId && sku?.generationSpecContext) return sku;
+  await ensurePreparedGenerationSpecForPaidStart(form);
+  if (!generationRequestContextIsCurrent(requestContext)) {
+    const stale = new Error("Generation context changed while preparing spec");
+    stale.code = "real_generation_context_changed";
+    throw stale;
+  }
+  sku = generationSkuForForm(form);
+  if (!sku?.projectId || !sku?.generationSpecContext) {
+    const failure = new Error("Prepared generation spec is not current");
+    failure.code = "generation_spec_launch_confirmation_stale";
+    throw failure;
+  }
+  return sku;
+}
+
 async function checkRunwayReadiness(control) {
   const form = control.closest("#mock-batch-form");
   const mode = String(form?.elements?.generation_mode?.value || "");
-  const sku = generationSkuForForm(form);
+  let sku = generationSkuForForm(form);
   if (!form || !sku) {
     toast("Выберите платный режим, который нужно проверить.", "error");
     return;
@@ -25123,13 +26941,34 @@ async function checkRunwayReadiness(control) {
     toast("Сначала дождитесь результата текущего платного запуска.", "info");
     return;
   }
+  if (generationReadinessRequiresV4(sku)) {
+    const requestContext = captureGenerationRequestContext(form);
+    try {
+      sku = await ensureGenerationV4ReadinessContext(form, requestContext);
+    } catch (error) {
+      if (!generationRequestContextIsCurrent(requestContext)) return;
+      toast(`Проверка не выполнена: ${actionErrorMessage(error)}`, "error");
+      return;
+    }
+  }
   const outcome = await runGenerationPreflight(form, {
     force: true,
     awaitRetry: true,
   });
   if (outcome.stale) return;
   if (outcome.ok) {
-    toast("Runway готов к запуску. Эта проверка ничего не списала.", "success");
+    if (
+      outcome.preflight?.version ===
+        "generation-provider-readiness-receipt-v4"
+      && form.elements.real_spend_confirmation
+    ) {
+      form.elements.real_spend_confirmation.value =
+        outcome.preflight.spend_confirmation;
+      form.elements.real_spend_confirmation.checked = false;
+      setFormBusy(form, false);
+      syncGenerationModeForm(form);
+    }
+    toast("Модель доступна, точная стоимость получена. Эта проверка ничего не списала.", "success");
   } else {
     toast(`Платный запуск не создан. ${outcome.errorMessage}`, "error");
   }
@@ -25140,13 +26979,34 @@ async function runGenerationPreflightForPaidStart(form) {
   const existing = sku
     ? state.generationPreflight.entries.get(generationPreflightKey(sku))
     : null;
-  if (existing?.status === "loading" && existing.promise) {
-    await existing.promise;
+  if (existing?.status !== "ready" || !existing.preflight) {
+    return {
+      ok: false,
+      errorCode: "provider_preflight_required",
+      errorMessage: "Сначала получите свежую стоимость и подтвердите её отдельно.",
+    };
   }
-  return await runGenerationPreflight(form, {
-    force: true,
-    awaitRetry: true,
-  });
+  try {
+    const preflight = validateGenerationPreflight(
+      { preflight: existing.preflight },
+      sku,
+    );
+    if (form.elements.real_spend_confirmation?.value !== preflight.spend_confirmation
+      || form.elements.real_spend_confirmation?.checked !== true) {
+      return {
+        ok: false,
+        errorCode: "real_spend_confirmation_required",
+        errorMessage: "Подтверждение относится к другой или устаревшей стоимости.",
+      };
+    }
+    return { ok: true, preflight, cached: true };
+  } catch (error) {
+    return {
+      ok: false,
+      errorCode: generationPreflightErrorCode(error),
+      errorMessage: actionErrorMessage(error),
+    };
+  }
 }
 
 async function submitRealGenerationReconciliation(form, submitter) {
@@ -25156,6 +27016,9 @@ async function submitRealGenerationReconciliation(form, submitter) {
   const values = new FormData(form);
   const jobId = String(form.dataset.jobId || "");
   const incidentId = String(form.dataset.incidentId || "");
+  const provider = String(form.dataset.provider || "").trim().toLowerCase();
+  const providerLabel = provider === "google" ? "Google" : "Runway";
+  const operationLabel = provider === "google" ? "operation" : "task";
   const providerTaskId = String(values.get("provider_task_id") || "").trim();
   const evidenceReference = String(values.get("evidence_reference") || "").trim();
   const reason = String(values.get("reason") || "").trim();
@@ -25169,23 +27032,24 @@ async function submitRealGenerationReconciliation(form, submitter) {
     return;
   }
   if (values.get("manual_confirmation") !== "confirmed") {
-    toast("Подтвердите, что вручную проверили запуск в панели Runway.", "error");
+    toast(`Подтвердите, что вручную проверили запуск в панели ${providerLabel}.`, "error");
     return;
   }
   if (resolution === "attach_existing_task" && !providerTaskId) {
-    toast("Для прикрепления укажите точный Runway task ID.", "error");
+    toast(`Для прикрепления укажите точный ${providerLabel} ${operationLabel} ID.`, "error");
     form.elements.provider_task_id?.focus();
     return;
   }
 
   setFormBusy(form, true, resolution === "attach_existing_task"
-    ? "Проверяем Runway task…"
-    : "Фиксируем отсутствие task…");
+    ? `Проверяем ${providerLabel} ${operationLabel}…`
+    : `Фиксируем отсутствие ${operationLabel}…`);
   const requestEpoch = state.dataEpoch;
   const requestUserId = state.user?.id;
   try {
     const result = await state.api.reconcileRealGeneration(jobId, {
       project_id: projectId,
+      provider,
       incident_id: incidentId,
       resolution,
       provider_task_id: providerTaskId,
@@ -25201,9 +27065,9 @@ async function submitRealGenerationReconciliation(form, submitter) {
     state.sections.generation.status = "idle";
     state.sections.tasks.status = "idle";
     if (resolution === "attach_existing_task") {
-      toast("Runway task подтверждён и прикреплён. Портал продолжит обработку без повторного платного запуска.", "success");
+      toast(`${providerLabel} ${operationLabel} подтверждён и прикреплён. Портал продолжит обработку без повторного платного запуска.`, "success");
     } else {
-      toast("Отсутствие Runway task зафиксировано. Этот запуск закрыт без списания; новый создаётся отдельно.", "success");
+      toast(`Отсутствие ${providerLabel} ${operationLabel} зафиксировано. Этот запуск закрыт без списания; новый создаётся отдельно.`, "success");
     }
   } catch (error) {
     if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id) return;
@@ -25224,6 +27088,12 @@ async function submitRealGenerationReconciliation(form, submitter) {
 async function submitRealGeneration(form, values, mode) {
   const projectId = requireWorkspaceProjectId();
   if (!projectId) return;
+  const launchContext = captureGenerationRequestContext(form, projectId);
+  const paidLaunchIdentityIsCurrent = () => (
+    generationRequestIdentityIsCurrent(launchContext)
+  );
+  const paidLaunchIsCurrent = () => generationRequestContextIsCurrent(launchContext);
+  if (!paidLaunchIsCurrent()) return;
   if (state.realGenerationStartInFlight) {
     toast("Платный запуск уже отправляется. Дождитесь результата текущего запроса.", "info");
     return;
@@ -25237,12 +27107,52 @@ async function submitRealGeneration(form, values, mode) {
     toast("Не удалось зафиксировать заполненный запуск. Данные не отправлены — повторите проверку формы.", "error");
     return;
   }
-  const generationSku = realGenerationSku(
-    mode,
-    values.get("duration_seconds"),
-  );
+  const generationSku = generationSkuForForm(form);
   if (!generationSku) {
     toast("Выберите точный платный режим генерации.", "error");
+    return;
+  }
+  if (
+    generationReadinessRequiresV4(generationSku)
+    && generationSku.preflight?.version !==
+      "generation-provider-readiness-receipt-v4"
+  ) {
+    setFormBusy(
+      form,
+      true,
+      "Готовим точное ТЗ и получаем свежую стоимость без списания…",
+    );
+    try {
+      await ensureGenerationV4ReadinessContext(form, launchContext);
+      if (!paidLaunchIsCurrent()) return;
+      const outcome = await runGenerationPreflight(form, {
+        force: true,
+        awaitRetry: true,
+      });
+      if (!paidLaunchIsCurrent() || outcome?.stale) return;
+      if (!outcome?.ok) {
+        const failure = new Error(
+          outcome?.errorMessage
+          || "Сервер не подтвердил доступность модели и точную стоимость.",
+        );
+        failure.code = outcome?.errorCode || "provider_preflight_invalid";
+        throw failure;
+      }
+      if (form.elements.real_spend_confirmation) {
+        form.elements.real_spend_confirmation.checked = false;
+      }
+      setFormBusy(form, false);
+      syncGenerationModeForm(form);
+      toast(
+        "Точное ТЗ и свежая стоимость готовы. Проверьте цену, отдельно подтвердите её и снова нажмите запуск.",
+        "success",
+      );
+    } catch (error) {
+      if (paidLaunchIsCurrent()) {
+        setFormBusy(form, false);
+        toast(`Платный запуск не создан: ${actionErrorMessage(error)}`, "error");
+      }
+    }
     return;
   }
   const campaignId = String(values.get("campaign_id") || "").trim();
@@ -25250,11 +27160,14 @@ async function submitRealGeneration(form, values, mode) {
     toast("Выберите активную кампанию из свежей денежной сводки.", "error");
     return;
   }
-  if (!realGenerationSpendAllowed(
-    mode,
-    campaignId,
-    generationSku.durationSeconds,
-  )) {
+  if (
+    !Number.isSafeInteger(generationSku.estimatedMinor)
+    || !generationSpendAllowsMinor(
+      normalizeGenerationSpendOverview(state.generationSpend.data || {}),
+      generationSku.estimatedMinor,
+      campaignId,
+    )
+  ) {
     const overview = normalizeGenerationSpendOverview(state.generationSpend.data || {});
     toast(overview.blockerMessage || "Для выбранной цены не хватает утверждённого денежного остатка. Dry-run задач без файлов остаётся доступен.", "error");
     await loadGenerationSpendOverview({ silent: true, force: true });
@@ -25335,8 +27248,11 @@ async function submitRealGeneration(form, values, mode) {
     toast("Проверка товара ещё не закончилась. Платный запрос не отправлен — повторите запуск через несколько секунд.", "error");
     return;
   }
-  if (values.get("real_spend_confirmation") !== generationSku.confirmation) {
-    toast(`Подтвердите создание одного платного ${contentLabel} примерно за $${generationSku.estimatedUsd}.`, "error");
+  if (
+    !generationSku.confirmation
+    || values.get("real_spend_confirmation") !== generationSku.confirmation
+  ) {
+    toast(`Получите свежую точную стоимость и подтвердите создание одного платного ${contentLabel}.`, "error");
     return;
   }
   const payoutRub = canManageTeam() ? Number(values.get("payout_rub") || 0) : 0;
@@ -25350,10 +27266,12 @@ async function submitRealGeneration(form, values, mode) {
   let generationReferenceContext;
   try {
     const prepared = await ensurePreparedGenerationSpecForPaidStart(form);
+    if (!paidLaunchIsCurrent()) return;
     generationSpecContext = prepared.context;
     preparedSpec = prepared.spec;
     generationReferenceContext = prepared.generationReferenceContext;
   } catch (error) {
+    if (!paidLaunchIsCurrent()) return;
     if (form.isConnected) {
       setFormBusy(form, false);
       restoreGenerationLaunchSnapshot(form, launchSnapshot);
@@ -25376,6 +27294,20 @@ async function submitRealGeneration(form, values, mode) {
     return;
   }
   const repairContext = generationRepairContext(form);
+  const exactScope = generationSpecExactScope(form, finalIdentity);
+  const selectionSnapshot = generationSelectionSnapshot(
+    form,
+    generationSku,
+    exactScope,
+  );
+  if (!exactScope || !selectionSnapshot) {
+    setFormBusy(form, false);
+    if (form.elements.real_spend_confirmation) {
+      form.elements.real_spend_confirmation.checked = false;
+    }
+    toast("Точный выбор модели, исходников или серверной квитанции изменился. Проверьте параметры и стоимость заново.", "error");
+    return;
+  }
 
   const payload = {
     project_id: projectId,
@@ -25384,15 +27316,25 @@ async function submitRealGeneration(form, values, mode) {
     product_name: String(values.get("product_name") || "").trim(),
     product_category: productCategory,
     count: 1,
-    format: generationSku.format || String(values.get("format") || "9:16"),
+    provider: generationSku.provider,
+    model: generationSku.model,
+    input_mode: generationSku.inputMode,
+    duration_seconds: generationSku.durationSeconds,
+    format: generationSku.format,
+    resolution: generationSku.resolution,
+    audio: generationSku.audio,
+    last_frame: generationSku.lastFrame,
+    prompt_max_length: generationSku.promptMaxLength,
     brief,
     media_ids: mediaIds,
     platform: String(values.get("platform") || "").trim(),
     destination_ref: String(values.get("destination_ref") || "").trim(),
-    model: generationSku.model,
-    duration_seconds: generationSku.durationSeconds,
-    audio: generationSku.audio,
     spend_confirmation: String(values.get("real_spend_confirmation") || ""),
+    provider_readiness_receipt_id:
+      generationSku.providerReadinessReceiptId,
+    provider_readiness_receipt_hash:
+      generationSku.providerReadinessReceiptHash,
+    generation_selection_snapshot: selectionSnapshot,
     ...(!photo
       ? {
           review_autostart_confirmed: true,
@@ -25415,54 +27357,74 @@ async function submitRealGeneration(form, values, mode) {
       : {}),
   };
 
+  if (!paidLaunchIsCurrent()) return;
+  const startRequestId = state.realGenerationStartRequestId + 1;
+  state.realGenerationStartRequestId = startRequestId;
   state.realGenerationStartInFlight = true;
   state.realGenerationStartNotice = "";
-  setFormBusy(form, true, "Проверяем Runway без списания…");
+  setFormBusy(form, true, "Проверяем точный выбор и квитанцию…");
   const draft = realGenerationDraftFromPayload(
     payload,
     mode,
     editableIntent,
   );
-  const requestEpoch = state.dataEpoch;
-  const requestUserId = state.user?.id;
   let providerStartAttempted = false;
   try {
     const preflightOutcome = await runGenerationPreflightForPaidStart(
       form,
     );
-    if (
-      requestEpoch !== state.dataEpoch ||
-      requestUserId !== state.user?.id
-    ) return;
+    if (!paidLaunchIsCurrent()) return;
     if (preflightOutcome?.stale) return;
     if (!preflightOutcome?.ok) {
       const failure = new Error(
         preflightOutcome?.errorMessage
-        || "Runway не подтвердил бесплатную проверку готовности.",
+        || "Свежая серверная проверка выбранной модели недоступна.",
       );
       failure.code = preflightOutcome?.errorCode
         || "provider_preflight_invalid";
       throw failure;
     }
-    validateGenerationPreflight(preflightOutcome, generationSku);
+    const launchPreflight = validateGenerationPreflight(
+      preflightOutcome,
+      generationSku,
+    );
+    if (
+      launchPreflight.receipt_id !== payload.provider_readiness_receipt_id
+      || launchPreflight.receipt_hash !== payload.provider_readiness_receipt_hash
+      || launchPreflight.spend_confirmation !== payload.spend_confirmation
+      || launchPreflight.estimated_cost_minor
+        !== payload.generation_selection_snapshot.estimated_cost_minor
+    ) {
+      const failure = new Error("Серверная квитанция изменилась после подтверждения.");
+      failure.code = "provider_preflight_invalid";
+      throw failure;
+    }
+    if (!paidLaunchIsCurrent()) return;
     setFormBusy(form, true, "Отправляем платный запуск…");
+    state.api.bindRealGenerationClientContext(payload, {
+      expectedActorId: launchContext.userId,
+      isContextCurrent: paidLaunchIsCurrent,
+    });
     providerStartAttempted = true;
     const startRequest = state.api.startRealGeneration(payload);
     const firstWait = await withSoftTimeoutResult(startRequest, REAL_GENERATION_SOFT_TIMEOUT_MS);
     let result;
     if (firstWait.timedOut) {
-      state.realGenerationStartNotice = "Подтверждение запуска занимает больше обычного. Запрос продолжает проверяться; не нажимайте запуск повторно и не подтверждайте новую оплату.";
-      setFormBusy(form, false);
-      if (form.elements.real_spend_confirmation) form.elements.real_spend_confirmation.checked = false;
-      form.dataset.dirty = "true";
-      render();
+      if (paidLaunchIsCurrent()) {
+        state.realGenerationStartNotice = "Подтверждение запуска занимает больше обычного. Запрос продолжает проверяться; не нажимайте запуск повторно и не подтверждайте новую оплату.";
+        setFormBusy(form, false);
+        if (form.elements.real_spend_confirmation) form.elements.real_spend_confirmation.checked = false;
+        form.dataset.dirty = "true";
+        render();
+      }
       result = await startRequest;
     } else {
       result = firstWait.result;
     }
-    if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id) return;
-    if (!result?.job?.id) throw new Error("Runway принял запрос без номера задачи. Обновите очередь.");
+    if (!paidLaunchIdentityIsCurrent()) return;
+    if (!result?.job?.id) throw new Error("Провайдер принял запрос без номера задачи. Обновите очередь.");
     const jobId = String(result.job.id);
+    const launchFormStillCurrent = paidLaunchIsCurrent();
     const reviewAutostartRegistered = photo
       ? true
       : registerGenerationReviewAutostart(jobId);
@@ -25470,11 +27432,12 @@ async function submitRealGeneration(form, values, mode) {
     state.lastRealGenerationJobId = jobId;
     applyRealGenerationResult(jobId, result, { renderNow: false, projectId });
     track("real_generation_started", {
-      provider: "runway",
+      provider: generationSku.provider,
       model: generationSku.model,
       duration_seconds: generationSku.durationSeconds,
       audio: generationSku.audio,
       estimated_credits: generationSku.estimatedCredits,
+      estimated_cost_minor: generationSku.estimatedMinor,
       format: payload.format,
       platform: payload.platform,
       has_media: true,
@@ -25486,37 +27449,48 @@ async function submitRealGeneration(form, values, mode) {
       repair_guard_codes: repairContext?.guard_codes || [],
     });
     state.realGenerationStartNotice = "";
-    setFormBusy(form, false);
-    form.dataset.dirty = "true";
-    if (form.elements.real_spend_confirmation) form.elements.real_spend_confirmation.checked = false;
-    syncGenerationModeForm(form);
+    if (launchFormStillCurrent) {
+      setFormBusy(form, false);
+      form.dataset.dirty = "true";
+      if (form.elements.real_spend_confirmation) form.elements.real_spend_confirmation.checked = false;
+      syncGenerationModeForm(form);
+    }
     state.sections.generation.status = "idle";
     state.sections.placement.status = "idle";
     state.sections.tasks.status = "idle";
     const resultStatus = String(result.job.status || "queued").toLowerCase();
-    resetGenerationSpecState();
+    if (launchFormStillCurrent) resetGenerationSpecState();
     if (resultStatus === "failed") {
       toast(generationFailureMessage(result.job.failure_code), "error");
     } else {
-      clearContentGenerationHandoff();
-      clearGenerationRepair();
-      persistGenerationFormDraft(form, { manual: true });
+      if (launchFormStillCurrent) {
+        clearContentGenerationHandoff();
+        clearGenerationRepair();
+        persistGenerationFormDraft(form, { manual: true });
+      }
       toast(
         photo
-          ? `Платный запуск принят: одно фото 2K, ориентировочно $${generationSku.estimatedUsd}. Статус обновится автоматически.`
+          ? `Платный запуск принят: одно фото ${generationSku.resolution}, точная подтверждённая стоимость $${generationSku.estimatedUsd}. Статус обновится автоматически.`
           : reviewAutostartRegistered
-            ? `Платный запуск принят: одно видео, ${generationSku.durationSeconds} секунд, ориентировочно $${generationSku.estimatedUsd}. Технический скан и AI-QA запустятся автоматически.`
-            : `Платный запуск принят: одно видео, ${generationSku.durationSeconds} секунд, ориентировочно $${generationSku.estimatedUsd}. Браузер не сохранил авто-QA: после готовности запустите проверку одной кнопкой.`,
+            ? `Платный запуск принят: одно видео, ${generationSku.durationSeconds} секунд, точная подтверждённая стоимость $${generationSku.estimatedUsd}. Технический скан и AI-QA запустятся автоматически.`
+            : `Платный запуск принят: одно видео, ${generationSku.durationSeconds} секунд, точная подтверждённая стоимость $${generationSku.estimatedUsd}. Браузер не сохранил авто-QA: после готовности запустите проверку одной кнопкой.`,
         "success",
       );
     }
     render();
   } catch (error) {
-    if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id) return;
-    setFormBusy(form, false);
-    if (form.elements.real_spend_confirmation) form.elements.real_spend_confirmation.checked = false;
-    form.dataset.dirty = "true";
-    if (providerStartAttempted) resetGenerationSpecState();
+    const currentAfterFailure = providerStartAttempted
+      ? paidLaunchIdentityIsCurrent()
+      : paidLaunchIsCurrent();
+    if (!currentAfterFailure) return;
+    if (paidLaunchIsCurrent()) {
+      setFormBusy(form, false);
+      if (form.elements.real_spend_confirmation) form.elements.real_spend_confirmation.checked = false;
+      form.dataset.dirty = "true";
+    }
+    if (providerStartAttempted && paidLaunchIsCurrent()) {
+      resetGenerationSpecState();
+    }
     if (error?.job?.id) {
       const jobId = String(error.job.id);
       state.realGenerationDrafts.set(jobId, draft);
@@ -25529,19 +27503,23 @@ async function submitRealGeneration(form, values, mode) {
     const startErrorMessage = actionErrorMessage(error);
     state.realGenerationStartNotice = providerStartAttempted
       ? `Запуск не подтверждён окончательно. Причина: ${startErrorMessage} Сначала обновите очередь и проверьте существующую задачу; не создавайте дубликат с новой оплатой.`
-      : "Платный запуск не создан: бесплатная проверка Runway не пройдена. Исправьте баланс, ключ или квоту и повторите подтверждение.";
+      : "Платный запуск не создан: свежая бесплатная проверка выбранной модели не пройдена. Проверьте доступ, квоту и стоимость, затем подтвердите заново.";
     state.sections.generation.status = "idle";
     toast(startErrorMessage, "error");
   } finally {
-    state.realGenerationStartInFlight = false;
-    const renderedForm = document.querySelector("#mock-batch-form");
-    if (renderedForm) {
+    if (state.realGenerationStartRequestId === startRequestId) {
+      state.realGenerationStartInFlight = false;
+    }
+    if (paidLaunchIsCurrent()) {
+      const renderedForm = launchContext.form;
       if (renderedForm.dataset.busy === "true") setFormBusy(renderedForm, false);
       if (renderedForm.elements.real_spend_confirmation) renderedForm.elements.real_spend_confirmation.checked = false;
       syncGenerationModeForm(renderedForm);
     }
-    if (state.route.path === "/workspace/generation") render();
-    scheduleRealGenerationPolling(500);
+    if (paidLaunchIdentityIsCurrent()) {
+      render();
+      scheduleRealGenerationPolling(500);
+    }
   }
 }
 
@@ -26328,6 +28306,7 @@ async function submitProductResearchStart(form) {
     toast("Сервер не разрешил платный анализ в этом проекте.", "error");
     return;
   }
+
   const values = new FormData(form);
   const exactPaidAuthorizationRequired = paidStart.exactAuthorizationRequired;
   const paidAnalysisConfirmation = String(
@@ -30510,6 +32489,7 @@ function clearAuthenticatedState() {
   state.user = null;
   state.api?.clearBootstrapContext();
   state.realGenerationStartInFlight = false;
+  state.realGenerationStartRequestId += 1;
   state.realGenerationStartNotice = "";
   state.realGenerationPollInFlight = false;
   state.realGenerationPollCursor = 0;

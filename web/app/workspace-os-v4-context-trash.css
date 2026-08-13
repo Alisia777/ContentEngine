@@ -101,9 +101,9 @@ body.ce-v4-context-open {
 
 /* Trash Dock app stays mounted and visible on every workspace route. */
 .ce-v4-trash-separator { margin-left: 2px !important; }
-.ce-v4-trash-dock .ce-v4-dock__tile { color: #c9beb6; background: linear-gradient(145deg, rgba(255,255,255,.075), rgba(255,255,255,.018)), #1b1816; }
-.ce-v4-trash-dock.has-items .ce-v4-dock__tile,
-.ce-v4-trash-dock.is-active .ce-v4-dock__tile { color: var(--ce-v4-copper-bright, #ffb47e); border-color: rgba(236,136,75,.25); background: radial-gradient(circle at 50% 10%, rgba(236,136,75,.15), transparent 70%), #211912; }
+.ce-v4-trash-dock[data-ce-v4-trash-fallback="true"] .ce-v4-dock__tile { color: #c9beb6; background: linear-gradient(145deg, rgba(255,255,255,.075), rgba(255,255,255,.018)), #1b1816; }
+.ce-v4-trash-dock[data-ce-v4-trash-fallback="true"].has-items .ce-v4-dock__tile,
+.ce-v4-trash-dock[data-ce-v4-trash-fallback="true"].is-active .ce-v4-dock__tile { color: var(--ce-v4-copper-bright, #ffb47e); border-color: rgba(236,136,75,.25); background: radial-gradient(circle at 50% 10%, rgba(236,136,75,.15), transparent 70%), #211912; }
 .ce-v4-trash-dock__badge { position: absolute; top: -6px; right: -7px; display: grid; min-width: 22px; height: 22px; padding: 0 6px; border: 2px solid #15110e; border-radius: 999px; place-items: center; color: #170d08; background: #ffae74; box-shadow: 0 5px 14px rgba(0,0,0,.4); font: 850 var(--ce-v4-font-helper, 12px)/1 system-ui, sans-serif; }
 
 /* Trash is one inline mode of the existing Finder workspace. */

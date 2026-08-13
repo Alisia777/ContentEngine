@@ -116,7 +116,7 @@ def test_trash_uses_a_dedicated_system_rpc_namespace() -> None:
     assert "CreatorApi.prototype.mutate" in ALIAS
     assert "Symbol.for" in ALIAS
     for source in (ALIAS, SCRIPT):
-        assert '"./supabase-api.js?v=20260812.os4.38"' in source
+        assert '"./supabase-api.js?v=20260813.os4.39"' in source
         assert "supabase-api.js?v=20260729.2" not in source
 
 
@@ -139,6 +139,11 @@ def test_permanent_media_delete_requires_a_purge_receipt() -> None:
 
 
 def test_context_actions_cover_files_tasks_folders_and_empty_surfaces() -> None:
+    finder_actions = SCRIPT[
+        SCRIPT.index("function finderItemActions(") : SCRIPT.index("function taskActions(")
+    ]
+    assert finder_actions.count('menuAction("Быстрый просмотр"') == 2
+    assert 'menuAction("Открыть", "open"' not in finder_actions
     for marker in (
         'document.addEventListener("contextmenu"',
         'document.addEventListener("pointerdown"',

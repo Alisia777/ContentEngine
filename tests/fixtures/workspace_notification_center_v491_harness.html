@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ru" data-ce-v4-notification-fixture="true">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ContentEngine Notification Center v4.9.1 harness</title>
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4.css?v=fixture-notification-v491-1" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-context-trash.css?v=fixture-notification-v491-1" />
+    <style>
+      html, body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      .fixture-page { display: grid; align-content: start; gap: 14px; color: #e6ebf0; }
+      .fixture-page h1 { max-width: 18ch; margin: 0; font-size: clamp(28px, 5vw, 52px); }
+      .fixture-page p { max-width: 58ch; margin: 0; color: #8794a2; line-height: 1.55; }
+      .fixture-inline-link { width: max-content; padding: 10px 13px; border: 1px solid rgba(215,173,89,.24); border-radius: 11px; color: #f2d58c; text-decoration: none; background: rgba(215,173,89,.07); }
+    </style>
+  </head>
+  <body>
+    <div id="app" class="app-root">
+      <div
+        class="workspace-shell workspace-shell-v4"
+        data-workspace-section="ai"
+        data-workspace-role="operator"
+        data-workspace-authorized-routes="/workspace/home /workspace/board /workspace/generation /workspace/review /workspace/placement /workspace/stats /workspace/research /workspace/ai /workspace/tasks /workspace/work"
+        data-project-id="11111111-1111-4111-8111-111111111111"
+        data-project-name="Bombbar · Август"
+      >
+        <main class="workspace-main">
+          <div id="main-content">
+            <div id="workspace-content">
+              <section class="page-wrap fixture-page">
+                <h1>Одна системная панель уведомлений</h1>
+                <p>Колокольчик не меняет открытый рабочий экран. События проходят recipient, expiry и read-state проверку до отрисовки.</p>
+                <a class="fixture-inline-link" href="#/workspace/work?view=notifications">Уведомления из старой ссылки</a>
+              </section>
+            </div>
+          </div>
+        </main>
+        <script id="workspace-project-flow-snapshot" type="application/json">
+          {
+            "project_id": "11111111-1111-4111-8111-111111111111",
+            "project": { "id": "11111111-1111-4111-8111-111111111111", "name": "Bombbar · Август" },
+            "counts": { "notifications_unread": 9 }
+          }
+        </script>
+        <script id="workspace-notification-feed-snapshot" type="application/json">
+          {
+            "schemaVersion": "contentengine-notification-feed-v4.9.1",
+            "recipient": {
+              "organizationId": "org-fixture",
+              "userId": "user-operator",
+              "roleIds": ["operator"]
+            },
+            "now": "2026-08-13T12:00:00.000Z",
+            "readState": {
+              "version": "contentengine-notification-read-v4.9.1",
+              "scope": { "organizationId": "org-fixture", "userId": "user-operator" },
+              "readNotificationIds": ["n-process"]
+            },
+            "events": [
+              {
+                "notificationId": "n-ai",
+                "organizationId": "org-fixture",
+                "recipientUserId": "user-operator",
+                "recipientRoleIds": ["operator"],
+                "dedupeKey": "decision:category:1",
+                "type": "action_required",
+                "severity": "warning",
+                "sourceSection": "ИИ-центр",
+                "title": "Нужно решение по рекомендации",
+                "body": "ИИ предложил вариант. Ваш выбор остаётся главным.",
+                "createdAt": "2026-08-13T11:50:00.000Z",
+                "expiresAt": "2026-08-14T12:00:00.000Z",
+                "requiresAction": true,
+                "projectId": "11111111-1111-4111-8111-111111111111",
+                "actionKey": "ai.open-decisions"
+              },
+              {
+                "notificationId": "n-ai-old",
+                "organizationId": "org-fixture",
+                "recipientUserId": "user-operator",
+                "recipientRoleIds": ["operator"],
+                "dedupeKey": "decision:category:1",
+                "type": "action_required",
+                "severity": "warning",
+                "sourceSection": "ИИ-центр",
+                "title": "Предыдущее состояние рекомендации",
+                "body": "Эта строка должна быть заменена более новым событием.",
+                "createdAt": "2026-08-13T10:50:00.000Z",
+                "requiresAction": true,
+                "projectId": "11111111-1111-4111-8111-111111111111",
+                "actionKey": "ai.open-decisions"
+              },
+              {
+                "notificationId": "n-process",
+                "organizationId": "org-fixture",
+                "recipientUserId": "user-operator",
+                "type": "process_complete",
+                "severity": "success",
+                "sourceSection": "Процессы",
+                "title": "Сборка завершена",
+                "body": "Результат сохранён и ждёт проверки.",
+                "createdAt": "2026-08-13T11:40:00.000Z",
+                "requiresAction": false
+              },
+              {
+                "notificationId": "n-stale",
+                "organizationId": "org-fixture",
+                "recipientUserId": "user-operator",
+                "type": "warning",
+                "severity": "warning",
+                "sourceSection": "Проверка",
+                "title": "Материал изменился",
+                "body": "Перед открытием нужна актуальная версия объекта.",
+                "createdAt": "2026-08-13T11:30:00.000Z",
+                "requiresAction": true,
+                "projectId": "11111111-1111-4111-8111-111111111111",
+                "objectId": "asset-77",
+                "actionKey": "object.open"
+              },
+              {
+                "notificationId": "n-mention",
+                "organizationId": "org-fixture",
+                "recipientUserId": "user-operator",
+                "type": "mention",
+                "severity": "info",
+                "sourceSection": "Проверка",
+                "title": "Вас упомянули",
+                "body": "Коллега оставил комментарий к материалу.",
+                "createdAt": "2026-08-13T11:20:00.000Z",
+                "requiresAction": false,
+                "objectId": "asset-88",
+                "actionKey": "review.open-object"
+              },
+              {
+                "notificationId": "n-unknown",
+                "organizationId": "org-fixture",
+                "recipientUserId": "user-operator",
+                "type": "assignment",
+                "severity": "info",
+                "sourceSection": "Процессы",
+                "title": "Назначена задача",
+                "body": "Неизвестная команда не должна потребить уведомление.",
+                "createdAt": "2026-08-13T11:10:00.000Z",
+                "requiresAction": true,
+                "actionKey": "task.open-exact"
+              },
+              {
+                "notificationId": "n-expired",
+                "organizationId": "org-fixture",
+                "recipientUserId": "user-operator",
+                "type": "system_info",
+                "severity": "neutral",
+                "sourceSection": "Система",
+                "title": "Устаревшее сообщение",
+                "body": "Истёкшее событие не попадает в панель.",
+                "createdAt": "2026-08-11T11:10:00.000Z",
+                "expiresAt": "2026-08-12T11:10:00.000Z",
+                "requiresAction": false
+              },
+              {
+                "notificationId": "n-other-user",
+                "organizationId": "org-fixture",
+                "recipientUserId": "another-user",
+                "type": "system_info",
+                "severity": "neutral",
+                "sourceSection": "Система",
+                "title": "Чужое сообщение",
+                "body": "Событие другого сотрудника не попадает в DOM.",
+                "createdAt": "2026-08-13T11:05:00.000Z",
+                "requiresAction": false
+              },
+              {
+                "notificationId": "n-sensitive",
+                "organizationId": "org-fixture",
+                "recipientUserId": "user-operator",
+                "type": "system_info",
+                "severity": "neutral",
+                "sourceSection": "Система",
+                "title": "Невалидное событие",
+                "body": "Полезная нагрузка с секретом должна быть отклонена.",
+                "createdAt": "2026-08-13T11:00:00.000Z",
+                "requiresAction": false,
+                "token": "sk-fixture-secret"
+              }
+            ],
+            "actionContextByNotificationId": {
+              "n-ai": { "recordState": "current", "permissionState": "allowed", "targetState": "current" },
+              "n-stale": { "recordState": "stale", "permissionState": "allowed", "targetState": "stale" },
+              "n-mention": { "recordState": "current", "permissionState": "allowed", "targetState": "current" }
+            }
+          }
+        </script>
+      </div>
+    </div>
+    <div id="toast-region" aria-live="polite"></div>
+    <script type="module">
+      window.location.hash = "#/workspace/ai?project_id=11111111-1111-4111-8111-111111111111";
+      await import("../../web/app/workspace-os-v4.js?fixture=notification-v491-1");
+      await window.ContentEngineDesktopV4.flush();
+      document.body.dataset.fixtureNotificationReady = "true";
+    </script>
+  </body>
+</html>

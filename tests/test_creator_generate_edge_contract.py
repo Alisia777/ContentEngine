@@ -8,6 +8,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_PATH = ROOT / "supabase/functions/creator-generate/index.ts"
+PROVIDER_ADAPTER_PATH = (
+    ROOT / "supabase/functions/_shared/generation-provider-adapters.js"
+)
 WORKFLOW_PATH = ROOT / ".github/workflows/supabase-pages.yml"
 PAGES_BUILDER_PATH = ROOT / "scripts/build_pages_release.py"
 
@@ -129,10 +132,9 @@ def test_real_generation_requires_explicit_spend_confirmation_and_db_claim() -> 
 
     for marker in (
         'value.mode !== "real"',
-        'value.provider !== "runway"',
-        'value.model === "gen4_turbo"',
-        'value.model === "seedance2_fast"',
-        'value.audio === true',
+        "readGenerationProvider(value.provider)",
+        "readGenerationModel(provider, value.model)",
+        "LIVE_GENERATION_EXECUTION_KEYS",
         'value.allow_real_spend !== true',
         "minimumDuration: 2",
         "maximumDuration: 10",
@@ -141,7 +143,7 @@ def test_real_generation_requires_explicit_spend_confirmation_and_db_claim() -> 
         "maximumDuration: 15",
         "creditsPerSecond: 29",
         "readRunwayGenerationSku(",
-        "value.spend_confirmation === sku.confirmation",
+        "startPayload.spend_confirmation !== startSku.confirmation",
         '"creator_start_real_generation"',
         '"creator_real_generation_status"',
         '"system_update_real_generation"',
@@ -152,7 +154,7 @@ def test_real_generation_requires_explicit_spend_confirmation_and_db_claim() -> 
         assert marker in source
 
     claim = source.index('status: "starting"')
-    provider_call = source.index('`${RUNWAY_API_ORIGIN}/v1/image_to_video`')
+    provider_call = source.index("createResponse = await fetchProviderJsonWithDeadline(", claim)
     submitted = source.index('status: "submitted"', provider_call)
     assert claim < provider_call < submitted
     assert "cron" not in source.casefold()
@@ -189,7 +191,7 @@ def test_paid_provider_post_is_guarded_by_sanitized_database_budget_claim() -> N
     assert 'typeof value.code === "string"' in claim_sanitizer
 
     start = source.index("const claim = await claimSystemJob(current.id)")
-    provider_post = source.index('`${RUNWAY_API_ORIGIN}/v1/image_to_video`', start)
+    provider_post = source.index("createResponse = await fetchProviderJsonWithDeadline(", start)
     claim_guard = source[start:provider_post]
     assert 'claim.outcome === "budget_rejected"' in claim_guard
     assert 'claim.outcome !== "claimed"' in claim_guard
@@ -229,28 +231,38 @@ def test_provider_task_transitions_preserve_task_id_and_processing_order() -> No
 
 def test_runway_request_and_polling_are_fixed_to_reviewed_contract() -> None:
     source = _source()
+    adapter = PROVIDER_ADAPTER_PATH.read_text(encoding="utf-8")
 
     assert 'const RUNWAY_API_ORIGIN = "https://api.dev.runwayml.com"' in source
     assert 'const RUNWAY_API_VERSION = "2024-11-06"' in source
     assert 'Deno.env.get("RUNWAYML_API_SECRET")' in source
     assert 'authorization: `Bearer ${secret}`' in source
-    assert 'model: startJob.model' in source
-    assert 'duration: startJob.durationSeconds' in source
-    assert 'ratio: startJob.ratio' in source
-    assert 'promptText: startJob.promptText' in source
-    assert 'promptImage: signedInputUrl' in source
-    assert "promptImage: validReferenceUrls.map((uri) => ({ uri }))" in source
-    seedance_request_start = source.index(
-        'startJob.model === "seedance2_fast"'
-    )
-    seedance_request_end = source.index(
-        ": {",
-        source.index("audio: true", seedance_request_start),
-    )
-    seedance_request = source[seedance_request_start:seedance_request_end]
-    assert "position:" not in seedance_request
-    assert '"reference"' not in seedance_request
-    assert 'audio: true' in source
+    assert "buildGenerationProviderRequest(entry, selected, input)" in source
+    assert "serializedProviderRequest = JSON.stringify(providerRequest.body)" in source
+    assert "body: serializedProviderRequest" in source
+    assert "function buildGen4(" in adapter
+    assert "function buildSeedance(" in adapter
+    for marker in (
+        "model: entry.model",
+        "duration: selection.durationSeconds",
+        "ratio: providerRatio",
+        "promptText: exactPrompt(input, entry)",
+        '"firstFrameUrl"',
+        "references.map((uri)",
+        "audio: selection.audio",
+    ):
+        assert marker in adapter
+    seedance_request = adapter[
+        adapter.index("function buildSeedance(") : adapter.index(
+            "\nfunction buildRunwayVeo(", adapter.index("function buildSeedance(")
+        )
+    ]
+    reference_mode = seedance_request[
+        seedance_request.index("body.promptImage = references.length") :
+        seedance_request.index("} else {", seedance_request.index("body.promptImage = references.length"))
+    ]
+    assert "references.map((uri) => ({ uri }))" in reference_mode
+    assert "body.references" not in reference_mode
     assert '`${RUNWAY_API_ORIGIN}/v1/tasks/${current.providerTaskId}`' in source
     assert "const MIN_PROVIDER_POLL_INTERVAL_MS = 5_000;" in source
     compact = " ".join(source.split())
@@ -274,7 +286,7 @@ def test_runway_request_and_polling_are_fixed_to_reviewed_contract() -> None:
 
 def test_ambiguous_provider_start_never_releases_spend_lock() -> None:
     source = _source()
-    create_start = source.index('`${RUNWAY_API_ORIGIN}/v1/image_to_video`')
+    create_start = source.index("const providerEndpoint =")
     submitted = source.index('status: "submitted"', create_start)
     create_section = source[create_start:submitted]
 
@@ -295,11 +307,13 @@ def test_persisted_provider_task_only_terminal_fails_on_explicit_task_failure() 
     status_end = source.index("const statusPayload", status_start)
     status_section = source[status_start:status_end]
 
-    assert status_section.count("markFailed(") == 1
-    failure = status_section.index("markFailed(")
-    failure_guard = status_section.rfind('providerTask.status === "FAILED"', 0, failure)
+    assert status_section.count("markFailed(") == 2
+    google_failure = status_section.index("markFailed(")
+    assert 'if (operation.error !== null)' in status_section[:google_failure]
+    task_failure = status_section.index("markFailed(", google_failure + 1)
+    failure_guard = status_section.rfind('providerTask.status === "FAILED"', 0, task_failure)
     cancelled_guard = status_section.rfind(
-        'providerTask.status === "CANCELLED"', 0, failure
+        'providerTask.status === "CANCELLED"', 0, task_failure
     )
     assert failure_guard >= 0
     assert cancelled_guard >= 0

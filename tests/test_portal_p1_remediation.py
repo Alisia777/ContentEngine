@@ -41,18 +41,22 @@ def test_mobile_auth_is_form_first_and_keyboard_focus_is_visible() -> None:
     assert "outline: 3px solid #315e91" in styles
 
 
-def test_notifications_use_an_inline_v4_route_without_a_subwindow_layer() -> None:
+def test_notifications_use_one_nonmodal_v491_shell_panel_without_a_route_switch() -> None:
     app = _text("app.js")
     view = _text("my-work-view.js")
     workspace_os = _text("workspace-os-v4.js")
 
     assert 'notifications.dataset.ceV4Notifications = "/workspace/work?view=notifications"' in workspace_os
-    assert "if (notificationControl) navigate(notificationControl.dataset.ceV4Notifications);" in workspace_os
-    assert 'routePath() === "/workspace/work" && routeQuery().get("view") === "notifications"' in workspace_os
-    assert "notification-layer" not in workspace_os
+    assert "if (notificationControl) toggleNotificationCenter(notificationControl);" in workspace_os
+    assert "navigate(notificationControl.dataset.ceV4Notifications)" not in workspace_os
+    assert 'const panel = create("aside", "ce-v4-notification-panel")' in workspace_os
+    assert 'panel.setAttribute("aria-modal", "false")' in workspace_os
     assert "notification-drawer" not in workspace_os
     assert 'aria-modal="true"' not in workspace_os
+    assert 'document.addEventListener("click", handleNotificationRouteLink, true)' in workspace_os
 
+    # The legacy route remains a migration source in the application module,
+    # while the v4.9.1 shell intercepts ordinary links into its one panel.
     assert 'href="#/workspace/work?view=notifications"' in view
     assert "export function notificationInlineMarkup" in view
     assert "data-notification-view" in view

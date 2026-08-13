@@ -34,7 +34,7 @@ def test_pages_release_is_complete_version_bound_and_deterministic(
 ) -> None:
     output, manifest = _build(tmp_path)
 
-    assert manifest["app_script"] == "./app.js?v=20260812.os4.38.ai-concept.1"
+    assert manifest["app_script"] == "./app.js?v=20260813.os4.39"
     assert manifest["learning_gate_version"] == "2026-07-29.v8"
     assert manifest["artifact_file_count"] == len(manifest["sha256"])
     assert "app.js" in manifest["sha256"]
@@ -52,8 +52,16 @@ def test_pages_release_is_complete_version_bound_and_deterministic(
         "workspace-os-v4-flow.css",
         "workspace-os-v4-finder.js",
         "workspace-os-v4-finder.css",
+        "workspace-os-v4-generation-guided.js",
+        "workspace-os-v4-generation-guided.css",
         "workspace-os-v4-context-trash.js",
         "workspace-os-v4-context-trash.css",
+        "generation-model-recommendation.js",
+        "workspace-generation-research-recommendations.js",
+        "workspace-generation-research-recommendations.css",
+        "workspace-research-training-bootstrap.js",
+        "portal-experience.js",
+        "portal-experience.css",
         "workspace-board-view.js",
         "workspace-board.css",
         "content-review-view.js",

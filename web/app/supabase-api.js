@@ -79,6 +79,9 @@ export const RPC = Object.freeze({
   myWork: "creator_my_work",
   notifications: "creator_notifications",
   markNotificationsRead: "creator_mark_notifications_read",
+  notificationCenter: "creator_notification_center",
+  validateNotificationAction: "creator_validate_notification_action",
+  markVisibleNotificationsRead: "creator_mark_visible_notifications_read",
   trainingProgress: "creator_training_progress",
   saveTrainingProgress: "creator_save_training_progress",
   savePracticalProject: "creator_save_practical_project",
@@ -298,7 +301,15 @@ const ACCESS_FUNCTION = "creator-access";
 const PUBLIC_RECOVERY_FUNCTION = "creator-recovery";
 const GENERATION_LEARNING_GATE_VERSION = "2026-07-29.v8";
 const PROVIDER_READINESS_RECEIPT_VERSION =
-  "generation-provider-readiness-receipt-v2";
+  "generation-provider-readiness-receipt-v3";
+const PROVIDER_READINESS_RECEIPT_VERSION_V4 =
+  "generation-provider-readiness-receipt-v4";
+const PROVIDER_READINESS_V4_RUNWAY_MODELS = new Set([
+  "gen4.5",
+  "seedance2_mini",
+  "veo3.1_fast",
+  "gemini_omni_flash",
+]);
 const PROVIDER_READINESS_UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const PROVIDER_READINESS_SHA256_PATTERN = /^[0-9a-f]{64}$/u;
@@ -356,13 +367,42 @@ function realGenerationSku(model, durationSeconds) {
   });
 }
 
-function normalizeApiGenerationProviderPreflight(value) {
+const PROVIDER_READINESS_FIELDS = Object.freeze([
+  "version", "receipt_id", "receipt_hash", "organization_id", "checked_by",
+  "provider", "model", "input_mode", "duration_seconds", "format",
+  "resolution", "audio", "last_frame", "ready", "estimated_cost_minor",
+  "estimated_credits", "credential_configured", "balance_sufficient",
+  "model_available", "daily_quota_available", "failure_code",
+  "catalog_version", "pricing_version", "learning_gate_version",
+  "checked_at", "expires_at", "status", "fresh", "spend_confirmation",
+  "automatic_generation", "automatic_spend",
+]);
+const PROVIDER_READINESS_V4_FIELDS = Object.freeze([
+  ...PROVIDER_READINESS_FIELDS,
+  "project_id", "spec_id", "spec_version", "spec_hash", "scope_hash",
+]);
+
+function apiGenerationPreflightRequiresV4(provider, model) {
+  return provider === "runway"
+    && PROVIDER_READINESS_V4_RUNWAY_MODELS.has(model);
+}
+
+function normalizeApiGenerationProviderPreflight(value, expected = {}) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
   }
+  const provider = String(value.provider || "").trim();
   const model = typeof value.model === "string"
     ? value.model.trim()
     : "";
+  const requiresV4 = apiGenerationPreflightRequiresV4(provider, model);
+  const expectedVersion = requiresV4
+    ? PROVIDER_READINESS_RECEIPT_VERSION_V4
+    : PROVIDER_READINESS_RECEIPT_VERSION;
+  if (!hasExactObjectKeys(
+    value,
+    requiresV4 ? PROVIDER_READINESS_V4_FIELDS : PROVIDER_READINESS_FIELDS,
+  )) return null;
   const checkedAt = typeof value.checked_at === "string"
     ? value.checked_at.trim()
     : "";
@@ -372,22 +412,37 @@ function normalizeApiGenerationProviderPreflight(value) {
   const checkedAtMs = Date.parse(checkedAt);
   const expiresAtMs = Date.parse(expiresAt);
   const nowMs = Date.now();
-  const sku = realGenerationSku(model, value.duration_seconds);
+  const expectedSpec = expected.generation_spec_context;
   if (
-    sku === null ||
-    value.provider !== "runway" ||
+    value.version !== expectedVersion ||
+    !["runway", "google"].includes(provider) ||
+    !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(model) ||
+    value.input_mode !== "image" ||
+    !Number.isSafeInteger(value.duration_seconds) ||
+    value.duration_seconds < 0 ||
+    !/^\d{1,4}:\d{1,4}$/u.test(String(value.format || "")) ||
+    !/^(?:\d{3,4}p|[1-9]\d?K)$/u.test(String(value.resolution || "")) ||
+    typeof value.audio !== "boolean" ||
+    typeof value.last_frame !== "boolean" ||
     value.ready !== true ||
-    value.balance_sufficient !== true ||
+    value.status !== "ready" ||
+    value.credential_configured !== true ||
     value.model_available !== true ||
-    value.daily_quota_available !== true ||
-    value.estimated_credits !== sku.estimated_credits ||
-    (
-      value.failure_code !== undefined
-      && value.failure_code !== null
-    ) ||
+    value.failure_code !== null ||
+    !Number.isSafeInteger(value.estimated_cost_minor) ||
+    value.estimated_cost_minor < 0 ||
+    !(value.estimated_credits === null || Number.isSafeInteger(value.estimated_credits)) ||
+    !(value.balance_sufficient === null || value.balance_sufficient === true) ||
+    !(value.daily_quota_available === null || value.daily_quota_available === true) ||
+    (provider === "runway" && !Number.isSafeInteger(value.estimated_credits)) ||
+    (provider === "runway" && value.balance_sufficient !== true) ||
+    (provider === "runway" && value.daily_quota_available !== true) ||
+    (provider === "google" && value.estimated_credits !== null) ||
     value.learning_gate_version !== GENERATION_LEARNING_GATE_VERSION ||
-    value.receipt_version !== PROVIDER_READINESS_RECEIPT_VERSION ||
     value.fresh !== true ||
+    value.automatic_generation !== false ||
+    value.automatic_spend !== false ||
+    !/^[A-Z0-9][A-Z0-9_.:-]{2,255}$/u.test(String(value.spend_confirmation || "")) ||
     !PROVIDER_READINESS_UUID_PATTERN.test(
       String(value.receipt_id || "").trim(),
     ) ||
@@ -398,27 +453,38 @@ function normalizeApiGenerationProviderPreflight(value) {
     !Number.isFinite(expiresAtMs) ||
     checkedAtMs > nowMs + PROVIDER_READINESS_FUTURE_SKEW_MS ||
     expiresAtMs <= nowMs ||
-    expiresAtMs - checkedAtMs !== PROVIDER_READINESS_TTL_MS
+    expiresAtMs - checkedAtMs !== PROVIDER_READINESS_TTL_MS ||
+    (expected.provider && provider !== expected.provider) ||
+    (expected.model && model !== expected.model) ||
+    (expected.input_mode && value.input_mode !== expected.input_mode) ||
+    (Number.isSafeInteger(expected.duration_seconds)
+      && value.duration_seconds !== expected.duration_seconds) ||
+    (expected.format && value.format !== expected.format) ||
+    (expected.resolution && value.resolution !== expected.resolution) ||
+    (typeof expected.audio === "boolean" && value.audio !== expected.audio) ||
+    (typeof expected.last_frame === "boolean"
+      && value.last_frame !== expected.last_frame) ||
+    (requiresV4 && (
+      !PROVIDER_READINESS_UUID_PATTERN.test(String(value.project_id || "")) ||
+      !PROVIDER_READINESS_UUID_PATTERN.test(String(value.spec_id || "")) ||
+      !Number.isSafeInteger(value.spec_version) ||
+      value.spec_version < 1 ||
+      value.spec_version > 100_000 ||
+      !PROVIDER_READINESS_SHA256_PATTERN.test(String(value.spec_hash || "")) ||
+      !PROVIDER_READINESS_SHA256_PATTERN.test(String(value.scope_hash || "")) ||
+      !PROVIDER_READINESS_UUID_PATTERN.test(String(expected.project_id || "")) ||
+      !expectedSpec ||
+      typeof expectedSpec !== "object" ||
+      Array.isArray(expectedSpec) ||
+      value.project_id !== expected.project_id ||
+      value.spec_id !== expectedSpec.spec_id ||
+      value.spec_version !== expectedSpec.spec_version ||
+      value.spec_hash !== expectedSpec.spec_hash
+    ))
   ) {
     return null;
   }
-  return Object.freeze({
-    provider: "runway",
-    model,
-    duration_seconds: sku.duration_seconds,
-    ready: true,
-    estimated_credits: sku.estimated_credits,
-    balance_sufficient: true,
-    model_available: true,
-    daily_quota_available: true,
-    learning_gate_version: GENERATION_LEARNING_GATE_VERSION,
-    checked_at: checkedAt,
-    expires_at: expiresAt,
-    receipt_id: String(value.receipt_id).trim(),
-    receipt_hash: String(value.receipt_hash).trim(),
-    receipt_version: PROVIDER_READINESS_RECEIPT_VERSION,
-    fresh: true,
-  });
+  return Object.freeze({ ...value });
 }
 
 export function mediaKindRequiresProduct(kind) {
@@ -646,6 +712,7 @@ export class CreatorApi {
     this.storageBucket = config.STORAGE_BUCKET;
     this.storagePrefix = null;
     this.mutationKeys = readMutationKeys();
+    this.realGenerationClientContexts = new WeakMap();
     this.researchRecomputeInvocations = new Set();
   }
 
@@ -660,6 +727,116 @@ export class CreatorApi {
       throw new CreatorApiError(toFriendlyMessage(data.error), data.error);
     }
 
+    return data ?? {};
+  }
+
+  async callAsExpectedActor(functionName, payload, expectedActorIdValue, {
+    isContextCurrent = null,
+  } = {}) {
+    const expectedActorId = String(expectedActorIdValue || "")
+      .trim()
+      .toLowerCase();
+    if (
+      !/^[a-z][a-z0-9_]{2,95}$/u.test(String(functionName || ""))
+      || !isUuid(expectedActorId)
+    ) {
+      throw new CreatorApiError("Не удалось зафиксировать точный контур сотрудника для неизменяемого решения.", {
+        code: "auth_session_actor_invalid",
+      });
+    }
+    const { data: sessionData, error: sessionError } = await this.supabase.auth.getSession();
+    const accessToken = String(sessionData?.session?.access_token || "").trim();
+    const actorId = String(sessionData?.session?.user?.id || "")
+      .trim()
+      .toLowerCase();
+    if (sessionError || !accessToken || !isUuid(actorId)) {
+      throw new CreatorApiError("Сессия истекла. Войдите снова перед сохранением решения.", {
+        code: "auth_session_required",
+      });
+    }
+    if (actorId !== expectedActorId) {
+      throw new CreatorApiError("Сессия сотрудника изменилась. Решение не отправлено; откройте ИИ-центр заново.", {
+        code: "auth_session_actor_changed",
+      });
+    }
+    if (isContextCurrent !== null) {
+      let contextCurrent = false;
+      try {
+        contextCurrent = typeof isContextCurrent === "function"
+          && isContextCurrent() === true;
+      } catch {
+        contextCurrent = false;
+      }
+      if (!contextCurrent) {
+        throw new CreatorApiError("Контекст решения изменился во время проверки сессии. RPC не отправлен.", {
+          code: "auth_session_context_changed",
+        });
+      }
+    }
+    const baseUrl = String(this.config?.SUPABASE_URL || "").trim();
+    const publishableKey = String(
+      this.config?.SUPABASE_PUBLISHABLE_KEY
+      || this.config?.SUPABASE_ANON_KEY
+      || "",
+    ).trim();
+    let endpoint;
+    try {
+      endpoint = new URL(
+        `/rest/v1/rpc/${encodeURIComponent(functionName)}`,
+        baseUrl,
+      );
+    } catch {
+      endpoint = null;
+    }
+    if (
+      !endpoint
+      || endpoint.protocol !== "https:"
+      || !/^[a-z0-9-]+\.supabase\.co$/iu.test(endpoint.hostname)
+      || !publishableKey
+    ) {
+      throw new CreatorApiError("Конфигурация защищённого RPC недоступна. Решение не отправлено.", {
+        code: "rpc_transport_config_invalid",
+      });
+    }
+    let response;
+    try {
+      response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          apikey: publishableKey,
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "Content-Profile": String(this.config?.RPC_SCHEMA || "public"),
+          "Accept-Profile": String(this.config?.RPC_SCHEMA || "public"),
+        },
+        body: JSON.stringify({ p_payload: payload || {} }),
+      });
+    } catch (cause) {
+      throw new CreatorApiError("Не удалось связаться с защищённым RPC. Новый запрос решения не отправляйте до восстановления связи.", {
+        code: "rpc_request_failed",
+        cause,
+      });
+    }
+    let data = null;
+    try {
+      const body = await response.text();
+      data = body ? JSON.parse(body) : null;
+    } catch {
+      data = null;
+    }
+    if (!response.ok) {
+      const details = data && typeof data === "object" && !Array.isArray(data)
+        ? data
+        : {
+            code: "rpc_request_failed",
+            message: `RPC request failed (${response.status})`,
+          };
+      throw new CreatorApiError(toFriendlyMessage(details), details);
+    }
+    if (data && typeof data === "object" && !Array.isArray(data) && data.error) {
+      throw new CreatorApiError(toFriendlyMessage(data.error), data.error);
+    }
     return data ?? {};
   }
 
@@ -1558,8 +1735,24 @@ export class CreatorApi {
   generationArchive(options = {}) {
     const periods = new Set(["week", "4w", "12w", "all"]);
     const statuses = new Set(["all", "active", "ready", "issue"]);
+    const providers = new Set(["all", "runway", "google"]);
+    const contentKinds = new Set(["all", "video", "photo"]);
+    const selectionSources = new Set([
+      "all",
+      "system_recommendation",
+      "research_recommendation",
+      "performance_recommendation",
+      "manual_choice",
+      "alternative_after_block",
+    ]);
+    const qualityStatuses = new Set(["all", "accepted", "needs_revalidation", "unproven"]);
     const period = String(options.period || "4w").trim().toLowerCase();
     const status = String(options.status || "all").trim().toLowerCase();
+    const provider = String(options.provider || "all").trim().toLowerCase();
+    const model = String(options.model || "all").trim().toLowerCase();
+    const contentKind = String(options.content_kind ?? options.contentKind ?? "all").trim().toLowerCase();
+    const selectionSource = String(options.selection_source ?? options.selectionSource ?? "all").trim().toLowerCase();
+    const qualityStatus = String(options.quality_status ?? options.qualityStatus ?? "all").trim().toLowerCase();
     const query = String(options.query || "").trim();
     const pageSize = options.page_size === undefined ? 50 : Number(options.page_size);
     if (!periods.has(period)) {
@@ -1570,6 +1763,31 @@ export class CreatorApi {
     if (!statuses.has(status)) {
       throw new CreatorApiError("Выберите доступную группу статусов.", {
         code: "generation_archive_status_invalid",
+      });
+    }
+    if (!providers.has(provider)) {
+      throw new CreatorApiError("Выберите доступного поставщика ИИ.", {
+        code: "generation_archive_provider_invalid",
+      });
+    }
+    if (model !== "all" && !/^[a-z0-9][a-z0-9._-]{0,79}$/u.test(model)) {
+      throw new CreatorApiError("Выберите доступную модель генерации.", {
+        code: "generation_archive_model_invalid",
+      });
+    }
+    if (!contentKinds.has(contentKind)) {
+      throw new CreatorApiError("Выберите фото или видео.", {
+        code: "generation_archive_content_kind_invalid",
+      });
+    }
+    if (!selectionSources.has(selectionSource)) {
+      throw new CreatorApiError("Выберите источник решения о модели.", {
+        code: "generation_archive_selection_source_invalid",
+      });
+    }
+    if (!qualityStatuses.has(qualityStatus)) {
+      throw new CreatorApiError("Выберите статус качества модели.", {
+        code: "generation_archive_quality_status_invalid",
       });
     }
     if (query.length > 120 || /[\u0000-\u001f\u007f]/u.test(query)) {
@@ -1590,6 +1808,11 @@ export class CreatorApi {
     const projectId = requiredProjectId(options.project_id ?? options.projectId);
     payload.project_id = projectId;
     if (query) payload.query = query;
+    if (provider !== "all") payload.provider = provider;
+    if (model !== "all") payload.model = model;
+    if (contentKind !== "all") payload.content_kind = contentKind;
+    if (selectionSource !== "all") payload.selection_source = selectionSource;
+    if (qualityStatus !== "all") payload.quality_status = qualityStatus;
     if (options.cursor !== undefined && options.cursor !== null) {
       const cursor = options.cursor;
       if (
@@ -2364,6 +2587,120 @@ export class CreatorApi {
     return this.mutate(RPC.markNotificationsRead, {
       all_unread: true,
       is_read: true,
+    });
+  }
+
+  notificationCenter(options = {}) {
+    const filters = new Set([
+      "all", "unread", "action_required", "mentions", "processes", "system",
+    ]);
+    const filter = String(options.filter || "all").trim().toLowerCase();
+    const pageSize = options.page_size === undefined
+      ? 50
+      : Number(options.page_size);
+    if (!filters.has(filter)) {
+      throw new CreatorApiError("Выберите доступный фильтр уведомлений.", {
+        code: "notification_center_filter_invalid",
+      });
+    }
+    if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+      throw new CreatorApiError("Можно загрузить от 1 до 100 уведомлений.", {
+        code: "notification_center_page_size_invalid",
+      });
+    }
+    const payload = { filter, page_size: pageSize };
+    if (options.cursor !== undefined && options.cursor !== null) {
+      const cursor = options.cursor;
+      const cursorKeys = cursor && typeof cursor === "object" && !Array.isArray(cursor)
+        ? Object.keys(cursor)
+        : [];
+      const createdAt = String(cursor?.created_at || "").trim();
+      const id = String(cursor?.id || "").trim().toLowerCase();
+      if (
+        cursorKeys.length !== 2
+        || !cursorKeys.every((key) => ["created_at", "id"].includes(key))
+        || !Number.isFinite(Date.parse(createdAt))
+        || !isUuid(id)
+      ) {
+        throw new CreatorApiError("Список уведомлений изменился. Обновите панель.", {
+          code: "notification_center_cursor_invalid",
+        });
+      }
+      payload.cursor = { created_at: createdAt, id };
+    }
+    return this.call(RPC.notificationCenter, this.withOrganization(payload));
+  }
+
+  validateNotificationAction(intent = {}) {
+    const notificationId = String(
+      intent.notification_id ?? intent.notificationId ?? "",
+    ).trim().toLowerCase();
+    const actionKey = String(intent.action_key ?? intent.actionKey ?? "")
+      .trim()
+      .toLowerCase();
+    const projectId = String(intent.project_id ?? intent.projectId ?? "")
+      .trim()
+      .toLowerCase();
+    const objectId = String(intent.object_id ?? intent.objectId ?? "")
+      .trim()
+      .toLowerCase();
+    const processId = String(intent.process_id ?? intent.processId ?? "")
+      .trim()
+      .toLowerCase();
+    if (!isUuid(notificationId)) {
+      throw new CreatorApiError("Уведомление больше недоступно. Обновите панель.", {
+        code: "notification_id_invalid",
+      });
+    }
+    if (![
+      "ai.open-decisions", "process.open", "review.open-object", "object.open",
+    ].includes(actionKey)) {
+      throw new CreatorApiError("Действие недоступно в этой версии интерфейса.", {
+        code: "notification_action_key_invalid",
+      });
+    }
+    if (
+      (projectId && !isUuid(projectId))
+      || (objectId && !isUuid(objectId))
+      || (processId && !isUuid(processId))
+    ) {
+      throw new CreatorApiError("Точная цель уведомления изменилась. Обновите панель.", {
+        code: "notification_action_intent_invalid",
+      });
+    }
+    return this.call(RPC.validateNotificationAction, this.withOrganization({
+      notification_id: notificationId,
+      action_key: actionKey,
+      project_id: projectId || null,
+      object_id: objectId || null,
+      process_id: processId || null,
+    }));
+  }
+
+  markVisibleNotificationsRead(notificationIds, filter = "all") {
+    const ids = normalizeStringArray(notificationIds)
+      .map((id) => id.toLowerCase());
+    const normalizedFilter = String(filter || "").trim().toLowerCase();
+    if (
+      ids.length < 1
+      || ids.length > 100
+      || new Set(ids).size !== ids.length
+      || ids.some((id) => !isUuid(id))
+    ) {
+      throw new CreatorApiError("Выберите от 1 до 100 видимых уведомлений.", {
+        code: "notification_ids_invalid",
+      });
+    }
+    if (![
+      "all", "unread", "action_required", "mentions", "processes", "system",
+    ].includes(normalizedFilter)) {
+      throw new CreatorApiError("Выберите доступный фильтр уведомлений.", {
+        code: "notification_center_filter_invalid",
+      });
+    }
+    return this.mutate(RPC.markVisibleNotificationsRead, {
+      filter: normalizedFilter,
+      notification_ids: ids,
     });
   }
 
@@ -4766,7 +5103,51 @@ export class CreatorApi {
     });
   }
 
+  bindRealGenerationClientContext(payload, {
+    expectedActorId: expectedActorIdValue = "",
+    isContextCurrent = null,
+  } = {}) {
+    const expectedActorId = String(expectedActorIdValue || "")
+      .trim()
+      .toLowerCase();
+    if (
+      !payload
+      || typeof payload !== "object"
+      || Array.isArray(payload)
+      || !isUuid(expectedActorId)
+      || typeof isContextCurrent !== "function"
+    ) {
+      throw new CreatorApiError("Не удалось зафиксировать точный контур сотрудника для платного запуска.", {
+        code: "auth_session_changed",
+      });
+    }
+    if (!(this.realGenerationClientContexts instanceof WeakMap)) {
+      this.realGenerationClientContexts = new WeakMap();
+    }
+    this.realGenerationClientContexts.set(payload, Object.freeze({
+      expectedActorId,
+      isContextCurrent,
+    }));
+    return payload;
+  }
+
+  takeRealGenerationClientContext(payload) {
+    const contexts = this.realGenerationClientContexts;
+    if (!(contexts instanceof WeakMap) || !payload || typeof payload !== "object") {
+      return null;
+    }
+    const context = contexts.get(payload) || null;
+    contexts.delete(payload);
+    return context;
+  }
+
   startRealGeneration(batch) {
+    const clientContext = this.takeRealGenerationClientContext(batch);
+    if (!clientContext) {
+      throw new CreatorApiError("Сессия сотрудника изменилась перед платным запуском. Обновите страницу и подтвердите запуск заново.", {
+        code: "auth_session_changed",
+      });
+    }
     const projectId = requiredProjectId(batch?.project_id ?? batch?.projectId);
     const batchPayload = { ...(batch || {}) };
     delete batchPayload.projectId;
@@ -4792,32 +5173,58 @@ export class CreatorApi {
         code: "paid_generation_campaign_required",
       });
     }
-    const model = String(batch?.model || "gen4_turbo");
-    const sku = realGenerationSku(model, batch?.duration_seconds);
-    if (!sku) {
-      throw new CreatorApiError("Выберите доступный платный режим.", {
-        code: "real_generation_sku_invalid",
-      });
-    }
+    const provider = String(batch?.provider || "").trim().toLowerCase();
+    const model = String(batch?.model || "").trim();
+    const inputMode = String(batch?.input_mode || "").trim().toLowerCase();
+    const durationSeconds = Number(batch?.duration_seconds);
+    const format = String(batch?.format || "").trim();
+    const resolution = String(batch?.resolution || "").trim();
+    const audio = batch?.audio;
+    const lastFrame = batch?.last_frame;
     if (
-      Number(batch?.duration_seconds) !== sku.duration_seconds ||
-      Boolean(batch?.audio) !== sku.audio ||
-      (sku.format && batch?.format !== sku.format)
+      !["runway", "google"].includes(provider)
+      || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(model)
+      || inputMode !== "image"
+      || !Number.isSafeInteger(durationSeconds)
+      || durationSeconds < 0
+      || !/^\d{1,4}:\d{1,4}$/u.test(format)
+      || !/^(?:\d{3,4}p|[1-9]\d?K)$/u.test(resolution)
+      || typeof audio !== "boolean"
+      || typeof lastFrame !== "boolean"
     ) {
       throw new CreatorApiError("Параметры платного режима не совпадают с подтверждённой ценой.", {
         code: "real_generation_sku_invalid",
       });
     }
-    if (batch?.spend_confirmation !== sku.confirmation) {
-      const contentLabel = model === "seedream5_lite" ? "фото" : "видео";
-      throw new CreatorApiError(`Подтвердите создание одного платного ${contentLabel} примерно за $${sku.estimated_usd}.`, {
+    if (!/^[A-Z0-9][A-Z0-9_.:-]{2,255}$/u.test(String(batch?.spend_confirmation || ""))) {
+      throw new CreatorApiError("Подтвердите точную стоимость из свежей серверной проверки.", {
         code: "real_spend_confirmation_required",
       });
     }
+    if (
+      !isUuid(String(batch?.provider_readiness_receipt_id || ""))
+      || !PROVIDER_READINESS_SHA256_PATTERN.test(
+        String(batch?.provider_readiness_receipt_hash || ""),
+      )
+      || !batch?.generation_selection_snapshot
+      || typeof batch.generation_selection_snapshot !== "object"
+      || Array.isArray(batch.generation_selection_snapshot)
+    ) {
+      throw new CreatorApiError("Серверная квитанция выбранной модели устарела.", {
+        code: "provider_readiness_receipt_required",
+      });
+    }
     const brief = String(batch?.brief || "").trim();
-    if (!brief || brief.length > sku.prompt_max_length) {
+    const promptMaxLength = Number(batch?.prompt_max_length);
+    if (
+      !brief
+      || !Number.isSafeInteger(promptMaxLength)
+      || promptMaxLength < 1
+      || promptMaxLength > 100_000
+      || brief.length > promptMaxLength
+    ) {
       throw new CreatorApiError(
-        `Сократите ТЗ для выбранной модели до ${sku.prompt_max_length} символов.`,
+        "Сократите ТЗ до лимита выбранной серверной модели.",
         { code: "brief_invalid" },
       );
     }
@@ -4925,8 +5332,14 @@ export class CreatorApi {
       }
     }
 
-    return this.invokeRealGeneration("start", {
-      ...batchPayload,
+    const {
+      // Browser-only guard: the authoritative Edge derives the same limit
+      // from its catalog and rejects unknown START keys.
+      prompt_max_length: _clientPromptMaxLength,
+      ...serverBatchPayload
+    } = batchPayload;
+    const invocationPayload = {
+      ...serverBatchPayload,
       project_id: projectId,
       generation_spec_context: generationSpecContext,
       ...(generationReferenceContext
@@ -4936,27 +5349,113 @@ export class CreatorApi {
       count: 1,
       media_ids: batch.media_ids.map(String),
       mode: "real",
-      provider: "runway",
+      provider,
       model,
-      duration_seconds: sku.duration_seconds,
-      audio: sku.audio,
+      input_mode: inputMode,
+      duration_seconds: durationSeconds,
+      format,
+      resolution,
+      audio,
+      last_frame: lastFrame,
       allow_real_spend: true,
-      spend_confirmation: sku.confirmation,
-    });
+      spend_confirmation: String(batch.spend_confirmation),
+    };
+    this.bindRealGenerationClientContext(invocationPayload, clientContext);
+    return this.invokeRealGeneration("start", invocationPayload);
   }
 
-  realGenerationPreflight(model, durationSeconds) {
-    const normalizedModel = String(model || "").trim();
-    const sku = realGenerationSku(normalizedModel, durationSeconds);
-    if (!sku) {
+  realGenerationPreflight(selection, legacyDurationSeconds = undefined) {
+    const legacy = typeof selection === "string";
+    const source = legacy
+      ? {
+          provider: "runway",
+          model: String(selection || "").trim(),
+          input_mode: "image",
+          duration_seconds: Number(legacyDurationSeconds),
+          format: selection === "seedream5_lite" ? "1:1" : "9:16",
+          resolution: selection === "seedream5_lite" ? "2K" : "720p",
+          audio: selection === "seedance2_fast",
+          last_frame: false,
+        }
+      : { ...(selection || {}) };
+    const exact = {
+      provider: String(source.provider || "").trim().toLowerCase(),
+      model: String(source.model || "").trim(),
+      input_mode: String(source.input_mode || "").trim().toLowerCase(),
+      duration_seconds: Number(source.duration_seconds),
+      format: String(source.format || "").trim(),
+      resolution: String(source.resolution || "").trim(),
+      audio: source.audio,
+      last_frame: source.last_frame,
+    };
+    if (
+      !["runway", "google"].includes(exact.provider)
+      || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(String(exact.model || ""))
+      || exact.input_mode !== "image"
+      || !Number.isSafeInteger(exact.duration_seconds)
+      || !/^\d{1,4}:\d{1,4}$/u.test(String(exact.format || ""))
+      || !/^(?:\d{3,4}p|[1-9]\d?K)$/u.test(String(exact.resolution || ""))
+      || typeof exact.audio !== "boolean"
+      || typeof exact.last_frame !== "boolean"
+    ) {
       throw new CreatorApiError("Выберите доступный платный режим.", {
         code: "real_generation_sku_invalid",
       });
     }
-    return this.invokeRealGeneration("preflight", {
-      model: normalizedModel,
-      duration_seconds: sku.duration_seconds,
-    });
+    if (apiGenerationPreflightRequiresV4(exact.provider, exact.model)) {
+      const projectId = requiredProjectId(source.project_id);
+      const specContext = normalizeGenerationSpecReference(
+        source.generation_spec_context,
+      );
+      if (
+        !hasExactObjectKeys(source.generation_spec_context, [
+          "spec_id", "spec_version", "spec_hash",
+        ]) ||
+        !specContext
+      ) {
+        throw new CreatorApiError(
+          "Сначала подготовьте точную серверную версию ТЗ для выбранной модели.",
+          { code: "generation_spec_context_required" },
+        );
+      }
+      return this.invokeRealGeneration("preflight", {
+        ...exact,
+        project_id: projectId,
+        generation_spec_context: specContext,
+      });
+    }
+    return this.invokeRealGeneration("preflight", exact);
+  }
+
+  async generationModelCatalog() {
+    const data = await this.invokeRealGeneration("model_catalog");
+    const catalog = data?.catalog;
+    if (
+      !catalog
+      || typeof catalog !== "object"
+      || Array.isArray(catalog)
+      || typeof catalog.version !== "string"
+      || !catalog.version.trim()
+      || !Array.isArray(catalog.models)
+      || catalog.models.some((entry) => (
+        !entry
+        || typeof entry !== "object"
+        || Array.isArray(entry)
+        || typeof entry.provider !== "string"
+        || !entry.provider.trim()
+        || typeof entry.model !== "string"
+        || !entry.model.trim()
+        || typeof entry.publicLabel !== "string"
+        || !entry.publicLabel.trim()
+        || typeof entry.enabled !== "boolean"
+      ))
+    ) {
+      throw new CreatorApiError(
+        "Каталог моделей генерации временно недоступен. Текущий выбор и платные подтверждения не изменены.",
+        { code: "generation_model_catalog_invalid" },
+      );
+    }
+    return data;
   }
 
   realGenerationStatus(jobId, {
@@ -4984,6 +5483,7 @@ export class CreatorApi {
     const evidenceReference = String(details.evidence_reference || "").trim();
     const reason = String(details.reason || "").trim();
     const providerTaskId = String(details.provider_task_id || "").trim();
+    const provider = String(details.provider || "").trim().toLowerCase();
     const projectId = requiredProjectId(details.project_id ?? details.projectId);
     const attachExistingTask = resolution === "attach_existing_task";
     const confirmNoSubmission = resolution === "confirm_no_submission";
@@ -4998,6 +5498,11 @@ export class CreatorApi {
         code: "generation_reconciliation_resolution_invalid",
       });
     }
+    if (!new Set(["runway", "google"]).has(provider)) {
+      throw new CreatorApiError("Не удалось подтвердить сервис этого запуска. Обновите карточку.", {
+        code: "generation_reconciliation_provider_invalid",
+      });
+    }
     if (
       evidenceReference.length < 8
       || evidenceReference.length > 500
@@ -5008,11 +5513,14 @@ export class CreatorApi {
         code: "generation_reconciliation_evidence_invalid",
       });
     }
-    if (
-      attachExistingTask
-      && !/^[a-z0-9][a-z0-9_-]{0,127}$/i.test(providerTaskId)
-    ) {
-      throw new CreatorApiError("Укажите точный Runway task ID из панели видеосервиса.", {
+    const providerTaskValid = provider === "google"
+      ? /^models\/veo-3\.1-lite-generate-preview\/operations\/[A-Za-z0-9][A-Za-z0-9._~-]{0,255}$/u
+        .test(providerTaskId)
+      : /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u.test(providerTaskId);
+    if (attachExistingTask && !providerTaskValid) {
+      throw new CreatorApiError(provider === "google"
+        ? "Укажите точное имя Google operation из панели сервиса."
+        : "Укажите точный Runway task ID из панели видеосервиса.", {
         code: "generation_reconciliation_task_id_invalid",
       });
     }
@@ -5024,17 +5532,37 @@ export class CreatorApi {
       resolution,
       evidence_reference: evidenceReference,
       reason,
-      confirmation: attachExistingTask
-        ? "RUNWAY_TASK_ID_VERIFIED"
-        : "RUNWAY_NO_TASK_VERIFIED",
+      confirmation: provider === "google"
+        ? attachExistingTask
+          ? "GOOGLE_OPERATION_ID_VERIFIED"
+          : "GOOGLE_NO_OPERATION_VERIFIED"
+        : attachExistingTask
+          ? "RUNWAY_TASK_ID_VERIFIED"
+          : "RUNWAY_NO_TASK_VERIFIED",
       ...(attachExistingTask ? { provider_task_id: providerTaskId } : {}),
     });
   }
 
   async invokeRealGeneration(action, payload = {}) {
-    if (!new Set(["preflight", "start", "status", "reconcile"]).has(action)) {
+    if (!new Set(["model_catalog", "preflight", "start", "status", "reconcile"]).has(action)) {
       throw new CreatorApiError("Неизвестное действие платной генерации.", {
         code: "real_generation_action_invalid",
+      });
+    }
+
+    const clientContext = this.takeRealGenerationClientContext(payload);
+    const expectedActorId = String(
+      clientContext?.expectedActorId || "",
+    ).trim().toLowerCase();
+    const isContextCurrent = clientContext?.isContextCurrent || null;
+    if (action === "start" && !clientContext) {
+      throw new CreatorApiError("Точный контур сотрудника для платного запуска не подтверждён.", {
+        code: "auth_session_changed",
+      });
+    }
+    if (expectedActorId && !isUuid(expectedActorId)) {
+      throw new CreatorApiError("Сессия сотрудника перед платным запуском имеет неверный формат.", {
+        code: "auth_session_changed",
       });
     }
 
@@ -5046,8 +5574,29 @@ export class CreatorApi {
       });
     }
 
+    const actorId = String(
+      sessionData.session?.user?.id || "",
+    ).trim().toLowerCase();
+    if (expectedActorId && actorId !== expectedActorId) {
+      throw new CreatorApiError("Сессия сотрудника изменилась перед платным запуском. Платный запрос не отправлен; обновите страницу и подтвердите запуск заново.", {
+        code: "auth_session_changed",
+      });
+    }
+    if (isContextCurrent !== null) {
+      let contextCurrent = false;
+      try {
+        contextCurrent = typeof isContextCurrent === "function"
+          && isContextCurrent() === true;
+      } catch {
+        contextCurrent = false;
+      }
+      if (!contextCurrent) {
+        throw new CreatorApiError("Контекст платного запуска изменился во время проверки сессии. Платный запрос не отправлен.", {
+          code: "real_generation_context_changed",
+        });
+      }
+    }
     const scopedPayload = this.withOrganization({ ...payload, action });
-    const actorId = String(sessionData.session?.user?.id || "unknown");
     const fingerprint = `edge:${REAL_GENERATION_FUNCTION}:${actorId}:${stableStringify(scopedPayload)}`;
     const idempotencyKey = new Set(["start", "reconcile"]).has(action)
       ? (this.mutationKeys[fingerprint] || crypto.randomUUID())
@@ -5093,24 +5642,17 @@ export class CreatorApi {
     if (action === "preflight") {
       const preflight = normalizeApiGenerationProviderPreflight(
         data.preflight,
+        payload,
       );
-      if (
-        preflight === null ||
-        preflight.model !== payload.model ||
-        preflight.duration_seconds !== payload.duration_seconds ||
-        preflight.estimated_credits !==
-          realGenerationSku(
-            payload.model,
-            payload.duration_seconds,
-          )?.estimated_credits
-      ) {
+      if (preflight === null) {
         throw new CreatorApiError(
-          "Runway не подтвердил готовность выбранной модели. Платный запуск не создан.",
+          "Провайдер не подтвердил доступность и точную стоимость выбранной модели. Платный запуск не создан.",
           { code: "provider_preflight_invalid" },
         );
       }
       return { ...data, preflight };
     }
+    if (action === "model_catalog") return data;
     if (!data.job || typeof data.job !== "object" || !data.job.id || !data.job.status) {
       throw new CreatorApiError("Сервис генерации вернул некорректную задачу.", {
         code: "real_generation_response_invalid",
@@ -7178,14 +7720,14 @@ function toFriendlyMessage(error) {
     real_generation_action_invalid: "Неизвестное действие платной генерации.",
     real_generation_response_invalid: "Сервис генерации вернул некорректный ответ.",
     real_generation_request_failed: "Не удалось вызвать сервис платной генерации. Повторите попытку позже.",
-    provider_preflight_invalid: "Runway не подтвердил готовность выбранной модели. Платный запуск не создан.",
-    provider_configuration_error: "Ключ Runway не настроен. Платный запуск не создан.",
-    provider_authentication_failed: "Runway отклонил ключ доступа. Платный запуск не создан.",
-    provider_credits_unavailable: "В Runway недостаточно кредитов для выбранного запуска. Деньги не списаны.",
-    provider_rate_limited: "Суточная квота Runway исчерпана. Платный запуск не создан.",
-    provider_request_rejected: "Выбранная модель сейчас недоступна в Runway. Платный запуск не создан.",
-    provider_request_failed: "Runway не ответил на бесплатную проверку готовности. Платный запуск не создан.",
-    provider_response_invalid: "Runway вернул некорректный ответ проверки. Платный запуск не создан.",
+    provider_preflight_invalid: "Сервис генерации не подтвердил готовность выбранной модели. Платный запуск не создан.",
+    provider_configuration_error: "Доступ к выбранному сервису генерации не настроен. Платный запуск не создан.",
+    provider_authentication_failed: "Сервис генерации отклонил ключ доступа. Платный запуск не создан.",
+    provider_credits_unavailable: "В выбранном сервисе недостаточно средств для запуска. Деньги не списаны.",
+    provider_rate_limited: "Суточная квота выбранного сервиса исчерпана. Платный запуск не создан.",
+    provider_request_rejected: "Выбранная модель сейчас недоступна в сервисе генерации. Платный запуск не создан.",
+    provider_request_failed: "Сервис генерации не ответил на бесплатную проверку готовности. Платный запуск не создан.",
+    provider_response_invalid: "Сервис генерации вернул некорректный ответ проверки. Платный запуск не создан.",
     real_generation_failed: "Платная генерация завершилась ошибкой. Проверьте статус задачи.",
     real_generation_user_daily_quota_exceeded: "Дневной лимит платных запусков исчерпан. Продолжите после обновления лимита.",
     real_generation_organization_daily_quota_exceeded: "Командный дневной лимит платных запусков исчерпан. Обратитесь к руководителю.",
@@ -7258,13 +7800,14 @@ function toFriendlyMessage(error) {
     generation_reconciliation_incident_invalid: "Не удалось определить инцидент платного запуска. Обновите раздел.",
     generation_reconciliation_resolution_invalid: "Выберите результат ручной сверки платного запуска.",
     generation_reconciliation_evidence_invalid: "Добавьте проверяемое основание и подробную причину ручной сверки.",
-    generation_reconciliation_task_id_invalid: "Укажите точный Runway task ID из панели видеосервиса.",
+    generation_reconciliation_provider_invalid: "Не удалось подтвердить сервис этого запуска. Обновите карточку.",
+    generation_reconciliation_task_id_invalid: "Укажите точный task ID или Google operation из панели сервиса генерации.",
     generation_reconciliation_forbidden: "Ручную сверку платного запуска может выполнить только владелец или администратор команды.",
-    generation_reconciliation_task_not_found: "Runway task с таким ID не найден. Проверьте номер в панели видеосервиса.",
-    generation_reconciliation_task_mismatch: "Runway task не совпадает со временем этого запуска. Не прикрепляйте чужую задачу.",
-    generation_reconciliation_wait_required: "Для подтверждения отсутствия Runway task подождите две минуты после фиксации инцидента.",
+    generation_reconciliation_task_not_found: "Задача сервиса с таким ID не найдена. Проверьте точный идентификатор в панели провайдера.",
+    generation_reconciliation_task_mismatch: "Задача сервиса не совпадает со временем этого запуска. Не прикрепляйте чужую задачу.",
+    generation_reconciliation_wait_required: "Для подтверждения отсутствия задачи сервиса подождите две минуты после фиксации инцидента.",
     generation_reconciliation_rejected: "Состояние запуска изменилось. Обновите очередь перед ручной сверкой.",
-    real_generation_reconciliation_required: "Новый платный запуск временно закрыт: сначала владелец или администратор должен завершить ручную сверку предыдущего запроса к Runway.",
+    real_generation_reconciliation_required: "Новый платный запуск временно закрыт: сначала владелец или администратор должен завершить ручную сверку предыдущего запроса к сервису генерации.",
     generation_learning_context_required: "Восстановите безопасное авто-ТЗ и дождитесь бесплатной проверки обучения.",
     generation_learning_policy_category_invalid: "Выберите категорию товара для отдельного контура обучения.",
     generation_learning_category_mismatch: "Категория товара изменилась. Дождитесь нового обучения с нуля и восстановите авто-ТЗ.",
@@ -7276,6 +7819,7 @@ function toFriendlyMessage(error) {
     generation_learning_prompt_binding_invalid: "Обученные инструкции не попали в фактическое ТЗ. Восстановите безопасное авто-ТЗ перед запуском.",
     generation_mode_prompt_binding_invalid: "ТЗ не соответствует техническому контракту выбранной модели. Восстановите безопасное авто-ТЗ: точный товар, формат, длительность, реплика и запрет надписей будут проверены заново.",
     generation_spec_context_required: "Портал не привязал техническое ТЗ к запуску. Деньги не списаны — повторите запуск.",
+    generation_spec_baseline_required: "Эта новая модель пока запускается только с базовым ТЗ без применённого Research или обученного сценария. Выберите доступную модель либо подготовьте базовый замысел — деньги не списаны.",
     generation_spec_context_invalid: "Техническая версия устарела. Деньги не списаны — повторите запуск.",
     generation_video_reference_binding_payload_invalid: "Проверьте YouTube-ссылку и описание механики видеореференса.",
     generation_video_reference_attestation_required: "Подтвердите законный доступ к референсу и перенос только механики.",
@@ -7303,7 +7847,7 @@ function toFriendlyMessage(error) {
     generation_spec_launch_confirmation_stale: "Техническая версия изменилась во время проверки. Платный запрос не выполнен — повторите запуск.",
     generation_spec_effective_payload_invalid: "Сервер не смог проверить точную версию ТЗ. Обновите карточку перед запуском.",
     generation_spec_effective_policy_invalid: "Сервер вернул неполную проверку ТЗ. Платный запуск остановлен.",
-    generation_spec_effective_policy_unavailable: "Проверка актуальности ТЗ временно недоступна. Runway и списание не запускались.",
+    generation_spec_effective_policy_unavailable: "Проверка актуальности ТЗ временно недоступна. Провайдер и списание не запускались.",
     generation_spec_exact_scope_invalid: "Товар, ракурсы, модель, длительность, формат или аудио не совпадают с версией ТЗ.",
     generation_spec_approval_required: "Техническая версия устарела во время запуска. Деньги не списаны — повторите запуск.",
     generation_batch_id_invalid: "Не удалось определить запуск в истории.",
@@ -7319,13 +7863,13 @@ function toFriendlyMessage(error) {
     generation_spec_learning_binding_invalid: "Обученная политика не совпадает с утверждённым ТЗ. Пересчитайте версию бесплатно.",
     generation_spec_repair_binding_invalid: "QA-исправление не совпадает с утверждённым ТЗ. Подготовьте новую версию.",
     generation_spec_outcome_binding_invalid: "Выбор результата обучения изменился. Обновите advisory и подготовьте новую версию ТЗ.",
-    generation_spec_provider_start_stale: "ТЗ устарело непосредственно перед запуском. Runway и списание остановлены.",
+    generation_spec_provider_start_stale: "ТЗ устарело непосредственно перед запуском. Провайдер и списание остановлены.",
     generation_spec_policy_blocked: "Серверная политика качества остановила эту версию. Проверьте рекомендуемый следующий шаг.",
     generation_spec_prompt_binding_invalid: "Фактический prompt отличается от утверждённой серверной версии. Платный запуск остановлен.",
     generation_spec_policy_binding_invalid: "Контекст обучения или QA отличается от утверждённой версии ТЗ.",
     generation_spec_scope_binding_invalid: "Параметры платного режима отличаются от утверждённой версии ТЗ.",
-    generation_spec_state_conflict: "Сервер остановил запуск из-за конфликта истории ТЗ. Обновите карточку; Runway не вызван.",
-    generation_learning_rejection_guard_blocked: "Эта модель временно остановлена серверным контуром качества. Портал подберёт безопасную альтернативу без запуска Runway.",
+    generation_spec_state_conflict: "Сервер остановил запуск из-за конфликта истории ТЗ. Обновите карточку; провайдер не вызван.",
+    generation_learning_rejection_guard_blocked: "Эта модель временно остановлена серверным контуром качества. Портал подберёт безопасную альтернативу без запуска провайдера.",
     generation_quality_guard_control_review_pending: "Контрольный результат уже создан и ждёт независимого QA. Новый платный контроль не нужен.",
     generation_research_claim_evidence_invalid: "Одобренное исследование не содержит проверяемую immutable-базу safe/forbidden claims. Платный запуск не создан: обновите AI-исследование и одобрите его без ручной подмены.",
     auth_session_required: "Сессия истекла. Войдите снова перед платным запуском.",
@@ -7693,6 +8237,14 @@ function toFriendlyMessage(error) {
     workspace_media_kinds_invalid: "Один из типов материалов больше не поддерживается.",
     workspace_task_statuses_invalid: "Один из статусов задач больше не поддерживается.",
     workspace_cursor_invalid: "Список объектов изменился. Обновите рабочий стол.",
+    notification_center_payload_invalid: "Параметры панели уведомлений устарели. Откройте панель заново.",
+    notification_center_filter_invalid: "Выберите доступный фильтр уведомлений.",
+    notification_center_page_size_invalid: "Можно загрузить от 1 до 100 уведомлений.",
+    notification_center_cursor_invalid: "Список уведомлений изменился. Обновите панель.",
+    notification_visible_mark_payload_invalid: "Не удалось определить видимые уведомления. Обновите панель.",
+    notification_visible_scope_denied: "Список уведомлений изменился. Ничего не отмечено прочитанным; обновите панель.",
+    notification_action_validation_payload_invalid: "Точная команда уведомления устарела. Обновите панель.",
+    notification_action_intent_invalid: "Точная цель уведомления изменилась. Обновите панель.",
     workspace_folder_create_payload_invalid: "Проверьте название и расположение новой папки.",
     workspace_folder_update_payload_invalid: "Выберите изменение папки и повторите действие.",
     workspace_folder_name_invalid: "Укажите понятное название папки длиной до 120 символов.",

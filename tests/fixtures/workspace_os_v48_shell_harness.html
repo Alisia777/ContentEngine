@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ContentEngine Workspace OS v4.8 shell harness</title>
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4.css?v=fixture-v48-5" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-stability.css?v=fixture-v48-5" />
+    <style>
+      html, body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      button, input { font: inherit; }
+      .fixture-page { display: grid; align-content: start; gap: 18px; }
+      .fixture-hero { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
+      .fixture-hero h1 { margin: 0; color: #f1f4f7; font-size: clamp(28px, 4vw, 46px); letter-spacing: -.045em; }
+      .fixture-hero p { max-width: 48ch; margin: 8px 0 0; color: #8793a1; line-height: 1.5; }
+      .fixture-tag { padding: 7px 10px; border: 1px solid rgba(57,217,158,.22); border-radius: 999px; color: #7de6be; background: rgba(57,217,158,.07); font-size: 12px; white-space: nowrap; }
+      .fixture-tabs { display: flex; gap: 5px; padding: 5px; border: 1px solid rgba(255,255,255,.065); border-radius: 12px; background: #111c28; }
+      .fixture-tabs span { padding: 8px 12px; border-radius: 8px; color: #748192; font-size: 12px; font-weight: 720; }
+      .fixture-tabs .is-active { color: #f3f0ff; background: rgba(151,107,255,.19); }
+      .fixture-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+      .fixture-card { min-height: 122px; padding: 16px; border: 1px solid rgba(255,255,255,.08); border-radius: 16px; background: linear-gradient(145deg, rgba(255,255,255,.035), transparent), #162231; }
+      .fixture-card strong { color: #e7ebf0; font-size: 14px; }
+      .fixture-card p { margin: 8px 0 0; color: #778493; font-size: 12px; line-height: 1.45; }
+      .fixture-action { min-height: 42px; padding: 0 16px; border: 1px solid #f4d17a; border-radius: 11px; color: #231604; background: linear-gradient(#fff4c9, #c8972f); font-weight: 820; box-shadow: inset 0 1px white; cursor: pointer; }
+      .fixture-proof { color: #778493; font-size: 12px; }
+      @media (max-width: 700px) { .fixture-grid { grid-template-columns: 1fr; } .fixture-hero { align-items: start; flex-direction: column; } }
+    </style>
+  </head>
+  <body>
+    <div id="app" class="app-root">
+      <div
+        class="workspace-shell workspace-shell-v4"
+        data-workspace-section="ai"
+        data-workspace-role="operator"
+        data-workspace-authorized-routes="/workspace/home /workspace/board /workspace/generation /workspace/review /workspace/placement /workspace/stats /workspace/research /workspace/ai /workspace/tasks /workspace/work"
+        data-project-id="11111111-1111-4111-8111-111111111111"
+        data-project-name="Bombbar · Август"
+      >
+        <main class="workspace-main">
+          <div id="main-content">
+            <div id="workspace-content">
+              <section class="page-wrap fixture-page">
+                <header class="fixture-hero">
+                  <div>
+                    <span class="fixture-tag">ИИ рекомендует · решение принимает человек</span>
+                    <h1>Машина предлагает. Человек утверждает.</h1>
+                    <p>Рекомендации не изменяют рабочую версию без явного выбора сотрудника.</p>
+                  </div>
+                  <button id="fixture-action" class="fixture-action" type="button">Сохранить моё решение</button>
+                </header>
+                <nav class="fixture-tabs" aria-label="Разделы ИИ-центра">
+                  <span>Сегодня</span><span>Источники</span><span>Анализы</span><span class="is-active">Решения</span><span>Рекомендации</span>
+                </nav>
+                <div class="fixture-grid">
+                  <article class="fixture-card"><strong>Категория и покупатель</strong><p>Человек может исправить продукт, аудиторию и фактуру до применения рекомендации.</p></article>
+                  <article class="fixture-card"><strong>Конкуренты</strong><p>Результат исследования показан как аргументированное предложение, а не команда.</p></article>
+                  <article class="fixture-card"><strong>Ваше решение</strong><p>2 изменения сотрудника сохранены. Новый ответ ИИ их не перезапишет.</p></article>
+                </div>
+                <output id="fixture-proof" class="fixture-proof" aria-live="polite">Исходный обработчик ещё не проверен.</output>
+                <label class="fixture-proof" for="fixture-focused">Ручная правка</label>
+                <input id="fixture-focused" value="Сохранить ручное решение" />
+              </section>
+            </div>
+          </div>
+        </main>
+      </div>
+      <script id="workspace-project-flow-snapshot" type="application/json">
+        {
+          "project_id": "11111111-1111-4111-8111-111111111111",
+          "project": {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "name": "Bombbar · Август",
+            "progress_percent": 80,
+            "current_stage": "review"
+          },
+          "projects": [
+            {
+              "id": "11111111-1111-4111-8111-111111111111",
+              "name": "Bombbar · Август",
+              "progress_percent": 80,
+              "current_stage": "review"
+            }
+          ],
+          "counts": { "files": 12, "generation_jobs": 2, "reviews": 2, "placements": 1, "metric_snapshots": 0, "notifications_unread": 5 },
+          "stages": [
+            { "code": "files", "state": "done", "count": 12 },
+            { "code": "generation", "state": "done", "count": 2 },
+            { "code": "review", "state": "current", "count": 2 },
+            { "code": "placement", "state": "future", "count": 1 },
+            { "code": "stats", "state": "future", "count": 0 }
+          ]
+        }
+      </script>
+    </div>
+    <div id="toast-region" aria-live="polite"></div>
+    <script type="module">
+      const action = document.querySelector("#fixture-action");
+      const proof = document.querySelector("#fixture-proof");
+      const originalContent = document.querySelector("#workspace-content");
+      const focused = document.querySelector("#fixture-focused");
+      action.addEventListener("click", () => {
+        proof.value = "Исходный обработчик работает после переноса DOM-узла.";
+        document.body.dataset.fixtureActionCount = String(Number(document.body.dataset.fixtureActionCount || 0) + 1);
+      });
+      const fixtureParams = new URLSearchParams(window.location.search);
+      if (fixtureParams.get("project") === "none") {
+        const workspace = document.querySelector(".workspace-shell[data-workspace-section]");
+        delete workspace.dataset.projectId;
+        delete workspace.dataset.projectName;
+        document.querySelector("#workspace-project-flow-snapshot").textContent = JSON.stringify({
+          project_id: "",
+          project: null,
+          projects: [],
+          counts: { notifications_unread: 0 },
+          stages: [],
+        });
+      }
+      window.location.hash = fixtureParams.get("route") === "home"
+        ? "#/workspace/home"
+        : "#/workspace/ai?project_id=11111111-1111-4111-8111-111111111111";
+      focused.focus();
+      focused.setSelectionRange(2, 11, "forward");
+      await import("../../web/app/workspace-os-v4.js?fixture=v48-shell-5");
+      await window.ContentEngineDesktopV4.flush();
+      document.body.dataset.fixtureReady = "true";
+      document.body.dataset.fixtureOriginalNodePreserved = String(document.querySelector("#workspace-content") === originalContent);
+      document.body.dataset.fixtureFocusPreserved = String(document.activeElement === focused);
+      document.body.dataset.fixtureSelectionPreserved = String(
+        focused.selectionStart === 2 && focused.selectionEnd === 11,
+      );
+      const desktop = document.querySelector("[data-ce-v4-desktop]");
+      const desktopRect = desktop?.getBoundingClientRect();
+      const visibleDesktopObjects = [...document.querySelectorAll(
+        ".ce-v4-desktop-widget, .ce-v4-desktop-shortcut",
+      )].filter((node) => getComputedStyle(node).display !== "none");
+      document.body.dataset.fixtureDesktopWindowCount = String(
+        document.querySelectorAll("[data-ce-v4-window]").length,
+      );
+      document.body.dataset.fixtureDesktopObjectsVisible = String(visibleDesktopObjects.length);
+      document.body.dataset.fixtureDesktopWidgetsVisible = String(
+        [...document.querySelectorAll(".ce-v4-desktop-widget")]
+          .filter((node) => getComputedStyle(node).display !== "none").length,
+      );
+      document.body.dataset.fixtureDesktopShortcutsVisible = String(
+        [...document.querySelectorAll(".ce-v4-desktop-shortcut")]
+          .filter((node) => getComputedStyle(node).display !== "none").length,
+      );
+      const parkedContent = document.querySelector("#workspace-content");
+      document.body.dataset.fixtureDesktopContentParked = String(
+        parkedContent?.dataset.ceV4DesktopParked === "true"
+        && parkedContent.hasAttribute("inert")
+        && parkedContent.getAttribute("aria-hidden") === "true",
+      );
+      document.body.dataset.fixtureDesktopFits = String(Boolean(
+        desktopRect
+        && desktopRect.left >= -0.5
+        && desktopRect.right <= window.innerWidth + 0.5
+        && document.documentElement.scrollWidth <= window.innerWidth,
+      ));
+      document.body.dataset.fixtureDesktopDockActiveCount = String(
+        document.querySelectorAll(".ce-v4-dock__item.is-active").length,
+      );
+      document.body.dataset.fixtureDecisionWidgetHasNull = String(
+        [...document.querySelectorAll(".ce-v4-desktop-widget")]
+          .some((node) => node.textContent.includes("null")),
+      );
+      const decisionWidget = [...document.querySelectorAll(".ce-v4-desktop-widget")]
+        .find((node) => node.querySelector(".ce-v4-desktop-widget__title")?.textContent === "Нужны решения");
+      document.body.dataset.fixtureDecisionWidgetValue =
+        decisionWidget?.querySelector(".ce-v4-desktop-widget__value")?.textContent || "";
+      const dockGlass = document.querySelector(".ce-v4-dock__glass");
+      const dockRect = dockGlass?.getBoundingClientRect();
+      const visibleDockParts = [...(dockGlass?.children || [])].filter((node) => (
+        !node.hidden && node.matches(".ce-v4-dock__item, .ce-v4-dock__separator")
+      ));
+      document.body.dataset.fixtureDockFits = String(Boolean(
+        dockRect
+        && dockRect.left >= -0.5
+        && dockRect.right <= window.innerWidth + 0.5
+        && visibleDockParts.every((node) => {
+          const rect = node.getBoundingClientRect();
+          return rect.left >= -0.5 && rect.right <= window.innerWidth + 0.5;
+        })
+      ));
+      const dockMore = document.querySelector("[data-ce-v4-dock-more]");
+      if (dockMore && !dockMore.hidden) {
+        dockMore.click();
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const menu = document.querySelector("[data-ce-v4-dock-more-menu]");
+        const menuRect = menu?.getBoundingClientRect();
+        document.body.dataset.fixtureDockMenuFits = String(Boolean(
+          menuRect
+          && menuRect.left >= -0.5
+          && menuRect.right <= window.innerWidth + 0.5
+        ));
+        dockMore.click();
+      } else {
+        document.body.dataset.fixtureDockMenuFits = "true";
+      }
+      if (fixtureParams.get("activate") === "shortcut") {
+        const shortcut = document.querySelector(".ce-v4-desktop-shortcut");
+        const navigationFinished = new Promise((resolve) => {
+          window.addEventListener("hashchange", resolve, { once: true });
+        });
+        shortcut.click();
+        // The shortcut changes the hash synchronously, then the shell owns the
+        // hashchange mount. Await that exact boundary and its queued mount; a
+        // timer can race `--dump-dom` on a loaded host and is not authoritative.
+        await navigationFinished;
+        await window.ContentEngineDesktopV4.flush();
+        document.body.dataset.fixtureAfterActionWindowCount = String(
+          document.querySelectorAll("[data-ce-v4-window]").length,
+        );
+        document.body.dataset.fixtureAfterActionContentParked = String(
+          document.querySelector("#workspace-content")?.dataset.ceV4DesktopParked === "true",
+        );
+        document.body.dataset.fixtureAfterActionRoute = window.location.hash;
+      }
+      if (fixtureParams.get("probe") === "logout") {
+        document.querySelector("#app").innerHTML = '<main id="main-content"><h1>Вход</h1><input id="login-email" /></main>';
+        window.location.hash = "#/login";
+        await window.ContentEngineDesktopV4.flush();
+        const loginMain = document.querySelector("#main-content");
+        document.body.dataset.fixtureLogoutLeakPassed = String(
+          !loginMain.querySelector("#workspace-content")
+          && !loginMain.textContent.includes("Машина предлагает")
+          && !loginMain.querySelector("video, img[src^='blob:'], input[value='Сохранить ручное решение']"),
+        );
+      }
+    </script>
+  </body>
+</html>

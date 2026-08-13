@@ -39,7 +39,7 @@ def _between(source: str, start: str, end: str) -> str:
 
 
 def test_v49_loader_has_three_script_adapters_and_one_shared_operations_style() -> None:
-    assert 'const BUILD = "20260812.os4.38"' in LOADER
+    assert 'const BUILD = "20260813.os4.39"' in LOADER
     route_assets = _between(
         LOADER,
         "const ROUTE_ASSETS = Object.freeze({",
@@ -148,8 +148,21 @@ def test_core_exposes_one_frame_mount_coordinator() -> None:
 
 def test_dock_geometry_is_stable_and_home_uses_the_native_project_chooser() -> None:
     ensure_dock = _between(CORE, "function ensureDock(", "\nfunction updateDock(")
-    assert "pointermove" not in ensure_dock
-    assert "getBoundingClientRect" not in CORE
+    begin_reorder = _between(
+        CORE,
+        "function beginDockPointerReorder(",
+        "\nfunction moveDockPointerReorder(",
+    )
+    move_reorder = _between(
+        CORE,
+        "function moveDockPointerReorder(",
+        "\nfunction finishDockPointerReorder(",
+    )
+    assert 'dock.addEventListener("pointermove", moveDockPointerReorder)' in ensure_dock
+    assert "if (!dockEditing() || event.button !== 0) return" in begin_reorder
+    assert "const drag = runtime.dockPointerReorder" in move_reorder
+    assert "if (!drag || drag.pointerId !== event.pointerId) return" in move_reorder
+    assert "candidate.getBoundingClientRect()" in move_reorder
 
     home = _between(CORE, "function mountHome(", "\nfunction projectContext(")
     project_markup = _between(
@@ -200,7 +213,7 @@ def test_route_scroll_is_restored_once_before_the_mount_frame_paints() -> None:
 
 
 def test_same_route_dom_patch_preserves_live_surfaces_and_stable_records() -> None:
-    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260812.os4.38"' in APP_JS
+    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260813.os4.39"' in APP_JS
     for marker in (
         "const WORKSPACE_PATCH_KEY_ATTRIBUTES",
         '"data-workspace-item-key"',
@@ -349,7 +362,7 @@ def test_dom_reconciler_sanitizes_markup_before_adopting_nodes() -> None:
     assert "unsafeUrlsRemoved" in DOM_PATCH_FIXTURE
 
 
-def test_desktop_owns_the_viewport_and_main_content_owns_scrolling() -> None:
+def test_desktop_owns_the_viewport_and_workspace_window_body_owns_scrolling() -> None:
     body_rule = _between(
         CORE_CSS,
         "body.contentengine-desktop-v4 {\n  box-sizing: border-box;",
@@ -367,11 +380,21 @@ def test_desktop_owns_the_viewport_and_main_content_owns_scrolling() -> None:
     for marker in (
         "height: 100% !important",
         "min-height: 0 !important",
-        "overflow-y: auto !important",
+        "overflow: hidden !important",
         "overscroll-behavior: contain",
         "scrollbar-gutter: stable",
     ):
         assert marker in main_scroll
+
+    window_scroll = _between(
+        CORE_CSS,
+        ".ce-v4-window__body {",
+        "\n}\n\n.ce-v4-window__body > #workspace-content",
+    )
+    assert "overflow-x: hidden" in window_scroll
+    assert "overflow-y: auto" in window_scroll
+    assert "overscroll-behavior: contain" in window_scroll
+    assert "scrollbar-gutter: stable" in window_scroll
 
     shell_contract = _between(
         STABILITY_CSS,
@@ -379,6 +402,7 @@ def test_desktop_owns_the_viewport_and_main_content_owns_scrolling() -> None:
         "/* Late route assets still contain 100dvh contracts; cap their window to this shell. */",
     )
     assert "overflow: hidden !important" in shell_contract
+    assert "[data-ce-v4-window-body]" in shell_contract
     assert "overflow-y: auto !important" in shell_contract
 
 

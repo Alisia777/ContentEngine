@@ -135,7 +135,7 @@ def test_all_paid_boundary_compilers_share_exact_specialized_fragments() -> None
         assert code in MIGRATION
         assert code in EDGE
         assert code in HANDOFF
-    assert "model !== \"seedance2_fast\"" in EDGE
+    assert EDGE.count("!generationModelSupportsAudio(model)") >= 2
     assert "mode !== REAL_SEEDANCE_MODE" in HANDOFF
 
 

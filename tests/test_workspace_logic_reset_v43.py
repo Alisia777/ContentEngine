@@ -386,9 +386,28 @@ def test_secondary_and_context_routes_stay_outside_the_primary_dock() -> None:
         assert f'route: "{contextual}"' in context
     for detached in ("/workspace/media", "/workspace/payouts"):
         assert f'route: "{detached}"' not in context
+    dock_apps = _source_between(
+        CORE,
+        "const DOCK_APPS = Object.freeze([",
+        "\n]);\nconst DOCK_CANONICAL_ORDER",
+    )
+    assert re.findall(r'key:\s*"([^"]+)"', dock_apps) == [
+        "finder",
+        "results",
+        "research",
+        "ai",
+        "create",
+        "review",
+        "publish",
+        "processes",
+        "settings",
+    ]
     ensure_dock = _source_between(CORE, "function ensureDock() {", "\n}\n\nfunction updateDock")
-    assert "ROUTES.forEach" in ensure_dock
-    assert "SECONDARY_ROUTES.forEach" not in ensure_dock
+    assert "DOCK_APPS.forEach((item, index)" in ensure_dock
+    assert "link.dataset.ceV4DockKey = item.key" in ensure_dock
+    assert "link.dataset.ceV4Route = item.route" in ensure_dock
+    for route_collection in ("ROUTES", "SECONDARY_ROUTES", "CONTEXT_ROUTES", "ALL_ROUTES"):
+        assert f"{route_collection}.forEach" not in ensure_dock
     assert 'route: "/learn"' not in CORE
     for label, href in (
         ("Разбор товара", "/workspace/research"),
@@ -410,6 +429,16 @@ def test_dock_is_the_only_global_switcher_and_project_progress_is_contextual() -
         "function activeProjectFlowIndex(",
         "\n}\n\nfunction stageLocked",
     )
+    active_dock_key = _source_between(
+        CORE,
+        "function activeDockKey(",
+        "\n}\n\nfunction dockDestination",
+    )
+    dock_presentation = _source_between(
+        CORE,
+        "function syncDockPresentation(",
+        "\n}\n\nfunction animateDockLaunch",
+    )
     update_dock = _source_between(CORE, "function updateDock() {", "\n}\n\nfunction updateMenubar")
 
     assert "function ensureFlowbar" not in CORE
@@ -427,9 +456,21 @@ def test_dock_is_the_only_global_switcher_and_project_progress_is_contextual() -
     assert 'expected === "/workspace/home"' in matches
     assert 'route !== "/workspace/tasks"' in active_index
     assert 'routeQuery().get("stage") || routeQuery().get("origin_stage")' in active_index
-    assert 'route === "/workspace/tasks"' in update_dock
-    assert 'focusedStageIndex >= 0 ? PROJECT_FLOW[focusedStageIndex].route : "/workspace/home"' in update_dock
-    assert "PROJECT_FLOW[focusedStageIndex].route" in update_dock
+    assert "const activeIndex = activeProjectFlowIndex(route, snapshot)" in progress
+    assert 'link.classList.toggle("is-viewing", index === activeIndex)' in progress
+    assert '["/workspace/tasks", "/workspace/work"].includes(path)' in active_dock_key
+    assert 'return "processes"' in active_dock_key
+    assert "const presentation = computeWorkspaceDockPresentation(runtime.dockState" in dock_presentation
+    assert "activeAppId: activeKey" in dock_presentation
+    assert "runningAppIds: runningDockAppIds(activeKey)" in dock_presentation
+    assert "selectedShortcutId" in dock_presentation
+    assert "const activeKey = activeDockKey(window.location.hash || route)" in update_dock
+    assert "const presentation = syncDockPresentation(activeKey)" in update_dock
+    assert "new Map((presentation?.items || []).map((item) => [item.key, item]))" in update_dock
+    assert "const key = String(item.dataset.ceV4DockKey || \"\")" in update_dock
+    assert "const selected = presentationItem?.selected === true" in update_dock
+    assert 'item.classList.toggle("is-selected", selected)' in update_dock
+    assert 'item.classList.toggle("is-running", Boolean(presentationByKey.get(key)?.running))' in update_dock
 
 
 def test_flow_css_hides_every_surface_that_is_inactive_for_the_selected_view() -> None:

@@ -5,6 +5,11 @@ Updated: 2026-07-26
 This roadmap separates shipped software from production readiness. A feature is
 not considered ready merely because a form, RPC, or provider call exists.
 
+Active interface contract: [multi-model generation, recommendation authority
+and archive metadata](interface/archive/2026-08-13-multi-model-video-generation.md).
+Its implementation and controlled provider acceptance are tracked separately;
+the document does not mark an untested model as production-ready.
+
 ## P0 — safe daily operation
 
 ### 1. Authentication email cutover

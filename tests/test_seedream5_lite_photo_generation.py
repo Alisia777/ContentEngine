@@ -21,6 +21,9 @@ WORKER = (
 ).read_text(encoding="utf-8")
 APP = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
 ADAPTER = (ROOT / "web/app/supabase-api.js").read_text(encoding="utf-8")
+PROVIDER_ADAPTER = (
+    ROOT / "supabase/functions/_shared/generation-provider-adapters.js"
+).read_text(encoding="utf-8")
 
 
 def test_database_adds_one_fixed_price_2k_photo_sku() -> None:
@@ -84,17 +87,10 @@ def test_photo_uses_campaign_budget_idempotency_and_no_auto_retry() -> None:
 
 def test_edge_calls_runway_text_to_image_with_product_reference_bundle_and_png() -> None:
     for token in (
-        'model: "seedream5_lite"',
-        "duration_seconds: 0",
-        'format: "1:1"',
+        '"runway:seedream5_lite"',
+        'model === "seedream5_lite"',
         '"RUNWAY_SEEDREAM5_LITE_2K_USD_0.04"',
-        'const SEEDREAM5_LITE_RATIO = "2048:2048"',
-        '`${RUNWAY_API_ORIGIN}/v1/text_to_image`',
-        'outputFormat: "png"',
-        "outputCount: 1",
         'const RUNWAY_PRODUCT_REFERENCE_TAG = "ProductReference"',
-        "referenceImages: validReferenceUrls.map",
-        "`${RUNWAY_PRODUCT_REFERENCE_TAG}${index + 1}`",
         'const outputMimeType = photoOutput ? "image/png" : "video/mp4"',
         "photoOutput ? !isPng(outputBytes) : !isMp4(outputBytes)",
         "view.getUint32(0, false) === 2_048",
@@ -102,6 +98,20 @@ def test_edge_calls_runway_text_to_image_with_product_reference_bundle_and_png()
         "system_complete_seedream5_lite_photo",
     ):
         assert token in EDGE
+    seedream = PROVIDER_ADAPTER[
+        PROVIDER_ADAPTER.index("function buildSeedream(") :
+        PROVIDER_ADAPTER.index("\nfunction buildGen4(")
+    ]
+    for token in (
+        'outputFormat: "png"',
+        "outputCount: 1",
+        "body.referenceImages = references.map",
+        "`${PRODUCT_REFERENCE_TAG}${index + 1}`",
+    ):
+        assert token in seedream
+    assert 'endpoints: { text: "/v1/text_to_image", image: "/v1/text_to_image" }' in (
+        ROOT / "supabase/functions/_shared/generation-model-catalog.js"
+    ).read_text(encoding="utf-8")
 
 
 def test_photo_reference_tag_is_bound_across_prompt_provider_and_database() -> None:

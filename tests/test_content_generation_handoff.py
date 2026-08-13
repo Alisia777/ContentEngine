@@ -132,6 +132,76 @@ def test_compiler_respects_each_provider_prompt_limit_without_limiting_human_ide
     assert result["seedanceLength"] <= result["seedanceLimit"] == 1_200
 
 
+def test_new_models_compile_exact_duration_and_public_ratio_without_legacy_rounding() -> None:
+    result = _run_module(
+        r'''
+        const common = {
+          productName: "Точный товар",
+          sku: "SKU-EXACT",
+          scenarioIntent: "Герой показывает товар. Реплика: «Показываю точный товар без лишних обещаний». ",
+          productCategory: "other",
+        };
+        const fixtures = [
+          ["runway", "gen4.5", "real_gen4", 3, "16:9", false],
+          ["runway", "seedance2_mini", "real_seedance", 6, "21:9", true],
+          ["runway", "veo3.1_fast", "real_gen4", 4, "16:9", false],
+          ["runway", "veo3.1_fast", "real_seedance", 8, "9:16", true],
+          ["runway", "gemini_omni_flash", "real_seedance", 3, "16:9", true],
+          ["google", "veo-3.1-lite-generate-preview", "real_seedance", 6, "9:16", true],
+        ];
+        const rows = fixtures.map(([provider, model, mode, durationSeconds, format, audio]) => {
+          const generationSelection = {
+            provider, model, format, durationSeconds, audio, promptLimit: 4000,
+          };
+          const compiled = subject.compileSafeGenerationBrief({
+            ...common, mode, durationSeconds, generationSelection,
+          });
+          const expected = audio
+            ? `Создай один непрерывный UGC-ролик длительностью ${durationSeconds} секунд с соотношением сторон ${format}.`
+            : `Создай один непрерывный ролик длительностью ${durationSeconds} секунд с соотношением сторон ${format}.`;
+          const verticalTamper = compiled.prompt.replace(expected,
+            audio
+              ? `Создай один непрерывный вертикальный UGC-ролик длительностью ${durationSeconds} секунд.`
+              : `Создай один непрерывный вертикальный ролик длительностью ${durationSeconds} секунд.`,
+          );
+          return {
+            provider, model, ready: compiled.ready,
+            duration: compiled.durationSeconds,
+            firstLine: compiled.prompt.split("\n")[0],
+            expected,
+            tamperCodes: subject.inspectContentGenerationPrompt(verticalTamper, mode, {
+              productName: common.productName,
+              productCategory: common.productCategory,
+              durationSeconds,
+              generationSelection,
+            }).blockers.map((entry) => entry.code),
+          };
+        });
+        const legacy = subject.compileSafeGenerationBrief({
+          ...common,
+          mode: "real_gen4",
+          durationSeconds: 5,
+          generationSelection: {
+            provider: "runway", model: "gen4_turbo", format: "16:9",
+            durationSeconds: 5, audio: false, promptLimit: 1000,
+          },
+        });
+        return { rows, legacyFirstLine: legacy.prompt.split("\n")[0] };
+        '''
+    )
+    assert all(row["ready"] for row in result["rows"])
+    assert all(row["duration"] in {3, 4, 6, 8} for row in result["rows"])
+    assert all(row["firstLine"] == row["expected"] for row in result["rows"])
+    assert all(
+        {"seedance_output_guard_missing", "gen4_output_guard_missing"}
+        & set(row["tamperCodes"])
+        for row in result["rows"]
+    )
+    assert result["legacyFirstLine"] == (
+        "Создай один непрерывный вертикальный ролик длительностью 5 секунд."
+    )
+
+
 def test_handoff_carries_human_research_decision_into_required_prompt_guard() -> None:
     result = _run_module(
         """
@@ -1715,7 +1785,7 @@ def test_portal_connects_approved_scenario_to_paid_generation_readiness() -> Non
     )
     assert "generation_job_id: jobId" in APP
     assert "creative_brief_draft_id: generationHandoff?.draftId" in APP
-    assert "./content-generation-handoff.js?v=20260812.os4.38" in APP
-    assert "./app.js?v=20260812.os4.38" in INDEX
+    assert "./content-generation-handoff.js?v=20260813.os4.39" in APP
+    assert "./app.js?v=20260813.os4.39" in INDEX
     handoff_header = STYLES.split(".generation-handoff__header {", 1)[1].split("}", 1)[0]
     assert "flex-direction: column;" in handoff_header

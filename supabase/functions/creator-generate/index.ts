@@ -4,6 +4,23 @@ import {
   isInternalWorkerAuthorized,
   isInternalWorkerRequest,
 } from "../_shared/internal-worker-auth.ts";
+import {
+  estimateGenerationModelCostMinor,
+  GENERATION_MODEL_CATALOG_VERSION,
+  GENERATION_MODEL_FEATURE_FLAGS,
+  generationModelCatalogEntry,
+  GOOGLE_VEO_PRICING_VERSION,
+  publicGenerationModelCatalog,
+  RUNWAY_PRICING_VERSION,
+  validateGenerationModelSelection,
+} from "../_shared/generation-model-catalog.js";
+import {
+  GENERATION_SELECTION_SNAPSHOT_FIELDS,
+  readGenerationSelectionSnapshot,
+} from "../_shared/generation-selection-snapshot.js";
+import {
+  buildGenerationProviderRequest,
+} from "../_shared/generation-provider-adapters.js";
 
 const PUBLIC_APP_ORIGIN = "https://alisia777.github.io";
 const LOCAL_QA_APP_ORIGIN = "http://127.0.0.1:8767";
@@ -13,7 +30,15 @@ const USER_APP_ORIGINS = new Set([
 ]);
 const RUNWAY_API_ORIGIN = "https://api.dev.runwayml.com";
 const RUNWAY_API_VERSION = "2024-11-06";
+const GOOGLE_GENERATIVE_LANGUAGE_API_ORIGIN =
+  "https://generativelanguage.googleapis.com";
+const GOOGLE_GENERATIVE_LANGUAGE_API_VERSION = "v1beta";
+const GOOGLE_VEO_LITE_MODEL = "veo-3.1-lite-generate-preview";
 const GENERATION_LEARNING_GATE_VERSION = "2026-07-29.v8";
+const PROVIDER_READINESS_RECEIPT_V3 =
+  "generation-provider-readiness-receipt-v3";
+const PROVIDER_READINESS_RECEIPT_V4 =
+  "generation-provider-readiness-receipt-v4";
 const RUNWAY_PRODUCT_REFERENCE_TAG = "ProductReference";
 const GENERATED_TEXT_GUARD =
   "Без сгенерированных надписей, субтитров и декоративного текста.";
@@ -23,6 +48,10 @@ const RUNWAY_OUTPUT_HOST = "dnznrvs05pmza.cloudfront.net";
 const STORAGE_BUCKET = "contentengine-private";
 const MAX_BODY_BYTES = 16_384;
 const MAX_PROVIDER_JSON_BYTES = 65_536;
+// Google image input is embedded as base64 in the documented REST request.
+// Keep the decoded frame and final serialized request bounded separately.
+const MAX_GOOGLE_INPUT_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_GOOGLE_PROVIDER_REQUEST_BYTES = 24 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 52_428_800;
 const INPUT_URL_TTL_SECONDS = 3_600;
 const OUTPUT_URL_TTL_SECONDS = 300;
@@ -43,10 +72,31 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
 const TASK_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
+const GOOGLE_OPERATION_NAME_PATTERN =
+  /^models\/veo-3\.1-lite-generate-preview\/operations\/[A-Za-z0-9][A-Za-z0-9._~-]{0,255}$/u;
 const IDEMPOTENCY_PATTERN = /^[A-Za-z0-9._:-]{8,180}$/u;
-const GEN4_RATIOS = new Set(["1280:720", "720:1280", "960:960"]);
-const SEEDANCE_FAST_RATIO = "720:1280";
-const SEEDREAM5_LITE_RATIO = "2048:2048";
+const LIVE_GENERATION_EXECUTION_KEYS = new Set([
+  "runway:gen4_turbo",
+  "runway:seedance2_fast",
+  "runway:seedream5_lite",
+  "runway:gen4.5",
+  "runway:seedance2_mini",
+  "runway:veo3.1_fast",
+  "runway:gemini_omni_flash",
+  "google:veo-3.1-lite-generate-preview",
+]);
+const RUNWAY_PROVIDER_ENDPOINTS = new Set([
+  "/v1/image_to_video",
+  "/v1/text_to_video",
+  "/v1/video_to_video",
+  "/v1/text_to_image",
+]);
+const SPEC_BOUND_RUNWAY_MODELS: ReadonlySet<string> = new Set([
+  "gen4.5",
+  "seedance2_mini",
+  "veo3.1_fast",
+  "gemini_omni_flash",
+]);
 const RUNWAY_SKU_CONFIG = Object.freeze({
   gen4_turbo: Object.freeze({
     minimumDuration: 2,
@@ -64,11 +114,6 @@ const RUNWAY_SKU_CONFIG = Object.freeze({
     creditsPerSecond: 0,
     fixedCredits: 4,
   }),
-});
-const RUNWAY_PROMPT_LIMITS = Object.freeze({
-  gen4_turbo: 1_000,
-  seedance2_fast: 1_200,
-  seedream5_lite: 1_200,
 });
 const DEFINITIVE_CREATE_HTTP_STATUSES = new Set([
   400,
@@ -244,6 +289,14 @@ type ContentEngineDatabase = {
         Args: { p_payload: Json };
         Returns: Json;
       };
+      creator_generation_provider_policy: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
+      creator_generation_model_feature_flags: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
       creator_generation_learning_policy: {
         Args: { p_payload: Json };
         Returns: Json;
@@ -326,6 +379,16 @@ type ProductCategory =
   | "electronics"
   | "other";
 
+type GenerationFormat =
+  | "21:9"
+  | "16:9"
+  | "4:3"
+  | "3:2"
+  | "1:1"
+  | "2:3"
+  | "3:4"
+  | "9:16";
+
 type CommonStartPayload = {
   action: "start";
   organization_id: string;
@@ -336,7 +399,7 @@ type CommonStartPayload = {
   product_name: string;
   product_category: ProductCategory;
   count: 1;
-  format: "9:16" | "1:1" | "16:9";
+  format: GenerationFormat;
   brief: string;
   media_ids: string[];
   platform:
@@ -350,7 +413,7 @@ type CommonStartPayload = {
   assignee_id?: string;
   payout_minor?: number;
   mode: "real";
-  provider: "runway";
+  provider: "runway" | "google";
   allow_real_spend: true;
   learning_context: GenerationLearningContext;
   generation_spec_context: GenerationSpecContext;
@@ -415,15 +478,42 @@ type GenerationSpecContext = {
   spec_hash: string;
 };
 
+type ExistingRunwayModel = keyof typeof RUNWAY_SKU_CONFIG;
+type AdditionalRunwayModel =
+  | "gen4.5"
+  | "seedance2_mini"
+  | "veo3.1_fast"
+  | "gemini_omni_flash";
+type RunwayModel = ExistingRunwayModel | AdditionalRunwayModel;
+type GoogleModel = typeof GOOGLE_VEO_LITE_MODEL;
+type GenerationProvider = "runway" | "google";
+type GenerationModel = RunwayModel | GoogleModel;
+type GenerationResolution =
+  | "2K"
+  | "3K"
+  | "480p"
+  | "720p"
+  | "1080p"
+  | "4K";
+
 type GenerationSpecScope = {
   primary_media_id: string;
   media_ids: string[];
   platform: CommonStartPayload["platform"];
-  model: RunwayModel;
+  provider: GenerationProvider;
+  model: GenerationModel;
+  input_mode: "image";
   duration_seconds: number;
   product_category: ProductCategory;
   format: CommonStartPayload["format"];
+  ratio: CommonStartPayload["format"];
+  resolution: GenerationResolution;
   audio: boolean;
+  spoken_dialogue: boolean;
+  reference_count: number;
+  reference_video: false;
+  first_frame: boolean;
+  last_frame: boolean;
 };
 
 type GenerationSpecEffectivePolicy = {
@@ -443,38 +533,50 @@ type GenerationSpecEffectivePolicy = {
   } | null;
 };
 
-type StartPayload =
-  & CommonStartPayload
-  & (
-    | {
-      model: "gen4_turbo";
-      duration_seconds: number;
-      audio?: false;
-      spend_confirmation: string;
-    }
-    | {
-      model: "seedance2_fast";
-      duration_seconds: number;
-      audio: true;
-      format: "9:16";
-      spend_confirmation: string;
-    }
-    | {
-      model: "seedream5_lite";
-      duration_seconds: 0;
-      audio?: false;
-      format: "1:1";
-      spend_confirmation: "RUNWAY_SEEDREAM5_LITE_2K_USD_0.04";
-    }
-  );
-
-type RunwayModel = keyof typeof RUNWAY_SKU_CONFIG;
+type StartPayload = CommonStartPayload & {
+  provider: GenerationProvider;
+  model: GenerationModel;
+  input_mode: "image";
+  duration_seconds: number;
+  resolution: GenerationResolution;
+  audio: boolean;
+  last_frame: boolean;
+  spend_confirmation: string;
+  provider_readiness_receipt_id: string;
+  provider_readiness_receipt_hash: string;
+  generation_selection_snapshot: Record<string, Json>;
+};
 
 type PreflightPayload = {
   action: "preflight";
   organization_id: string;
-  model: RunwayModel;
+  provider: GenerationProvider;
+  model: GenerationModel;
+  input_mode: "image";
   duration_seconds: number;
+  format: CommonStartPayload["format"];
+  resolution: GenerationResolution;
+  audio: boolean;
+  last_frame: boolean;
+  project_id?: string;
+  generation_spec_context?: GenerationSpecContext;
+};
+
+type ModelCatalogPayload = {
+  action: "model_catalog";
+  organization_id: string;
+};
+
+type GenerationProviderPolicy = {
+  provider: GenerationProvider;
+  model: GenerationModel;
+  launchEnabled: boolean;
+  disabledReasonCode: string | null;
+};
+
+type GenerationModelFeatureFlags = {
+  googleVeoLite: boolean;
+  runwayPremium: boolean;
 };
 
 type StatusPayload = {
@@ -497,12 +599,15 @@ type ReconcilePayload = {
   reason: string;
   confirmation:
     | "RUNWAY_TASK_ID_VERIFIED"
-    | "RUNWAY_NO_TASK_VERIFIED";
+    | "RUNWAY_NO_TASK_VERIFIED"
+    | "GOOGLE_OPERATION_ID_VERIFIED"
+    | "GOOGLE_NO_OPERATION_VERIFIED";
 };
 
 type ReconciliationContext = {
   actorId: string;
   incidentId: string;
+  provider: GenerationProvider;
   startingAt: string;
   requiredAt: string;
 };
@@ -535,11 +640,45 @@ type RunwayProviderReadiness =
     failureCode: string;
   };
 
+type ProviderReadiness = {
+  ready: boolean;
+  provider: GenerationProvider;
+  model: GenerationModel;
+  inputMode: "image";
+  durationSeconds: number;
+  format: CommonStartPayload["format"];
+  resolution: GenerationResolution;
+  audio: boolean;
+  lastFrame: boolean;
+  estimatedCostMinor: number;
+  estimatedCredits: number | null;
+  credentialConfigured: boolean;
+  balanceSufficient: boolean | null;
+  modelAvailable: boolean;
+  dailyQuotaAvailable: boolean | null;
+  spendConfirmation: string;
+  failureCode?: string;
+};
+
 type ProviderReadinessReceipt = {
+  version:
+    | typeof PROVIDER_READINESS_RECEIPT_V3
+    | typeof PROVIDER_READINESS_RECEIPT_V4;
   receiptId: string;
   receiptHash: string;
+  checkedBy: string;
   checkedAt: string;
   expiresAt: string;
+  projectId?: string;
+  specId?: string;
+  specVersion?: number;
+  specHash?: string;
+  scopeHash?: string;
+};
+
+type ProviderReadinessRecordResult = {
+  receipt: ProviderReadinessReceipt | null;
+  errorCode: "generation_spec_baseline_required" | null;
 };
 
 type StartJob = {
@@ -548,17 +687,20 @@ type StartJob = {
   campaignId: string;
   campaignName: string;
   status: string;
-  provider: "runway";
-  model: "gen4_turbo" | "seedance2_fast" | "seedream5_lite";
+  provider: GenerationProvider;
+  model: GenerationModel;
+  inputMode: "image";
   durationSeconds: number;
+  resolution: GenerationResolution;
   audio: boolean;
+  lastFrame: boolean;
   ratio: string;
   promptText: string;
   inputObjectName: string;
   referenceObjectNames: string[];
   outputObjectName: string;
   estimatedCostMinor: number;
-  estimatedCredits: number;
+  estimatedCredits: number | null;
   reviewAutostartConfirmed: boolean;
   reviewAutostartTermsVersion: string | null;
 };
@@ -569,14 +711,17 @@ type StatusJob = {
   campaignId: string;
   campaignName: string;
   status: string;
-  provider: "runway";
+  provider: GenerationProvider;
   providerTaskId: string | null;
-  model: "gen4_turbo" | "seedance2_fast" | "seedream5_lite";
+  model: GenerationModel;
+  inputMode: "image";
   durationSeconds: number;
+  resolution: GenerationResolution;
   audio: boolean;
+  lastFrame: boolean;
   ratio: string;
   estimatedCostMinor: number;
-  estimatedCredits: number;
+  estimatedCredits: number | null;
   actualCostMinor: number | null;
   outputObjectName: string;
   outputMediaId: string | null;
@@ -599,14 +744,17 @@ type SafeJob = {
   campaign_id: string;
   campaign_name: string;
   status: string;
-  provider: "runway";
+  provider: GenerationProvider;
   provider_task_id: string | null;
-  model: "gen4_turbo" | "seedance2_fast" | "seedream5_lite";
+  model: GenerationModel;
+  input_mode: "image";
   duration_seconds: number;
+  resolution: GenerationResolution;
   audio: boolean;
+  last_frame: boolean;
   ratio: string;
   estimated_cost_minor: number;
-  estimated_credits: number;
+  estimated_credits: number | null;
   actual_cost_minor: number | null;
   output_object_name: string;
   output_media_id: string | null;
@@ -739,7 +887,7 @@ function readTerminalClaimErrorCode(
     code !== "generation_spec_provider_start_stale" ||
     !hasOnlyKeys(job, jobKeys) || Object.keys(job).length !== jobKeys.size ||
     job.id !== jobId || !isUuid(job.id) || !isUuid(job.batch_id) ||
-    job.status !== "failed" || job.provider !== "runway" ||
+    job.status !== "failed" || readGenerationProvider(job.provider) === null ||
     job.failure_code !== code || typeof job.updated_at !== "string" ||
     !Number.isFinite(Date.parse(job.updated_at))
   ) {
@@ -819,16 +967,67 @@ function isObjectName(value: unknown): value is string {
 function readRunwayModel(value: unknown): RunwayModel | null {
   return value === "gen4_turbo" ||
       value === "seedance2_fast" ||
-      value === "seedream5_lite"
+      value === "seedream5_lite" ||
+      value === "gen4.5" ||
+      value === "seedance2_mini" ||
+      value === "veo3.1_fast" ||
+      value === "gemini_omni_flash"
     ? value
     : null;
 }
 
+function readProviderReadinessRpcErrorCode(
+  value: unknown,
+): "generation_spec_baseline_required" | null {
+  if (!isRecord(value) || typeof value.message !== "string") return null;
+  return value.message.trim() === "generation_multimodel_baseline_required"
+    ? "generation_spec_baseline_required"
+    : null;
+}
+
+function readGenerationProvider(value: unknown): GenerationProvider | null {
+  return value === "runway" || value === "google" ? value : null;
+}
+
+function readGenerationModel(
+  provider: GenerationProvider | null,
+  value: unknown,
+): GenerationModel | null {
+  if (provider === "runway") return readRunwayModel(value);
+  return provider === "google" && value === GOOGLE_VEO_LITE_MODEL
+    ? value
+    : null;
+}
+
+function generationModelRequiresReadinessV4(
+  provider: GenerationProvider,
+  model: GenerationModel,
+): boolean {
+  return provider === "runway" && SPEC_BOUND_RUNWAY_MODELS.has(model);
+}
+
+function generationProviderForModel(
+  model: GenerationModel,
+): GenerationProvider {
+  return model === GOOGLE_VEO_LITE_MODEL ? "google" : "runway";
+}
+
+function generationCatalogEntryForModel(model: GenerationModel) {
+  return generationModelCatalogEntry(
+    generationProviderForModel(model),
+    model,
+  );
+}
+
+function generationModelSupportsAudio(model: GenerationModel): boolean {
+  return generationCatalogEntryForModel(model)?.supportsGeneratedAudio === true;
+}
+
 function readRunwayGenerationSku(
-  model: RunwayModel,
+  model: ExistingRunwayModel,
   durationSeconds: unknown,
 ): {
-  model: RunwayModel;
+  model: ExistingRunwayModel;
   durationSeconds: number;
   estimatedCredits: number;
   estimatedUsd: string;
@@ -879,7 +1078,15 @@ function generationModePromptIsBound(payload: StartPayload): boolean {
     "Сохрани форму, цвет, упаковку, этикетку и пропорции без изменений.",
     "Не добавляй новые свойства, результаты, медицинские обещания, логотипы, текст на упаковке или другой вариант товара.",
   ];
-  const modelRequirements: Record<RunwayModel, string[]> = {
+  const silentVideoRequirements = [
+    `Создай один непрерывный ролик длительностью ${payload.duration_seconds} секунд с соотношением сторон ${payload.format}.`,
+    "Без речи, дикторского текста и сгенерированных надписей.",
+  ];
+  const audioVideoRequirements = [
+    `Создай один непрерывный UGC-ролик длительностью ${payload.duration_seconds} секунд с соотношением сторон ${payload.format}.`,
+    GENERATED_TEXT_GUARD,
+  ];
+  const modelRequirements: Record<GenerationModel, string[]> = {
     seedream5_lite: [
       "Создай одно квадратное товарное фото 2048 × 2048.",
       `Используй @${RUNWAY_PRODUCT_REFERENCE_TAG} как главный точный референс товара; остальные выбранные ракурсы уточняют форму и детали.`,
@@ -893,6 +1100,13 @@ function generationModePromptIsBound(payload: StartPayload): boolean {
       `Создай один непрерывный вертикальный UGC-ролик длительностью ${payload.duration_seconds} секунд.`,
       GENERATED_TEXT_GUARD,
     ],
+    "gen4.5": silentVideoRequirements,
+    seedance2_mini: audioVideoRequirements,
+    "veo3.1_fast": payload.audio
+      ? audioVideoRequirements
+      : silentVideoRequirements,
+    gemini_omni_flash: audioVideoRequirements,
+    "veo-3.1-lite-generate-preview": audioVideoRequirements,
   };
   if (
     payload.model !== "seedream5_lite" &&
@@ -909,7 +1123,7 @@ function generationModePromptIsBound(payload: StartPayload): boolean {
   const spokenMatch = /Реплика героя дословно:\s*«([^»]+)»/u.exec(
     payload.brief,
   );
-  if (payload.model === "seedance2_fast") {
+  if (payload.audio) {
     if (spokenMatch === null || spokenMatch[1].includes("[СОКРАТИТЕ")) {
       return false;
     }
@@ -982,15 +1196,21 @@ function readStartPayload(value: unknown): StartPayload | null {
     "mode",
     "provider",
     "model",
+    "input_mode",
     "duration_seconds",
+    "resolution",
+    "audio",
+    "last_frame",
     "allow_real_spend",
     "spend_confirmation",
+    "provider_readiness_receipt_id",
+    "provider_readiness_receipt_hash",
+    "generation_selection_snapshot",
     "learning_context",
     "generation_spec_context",
   ]);
   const allowed = new Set([
     ...required,
-    "audio",
     "assignee_id",
     "payout_minor",
     "learning_opt_out",
@@ -1003,27 +1223,14 @@ function readStartPayload(value: unknown): StartPayload | null {
   if (![...required].every((key) => Object.hasOwn(value, key))) return null;
 
   const mediaIds = value.media_ids;
-  const model = readRunwayModel(value.model);
-  const sku = model === null
-    ? null
-    : readRunwayGenerationSku(model, value.duration_seconds);
-  const gen4Sku = value.model === "gen4_turbo" &&
-    sku?.model === "gen4_turbo" &&
-    (!Object.hasOwn(value, "audio") || value.audio === false) &&
-    value.spend_confirmation === sku.confirmation;
-  const seedanceSku = value.model === "seedance2_fast" &&
-    sku?.model === "seedance2_fast" && value.audio === true &&
-    value.format === "9:16" &&
-    value.spend_confirmation === sku.confirmation;
-  const seedreamSku = value.model === "seedream5_lite" &&
-    sku?.model === "seedream5_lite" &&
-    (!Object.hasOwn(value, "audio") || value.audio === false) &&
-    value.format === "1:1" &&
-    value.spend_confirmation === sku.confirmation;
+  const provider = readGenerationProvider(value.provider);
+  const model = readGenerationModel(provider, value.model);
   const reviewAutostartKeyPresent =
     Object.hasOwn(value, "review_autostart_confirmed") ||
     Object.hasOwn(value, "review_autostart_terms_version");
-  const promptLimit = model === null ? 0 : RUNWAY_PROMPT_LIMITS[model];
+  const promptLimit = provider === null || model === null
+    ? 0
+    : Number(generationModelCatalogEntry(provider, model)?.promptLimit || 0);
   if (
     !Array.isArray(mediaIds) ||
     mediaIds.length < 1 ||
@@ -1033,7 +1240,6 @@ function readStartPayload(value: unknown): StartPayload | null {
   ) {
     return null;
   }
-  const formats = new Set(["9:16", "1:1", "16:9"]);
   const platforms = new Set([
     "instagram",
     "tiktok",
@@ -1063,20 +1269,25 @@ function readStartPayload(value: unknown): StartPayload | null {
     typeof value.product_category !== "string" ||
     !productCategories.has(value.product_category) ||
     value.count !== 1 ||
-    typeof value.format !== "string" || !formats.has(value.format) ||
+    typeof value.format !== "string" ||
     !isBoundedText(value.brief, 1, promptLimit) ||
     typeof value.platform !== "string" || !platforms.has(value.platform) ||
     !isBoundedText(value.destination_ref, 2, 240) ||
-    value.mode !== "real" || value.provider !== "runway" ||
+    value.mode !== "real" || value.input_mode !== "image" ||
+    provider === null || model === null ||
+    !isIntegerInRange(value.duration_seconds, 0, 15) ||
+    typeof value.resolution !== "string" ||
+    typeof value.audio !== "boolean" ||
+    typeof value.last_frame !== "boolean" ||
     value.allow_real_spend !== true ||
-    (!gen4Sku && !seedanceSku && !seedreamSku)
+    !isBoundedText(value.spend_confirmation, 8, 180)
   ) {
     return null;
   }
   if (
     reviewAutostartKeyPresent &&
     (
-      seedreamSku ||
+      model === "seedream5_lite" ||
       value.review_autostart_confirmed !== true ||
       value.review_autostart_terms_version !==
         "generated-video-qa-autostart-v1"
@@ -1084,6 +1295,12 @@ function readStartPayload(value: unknown): StartPayload | null {
   ) {
     return null;
   }
+  if (
+    !isUuid(value.provider_readiness_receipt_id) ||
+    typeof value.provider_readiness_receipt_hash !== "string" ||
+    !SHA256_PATTERN.test(value.provider_readiness_receipt_hash) ||
+    !isRecord(value.generation_selection_snapshot)
+  ) return null;
   if (Object.hasOwn(value, "assignee_id") && !isUuid(value.assignee_id)) {
     return null;
   }
@@ -1129,32 +1346,458 @@ function readStartPayload(value: unknown): StartPayload | null {
 
 function readPreflightPayload(value: unknown): PreflightPayload | null {
   if (!isRecord(value)) return null;
-  const allowed = new Set([
+  const baseKeys = [
     "action",
     "organization_id",
+    "provider",
     "model",
+    "input_mode",
     "duration_seconds",
+    "format",
+    "resolution",
+    "audio",
+    "last_frame",
+  ];
+  const provider = readGenerationProvider(value.provider);
+  const model = readGenerationModel(provider, value.model);
+  if (provider === null || model === null) return null;
+  const requiresSpec = generationModelRequiresReadinessV4(provider, model);
+  const allowed = new Set([
+    ...baseKeys,
+    ...(requiresSpec ? ["project_id", "generation_spec_context"] : []),
   ]);
-  const model = readRunwayModel(value.model);
-  const sku = model === null
-    ? null
-    : readRunwayGenerationSku(model, value.duration_seconds);
+  const specContext = requiresSpec
+    ? readGenerationSpecContext(value.generation_spec_context)
+    : null;
   if (
     !hasOnlyKeys(value, allowed) ||
     Object.keys(value).length !== allowed.size ||
     value.action !== "preflight" ||
     !isUuid(value.organization_id) ||
-    model === null ||
-    sku === null
+    value.input_mode !== "image" ||
+    !isIntegerInRange(value.duration_seconds, 0, 15) ||
+    typeof value.format !== "string" ||
+    typeof value.resolution !== "string" ||
+    typeof value.audio !== "boolean" ||
+    typeof value.last_frame !== "boolean" ||
+    (requiresSpec && (!isUuid(value.project_id) || specContext === null))
   ) {
     return null;
   }
   return {
     action: "preflight",
     organization_id: value.organization_id,
+    provider,
     model,
-    duration_seconds: sku.durationSeconds,
+    input_mode: "image",
+    duration_seconds: value.duration_seconds,
+    format: value.format as CommonStartPayload["format"],
+    resolution: value.resolution as GenerationResolution,
+    audio: value.audio,
+    last_frame: value.last_frame,
+    ...(requiresSpec
+      ? {
+        project_id: value.project_id as string,
+        generation_spec_context: specContext as GenerationSpecContext,
+      }
+      : {}),
   };
+}
+
+function readModelCatalogPayload(value: unknown): ModelCatalogPayload | null {
+  if (!isRecord(value)) return null;
+  const keys = new Set(["action", "organization_id"]);
+  if (
+    !hasOnlyKeys(value, keys) ||
+    Object.keys(value).length !== keys.size ||
+    value.action !== "model_catalog" ||
+    !isUuid(value.organization_id)
+  ) return null;
+  return {
+    action: "model_catalog",
+    organization_id: value.organization_id,
+  };
+}
+
+function readGenerationProviderPolicy(
+  value: unknown,
+  provider: GenerationProvider,
+  model: GenerationModel,
+): GenerationProviderPolicy | null {
+  if (!isRecord(value)) return null;
+  const keys = new Set([
+    "ok",
+    "provider",
+    "model",
+    "launch_enabled",
+    "catalog_version",
+    "automatic_generation",
+    "automatic_spend",
+  ]);
+  const withReasonKeys = new Set([...keys, "disabled_reason_code"]);
+  const disabledReasonCode = value.disabled_reason_code === null ||
+      value.disabled_reason_code === undefined
+    ? null
+    : typeof value.disabled_reason_code === "string" &&
+        /^[a-z][a-z0-9_]{2,63}$/u.test(value.disabled_reason_code)
+    ? value.disabled_reason_code
+    : "";
+  if (
+    (!hasOnlyKeys(value, keys) && !hasOnlyKeys(value, withReasonKeys)) ||
+    ![keys.size, withReasonKeys.size].includes(Object.keys(value).length) ||
+    value.ok !== true || value.provider !== provider || value.model !== model ||
+    typeof value.launch_enabled !== "boolean" ||
+    disabledReasonCode === "" ||
+    (value.launch_enabled && disabledReasonCode !== null) ||
+    value.catalog_version !== GENERATION_MODEL_CATALOG_VERSION ||
+    value.automatic_generation !== false || value.automatic_spend !== false
+  ) return null;
+  return {
+    provider,
+    model,
+    launchEnabled: value.launch_enabled,
+    disabledReasonCode,
+  };
+}
+
+function readGenerationModelFeatureFlags(
+  value: unknown,
+): GenerationModelFeatureFlags | null {
+  if (!isRecord(value)) return null;
+  const keys = new Set([
+    "ok",
+    "catalog_version",
+    "google_veo_lite",
+    "runway_premium",
+  ]);
+  if (
+    !hasOnlyKeys(value, keys) || Object.keys(value).length !== keys.size ||
+    value.ok !== true ||
+    value.catalog_version !== GENERATION_MODEL_CATALOG_VERSION ||
+    typeof value.google_veo_lite !== "boolean" ||
+    typeof value.runway_premium !== "boolean"
+  ) return null;
+  return {
+    googleVeoLite: value.google_veo_lite,
+    runwayPremium: value.runway_premium,
+  };
+}
+
+type ExactGenerationSku = {
+  provider: GenerationProvider;
+  model: GenerationModel;
+  inputMode: "image";
+  durationSeconds: number;
+  format: CommonStartPayload["format"];
+  resolution: GenerationResolution;
+  audio: boolean;
+  lastFrame: boolean;
+  referenceImageCount: number;
+  estimatedCostMinor: number;
+  estimatedCredits: number | null;
+  confirmation: string;
+  pricingVersion: string;
+};
+
+function providerFeatureFlags(
+  provider: GenerationProvider,
+  launchEnabled: boolean,
+): Record<string, boolean> {
+  return provider === "google" && launchEnabled
+    ? { [GENERATION_MODEL_FEATURE_FLAGS.googleVeoLite]: true }
+    : {};
+}
+
+function generationReferenceImageCount(
+  model: GenerationModel,
+  mediaCount: number,
+  lastFrame: boolean,
+): number | null {
+  if (!Number.isInteger(mediaCount) || mediaCount < 1 || mediaCount > 5) {
+    return null;
+  }
+  if (
+    model === "seedream5_lite" || model === "seedance2_fast" ||
+    model === "seedance2_mini"
+  ) return lastFrame ? null : mediaCount;
+  return mediaCount === (lastFrame ? 2 : 1) ? 0 : null;
+}
+
+function generationExecutionSemantics(
+  model: GenerationModel,
+  audio: boolean,
+  lastFrame: boolean,
+  mediaCount: number,
+): {
+  spokenDialogue: boolean;
+  referenceImageCount: number;
+  firstFrame: boolean;
+} | null {
+  const audioRequired = model === "seedance2_fast" ||
+    model === "seedance2_mini" || model === "gemini_omni_flash" ||
+    model === GOOGLE_VEO_LITE_MODEL;
+  const audioForbidden = model === "seedream5_lite" ||
+    model === "gen4_turbo" || model === "gen4.5";
+  if ((audioRequired && !audio) || (audioForbidden && audio)) return null;
+  const referenceImageCount = generationReferenceImageCount(
+    model,
+    mediaCount,
+    lastFrame,
+  );
+  if (referenceImageCount === null) return null;
+  const referenceMode = model === "seedream5_lite" ||
+    model === "seedance2_fast" || model === "seedance2_mini";
+  return {
+    spokenDialogue: audio && generationModelSupportsAudio(model),
+    referenceImageCount,
+    firstFrame: !referenceMode,
+  };
+}
+
+function exactGenerationSku(
+  provider: GenerationProvider,
+  model: GenerationModel,
+  durationSeconds: unknown,
+  format: unknown,
+  resolution: unknown,
+  audio: unknown,
+  lastFrame: unknown,
+  mediaCount: number,
+  featureFlags: Record<string, boolean> = {},
+): ExactGenerationSku | null {
+  if (!LIVE_GENERATION_EXECUTION_KEYS.has(`${provider}:${model}`)) return null;
+  if (typeof format !== "string" || typeof resolution !== "string") return null;
+  if (typeof audio !== "boolean" || typeof lastFrame !== "boolean") return null;
+  const semantics = generationExecutionSemantics(
+    model,
+    audio,
+    lastFrame,
+    mediaCount,
+  );
+  if (semantics === null) return null;
+  const entry = generationModelCatalogEntry(provider, model);
+  if (!entry) return null;
+  const selection = {
+    inputMode: "image",
+    durationSeconds: Number(durationSeconds),
+    ratio: format,
+    resolution,
+    audio,
+    spokenDialogue: semantics.spokenDialogue,
+    referenceImageCount: semantics.referenceImageCount,
+    referenceVideo: false,
+    firstFrame: semantics.firstFrame,
+    lastFrame,
+  };
+  const validated = validateGenerationModelSelection(entry, selection, {
+    featureFlags,
+  });
+  if (!validated.ok) return null;
+  // Seedream's historical paid contract is intentionally narrower than the
+  // provider's full catalog capability. The model-catalog action projects the
+  // same exact subset so the browser never offers an unlaunchable 3K/ratio SKU.
+  if (
+    model === "seedream5_lite" &&
+    (validated.ratio !== "1:1" || validated.resolution !== "2K")
+  ) return null;
+  const estimate = estimateGenerationModelCostMinor(entry, validated, {
+    featureFlags,
+  });
+  if (!estimate.ok || !Number.isSafeInteger(estimate.estimatedCostMinor)) {
+    return null;
+  }
+  const estimatedCredits = provider === "runway"
+    ? Number(estimate.estimatedCredits)
+    : null;
+  if (provider === "runway" && !Number.isSafeInteger(estimatedCredits)) {
+    return null;
+  }
+  const estimatedUsd = (estimate.estimatedCostMinor / 100).toFixed(2);
+  const legacySku = provider === "runway" &&
+      Object.hasOwn(RUNWAY_SKU_CONFIG, model)
+    ? readRunwayGenerationSku(model as ExistingRunwayModel, durationSeconds)
+    : null;
+  if (
+    provider === "runway" && Object.hasOwn(RUNWAY_SKU_CONFIG, model) &&
+    (legacySku === null ||
+      legacySku.durationSeconds !== estimate.durationSeconds ||
+      legacySku.estimatedCredits !== estimatedCredits ||
+      legacySku.estimatedUsd !== estimatedUsd)
+  ) return null;
+  let confirmation: string;
+  if (legacySku !== null) {
+    confirmation = legacySku.confirmation;
+  } else {
+    const prefix = provider === "google"
+      ? "GOOGLE_VEO3_1_LITE"
+      : `RUNWAY_${model.toUpperCase().replaceAll(".", "_")}`;
+    confirmation =
+      `${prefix}_${estimate.durationSeconds}S_${resolution.toUpperCase()}_${
+        audio ? "AUDIO" : "SILENT"
+      }_USD_${estimatedUsd}`;
+  }
+  return {
+    provider,
+    model,
+    inputMode: "image",
+    durationSeconds: estimate.durationSeconds,
+    format: validated.ratio as GenerationFormat,
+    resolution: validated.resolution as GenerationResolution,
+    audio,
+    lastFrame,
+    referenceImageCount: semantics.referenceImageCount,
+    estimatedCostMinor: estimate.estimatedCostMinor,
+    estimatedCredits,
+    confirmation,
+    pricingVersion: entry.pricingVersion,
+  };
+}
+
+function startSelectionSnapshotMatches(
+  payload: StartPayload,
+  sku: ExactGenerationSku,
+): boolean {
+  try {
+    const parsed = readGenerationSelectionSnapshot(
+      payload.generation_selection_snapshot,
+    );
+    if (parsed?.state !== "present" || !isRecord(parsed.snapshot)) return false;
+    const snapshot = parsed.snapshot;
+    return Object.keys(snapshot).length ===
+        GENERATION_SELECTION_SNAPSHOT_FIELDS.length &&
+      snapshot.provider === sku.provider &&
+      snapshot.model === sku.model &&
+      snapshot.recommendation_catalog_version ===
+        GENERATION_MODEL_CATALOG_VERSION &&
+      snapshot.pricing_version === sku.pricingVersion &&
+      snapshot.estimated_cost_minor === sku.estimatedCostMinor &&
+      snapshot.requested_duration_seconds === sku.durationSeconds &&
+      snapshot.requested_ratio === sku.format &&
+      snapshot.requested_resolution === sku.resolution &&
+      snapshot.requested_audio === sku.audio &&
+      snapshot.input_mode === sku.inputMode &&
+      snapshot.reference_count === sku.referenceImageCount &&
+      snapshot.provider_readiness_receipt_id ===
+        payload.provider_readiness_receipt_id;
+  } catch {
+    return false;
+  }
+}
+
+function publicExecutionPolicy(provider: string, model: string) {
+  const key = `${provider}:${model}`;
+  const policies: Record<string, Record<string, Json>> = {
+    "runway:seedream5_lite": {
+      selectionDefaults: {
+        inputMode: "image",
+        durationSeconds: 0,
+        format: "1:1",
+        resolution: "2K",
+        audio: false,
+        lastFrame: false,
+      },
+      allowedRatios: ["1:1"],
+      allowedResolutions: ["2K"],
+      maxReferenceImages: 5,
+      audioModes: [false],
+      lastFrameSupported: false,
+    },
+    "runway:gen4_turbo": {
+      selectionDefaults: {
+        inputMode: "image",
+        durationSeconds: 5,
+        format: "9:16",
+        resolution: "720p",
+        audio: false,
+        lastFrame: false,
+      },
+      audioModes: [false],
+      lastFrameSupported: false,
+    },
+    "runway:seedance2_fast": {
+      selectionDefaults: {
+        inputMode: "image",
+        durationSeconds: 8,
+        format: "9:16",
+        resolution: "720p",
+        audio: true,
+        lastFrame: false,
+      },
+      maxReferenceImages: 5,
+      audioModes: [true],
+      lastFrameSupported: false,
+    },
+    "runway:gen4.5": {
+      selectionDefaults: {
+        inputMode: "image",
+        durationSeconds: 5,
+        format: "9:16",
+        resolution: "720p",
+        audio: false,
+        lastFrame: false,
+      },
+      audioModes: [false],
+      lastFrameSupported: false,
+    },
+    "runway:seedance2_mini": {
+      selectionDefaults: {
+        inputMode: "image",
+        durationSeconds: 4,
+        format: "9:16",
+        resolution: "720p",
+        audio: true,
+        lastFrame: false,
+      },
+      maxReferenceImages: 5,
+      audioModes: [true],
+      lastFrameSupported: false,
+    },
+    "runway:veo3.1_fast": {
+      selectionDefaults: {
+        inputMode: "image",
+        durationSeconds: 8,
+        format: "9:16",
+        resolution: "720p",
+        audio: true,
+        lastFrame: false,
+      },
+      audioModes: [false, true],
+      lastFrameSupported: true,
+    },
+    "runway:gemini_omni_flash": {
+      selectionDefaults: {
+        inputMode: "image",
+        durationSeconds: 5,
+        format: "9:16",
+        resolution: "720p",
+        audio: true,
+        lastFrame: false,
+      },
+      audioModes: [true],
+      lastFrameSupported: false,
+      bestFor: [
+        "быстрый ролик со звуком из одного исходного кадра",
+        "короткий UGC-черновик с речью",
+      ],
+      avoidFor: [
+        "вариация готового видео в текущем маршруте",
+        "1080p, 4K или точный последний кадр",
+      ],
+    },
+    "google:veo-3.1-lite-generate-preview": {
+      selectionDefaults: {
+        inputMode: "image",
+        durationSeconds: 8,
+        format: "9:16",
+        resolution: "720p",
+        audio: true,
+        lastFrame: false,
+      },
+      audioModes: [true],
+      lastFrameSupported: true,
+    },
+  };
+  return LIVE_GENERATION_EXECUTION_KEYS.has(key) ? policies[key] || {} : {};
 }
 
 function readGenerationLearningContext(
@@ -1352,22 +1995,35 @@ function readGenerationVideoReferenceContext(
   return value as GenerationVideoReferenceContext;
 }
 
-function readGenerationSpecScope(value: unknown): GenerationSpecScope | null {
+function readGenerationSpecScope(
+  value: unknown,
+  featureFlags: Record<string, boolean> = {},
+): GenerationSpecScope | null {
   if (!isRecord(value)) return null;
   const keys = new Set([
     "primary_media_id",
     "media_ids",
     "platform",
+    "provider",
     "model",
+    "input_mode",
     "duration_seconds",
     "product_category",
     "format",
+    "ratio",
+    "resolution",
     "audio",
+    "spoken_dialogue",
+    "reference_count",
+    "reference_video",
+    "first_frame",
+    "last_frame",
   ]);
   if (!hasOnlyKeys(value, keys) || Object.keys(value).length !== keys.size) {
     return null;
   }
-  const model = readRunwayModel(value.model);
+  const provider = readGenerationProvider(value.provider);
+  const model = readGenerationModel(provider, value.model);
   const mediaIds = value.media_ids;
   const platforms = new Set([
     "instagram",
@@ -1387,18 +2043,6 @@ function readGenerationSpecScope(value: unknown): GenerationSpecScope | null {
     "electronics",
     "other",
   ]);
-  const formats = new Set(["9:16", "1:1", "16:9"]);
-  const duration = Number(value.duration_seconds);
-  const durationValid = model === "gen4_turbo"
-    ? [2, 5, 8, 10].includes(duration)
-    : model === "seedance2_fast"
-    ? [4, 8, 12, 15].includes(duration)
-    : model === "seedream5_lite" && duration === 0;
-  const skuBindingValid = model === "seedance2_fast"
-    ? value.audio === true && value.format === "9:16"
-    : model === "seedream5_lite"
-    ? value.audio === false && value.format === "1:1"
-    : model === "gen4_turbo" && value.audio === false;
   if (
     !isUuid(value.primary_media_id) ||
     !Array.isArray(mediaIds) || mediaIds.length < 1 || mediaIds.length > 5 ||
@@ -1406,17 +2050,66 @@ function readGenerationSpecScope(value: unknown): GenerationSpecScope | null {
     new Set(mediaIds).size !== mediaIds.length ||
     mediaIds[0] !== value.primary_media_id ||
     typeof value.platform !== "string" || !platforms.has(value.platform) ||
-    model === null || !durationValid ||
+    provider === null || model === null || value.input_mode !== "image" ||
     typeof value.product_category !== "string" ||
     !categories.has(value.product_category) ||
-    typeof value.format !== "string" || !formats.has(value.format) ||
-    typeof value.audio !== "boolean" || !skuBindingValid
+    typeof value.format !== "string" ||
+    value.ratio !== value.format ||
+    typeof value.resolution !== "string" ||
+    typeof value.audio !== "boolean" ||
+    typeof value.spoken_dialogue !== "boolean" ||
+    !isIntegerInRange(value.reference_count, 0, 5) ||
+    value.reference_video !== false ||
+    typeof value.first_frame !== "boolean" ||
+    typeof value.last_frame !== "boolean"
   ) return null;
-  return value as GenerationSpecScope;
+  const exact = exactGenerationSku(
+    provider,
+    model,
+    value.duration_seconds,
+    value.format,
+    value.resolution,
+    value.audio,
+    value.last_frame,
+    mediaIds.length,
+    featureFlags,
+  );
+  const semantics = generationExecutionSemantics(
+    model,
+    value.audio,
+    value.last_frame,
+    mediaIds.length,
+  );
+  if (
+    exact === null || semantics === null ||
+    value.reference_count !== exact.referenceImageCount ||
+    value.first_frame !== semantics.firstFrame ||
+    value.spoken_dialogue !== semantics.spokenDialogue
+  ) return null;
+  return {
+    primary_media_id: value.primary_media_id,
+    media_ids: [...mediaIds],
+    platform: value.platform as CommonStartPayload["platform"],
+    provider,
+    model,
+    input_mode: "image",
+    duration_seconds: exact.durationSeconds,
+    product_category: value.product_category as ProductCategory,
+    format: exact.format,
+    ratio: exact.format,
+    resolution: exact.resolution,
+    audio: exact.audio,
+    spoken_dialogue: semantics.spokenDialogue,
+    reference_count: semantics.referenceImageCount,
+    reference_video: false,
+    first_frame: semantics.firstFrame,
+    last_frame: exact.lastFrame,
+  };
 }
 
 function readGenerationSpecEffectivePolicy(
   value: unknown,
+  featureFlags: Record<string, boolean> = {},
 ): GenerationSpecEffectivePolicy | null {
   if (!isRecord(value)) return null;
   const keys = new Set([
@@ -1447,7 +2140,7 @@ function readGenerationSpecEffectivePolicy(
     value.automatic_generation !== false
   ) return null;
   const context = readGenerationSpecContext(value.generation_spec_context);
-  const scope = readGenerationSpecScope(value.exact_scope);
+  const scope = readGenerationSpecScope(value.exact_scope, featureFlags);
   const learningContext = readGenerationLearningContext(value.learning_context);
   const repairContext = value.repair_context === null
     ? null
@@ -1481,7 +2174,7 @@ function readGenerationSpecEffectivePolicy(
     !isBoundedText(
       value.compiled_prompt,
       1,
-      RUNWAY_PROMPT_LIMITS[scope.model],
+      Number(generationCatalogEntryForModel(scope.model)?.promptLimit || 0),
     ) ||
     typeof value.prompt_hash !== "string" ||
     !SHA256_PATTERN.test(value.prompt_hash) ||
@@ -1515,7 +2208,7 @@ function stableJson(value: unknown): string {
 
 function generationLearningPromptRequirements(
   value: unknown,
-  model: RunwayModel,
+  model: GenerationModel,
 ): string[] | null {
   if (!isRecord(value) || value.applied !== true) return null;
   const photo = model === "seedream5_lite";
@@ -1677,7 +2370,7 @@ function generationLearningPromptRequirements(
     if (typeof guardCode !== "string") return null;
     if (
       ["audio_quality", "speech_fidelity"].includes(guardCode) &&
-      model !== "seedance2_fast"
+      !generationModelSupportsAudio(model)
     ) return null;
     const requirement =
       guardRequirements[guardCode as keyof typeof guardRequirements]
@@ -1773,7 +2466,7 @@ function generationApprovedResearchCategoryRuleIsBound(
 
 function generationRepairPromptRequirements(
   guardCodes: unknown,
-  model: RunwayModel,
+  model: GenerationModel,
 ): string[] | null {
   if (
     !Array.isArray(guardCodes) ||
@@ -1816,7 +2509,7 @@ function generationRepairPromptRequirements(
     if (typeof code !== "string") return null;
     if (
       ["audio_quality", "speech_fidelity"].includes(code) &&
-      model !== "seedance2_fast"
+      !generationModelSupportsAudio(model)
     ) return null;
     const requirement = requirements[code as keyof typeof requirements];
     if (typeof requirement !== "string") return null;
@@ -1895,12 +2588,19 @@ function readReconcilePayload(value: unknown): ReconcilePayload | null {
     !isBoundedText(value.evidence_reference, 8, 500) ||
     !isBoundedText(value.reason, 20, 1_000) ||
     (attach && (
-      !isValidTaskId(value.provider_task_id) ||
-      value.confirmation !== "RUNWAY_TASK_ID_VERIFIED"
+      (!isValidTaskId(value.provider_task_id) &&
+        !isValidGoogleOperationName(value.provider_task_id)) ||
+      !new Set([
+        "RUNWAY_TASK_ID_VERIFIED",
+        "GOOGLE_OPERATION_ID_VERIFIED",
+      ]).has(String(value.confirmation || ""))
     )) ||
     (noSubmission && (
       Object.hasOwn(value, "provider_task_id") ||
-      value.confirmation !== "RUNWAY_NO_TASK_VERIFIED"
+      !new Set([
+        "RUNWAY_NO_TASK_VERIFIED",
+        "GOOGLE_NO_OPERATION_VERIFIED",
+      ]).has(String(value.confirmation || ""))
     ))
   ) {
     return null;
@@ -1919,64 +2619,86 @@ function rpcPayload(payload: StartPayload | StatusPayload): Json {
   return rest as Json;
 }
 
-function readRunwaySku(job: Record<string, unknown>): {
-  model: "gen4_turbo" | "seedance2_fast" | "seedream5_lite";
-  durationSeconds: number;
-  audio: boolean;
-  ratio: string;
-  estimatedCostMinor: number;
-  estimatedCredits: number;
-} | null {
-  const model = readRunwayModel(job.model);
-  const sku = model === null
-    ? null
-    : readRunwayGenerationSku(model, job.duration_seconds);
-  if (
-    sku?.model === "gen4_turbo" &&
-    job.audio === false && typeof job.ratio === "string" &&
-    GEN4_RATIOS.has(job.ratio) &&
-    job.estimated_cost_minor === sku.estimatedCredits &&
-    job.estimated_credits === sku.estimatedCredits
-  ) {
-    return {
-      model: "gen4_turbo",
-      durationSeconds: sku.durationSeconds,
-      audio: false,
-      ratio: job.ratio,
-      estimatedCostMinor: sku.estimatedCredits,
-      estimatedCredits: sku.estimatedCredits,
-    };
+function publicRatioFromProvider(
+  model: GenerationModel,
+  providerRatio: unknown,
+  resolution: unknown,
+): CommonStartPayload["format"] | null {
+  if (typeof providerRatio !== "string" || typeof resolution !== "string") {
+    return null;
   }
-  if (
-    sku?.model === "seedance2_fast" &&
-    job.audio === true && job.ratio === SEEDANCE_FAST_RATIO &&
-    job.estimated_cost_minor === sku.estimatedCredits &&
-    job.estimated_credits === sku.estimatedCredits
-  ) {
-    return {
-      model: "seedance2_fast",
-      durationSeconds: sku.durationSeconds,
-      audio: true,
-      ratio: SEEDANCE_FAST_RATIO,
-      estimatedCostMinor: sku.estimatedCredits,
-      estimatedCredits: sku.estimatedCredits,
-    };
-  }
-  if (
-    sku?.model === "seedream5_lite" &&
-    job.audio === false && job.ratio === SEEDREAM5_LITE_RATIO &&
-    job.estimated_cost_minor === 4 && job.estimated_credits === 4
-  ) {
-    return {
-      model: "seedream5_lite",
-      durationSeconds: 0,
-      audio: false,
-      ratio: SEEDREAM5_LITE_RATIO,
-      estimatedCostMinor: 4,
-      estimatedCredits: 4,
-    };
+  const ratios = generationCatalogEntryForModel(model)
+    ?.server?.providerRatios?.[resolution];
+  if (!isRecord(ratios)) return null;
+  for (const [publicRatio, exactProviderRatio] of Object.entries(ratios)) {
+    if (exactProviderRatio === providerRatio) {
+      return publicRatio as CommonStartPayload["format"];
+    }
   }
   return null;
+}
+
+function readGenerationSku(
+  job: Record<string, unknown>,
+  persistedByAuthoritativeRpc: boolean,
+): {
+  provider: GenerationProvider;
+  model: GenerationModel;
+  inputMode: "image";
+  durationSeconds: number;
+  resolution: GenerationResolution;
+  audio: boolean;
+  lastFrame: boolean;
+  ratio: string;
+  estimatedCostMinor: number;
+  estimatedCredits: number | null;
+} | null {
+  const provider = readGenerationProvider(job.provider);
+  const model = readGenerationModel(provider, job.model);
+  const legacyResolution = model === "seedream5_lite" ? "2K" : "720p";
+  const resolution = typeof job.resolution === "string"
+    ? job.resolution
+    : legacyResolution;
+  const publicRatio = model === null
+    ? null
+    : publicRatioFromProvider(model, job.ratio, resolution);
+  if (provider === null || model === null || publicRatio === null) return null;
+  const referenceCount = isIntegerInRange(job.reference_image_count, 0, 5)
+    ? job.reference_image_count
+    : model === "seedream5_lite" || model === "seedance2_fast" ||
+        model === "seedance2_mini"
+    ? 1
+    : 0;
+  const mediaCount = referenceCount > 0
+    ? referenceCount
+    : job.last_frame === true
+    ? 2
+    : 1;
+  const exact = exactGenerationSku(
+    provider,
+    model,
+    job.duration_seconds,
+    publicRatio,
+    resolution,
+    job.audio === true,
+    job.last_frame === true,
+    mediaCount,
+    providerFeatureFlags(
+      provider,
+      persistedByAuthoritativeRpc && provider === "google",
+    ),
+  );
+  if (
+    exact === null || job.estimated_cost_minor !== exact.estimatedCostMinor ||
+    job.estimated_credits !== exact.estimatedCredits
+  ) return null;
+  const entry = generationModelCatalogEntry(provider, model);
+  const providerRatio = entry?.server?.providerRatios?.[exact.resolution]
+    ?.[exact.format];
+  if (typeof providerRatio !== "string" || job.ratio !== providerRatio) {
+    return null;
+  }
+  return { ...exact, ratio: providerRatio };
 }
 
 function readStartJob(value: unknown): StartJob | null {
@@ -1988,7 +2710,10 @@ function readStartJob(value: unknown): StartJob | null {
     !isUuid(batch.id) || typeof batch.status !== "string" ||
     !isUuid(batch.campaign_id)
   ) return null;
-  const sku = readRunwaySku(job);
+  // The start RPC has already applied the immutable provider policy and
+  // receipt gates. This flag only lets the pure catalog parse that persisted
+  // Google SKU; it is never used as launch authorization.
+  const sku = readGenerationSku(job, true);
   const reviewAutostartConfirmed = job.review_autostart_confirmed === true;
   const reviewAutostartTermsVersion =
     typeof job.review_autostart_terms_version === "string"
@@ -2002,8 +2727,14 @@ function readStartJob(value: unknown): StartJob | null {
     !isUuid(job.campaign_id) || !isBoundedText(job.campaign_name, 2, 160) ||
     job.campaign_id !== batch.campaign_id ||
     typeof job.status !== "string" || !JOB_STATUSES.has(job.status) ||
-    job.provider !== "runway" || sku === null ||
-    !isBoundedText(job.prompt_text, 1, 1_200) ||
+    sku === null || job.provider !== sku.provider ||
+    !isBoundedText(
+      job.prompt_text,
+      1,
+      Number(
+        generationModelCatalogEntry(sku.provider, sku.model)?.promptLimit || 0,
+      ),
+    ) ||
     !isObjectName(job.input_object_name) ||
     referenceObjectNames.length < 1 ||
     referenceObjectNames.length > 5 ||
@@ -2012,7 +2743,8 @@ function readStartJob(value: unknown): StartJob | null {
     new Set(referenceObjectNames).size !== referenceObjectNames.length ||
     !isObjectName(job.output_object_name) ||
     !isIntegerInRange(job.estimated_cost_minor, 0, 1_000_000) ||
-    !isIntegerInRange(job.estimated_credits, 0, 1_000_000) ||
+    (job.estimated_credits !== null &&
+      !isIntegerInRange(job.estimated_credits, 0, 1_000_000)) ||
     typeof job.review_autostart_confirmed !== "boolean" ||
     (
       reviewAutostartConfirmed &&
@@ -2032,10 +2764,13 @@ function readStartJob(value: unknown): StartJob | null {
     campaignId: job.campaign_id,
     campaignName: job.campaign_name,
     status: job.status,
-    provider: "runway",
+    provider: sku.provider,
     model: sku.model,
+    inputMode: "image",
     durationSeconds: sku.durationSeconds,
+    resolution: sku.resolution,
     audio: sku.audio,
+    lastFrame: sku.lastFrame,
     ratio: sku.ratio,
     promptText: job.prompt_text,
     inputObjectName: job.input_object_name,
@@ -2046,6 +2781,91 @@ function readStartJob(value: unknown): StartJob | null {
     reviewAutostartConfirmed,
     reviewAutostartTermsVersion,
   };
+}
+
+type ProviderRequestEnvelope = {
+  provider: "runway" | "google";
+  endpointPath: string;
+  method: "POST";
+  body: Record<string, Json>;
+  pollKind: "runway_task" | "google_long_running_operation";
+};
+
+function buildProviderRequest(
+  job: StartJob,
+  signedReferenceUrls: string[],
+  googleInlineImages: Array<{
+    mimeType: "image/png" | "image/jpeg" | "image/webp";
+    data: string;
+  }> = [],
+  featureFlags: Record<string, boolean> = {},
+): ProviderRequestEnvelope | null {
+  const entry = generationModelCatalogEntry(job.provider, job.model);
+  const ratio = publicRatioFromProvider(job.model, job.ratio, job.resolution);
+  if (!entry || ratio === null || signedReferenceUrls.length < 1) return null;
+
+  const photo = job.model === "seedream5_lite";
+  const seedance = job.model === "seedance2_fast" ||
+    job.model === "seedance2_mini";
+  const referenceImageCount = photo || seedance
+    ? signedReferenceUrls.length
+    : 0;
+  const selected = validateGenerationModelSelection(entry, {
+    inputMode: "image",
+    durationSeconds: job.durationSeconds,
+    ratio,
+    resolution: job.resolution,
+    audio: job.audio,
+    spokenDialogue: job.audio,
+    referenceImageCount,
+    referenceVideo: false,
+    firstFrame: !photo && !seedance,
+    lastFrame: job.lastFrame,
+  }, { featureFlags });
+  if (!selected.ok) return null;
+
+  const input = job.provider === "google"
+    ? googleInlineImages.length === signedReferenceUrls.length
+      ? {
+        promptText: job.promptText,
+        imageInlineData: googleInlineImages[0],
+        ...(job.lastFrame
+          ? { lastFrameInlineData: googleInlineImages[1] }
+          : {}),
+      }
+      : null
+    : photo || seedance
+    ? {
+      promptText: job.promptText,
+      referenceImageUrls: signedReferenceUrls,
+    }
+    : {
+      promptText: job.promptText,
+      firstFrameUrl: signedReferenceUrls[0],
+      ...(job.lastFrame ? { lastFrameUrl: signedReferenceUrls[1] } : {}),
+    };
+  if (input === null) return null;
+  try {
+    const envelope = buildGenerationProviderRequest(entry, selected, input);
+    if (
+      envelope?.provider !== job.provider ||
+      envelope.method !== "POST" ||
+      envelope.pollKind !==
+        (job.provider === "google"
+          ? "google_long_running_operation"
+          : "runway_task") ||
+      (job.provider === "runway" &&
+        !RUNWAY_PROVIDER_ENDPOINTS.has(envelope.endpointPath)) ||
+      (job.provider === "google" &&
+        envelope.endpointPath !==
+          `/v1beta/models/${GOOGLE_VEO_LITE_MODEL}:predictLongRunning`) ||
+      !isRecord(envelope.body) ||
+      typeof envelope.endpointPath !== "string"
+    ) return null;
+    return envelope as ProviderRequestEnvelope;
+  } catch {
+    return null;
+  }
 }
 
 function readStatusJob(value: unknown): StatusJob | null {
@@ -2067,15 +2887,19 @@ function readStatusJob(value: unknown): StatusJob | null {
     typeof job.review_autostart_terms_version === "string"
       ? job.review_autostart_terms_version
       : null;
-  const sku = readRunwaySku(job);
+  // Status must remain readable for an already-authorized Google job even if
+  // the organization later disables new launches.
+  const sku = readGenerationSku(job, true);
   if (
     !isUuid(job.id) || !isUuid(job.batch_id) ||
     !isUuid(job.campaign_id) || !isBoundedText(job.campaign_name, 2, 160) ||
     typeof job.status !== "string" || !JOB_STATUSES.has(job.status) ||
-    job.provider !== "runway" || sku === null ||
-    (providerTaskId !== null && !isValidTaskId(providerTaskId)) ||
+    sku === null || job.provider !== sku.provider ||
+    (providerTaskId !== null &&
+      !isValidProviderTaskId(sku.provider, providerTaskId)) ||
     !isIntegerInRange(job.estimated_cost_minor, 0, 1_000_000) ||
-    !isIntegerInRange(job.estimated_credits, 0, 1_000_000) ||
+    (job.estimated_credits !== null &&
+      !isIntegerInRange(job.estimated_credits, 0, 1_000_000)) ||
     (actualCostMinor !== null &&
       !isIntegerInRange(actualCostMinor, 0, 1_000_000)) ||
     !isObjectName(job.output_object_name) ||
@@ -2122,11 +2946,14 @@ function readStatusJob(value: unknown): StatusJob | null {
     campaignId: job.campaign_id,
     campaignName: job.campaign_name,
     status: job.status,
-    provider: "runway",
+    provider: sku.provider,
     providerTaskId,
     model: sku.model,
+    inputMode: "image",
     durationSeconds: sku.durationSeconds,
+    resolution: sku.resolution,
     audio: sku.audio,
+    lastFrame: sku.lastFrame,
     ratio: sku.ratio,
     estimatedCostMinor: sku.estimatedCostMinor,
     estimatedCredits: sku.estimatedCredits,
@@ -2174,8 +3001,11 @@ function readInternalStatusRow(value: unknown): StatusJob | null {
       provider: value.provider,
       provider_task_id: nullableString(output, "provider_task_id"),
       model: input.model,
+      input_mode: input.input_mode,
       duration_seconds: input.duration_seconds,
+      resolution: input.resolution,
       audio: input.audio === true,
+      last_frame: input.last_frame === true,
       ratio: input.ratio,
       estimated_cost_minor: value.estimated_cost_minor,
       estimated_credits: billing.estimated_credits,
@@ -2225,6 +3055,7 @@ function readReconciliationContext(
     job.organization_id !== payload.organization_id ||
     job.project_id !== payload.project_id ||
     job.status !== "starting" ||
+    readGenerationProvider(job.provider) === null ||
     job.reconciliation_incident_id !== payload.incident_id ||
     typeof job.starting_at !== "string" ||
     !Number.isFinite(Date.parse(job.starting_at)) ||
@@ -2236,6 +3067,7 @@ function readReconciliationContext(
   return {
     actorId: value.actor_id,
     incidentId: job.reconciliation_incident_id,
+    provider: job.provider as GenerationProvider,
     startingAt: job.starting_at,
     requiredAt: job.reconciliation_required_at,
   };
@@ -2251,8 +3083,11 @@ function safeJob(job: StatusJob): SafeJob {
     provider: job.provider,
     provider_task_id: job.providerTaskId,
     model: job.model,
+    input_mode: job.inputMode,
     duration_seconds: job.durationSeconds,
+    resolution: job.resolution,
     audio: job.audio,
+    last_frame: job.lastFrame,
     ratio: job.ratio,
     estimated_cost_minor: job.estimatedCostMinor,
     estimated_credits: job.estimatedCredits,
@@ -2277,6 +3112,20 @@ function isValidTaskId(value: unknown): value is string {
   return typeof value === "string" && TASK_ID_PATTERN.test(value);
 }
 
+function isValidGoogleOperationName(value: unknown): value is string {
+  return typeof value === "string" &&
+    GOOGLE_OPERATION_NAME_PATTERN.test(value);
+}
+
+function isValidProviderTaskId(
+  provider: GenerationProvider,
+  value: unknown,
+): value is string {
+  return provider === "google"
+    ? isValidGoogleOperationName(value)
+    : isValidTaskId(value);
+}
+
 function runwaySecret(): string | null {
   const value = Deno.env.get("RUNWAYML_API_SECRET") ?? "";
   if (
@@ -2288,16 +3137,82 @@ function runwaySecret(): string | null {
   return value;
 }
 
+function googleApiKey(): string | null {
+  const value = Deno.env.get("GEMINI_API_KEY") ?? "";
+  if (
+    value.length < 20 || value.length > 512 || value !== value.trim() ||
+    hasForbiddenControl(value, false)
+  ) return null;
+  return value;
+}
+
 function readNonNegativeNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= 0
     ? value
     : null;
 }
 
+function runwayProviderReadiness(
+  payload: PreflightPayload,
+  readiness: RunwayProviderReadiness,
+): ProviderReadiness {
+  const sku = exactGenerationSku(
+    "runway",
+    payload.model,
+    payload.duration_seconds,
+    payload.format,
+    payload.resolution,
+    payload.audio,
+    payload.last_frame,
+    payload.last_frame ? 2 : 1,
+  );
+  if (sku === null) {
+    return {
+      ready: false,
+      provider: "runway",
+      model: payload.model,
+      inputMode: "image",
+      durationSeconds: payload.duration_seconds,
+      format: payload.format,
+      resolution: payload.resolution,
+      audio: payload.audio,
+      lastFrame: payload.last_frame,
+      estimatedCostMinor: 0,
+      estimatedCredits: 0,
+      credentialConfigured: true,
+      balanceSufficient: false,
+      modelAvailable: false,
+      dailyQuotaAvailable: false,
+      spendConfirmation: "",
+      failureCode: "provider_request_rejected",
+    };
+  }
+  return {
+    ready: readiness.ready,
+    provider: "runway",
+    model: payload.model,
+    inputMode: "image",
+    durationSeconds: sku.durationSeconds,
+    format: sku.format,
+    resolution: sku.resolution,
+    audio: sku.audio,
+    lastFrame: sku.lastFrame,
+    estimatedCostMinor: sku.estimatedCostMinor,
+    estimatedCredits: sku.estimatedCredits,
+    credentialConfigured: true,
+    balanceSufficient: readiness.balanceSufficient,
+    modelAvailable: readiness.modelAvailable,
+    dailyQuotaAvailable: readiness.dailyQuotaAvailable,
+    spendConfirmation: sku.confirmation,
+    ...(readiness.ready ? {} : { failureCode: readiness.failureCode }),
+  };
+}
+
 function parseRunwayOrganizationReadiness(
   value: unknown,
   model: RunwayModel,
   durationSeconds: number,
+  estimatedCredits: number,
 ): RunwayProviderReadinessSnapshot | null {
   if (!isRecord(value) || !isRecord(value.tier) || !isRecord(value.usage)) {
     return null;
@@ -2320,9 +3235,9 @@ function parseRunwayOrganizationReadiness(
   const dailyGenerations = isRecord(usageModel)
     ? readNonNegativeNumber(usageModel.dailyGenerations)
     : 0;
-  const sku = readRunwayGenerationSku(model, durationSeconds);
-  if (sku === null) return null;
-  const estimatedCredits = sku.estimatedCredits;
+  if (!Number.isSafeInteger(estimatedCredits) || estimatedCredits < 0) {
+    return null;
+  }
   const modelAvailable = maxDaily !== null && maxDaily > 0;
   const balanceSufficient = creditBalance >= estimatedCredits;
   const dailyQuotaAvailable = modelAvailable &&
@@ -2330,7 +3245,7 @@ function parseRunwayOrganizationReadiness(
   return {
     ready: balanceSufficient && modelAvailable && dailyQuotaAvailable,
     model,
-    durationSeconds: sku.durationSeconds,
+    durationSeconds,
     estimatedCredits,
     balanceSufficient,
     modelAvailable,
@@ -2340,15 +3255,16 @@ function parseRunwayOrganizationReadiness(
 
 async function checkRunwayProviderReadiness(
   secret: string,
-  model: RunwayModel,
-  durationSeconds: number,
+  sku: ExactGenerationSku,
 ): Promise<RunwayProviderReadiness> {
-  const sku = readRunwayGenerationSku(model, durationSeconds);
-  if (sku === null) {
+  if (
+    sku.provider !== "runway" ||
+    !Number.isSafeInteger(sku.estimatedCredits)
+  ) {
     return {
       ready: false,
-      model,
-      durationSeconds,
+      model: sku.model as RunwayModel,
+      durationSeconds: sku.durationSeconds,
       estimatedCredits: 0,
       balanceSufficient: false,
       modelAvailable: false,
@@ -2356,7 +3272,9 @@ async function checkRunwayProviderReadiness(
       failureCode: "provider_request_rejected",
     };
   }
-  const estimatedCredits = sku.estimatedCredits;
+  const model = sku.model as RunwayModel;
+  const durationSeconds = sku.durationSeconds;
+  const estimatedCredits = sku.estimatedCredits as number;
   let response: ProviderJsonResult;
   try {
     response = await fetchProviderJsonWithDeadline(
@@ -2375,7 +3293,7 @@ async function checkRunwayProviderReadiness(
     return {
       ready: false,
       model,
-      durationSeconds: sku.durationSeconds,
+      durationSeconds,
       estimatedCredits,
       balanceSufficient: false,
       modelAvailable: false,
@@ -2389,7 +3307,7 @@ async function checkRunwayProviderReadiness(
     return {
       ready: false,
       model,
-      durationSeconds: sku.durationSeconds,
+      durationSeconds,
       estimatedCredits,
       balanceSufficient: false,
       modelAvailable: false,
@@ -2400,13 +3318,14 @@ async function checkRunwayProviderReadiness(
   const parsed = parseRunwayOrganizationReadiness(
     response.value,
     model,
-    sku.durationSeconds,
+    durationSeconds,
+    estimatedCredits,
   );
   if (parsed === null) {
     return {
       ready: false,
       model,
-      durationSeconds: sku.durationSeconds,
+      durationSeconds,
       estimatedCredits,
       balanceSufficient: false,
       modelAvailable: false,
@@ -2434,12 +3353,125 @@ async function checkRunwayProviderReadiness(
   };
 }
 
+async function checkGoogleProviderReadiness(
+  apiKey: string,
+  payload: PreflightPayload,
+  sku: ExactGenerationSku,
+): Promise<ProviderReadiness> {
+  if (
+    sku.provider !== "google" || sku.model !== payload.model ||
+    sku.durationSeconds !== payload.duration_seconds ||
+    sku.format !== payload.format || sku.resolution !== payload.resolution ||
+    sku.audio !== payload.audio || sku.lastFrame !== payload.last_frame
+  ) {
+    throw new Error("provider_request_rejected");
+  }
+  let response: ProviderJsonResult;
+  try {
+    response = await fetchProviderJsonWithDeadline(
+      `${GOOGLE_GENERATIVE_LANGUAGE_API_ORIGIN}/${GOOGLE_GENERATIVE_LANGUAGE_API_VERSION}/models/${GOOGLE_VEO_LITE_MODEL}`,
+      {
+        method: "GET",
+        redirect: "manual",
+        headers: { "x-goog-api-key": apiKey },
+      },
+      PROVIDER_TIMEOUT_MS,
+    );
+  } catch (error) {
+    return {
+      ...sku,
+      ready: false,
+      credentialConfigured: true,
+      balanceSufficient: null,
+      modelAvailable: false,
+      dailyQuotaAvailable: null,
+      spendConfirmation: sku.confirmation,
+      failureCode: error instanceof ProviderResponseInvalidError
+        ? "provider_response_invalid"
+        : "provider_request_failed",
+    };
+  }
+  if (!response.ok) {
+    return {
+      ...sku,
+      ready: false,
+      credentialConfigured: true,
+      balanceSufficient: null,
+      modelAvailable: false,
+      dailyQuotaAvailable: null,
+      spendConfirmation: sku.confirmation,
+      failureCode: providerFailureForHttp(response.status),
+    };
+  }
+  const value = response.value;
+  const modelAvailable = isRecord(value) &&
+    (value.name === `models/${GOOGLE_VEO_LITE_MODEL}` ||
+      value.name === GOOGLE_VEO_LITE_MODEL) &&
+    Array.isArray(value.supportedGenerationMethods) &&
+    value.supportedGenerationMethods.includes("predictLongRunning");
+  return {
+    ...sku,
+    ready: modelAvailable,
+    credentialConfigured: true,
+    balanceSufficient: null,
+    modelAvailable,
+    dailyQuotaAvailable: null,
+    spendConfirmation: sku.confirmation,
+    ...(modelAvailable ? {} : { failureCode: "provider_response_invalid" }),
+  };
+}
+
 function parseProviderReadinessReceipt(
   value: unknown,
-  organizationId: string,
-  readiness: RunwayProviderReadiness,
+  payload: PreflightPayload,
+  checkedBy: string,
+  readiness: ProviderReadiness,
 ): ProviderReadinessReceipt | null {
   if (!isRecord(value)) return null;
+  const specBound = generationModelRequiresReadinessV4(
+    readiness.provider,
+    readiness.model,
+  );
+  const expectedVersion = specBound
+    ? PROVIDER_READINESS_RECEIPT_V4
+    : PROVIDER_READINESS_RECEIPT_V3;
+  const specContext = payload.generation_spec_context;
+  const exactKeys = new Set([
+    "version",
+    "receipt_id",
+    "receipt_hash",
+    "organization_id",
+    "checked_by",
+    "provider",
+    "model",
+    "input_mode",
+    "duration_seconds",
+    "format",
+    "resolution",
+    "audio",
+    "last_frame",
+    "ready",
+    "estimated_cost_minor",
+    "estimated_credits",
+    "credential_configured",
+    "balance_sufficient",
+    "model_available",
+    "daily_quota_available",
+    "failure_code",
+    "catalog_version",
+    "pricing_version",
+    "learning_gate_version",
+    "checked_at",
+    "expires_at",
+    "status",
+    "fresh",
+    "spend_confirmation",
+    "automatic_generation",
+    "automatic_spend",
+    ...(specBound
+      ? ["project_id", "spec_id", "spec_version", "spec_hash", "scope_hash"]
+      : []),
+  ]);
   const checkedAt = typeof value.checked_at === "string"
     ? value.checked_at
     : "";
@@ -2450,20 +3482,38 @@ function parseProviderReadinessReceipt(
   const expiresAtMs = Date.parse(expiresAt);
   const expectedFailure = readiness.ready ? null : readiness.failureCode;
   if (
-    value.version !== "generation-provider-readiness-receipt-v2" ||
-    value.organization_id !== organizationId ||
-    value.provider !== "runway" ||
+    !hasOnlyKeys(value, exactKeys) ||
+    Object.keys(value).length !== exactKeys.size ||
+    value.version !== expectedVersion ||
+    value.organization_id !== payload.organization_id ||
+    value.checked_by !== checkedBy ||
+    value.provider !== readiness.provider ||
     value.model !== readiness.model ||
+    value.input_mode !== readiness.inputMode ||
     value.duration_seconds !== readiness.durationSeconds ||
+    value.format !== readiness.format ||
+    value.resolution !== readiness.resolution ||
+    value.audio !== readiness.audio ||
+    value.last_frame !== readiness.lastFrame ||
     value.ready !== readiness.ready ||
+    value.estimated_cost_minor !== readiness.estimatedCostMinor ||
     value.estimated_credits !== readiness.estimatedCredits ||
+    value.credential_configured !== readiness.credentialConfigured ||
     value.balance_sufficient !== readiness.balanceSufficient ||
     value.model_available !== readiness.modelAvailable ||
     value.daily_quota_available !== readiness.dailyQuotaAvailable ||
     value.failure_code !== expectedFailure ||
+    value.catalog_version !== GENERATION_MODEL_CATALOG_VERSION ||
+    value.pricing_version !==
+      (readiness.provider === "google"
+        ? GOOGLE_VEO_PRICING_VERSION
+        : RUNWAY_PRICING_VERSION) ||
     value.learning_gate_version !== GENERATION_LEARNING_GATE_VERSION ||
+    value.spend_confirmation !== readiness.spendConfirmation ||
     value.status !== (readiness.ready ? "ready" : "blocked") ||
     value.fresh !== true ||
+    value.automatic_generation !== false ||
+    value.automatic_spend !== false ||
     !isUuid(value.receipt_id) ||
     typeof value.receipt_hash !== "string" ||
     !SHA256_PATTERN.test(value.receipt_hash) ||
@@ -2472,15 +3522,35 @@ function parseProviderReadinessReceipt(
     checkedAtMs > Date.now() + 60_000 ||
     expiresAtMs <= checkedAtMs ||
     expiresAtMs - checkedAtMs !== 15 * 60_000 ||
-    expiresAtMs <= Date.now()
+    expiresAtMs <= Date.now() ||
+    (specBound && (
+      specContext === undefined ||
+      value.project_id !== payload.project_id ||
+      value.spec_id !== specContext.spec_id ||
+      value.spec_version !== specContext.spec_version ||
+      value.spec_hash !== specContext.spec_hash ||
+      typeof value.scope_hash !== "string" ||
+      !SHA256_PATTERN.test(value.scope_hash)
+    ))
   ) {
     return null;
   }
   return {
+    version: expectedVersion,
     receiptId: value.receipt_id,
     receiptHash: value.receipt_hash,
+    checkedBy,
     checkedAt,
     expiresAt,
+    ...(specBound
+      ? {
+        projectId: value.project_id as string,
+        specId: value.spec_id as string,
+        specVersion: value.spec_version as number,
+        specHash: value.spec_hash as string,
+        scopeHash: value.scope_hash as string,
+      }
+      : {}),
   };
 }
 
@@ -2723,6 +3793,182 @@ function validateRunwayOutputUrl(value: unknown): string | null {
   }
 }
 
+function bytesToBase64(bytes: Uint8Array): string {
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let offset = 0; offset < bytes.byteLength; offset += chunkSize) {
+    binary += String.fromCharCode(
+      ...bytes.subarray(offset, offset + chunkSize),
+    );
+  }
+  return btoa(binary);
+}
+
+async function readGoogleInlineImage(
+  signedUrl: string,
+): Promise<
+  { mimeType: "image/png" | "image/jpeg" | "image/webp"; data: string }
+> {
+  return await withFetchDeadline(
+    signedUrl,
+    { method: "GET", redirect: "manual" },
+    OUTPUT_TIMEOUT_MS,
+    async (response) => {
+      const mimeType = (response.headers.get("content-type") ?? "")
+        .split(";", 1)[0].trim().toLocaleLowerCase("en-US");
+      if (
+        !response.ok ||
+        !new Set(["image/png", "image/jpeg", "image/webp"]).has(mimeType)
+      ) {
+        await response.body?.cancel();
+        throw new Error("provider_input_invalid");
+      }
+      const bytes = await readBoundedBytes(
+        response,
+        MAX_GOOGLE_INPUT_IMAGE_BYTES,
+      );
+      return {
+        mimeType: mimeType as "image/png" | "image/jpeg" | "image/webp",
+        data: bytesToBase64(bytes),
+      };
+    },
+  );
+}
+
+function validateGoogleOutputUrl(value: unknown): string | null {
+  if (typeof value !== "string" || value.length > 4_096) return null;
+  try {
+    const url = new URL(value);
+    if (
+      url.protocol !== "https:" ||
+      url.hostname !== "generativelanguage.googleapis.com" ||
+      (url.port !== "" && url.port !== "443") ||
+      url.username !== "" || url.password !== "" || url.hash !== "" ||
+      !url.pathname.startsWith("/v1beta/files/")
+    ) return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+function validateGoogleOutputRedirectUrl(value: unknown): string | null {
+  if (typeof value !== "string" || value.length > 8_192) return null;
+  try {
+    const url = new URL(value);
+    const googleMediaHost = url.hostname ===
+        "generativelanguage.googleapis.com" ||
+      url.hostname === "storage.googleapis.com" ||
+      url.hostname.endsWith(".googleusercontent.com");
+    if (
+      url.protocol !== "https:" || !googleMediaHost ||
+      (url.port !== "" && url.port !== "443") ||
+      url.username !== "" || url.password !== "" || url.hash !== ""
+    ) return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+type OutputFetchResult =
+  | { ok: true; bytes: Uint8Array<ArrayBuffer> }
+  | {
+    ok: false;
+    code: "output_download_failed" | "output_validation_failed";
+  };
+
+type GoogleOutputStep =
+  | { kind: "redirect"; next: string }
+  | { kind: "output"; result: OutputFetchResult };
+
+async function fetchGoogleOutput(
+  outputUrl: string,
+  apiKey: string,
+): Promise<OutputFetchResult> {
+  const validatedOutputUrl = validateGoogleOutputUrl(outputUrl);
+  if (validatedOutputUrl === null) throw new Error("google_output_url_invalid");
+  let current: string = validatedOutputUrl;
+  for (let redirects = 0; redirects <= 3; redirects += 1) {
+    const currentUrl: URL = new URL(current);
+    const step: GoogleOutputStep = await withFetchDeadline(
+      current,
+      {
+        method: "GET",
+        redirect: "manual",
+        headers: currentUrl.hostname === "generativelanguage.googleapis.com"
+          ? { "x-goog-api-key": apiKey }
+          : {},
+      },
+      OUTPUT_TIMEOUT_MS,
+      async (response) => {
+        if ([301, 302, 303, 307, 308].includes(response.status)) {
+          const location = response.headers.get("location");
+          await response.body?.cancel();
+          if (redirects === 3 || location === null) {
+            throw new Error("google_output_redirect_invalid");
+          }
+          const next = validateGoogleOutputRedirectUrl(
+            new URL(location, current).href,
+          );
+          if (next === null) throw new Error("google_output_redirect_invalid");
+          return { kind: "redirect" as const, next };
+        }
+        const mimeType = (response.headers.get("content-type") ?? "")
+          .split(";", 1)[0].trim().toLocaleLowerCase("en-US");
+        if (!response.ok) {
+          await response.body?.cancel();
+          return {
+            kind: "output" as const,
+            result: {
+              ok: false as const,
+              code: "output_download_failed" as const,
+            },
+          };
+        }
+        if (
+          !new Set([
+            "video/mp4",
+            "application/mp4",
+            "application/octet-stream",
+          ]).has(mimeType)
+        ) {
+          await response.body?.cancel();
+          return {
+            kind: "output" as const,
+            result: {
+              ok: false as const,
+              code: "output_validation_failed" as const,
+            },
+          };
+        }
+        try {
+          return {
+            kind: "output" as const,
+            result: {
+              ok: true as const,
+              bytes: await readBoundedBytes(response, MAX_OUTPUT_BYTES),
+            },
+          };
+        } catch (error) {
+          return {
+            kind: "output" as const,
+            result: {
+              ok: false as const,
+              code: error instanceof ResponseSizeInvalidError
+                ? "output_validation_failed" as const
+                : "output_download_failed" as const,
+            },
+          };
+        }
+      },
+    );
+    if (step.kind === "output") return step.result;
+    current = step.next;
+  }
+  throw new Error("google_output_redirect_invalid");
+}
+
 function validateSupabaseSignedUrl(value: unknown): string | null {
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   if (typeof value !== "string" || value.length > 4_096) return null;
@@ -2764,6 +4010,67 @@ function parseRunwayTask(
 function parseCreatedRunwayTask(value: unknown): { id: string } | null {
   if (!isRecord(value) || !isValidTaskId(value.id)) return null;
   return { id: value.id };
+}
+
+function parseCreatedGoogleOperation(value: unknown): { id: string } | null {
+  if (!isRecord(value) || !isValidGoogleOperationName(value.name)) return null;
+  return { id: value.name };
+}
+
+type GoogleOperation = {
+  name: string;
+  done: boolean;
+  error: Record<string, unknown> | null;
+  outputUrl: string | null;
+};
+
+function parseGoogleOperation(value: unknown): GoogleOperation | null {
+  if (!isRecord(value) || !isValidGoogleOperationName(value.name)) return null;
+  const done = Object.hasOwn(value, "done") ? value.done : false;
+  if (typeof done !== "boolean") return null;
+  if (!done) {
+    if (Object.hasOwn(value, "error") || Object.hasOwn(value, "response")) {
+      return null;
+    }
+    return { name: value.name, done: false, error: null, outputUrl: null };
+  }
+  if (isRecord(value.error)) {
+    return {
+      name: value.name,
+      done: true,
+      error: value.error,
+      outputUrl: null,
+    };
+  }
+  const response = isRecord(value.response) ? value.response : null;
+  const generated = response && isRecord(response.generateVideoResponse)
+    ? response.generateVideoResponse
+    : null;
+  const samples = generated && Array.isArray(generated.generatedSamples)
+    ? generated.generatedSamples
+    : null;
+  const first = samples?.length === 1 && isRecord(samples[0])
+    ? samples[0]
+    : null;
+  const video = first && isRecord(first.video) ? first.video : null;
+  const outputUrl = validateGoogleOutputUrl(video?.uri);
+  return outputUrl === null
+    ? null
+    : { name: value.name, done: true, error: null, outputUrl };
+}
+
+function googleOperationFailure(value: Record<string, unknown>): string {
+  const status = typeof value.status === "string"
+    ? value.status.toUpperCase()
+    : "";
+  if (status === "RESOURCE_EXHAUSTED") return "provider_credits_unavailable";
+  if (status === "UNAUTHENTICATED" || status === "PERMISSION_DENIED") {
+    return "provider_authentication_failed";
+  }
+  if (status === "INVALID_ARGUMENT" || status === "FAILED_PRECONDITION") {
+    return "provider_request_rejected";
+  }
+  return "provider_task_failed";
 }
 
 const CREATOR_GENERATE_USER_OPTIONS = {
@@ -2839,6 +4146,191 @@ async function handleCreatorGenerate(
     return json(request, { ok: false, code: "invalid_json" }, 400);
   }
 
+  const loadProviderPolicy = async (
+    organizationId: string,
+    provider: GenerationProvider,
+    model: GenerationModel,
+  ): Promise<GenerationProviderPolicy | null> => {
+    try {
+      const { data, error } = await context.supabase.rpc(
+        "creator_generation_provider_policy",
+        {
+          p_payload: {
+            organization_id: organizationId,
+            provider,
+            model,
+          },
+        },
+      );
+      if (error !== null) return null;
+      return readGenerationProviderPolicy(data, provider, model);
+    } catch {
+      return null;
+    }
+  };
+
+  const modelCatalogPayload = readModelCatalogPayload(body);
+  if (!internalWorker && modelCatalogPayload !== null) {
+    // Reuse the established generation overview boundary to prove that the
+    // authenticated actor belongs to the requested organization. Feature
+    // flags are deliberately not accepted from the browser; until the
+    // authoritative organization policy projection is wired, all opt-in
+    // catalog entries remain disabled.
+    try {
+      const { error } = await context.supabase.rpc(
+        "creator_generation_spend_overview",
+        { p_payload: { organization_id: modelCatalogPayload.organization_id } },
+      );
+      if (error !== null) {
+        return json(request, { ok: false, code: "generation_rejected" }, 403);
+      }
+    } catch {
+      return json(request, { ok: false, code: "generation_unavailable" }, 503);
+    }
+    let modelFeatureFlags: GenerationModelFeatureFlags | null = null;
+    try {
+      const { data, error } = await context.supabase.rpc(
+        "creator_generation_model_feature_flags",
+        {
+          p_payload: {
+            organization_id: modelCatalogPayload.organization_id,
+          },
+        },
+      );
+      if (error === null) {
+        modelFeatureFlags = readGenerationModelFeatureFlags(data);
+      }
+    } catch {
+      modelFeatureFlags = null;
+    }
+    if (modelFeatureFlags === null) {
+      return json(
+        request,
+        { ok: false, code: "generation_unavailable" },
+        503,
+      );
+    }
+    const catalogFeatureFlags = {
+      [GENERATION_MODEL_FEATURE_FLAGS.googleVeoLite]:
+        modelFeatureFlags.googleVeoLite,
+      [GENERATION_MODEL_FEATURE_FLAGS.runwayPremium]:
+        modelFeatureFlags.runwayPremium,
+    };
+    const baseCatalog = publicGenerationModelCatalog({
+      featureFlags: catalogFeatureFlags,
+    });
+    const policyPairs = await Promise.all(
+      baseCatalog.models.map(async (entry) => {
+        const provider = readGenerationProvider(entry.provider);
+        const model = readGenerationModel(provider, entry.model);
+        if (provider === null || model === null) {
+          return [
+            `${entry.provider}:${entry.model}`,
+            null,
+          ] as const;
+        }
+        return [
+          `${entry.provider}:${entry.model}`,
+          await loadProviderPolicy(
+            modelCatalogPayload.organization_id,
+            provider,
+            model,
+          ),
+        ] as const;
+      }),
+    );
+    const policyByKey: Map<string, GenerationProviderPolicy | null> = new Map(
+      policyPairs,
+    );
+    const catalog = publicGenerationModelCatalog({
+      featureFlags: catalogFeatureFlags,
+    });
+    return json(request, {
+      ok: true,
+      catalog: {
+        ...catalog,
+        models: catalog.models.map((entry) => {
+          const key = `${entry.provider}:${entry.model}`;
+          const executionSupported = LIVE_GENERATION_EXECUTION_KEYS.has(key);
+          const policy = policyByKey.get(key);
+          const executionPolicy = publicExecutionPolicy(
+            entry.provider,
+            entry.model,
+          );
+          const imageCapabilities = isRecord(entry.inputCapabilities) &&
+              isRecord(entry.inputCapabilities.image)
+            ? entry.inputCapabilities.image
+            : {};
+          const allowedRatios = Array.isArray(executionPolicy.allowedRatios)
+            ? executionPolicy.allowedRatios
+            : Array.isArray(imageCapabilities.allowedRatios)
+            ? imageCapabilities.allowedRatios
+            : [];
+          const allowedResolutions = Array.isArray(
+              executionPolicy.allowedResolutions,
+            )
+            ? executionPolicy.allowedResolutions
+            : Array.isArray(imageCapabilities.allowedResolutions)
+            ? imageCapabilities.allowedResolutions
+            : [];
+          const maxReferenceImages = Number.isSafeInteger(
+              executionPolicy.maxReferenceImages,
+            )
+            ? Number(executionPolicy.maxReferenceImages)
+            : Number(imageCapabilities.maxReferenceImages || 0);
+          const referenceBundle = key === "runway:seedream5_lite" ||
+            key === "runway:seedance2_fast" ||
+            key === "runway:seedance2_mini";
+          const firstFrameSupported = executionSupported && !referenceBundle;
+          const lastFrameSupported =
+            executionPolicy.lastFrameSupported === true;
+          const launchEnabled = entry.enabled && executionSupported &&
+            policy?.launchEnabled === true;
+          const disabledReasonCode = !entry.enabled
+            ? entry.disabledReasonCode
+            : !executionSupported
+            ? "launch_route_pending"
+            : !launchEnabled
+            ? policy?.disabledReasonCode || "launch_route_pending"
+            : null;
+          return {
+            ...entry,
+            // The paid owner currently executes one exact image-input path.
+            // Do not advertise catalog text/video capabilities as launchable.
+            ...(executionSupported
+              ? {
+                inputModes: ["image"],
+                allowedRatios,
+                allowedResolutions,
+                supportsReferenceImages: maxReferenceImages > 0,
+                maxReferenceImages,
+                supportsReferenceVideo: false,
+                supportsFirstFrame: firstFrameSupported,
+                supportsLastFrame: lastFrameSupported,
+                inputCapabilities: {
+                  image: {
+                    ...imageCapabilities,
+                    allowedRatios,
+                    allowedResolutions,
+                    maxReferenceImages,
+                    supportsReferenceVideo: false,
+                    supportsFirstFrame: firstFrameSupported,
+                    supportsLastFrame: lastFrameSupported,
+                  },
+                },
+              }
+              : {}),
+            executionSupported,
+            launchEnabled,
+            disabledReasonCode,
+            ...executionPolicy,
+          };
+        }),
+        version: GENERATION_MODEL_CATALOG_VERSION,
+      },
+    });
+  }
+
   const readCurrentStatus = async (
     organizationId: string,
     jobId: string,
@@ -2856,7 +4348,7 @@ async function handleCreatorGenerate(
           .eq("project_id", projectId)
           .eq("id", jobId)
           .eq("mode", "real")
-          .eq("provider", "runway");
+          .in("provider", ["runway", "google"]);
         const { data, error } = await query.maybeSingle();
         if (
           error || !isRecord(data) || data.project_id !== projectId ||
@@ -3037,6 +4529,7 @@ async function handleCreatorGenerate(
   const markFailed = async (
     jobId: string,
     failureCode: string,
+    provider: GenerationProvider = "runway",
     providerTaskId?: string,
     providerFailureCode?: string | null,
     billingOutcome?: "refundable" | "non_refundable" | "unknown",
@@ -3049,7 +4542,7 @@ async function handleCreatorGenerate(
       status: "failed",
       failure_code: safeCode,
     };
-    if (isValidTaskId(providerTaskId)) {
+    if (isValidProviderTaskId(provider, providerTaskId)) {
       failurePayload.provider_task_id = providerTaskId;
       failurePayload.billing_outcome = billingOutcome ?? "unknown";
       if (providerFailureCode !== null && providerFailureCode !== undefined) {
@@ -3225,7 +4718,7 @@ async function handleCreatorGenerate(
         job: safeJob(current),
       });
     }
-    if (!isValidTaskId(current.providerTaskId)) {
+    if (!isValidProviderTaskId(current.provider, current.providerTaskId)) {
       return await respondProviderUnavailable(
         payload.organization_id,
         payload.job_id,
@@ -3243,7 +4736,9 @@ async function handleCreatorGenerate(
         job: safeJob(current),
       });
     }
-    const secret = runwaySecret();
+    const secret = current.provider === "google"
+      ? googleApiKey()
+      : runwaySecret();
     if (secret === null) {
       return json(request, {
         ok: false,
@@ -3254,15 +4749,20 @@ async function handleCreatorGenerate(
 
     let providerResponse: ProviderJsonResult;
     try {
+      const providerStatusUrl = current.provider === "google"
+        ? `${GOOGLE_GENERATIVE_LANGUAGE_API_ORIGIN}/${GOOGLE_GENERATIVE_LANGUAGE_API_VERSION}/${current.providerTaskId}`
+        : `${RUNWAY_API_ORIGIN}/v1/tasks/${current.providerTaskId}`;
       providerResponse = await fetchProviderJsonWithDeadline(
-        `${RUNWAY_API_ORIGIN}/v1/tasks/${current.providerTaskId}`,
+        providerStatusUrl,
         {
           method: "GET",
           redirect: "manual",
-          headers: {
-            authorization: `Bearer ${secret}`,
-            "x-runway-version": RUNWAY_API_VERSION,
-          },
+          headers: current.provider === "google"
+            ? { "x-goog-api-key": secret }
+            : {
+              authorization: `Bearer ${secret}`,
+              "x-runway-version": RUNWAY_API_VERSION,
+            },
         },
         PROVIDER_TIMEOUT_MS,
       );
@@ -3281,8 +4781,65 @@ async function handleCreatorGenerate(
       }, 503);
     }
 
-    const providerValue = providerResponse.value;
-    const providerTask = parseRunwayTask(providerValue);
+    let providerValue = providerResponse.value;
+    if (current.provider === "google") {
+      const operation = parseGoogleOperation(providerValue);
+      if (operation === null || operation.name !== current.providerTaskId) {
+        return await respondProviderUnavailable(
+          payload.organization_id,
+          payload.job_id,
+          batch,
+          payload.project_id,
+        );
+      }
+      if (!operation.done) {
+        if (current.status === "submitted") {
+          await updateSystemJob({
+            job_id: current.id,
+            provider_task_id: current.providerTaskId,
+            status: "processing",
+          });
+        }
+        return await respondWithCurrent(
+          payload.organization_id,
+          payload.job_id,
+          batch,
+          payload.project_id,
+        );
+      }
+      if (operation.error !== null) {
+        await markFailed(
+          current.id,
+          googleOperationFailure(operation.error),
+          "google",
+          current.providerTaskId,
+          null,
+          "refundable",
+        );
+        return await respondWithCurrent(
+          payload.organization_id,
+          payload.job_id,
+          batch,
+          payload.project_id,
+        );
+      }
+      if (operation.outputUrl === null) {
+        return await respondProviderUnavailable(
+          payload.organization_id,
+          payload.job_id,
+          batch,
+          payload.project_id,
+        );
+      }
+      providerValue = {
+        id: current.providerTaskId,
+        status: "SUCCEEDED",
+        output: [operation.outputUrl],
+      };
+    }
+    const providerTask = current.provider === "google"
+      ? { id: current.providerTaskId, status: "SUCCEEDED", createdAt: null }
+      : parseRunwayTask(providerValue);
     if (
       providerTask === null || providerTask.id !== current.providerTaskId
     ) {
@@ -3340,6 +4897,7 @@ async function handleCreatorGenerate(
       await markFailed(
         current.id,
         failure.failureCode,
+        current.provider,
         current.providerTaskId,
         failure.providerFailureCode,
         failure.billingOutcome,
@@ -3417,7 +4975,9 @@ async function handleCreatorGenerate(
       }
       current = refreshed;
     }
-    const outputUrl = validateRunwayOutputUrl(providerValue.output[0]);
+    const outputUrl = current.provider === "google"
+      ? validateGoogleOutputUrl(providerValue.output[0])
+      : validateRunwayOutputUrl(providerValue.output[0]);
     if (outputUrl === null) {
       return await respondOutputRetryable(
         "output_validation_failed",
@@ -3432,52 +4992,54 @@ async function handleCreatorGenerate(
     const outputMimeType = photoOutput ? "image/png" : "video/mp4";
     let outputBytes: Uint8Array<ArrayBuffer>;
     try {
-      const outputResult = await withFetchDeadline(
-        outputUrl,
-        { method: "GET", redirect: "manual" },
-        OUTPUT_TIMEOUT_MS,
-        async (outputResponse) => {
-          const mimeType = (outputResponse.headers.get("content-type") ?? "")
-            .split(";", 1)[0].trim().toLocaleLowerCase("en-US");
-          if (!outputResponse.ok) {
-            await outputResponse.body?.cancel();
-            return {
-              ok: false as const,
-              code: "output_download_failed" as const,
-            };
-          }
-          const allowedMimeTypes = photoOutput
-            ? new Set(["image/png", "application/octet-stream"])
-            : new Set([
-              "video/mp4",
-              "application/mp4",
-              "application/octet-stream",
-            ]);
-          if (!allowedMimeTypes.has(mimeType)) {
-            await outputResponse.body?.cancel();
-            return {
-              ok: false as const,
-              code: "output_validation_failed" as const,
-            };
-          }
-          try {
-            return {
-              ok: true as const,
-              bytes: await readBoundedBytes(
-                outputResponse,
-                MAX_OUTPUT_BYTES,
-              ),
-            };
-          } catch (error) {
-            return {
-              ok: false as const,
-              code: error instanceof ResponseSizeInvalidError
-                ? "output_validation_failed" as const
-                : "output_download_failed" as const,
-            };
-          }
-        },
-      );
+      const outputResult: OutputFetchResult = current.provider === "google"
+        ? await fetchGoogleOutput(outputUrl, secret)
+        : await withFetchDeadline(
+          outputUrl,
+          { method: "GET", redirect: "manual" },
+          OUTPUT_TIMEOUT_MS,
+          async (outputResponse) => {
+            const mimeType = (outputResponse.headers.get("content-type") ?? "")
+              .split(";", 1)[0].trim().toLocaleLowerCase("en-US");
+            if (!outputResponse.ok) {
+              await outputResponse.body?.cancel();
+              return {
+                ok: false as const,
+                code: "output_download_failed" as const,
+              };
+            }
+            const allowedMimeTypes = photoOutput
+              ? new Set(["image/png", "application/octet-stream"])
+              : new Set([
+                "video/mp4",
+                "application/mp4",
+                "application/octet-stream",
+              ]);
+            if (!allowedMimeTypes.has(mimeType)) {
+              await outputResponse.body?.cancel();
+              return {
+                ok: false as const,
+                code: "output_validation_failed" as const,
+              };
+            }
+            try {
+              return {
+                ok: true as const,
+                bytes: await readBoundedBytes(
+                  outputResponse,
+                  MAX_OUTPUT_BYTES,
+                ),
+              };
+            } catch (error) {
+              return {
+                ok: false as const,
+                code: error instanceof ResponseSizeInvalidError
+                  ? "output_validation_failed" as const
+                  : "output_download_failed" as const,
+              };
+            }
+          },
+        );
       if (!outputResult.ok) {
         return await respondOutputRetryable(
           outputResult.code,
@@ -3619,6 +5181,27 @@ async function handleCreatorGenerate(
         403,
       );
     }
+    const expectedConfirmation = authorization.provider === "google"
+      ? payload.resolution === "attach_existing_task"
+        ? "GOOGLE_OPERATION_ID_VERIFIED"
+        : "GOOGLE_NO_OPERATION_VERIFIED"
+      : payload.resolution === "attach_existing_task"
+      ? "RUNWAY_TASK_ID_VERIFIED"
+      : "RUNWAY_NO_TASK_VERIFIED";
+    if (
+      payload.confirmation !== expectedConfirmation ||
+      (payload.resolution === "attach_existing_task" &&
+        !isValidProviderTaskId(
+          authorization.provider,
+          payload.provider_task_id,
+        ))
+    ) {
+      return json(
+        request,
+        { ok: false, code: "generation_reconciliation_task_mismatch" },
+        422,
+      );
+    }
 
     const systemPayload: Record<string, Json> = {
       job_id: payload.job_id,
@@ -3631,7 +5214,9 @@ async function handleCreatorGenerate(
     };
 
     if (payload.resolution === "attach_existing_task") {
-      const secret = runwaySecret();
+      const secret = authorization.provider === "google"
+        ? googleApiKey()
+        : runwaySecret();
       if (secret === null) {
         return json(
           request,
@@ -3641,15 +5226,20 @@ async function handleCreatorGenerate(
       }
       let providerResponse: ProviderJsonResult;
       try {
+        const reconciliationStatusUrl = authorization.provider === "google"
+          ? `${GOOGLE_GENERATIVE_LANGUAGE_API_ORIGIN}/${GOOGLE_GENERATIVE_LANGUAGE_API_VERSION}/${payload.provider_task_id}`
+          : `${RUNWAY_API_ORIGIN}/v1/tasks/${payload.provider_task_id}`;
         providerResponse = await fetchProviderJsonWithDeadline(
-          `${RUNWAY_API_ORIGIN}/v1/tasks/${payload.provider_task_id}`,
+          reconciliationStatusUrl,
           {
             method: "GET",
             redirect: "manual",
-            headers: {
-              authorization: `Bearer ${secret}`,
-              "x-runway-version": RUNWAY_API_VERSION,
-            },
+            headers: authorization.provider === "google"
+              ? { "x-goog-api-key": secret }
+              : {
+                authorization: `Bearer ${secret}`,
+                "x-runway-version": RUNWAY_API_VERSION,
+              },
           },
           PROVIDER_TIMEOUT_MS,
         );
@@ -3673,7 +5263,22 @@ async function handleCreatorGenerate(
         );
       }
       const providerValue = providerResponse.value;
-      const providerTask = parseRunwayTask(providerValue);
+      const googleOperation = authorization.provider === "google"
+        ? parseGoogleOperation(providerValue)
+        : null;
+      const providerTask = authorization.provider === "google"
+        ? googleOperation === null ? null : {
+          id: googleOperation.name,
+          status: !googleOperation.done
+            ? "RUNNING"
+            : googleOperation.error !== null
+            ? "FAILED"
+            : "SUCCEEDED",
+          // Gemini's documented LRO response has no provider-created
+          // timestamp. Never manufacture one from our own starting_at.
+          createdAt: null,
+        }
+        : parseRunwayTask(providerValue);
       const allowedStatuses = new Set([
         "PENDING",
         "THROTTLED",
@@ -3687,15 +5292,19 @@ async function handleCreatorGenerate(
       const providerCreatedAt = providerTask?.createdAt
         ? Date.parse(providerTask.createdAt)
         : Number.NaN;
+      const providerTimestampMatches = authorization.provider === "google"
+        ? providerTask?.createdAt === null
+        : Number.isFinite(providerCreatedAt) &&
+          providerCreatedAt >=
+            startingAt - RECONCILIATION_TASK_EARLY_SKEW_MS &&
+          providerCreatedAt <=
+            startingAt + RECONCILIATION_TASK_LATE_SKEW_MS &&
+          providerCreatedAt <= Date.now() + 60_000;
       if (
         providerTask === null ||
         providerTask.id !== payload.provider_task_id ||
         !allowedStatuses.has(providerTask.status) ||
-        !Number.isFinite(providerCreatedAt) ||
-        providerCreatedAt <
-          startingAt - RECONCILIATION_TASK_EARLY_SKEW_MS ||
-        providerCreatedAt > startingAt + RECONCILIATION_TASK_LATE_SKEW_MS ||
-        providerCreatedAt > Date.now() + 60_000
+        !providerTimestampMatches
       ) {
         return json(
           request,
@@ -3704,7 +5313,9 @@ async function handleCreatorGenerate(
         );
       }
       systemPayload.provider_task_id = providerTask.id;
-      systemPayload.provider_task_created_at = providerTask.createdAt;
+      if (authorization.provider === "runway") {
+        systemPayload.provider_task_created_at = providerTask.createdAt;
+      }
       systemPayload.provider_status = providerTask.status;
     } else if (
       Date.now() - Date.parse(authorization.requiredAt) < 2 * 60_000
@@ -3732,39 +5343,75 @@ async function handleCreatorGenerate(
   };
 
   const recordProviderReadiness = async (
-    organizationId: string,
-    readiness: RunwayProviderReadiness,
-  ): Promise<ProviderReadinessReceipt | null> => {
+    payload: PreflightPayload,
+    readiness: ProviderReadiness,
+  ): Promise<ProviderReadinessRecordResult> => {
     const checkedBy = context.userClaims?.id;
-    if (typeof checkedBy !== "string" || !isUuid(checkedBy)) return null;
+    if (typeof checkedBy !== "string" || !isUuid(checkedBy)) {
+      return { receipt: null, errorCode: null };
+    }
     try {
       const { data, error } = await supabaseAdmin.rpc(
         "system_record_generation_provider_readiness",
         {
           p_payload: {
-            organization_id: organizationId,
+            organization_id: payload.organization_id,
             checked_by: checkedBy,
-            provider: "runway",
+            provider: readiness.provider,
             model: readiness.model,
+            input_mode: readiness.inputMode,
             duration_seconds: readiness.durationSeconds,
+            format: readiness.format,
+            resolution: readiness.resolution,
+            audio: readiness.audio,
+            last_frame: readiness.lastFrame,
             ready: readiness.ready,
+            estimated_cost_minor: readiness.estimatedCostMinor,
             estimated_credits: readiness.estimatedCredits,
+            credential_configured: readiness.credentialConfigured,
             balance_sufficient: readiness.balanceSufficient,
             model_available: readiness.modelAvailable,
             daily_quota_available: readiness.dailyQuotaAvailable,
             failure_code: readiness.ready ? null : readiness.failureCode,
+            spend_confirmation: readiness.spendConfirmation,
+            catalog_version: GENERATION_MODEL_CATALOG_VERSION,
+            pricing_version: readiness.provider === "google"
+              ? GOOGLE_VEO_PRICING_VERSION
+              : RUNWAY_PRICING_VERSION,
             learning_gate_version: GENERATION_LEARNING_GATE_VERSION,
+            automatic_generation: false,
+            automatic_spend: false,
+            ...(generationModelRequiresReadinessV4(
+                readiness.provider,
+                readiness.model,
+              )
+              ? {
+                project_id: payload.project_id,
+                spec_id: payload.generation_spec_context?.spec_id,
+                spec_version: payload.generation_spec_context?.spec_version,
+                spec_hash: payload.generation_spec_context?.spec_hash,
+              }
+              : {}),
           },
         },
       );
-      if (error !== null) return null;
-      return parseProviderReadinessReceipt(
-        data,
-        organizationId,
-        readiness,
-      );
+      if (error !== null) {
+        return {
+          receipt: null,
+          errorCode: readProviderReadinessRpcErrorCode(error),
+        };
+      }
+      return {
+        receipt: parseProviderReadinessReceipt(
+          data,
+          payload,
+          checkedBy,
+          readiness,
+        ),
+        errorCode: null,
+      };
     } catch {
-      return null;
+      return { receipt: null, errorCode: null };
     }
   };
 
@@ -3790,27 +5437,74 @@ async function handleCreatorGenerate(
         503,
       );
     }
-    const secret = runwaySecret();
+    const providerPolicy = await loadProviderPolicy(
+      payload.organization_id,
+      payload.provider,
+      payload.model,
+    );
+    if (providerPolicy === null) {
+      return json(
+        request,
+        { ok: false, code: "generation_unavailable" },
+        503,
+      );
+    }
+    if (!providerPolicy.launchEnabled) {
+      return json(
+        request,
+        { ok: false, code: "generation_provider_launch_disabled" },
+        409,
+      );
+    }
+    const exact = exactGenerationSku(
+      payload.provider,
+      payload.model,
+      payload.duration_seconds,
+      payload.format,
+      payload.resolution,
+      payload.audio,
+      payload.last_frame,
+      payload.last_frame ? 2 : 1,
+      providerFeatureFlags(payload.provider, providerPolicy.launchEnabled),
+    );
+    if (exact === null) {
+      return json(request, { ok: false, code: "invalid_payload" }, 400);
+    }
+    const secret = payload.provider === "google"
+      ? googleApiKey()
+      : runwaySecret();
     if (secret === null) {
-      const unavailable: RunwayProviderReadiness = {
+      const unavailable: ProviderReadiness = {
         ready: false,
+        provider: payload.provider,
         model: payload.model,
+        inputMode: "image",
         durationSeconds: payload.duration_seconds,
-        estimatedCredits: readRunwayGenerationSku(
-          payload.model,
-          payload.duration_seconds,
-        )?.estimatedCredits ?? 0,
-        balanceSufficient: false,
+        format: payload.format,
+        resolution: payload.resolution,
+        audio: payload.audio,
+        lastFrame: payload.last_frame,
+        estimatedCostMinor: exact.estimatedCostMinor,
+        estimatedCredits: exact.estimatedCredits,
+        credentialConfigured: false,
+        balanceSufficient: payload.provider === "google" ? null : false,
         modelAvailable: false,
-        dailyQuotaAvailable: false,
+        dailyQuotaAvailable: payload.provider === "google" ? null : false,
+        spendConfirmation: exact.confirmation,
         failureCode: "provider_configuration_error",
       };
-      if (
-        await recordProviderReadiness(
-          payload.organization_id,
-          unavailable,
-        ) === null
-      ) {
+      const recordedUnavailable = await recordProviderReadiness(
+        payload,
+        unavailable,
+      );
+      if (recordedUnavailable.receipt === null) {
+        if (recordedUnavailable.errorCode !== null) {
+          return json(
+            request,
+            { ok: false, code: recordedUnavailable.errorCode },
+            409,
+          );
+        }
         return json(
           request,
           { ok: false, code: "generation_unavailable" },
@@ -3823,22 +5517,32 @@ async function handleCreatorGenerate(
         503,
       );
     }
-    const readiness = await checkRunwayProviderReadiness(
-      secret,
-      payload.model,
-      payload.duration_seconds,
-    );
-    const receipt = await recordProviderReadiness(
-      payload.organization_id,
-      readiness,
-    );
-    if (receipt === null) {
+    let readiness: ProviderReadiness;
+    if (payload.provider === "google") {
+      readiness = await checkGoogleProviderReadiness(secret, payload, exact);
+    } else {
+      const runway = await checkRunwayProviderReadiness(
+        secret,
+        exact,
+      );
+      readiness = runwayProviderReadiness(payload, runway);
+    }
+    const recordedReadiness = await recordProviderReadiness(payload, readiness);
+    if (recordedReadiness.receipt === null) {
+      if (recordedReadiness.errorCode !== null) {
+        return json(
+          request,
+          { ok: false, code: recordedReadiness.errorCode },
+          409,
+        );
+      }
       return json(
         request,
         { ok: false, code: "generation_unavailable" },
         503,
       );
     }
+    const receipt = recordedReadiness.receipt;
     if (!readiness.ready) {
       const status = readiness.failureCode === "provider_credits_unavailable" ||
           readiness.failureCode === "provider_rate_limited"
@@ -3853,21 +5557,50 @@ async function handleCreatorGenerate(
     return json(request, {
       ok: true,
       preflight: {
-        provider: "runway",
+        version: receipt.version,
+        receipt_id: receipt.receiptId,
+        receipt_hash: receipt.receiptHash,
+        organization_id: payload.organization_id,
+        checked_by: receipt.checkedBy,
+        provider: readiness.provider,
         model: readiness.model,
+        input_mode: readiness.inputMode,
         duration_seconds: readiness.durationSeconds,
+        format: readiness.format,
+        resolution: readiness.resolution,
+        audio: readiness.audio,
+        last_frame: readiness.lastFrame,
         ready: true,
+        estimated_cost_minor: readiness.estimatedCostMinor,
         estimated_credits: readiness.estimatedCredits,
+        credential_configured: readiness.credentialConfigured,
         balance_sufficient: readiness.balanceSufficient,
         model_available: readiness.modelAvailable,
         daily_quota_available: readiness.dailyQuotaAvailable,
+        failure_code: null,
+        catalog_version: GENERATION_MODEL_CATALOG_VERSION,
+        pricing_version: readiness.provider === "google"
+          ? GOOGLE_VEO_PRICING_VERSION
+          : RUNWAY_PRICING_VERSION,
         learning_gate_version: GENERATION_LEARNING_GATE_VERSION,
         checked_at: receipt.checkedAt,
         expires_at: receipt.expiresAt,
-        receipt_id: receipt.receiptId,
-        receipt_hash: receipt.receiptHash,
-        receipt_version: "generation-provider-readiness-receipt-v2",
+        status: "ready",
         fresh: true,
+        spend_confirmation: readiness.spendConfirmation,
+        automatic_generation: false,
+        automatic_spend: false,
+        ...(receipt.version === PROVIDER_READINESS_RECEIPT_V4
+          ? {
+            project_id: receipt.projectId,
+            spec_id: receipt.specId,
+            spec_version: receipt.specVersion,
+            spec_hash: receipt.specHash,
+            scope_hash: receipt.scopeHash,
+          }
+          : {
+            // Legacy response: version: "generation-provider-readiness-receipt-v3".
+          }),
       },
     });
   };
@@ -3892,6 +5625,63 @@ async function handleCreatorGenerate(
   const startPayload = readStartPayload(body);
   if (startPayload === null) {
     return json(request, { ok: false, code: "invalid_payload" }, 400);
+  }
+  const startProviderPolicy = await loadProviderPolicy(
+    startPayload.organization_id,
+    startPayload.provider,
+    startPayload.model,
+  );
+  if (startProviderPolicy === null) {
+    return json(
+      request,
+      { ok: false, code: "generation_unavailable" },
+      503,
+    );
+  }
+  if (!startProviderPolicy.launchEnabled) {
+    return json(
+      request,
+      { ok: false, code: "generation_provider_launch_disabled" },
+      409,
+    );
+  }
+  const startProviderFeatureFlags = providerFeatureFlags(
+    startPayload.provider,
+    startProviderPolicy.launchEnabled,
+  );
+  const startSku = exactGenerationSku(
+    startPayload.provider,
+    startPayload.model,
+    startPayload.duration_seconds,
+    startPayload.format,
+    startPayload.resolution,
+    startPayload.audio,
+    startPayload.last_frame,
+    startPayload.media_ids.length,
+    startProviderFeatureFlags,
+  );
+  if (
+    startSku === null ||
+    startPayload.spend_confirmation !== startSku.confirmation ||
+    !startSelectionSnapshotMatches(startPayload, startSku)
+  ) {
+    return json(
+      request,
+      { ok: false, code: "generation_provider_selection_stale" },
+      409,
+    );
+  }
+  if (
+    generationModelRequiresReadinessV4(
+      startPayload.provider,
+      startPayload.model,
+    ) && startPayload.learning_context.source !== "baseline"
+  ) {
+    return json(
+      request,
+      { ok: false, code: "generation_spec_baseline_required" },
+      409,
+    );
   }
   if (!generationModePromptIsBound(startPayload)) {
     return json(
@@ -3929,7 +5719,10 @@ async function handleCreatorGenerate(
         generationSpecError?.status || 503,
       );
     }
-    effectiveGenerationPolicy = readGenerationSpecEffectivePolicy(data);
+    effectiveGenerationPolicy = readGenerationSpecEffectivePolicy(
+      data,
+      startProviderFeatureFlags,
+    );
   } catch {
     return json(
       request,
@@ -3944,15 +5737,37 @@ async function handleCreatorGenerate(
       503,
     );
   }
+  const expectedSemantics = generationExecutionSemantics(
+    startPayload.model,
+    startPayload.audio,
+    startPayload.last_frame,
+    startPayload.media_ids.length,
+  );
+  if (expectedSemantics === null) {
+    return json(
+      request,
+      { ok: false, code: "generation_spec_scope_binding_invalid" },
+      409,
+    );
+  }
   const expectedScope: GenerationSpecScope = {
     primary_media_id: startPayload.media_ids[0],
     media_ids: startPayload.media_ids,
     platform: startPayload.platform,
+    provider: startPayload.provider,
     model: startPayload.model,
+    input_mode: startPayload.input_mode,
     duration_seconds: startPayload.duration_seconds,
     product_category: startPayload.product_category,
     format: startPayload.format,
+    ratio: startPayload.format,
+    resolution: startPayload.resolution,
     audio: startPayload.audio === true,
+    spoken_dialogue: expectedSemantics.spokenDialogue,
+    reference_count: expectedSemantics.referenceImageCount,
+    reference_video: false,
+    first_frame: expectedSemantics.firstFrame,
+    last_frame: startPayload.last_frame,
   };
   const effectiveRepair = effectiveGenerationPolicy.repairContext;
   const requestedRepair = startPayload.repair_context || null;
@@ -4234,6 +6049,20 @@ async function handleCreatorGenerate(
   if (
     startJob === null ||
     startJob.campaignId !== startPayload.campaign_id ||
+    startJob.provider !== startSku.provider ||
+    startJob.model !== startSku.model ||
+    startJob.durationSeconds !== startSku.durationSeconds ||
+    startJob.resolution !== startSku.resolution ||
+    startJob.audio !== startSku.audio ||
+    startJob.lastFrame !== startSku.lastFrame ||
+    publicRatioFromProvider(
+        startJob.model,
+        startJob.ratio,
+        startJob.resolution,
+      ) !==
+      startSku.format ||
+    startJob.estimatedCostMinor !== startSku.estimatedCostMinor ||
+    startJob.estimatedCredits !== startSku.estimatedCredits ||
     (
       startPayload.review_autostart_confirmed === true &&
       (
@@ -4321,9 +6150,15 @@ async function handleCreatorGenerate(
     );
   }
 
-  const secret = runwaySecret();
+  const secret = startJob.provider === "google"
+    ? googleApiKey()
+    : runwaySecret();
   if (secret === null) {
-    await markFailed(startJob.id, "provider_configuration_error");
+    await markFailed(
+      startJob.id,
+      "provider_configuration_error",
+      startJob.provider,
+    );
     return await respondWithCurrent(
       startPayload.organization_id,
       startJob.id,
@@ -4331,13 +6166,38 @@ async function handleCreatorGenerate(
       startPayload.project_id,
     );
   }
-  const providerReadiness = await checkRunwayProviderReadiness(
-    secret,
-    startJob.model,
-    startJob.durationSeconds,
-  );
+  const preflightScope: PreflightPayload = {
+    action: "preflight",
+    organization_id: startPayload.organization_id,
+    provider: startJob.provider,
+    model: startJob.model,
+    input_mode: "image",
+    duration_seconds: startJob.durationSeconds,
+    format: publicRatioFromProvider(
+      startJob.model,
+      startJob.ratio,
+      startJob.resolution,
+    ) ||
+      startPayload.format,
+    resolution: startJob.resolution,
+    audio: startJob.audio,
+    last_frame: startJob.lastFrame,
+  };
+  const providerReadiness = startJob.provider === "google"
+    ? await checkGoogleProviderReadiness(secret, preflightScope, startSku)
+    : runwayProviderReadiness(
+      preflightScope,
+      await checkRunwayProviderReadiness(
+        secret,
+        startSku,
+      ),
+    );
   if (!providerReadiness.ready) {
-    await markFailed(startJob.id, providerReadiness.failureCode);
+    await markFailed(
+      startJob.id,
+      providerReadiness.failureCode || "provider_request_failed",
+      startJob.provider,
+    );
     return await respondWithCurrent(
       startPayload.organization_id,
       startJob.id,
@@ -4354,7 +6214,11 @@ async function handleCreatorGenerate(
     }),
   );
   if (signedReferenceUrls.some((url) => url === null)) {
-    await markFailed(startJob.id, "provider_configuration_error");
+    await markFailed(
+      startJob.id,
+      "provider_configuration_error",
+      startJob.provider,
+    );
     return await respondWithCurrent(
       startPayload.organization_id,
       startJob.id,
@@ -4363,42 +6227,82 @@ async function handleCreatorGenerate(
     );
   }
   const validReferenceUrls = signedReferenceUrls as string[];
-  const signedInputUrl = validReferenceUrls[0];
-
-  const photoGeneration = startJob.model === "seedream5_lite";
-  const providerRequestBody = photoGeneration
-    ? {
-      model: startJob.model,
-      promptText: startJob.promptText,
-      ratio: startJob.ratio,
-      outputFormat: "png",
-      outputCount: 1,
-      referenceImages: validReferenceUrls.map((uri, index) => ({
-        uri,
-        tag: index === 0
-          ? RUNWAY_PRODUCT_REFERENCE_TAG
-          : `${RUNWAY_PRODUCT_REFERENCE_TAG}${index + 1}`,
-      })),
+  let googleInlineImages: Array<{
+    mimeType: "image/png" | "image/jpeg" | "image/webp";
+    data: string;
+  }> = [];
+  if (startJob.provider === "google") {
+    try {
+      googleInlineImages = await Promise.all(
+        validReferenceUrls.map((url) => readGoogleInlineImage(url)),
+      );
+    } catch {
+      await markFailed(startJob.id, "provider_request_rejected", "google");
+      return await respondWithCurrent(
+        startPayload.organization_id,
+        startJob.id,
+        batch,
+        startPayload.project_id,
+      );
     }
-    : startJob.model === "seedance2_fast"
-    ? {
-      model: startJob.model,
-      duration: startJob.durationSeconds,
-      ratio: startJob.ratio,
-      promptText: startJob.promptText,
-      promptImage: validReferenceUrls.map((uri) => ({ uri })),
-      audio: true,
-    }
-    : {
-      model: startJob.model,
-      duration: startJob.durationSeconds,
-      ratio: startJob.ratio,
-      promptText: startJob.promptText,
-      promptImage: signedInputUrl,
-    };
-  const providerEndpoint = photoGeneration
-    ? `${RUNWAY_API_ORIGIN}/v1/text_to_image`
-    : `${RUNWAY_API_ORIGIN}/v1/image_to_video`;
+  }
+  const providerRequest = buildProviderRequest(
+    startJob,
+    validReferenceUrls,
+    googleInlineImages,
+    startProviderFeatureFlags,
+  );
+  if (providerRequest === null) {
+    await markFailed(
+      startJob.id,
+      "provider_request_rejected",
+      startJob.provider,
+    );
+    return await respondWithCurrent(
+      startPayload.organization_id,
+      startJob.id,
+      batch,
+      startPayload.project_id,
+    );
+  }
+  const providerEndpoint = providerRequest.provider === "google"
+    ? `${GOOGLE_GENERATIVE_LANGUAGE_API_ORIGIN}${providerRequest.endpointPath}`
+    : `${RUNWAY_API_ORIGIN}${providerRequest.endpointPath}`;
+  let serializedProviderRequest: string;
+  try {
+    serializedProviderRequest = JSON.stringify(providerRequest.body);
+  } catch {
+    await markFailed(
+      startJob.id,
+      "provider_request_rejected",
+      startJob.provider,
+    );
+    return await respondWithCurrent(
+      startPayload.organization_id,
+      startJob.id,
+      batch,
+      startPayload.project_id,
+    );
+  }
+  const serializedRequestBytes = new TextEncoder().encode(
+    serializedProviderRequest,
+  ).byteLength;
+  const providerRequestLimit = startJob.provider === "google"
+    ? MAX_GOOGLE_PROVIDER_REQUEST_BYTES
+    : MAX_PROVIDER_JSON_BYTES;
+  if (serializedRequestBytes > providerRequestLimit) {
+    await markFailed(
+      startJob.id,
+      "provider_request_rejected",
+      startJob.provider,
+    );
+    return await respondWithCurrent(
+      startPayload.organization_id,
+      startJob.id,
+      batch,
+      startPayload.project_id,
+    );
+  }
 
   let createResponse: ProviderJsonResult;
   try {
@@ -4407,12 +6311,14 @@ async function handleCreatorGenerate(
       {
         method: "POST",
         redirect: "manual",
-        headers: {
-          authorization: `Bearer ${secret}`,
-          "content-type": "application/json",
-          "x-runway-version": RUNWAY_API_VERSION,
-        },
-        body: JSON.stringify(providerRequestBody),
+        headers: providerRequest.provider === "google"
+          ? { "content-type": "application/json", "x-goog-api-key": secret }
+          : {
+            authorization: `Bearer ${secret}`,
+            "content-type": "application/json",
+            "x-runway-version": RUNWAY_API_VERSION,
+          },
+        body: serializedProviderRequest,
       },
       PROVIDER_TIMEOUT_MS,
     );
@@ -4435,6 +6341,7 @@ async function handleCreatorGenerate(
       await markFailed(
         startJob.id,
         providerFailureForHttp(createResponse.status),
+        startJob.provider,
       );
       return await respondWithCurrent(
         startPayload.organization_id,
@@ -4455,8 +6362,10 @@ async function handleCreatorGenerate(
     );
   }
 
-  const createdValue = createResponse.value;
-  const providerTask = parseCreatedRunwayTask(createdValue);
+  const createdValue: unknown = createResponse.value;
+  const providerTask = startJob.provider === "google"
+    ? parseCreatedGoogleOperation(createdValue)
+    : parseCreatedRunwayTask(createdValue);
   if (providerTask === null) {
     await markReconciliationRequired(
       startJob.id,

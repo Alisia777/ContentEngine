@@ -41,9 +41,23 @@ def _run_view(body: str) -> dict:
     with tempfile.TemporaryDirectory() as temporary_directory:
         directory = Path(temporary_directory)
         (directory / "subject.mjs").write_text(VIEW, encoding="utf-8")
+        runtime_body = body.replace(
+            "subject.normalizeGenerationModelAcceptance(",
+            "normalizeAcceptance(",
+        ).replace(
+            "subject.generationModelAcceptanceMarkup(",
+            "acceptanceMarkup(",
+        )
         (directory / "contract.mjs").write_text(
             "import * as subject from './subject.mjs';\n"
-            f"const result = await (async () => {{\n{body}\n}})();\n"
+            "const catalog = { version: 'legacy-acceptance-test-v1', models: [\n"
+            "  { provider: 'runway', model: 'seedream5_lite', publicLabel: 'Seedream 5 Lite', contentKind: 'photo' },\n"
+            "  { provider: 'runway', model: 'gen4_turbo', publicLabel: 'Gen-4 Turbo', contentKind: 'video' },\n"
+            "  { provider: 'runway', model: 'seedance2_fast', publicLabel: 'Seedance 2 Fast', contentKind: 'video' },\n"
+            "] };\n"
+            "const normalizeAcceptance = (raw) => subject.normalizeGenerationModelAcceptance(raw, catalog);\n"
+            "const acceptanceMarkup = (state) => subject.generationModelAcceptanceMarkup(state, catalog);\n"
+            f"const result = await (async () => {{\n{runtime_body}\n}})();\n"
             "process.stdout.write(JSON.stringify(result));\n",
             encoding="utf-8",
         )
@@ -528,11 +542,11 @@ def test_portal_loads_and_invalidates_server_acceptance_status() -> None:
     assert "loadGenerationModelAcceptance({ force: true })" in refresh
     assert "startRealGeneration" not in refresh
     assert "realGenerationPreflight" not in refresh
-    assert "./generation-model-acceptance-view.js?v=20260728.1" in APP
+    assert "./generation-model-acceptance-view.js?v=20260813.os4.39" in APP
     assert ".generation-model-acceptance__grid" in STYLES
     assert "./styles.css?v=20260730.4" in INDEX
-    assert "./app.js?v=20260812.os4.38" in INDEX
-    assert "./supabase-api.js?v=20260812.os4.38" in APP
+    assert "./app.js?v=20260813.os4.39" in INDEX
+    assert "./supabase-api.js?v=20260813.os4.39" in APP
 
 
 def test_visible_generation_acceptance_refreshes_without_rebuilding_the_form() -> None:

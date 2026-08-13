@@ -1,8 +1,14 @@
 /* ContentEngine Desktop v4 · Finder on top of the real workspace board. */
 
+body.ce-v4-finder-route #workspace-content {
+  container-name: ce-v4-finder-host;
+  container-type: inline-size;
+}
+
 body.ce-v4-finder-route .workspace-board {
   position: relative;
   display: grid;
+  box-sizing: border-box;
   width: 100%;
   max-width: 100%;
   height: 100%;
@@ -202,10 +208,18 @@ body.ce-v4-finder-route .workspace-board__content {
 .ce-v4-finder-toolbar__title { display: grid; gap: 2px; }
 .ce-v4-finder-toolbar__title small { color: var(--ce-v4-copper-bright); font-size: 12px; font-weight: 800; letter-spacing: .12em; }
 .ce-v4-finder-toolbar__title strong { color: var(--ce-v4-text); font-size: 14px; }
-.ce-v4-finder-toolbar__controls { display: flex; align-items: center; gap: 6px; }
+.ce-v4-finder-toolbar__controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: none;
+}
+.ce-v4-finder-toolbar__controls::-webkit-scrollbar { display: none; }
 .ce-v4-finder-sort,
 .ce-v4-finder-mode,
 .ce-v4-finder-view,
+.ce-v4-finder-quicklook,
 .ce-v4-finder-upload,
 .ce-v4-finder-sidebar-toggle {
   min-height: 44px;
@@ -219,12 +233,15 @@ body.ce-v4-finder-route .workspace-board__content {
 }
 .ce-v4-finder-mode,
 .ce-v4-finder-view,
+.ce-v4-finder-quicklook,
 .ce-v4-finder-upload,
 .ce-v4-finder-sidebar-toggle { display: inline-flex; align-items: center; cursor: pointer; }
 .ce-v4-finder-sidebar-toggle { display: none; }
 .ce-v4-finder-mode.is-active,
 .ce-v4-finder-view.is-active,
+.ce-v4-finder-quicklook:hover:not(:disabled),
 .ce-v4-finder-upload:hover { color: var(--ce-v4-text); border-color: rgba(236,136,75,.26); background: rgba(236,136,75,.09); }
+.ce-v4-finder-quicklook:disabled { opacity: .48; cursor: not-allowed; }
 
 body.ce-v4-finder-route .workspace-board__breadcrumb {
   min-width: 0;
@@ -400,6 +417,130 @@ body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] .workspa
 body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] .workspace-board__item-preview { border-right: 1px solid var(--ce-v4-line); border-bottom: 0; }
 body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] .ce-v4-finder-kind { top: 16px; right: 86px; bottom: auto; left: auto; }
 
+/* Columns is a view of the live listbox, not a second object tree. Canonical
+   cards stay in column one; the two runtime panes contain read-only text only. */
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] .workspace-board__grid {
+  display: grid !important;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 !important;
+  grid-template-columns: minmax(280px, .82fr) minmax(230px, .88fr) minmax(270px, 1.1fr) !important;
+  grid-auto-flow: row;
+  grid-auto-rows: 60px;
+  align-content: start;
+  gap: 0 !important;
+  overflow-x: auto;
+  overflow-y: visible;
+  overscroll-behavior-inline: contain;
+  scroll-snap-type: inline proximity;
+  scrollbar-gutter: auto;
+}
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] .workspace-board__item {
+  grid-column: 1;
+  width: 100%;
+  height: 60px !important;
+  min-height: 60px !important;
+  margin: 0;
+  border-width: 0 1px 1px 0 !important;
+  border-radius: 0 !important;
+  contain-intrinsic-size: 280px 60px;
+  scroll-snap-align: start;
+}
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] .workspace-board__item-open {
+  height: 59px !important;
+  min-height: 59px !important;
+  padding-right: 126px !important;
+  grid-template-columns: 48px minmax(0, 1fr);
+  grid-template-rows: 59px !important;
+}
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] .workspace-board__item-preview {
+  width: 48px;
+  height: 59px !important;
+  border-right: 1px solid var(--ce-v4-line);
+  border-bottom: 0;
+}
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] .workspace-board__item-copy {
+  height: 59px;
+  padding: 6px 8px;
+  align-content: center;
+}
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] .workspace-board__item-copy small { font-size: var(--ce-v4-font-helper); }
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] .workspace-board__item-copy strong { font-size: 13px; }
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] .workspace-board__item-copy > span,
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] .workspace-board__status,
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] .ce-v4-finder-kind { display: none !important; }
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] .workspace-board__context-trigger--item,
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] .workspace-board__select-item,
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] .workspace-board__drag-handle {
+  top: 12px;
+  bottom: auto;
+  width: 34px;
+  height: 34px;
+}
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] .workspace-board__context-trigger--item { right: 7px; }
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] .workspace-board__select-item { right: 47px; }
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] .workspace-board__drag-handle { right: 87px; }
+
+.ce-v4-finder-column {
+  position: relative;
+  min-width: 0;
+  min-height: 100%;
+  border-right: 1px solid var(--ce-v4-line);
+  background: rgba(255,255,255,.009);
+  pointer-events: none;
+  scroll-snap-align: start;
+}
+.ce-v4-finder-column--hierarchy { grid-column: 2; }
+.ce-v4-finder-column--preview { grid-column: 3; border-right: 0; }
+.ce-v4-finder-column__panel {
+  position: sticky;
+  top: 0;
+  display: grid;
+  max-height: min(520px, 72svh);
+  padding: 14px;
+  align-content: start;
+  gap: 9px;
+  overflow: hidden auto;
+}
+.ce-v4-finder-column__heading { display: grid; min-width: 0; padding-bottom: 5px; gap: 3px; }
+.ce-v4-finder-column__heading small { color: var(--ce-v4-dim); font-size: var(--ce-v4-font-helper); font-weight: 820; letter-spacing: .12em; }
+.ce-v4-finder-column__heading strong { overflow: hidden; color: var(--ce-v4-text); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.ce-v4-finder-column__row {
+  display: grid;
+  min-width: 0;
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 1px solid var(--ce-v4-line);
+  border-radius: 10px;
+  align-content: center;
+  gap: 3px;
+  background: rgba(255,255,255,.018);
+}
+.ce-v4-finder-column__row small { color: var(--ce-v4-dim); font-size: var(--ce-v4-font-helper); }
+.ce-v4-finder-column__row strong { overflow: hidden; color: var(--ce-v4-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.ce-v4-finder-column__row.is-folder { border-color: rgba(236,136,75,.18); }
+.ce-v4-finder-column__row.is-current { border-color: rgba(236,136,75,.42); background: rgba(236,136,75,.09); }
+.ce-v4-finder-column__row.is-current strong { color: var(--ce-v4-text); }
+.ce-v4-finder-column__connector { color: var(--ce-v4-copper-bright); text-align: center; }
+.ce-v4-finder-column__glyph {
+  display: grid;
+  width: 74px;
+  height: 74px;
+  margin: 2px auto 5px;
+  border: 1px solid rgba(236,136,75,.25);
+  border-radius: 17px;
+  place-items: center;
+  color: var(--ce-v4-copper-bright);
+  background: radial-gradient(circle at 50% 25%, rgba(236,136,75,.2), transparent 68%), #0c0a09;
+  font-size: 25px;
+}
+.ce-v4-finder-column__glyph[data-kind="research"] { color: #8ce7d2; border-color: rgba(67,211,178,.28); background: rgba(67,211,178,.08); }
+.ce-v4-finder-column__summary,
+.ce-v4-finder-column__empty,
+.ce-v4-finder-column__hint { margin: 0; color: var(--ce-v4-muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.ce-v4-finder-column__hint { padding-top: 5px; color: var(--ce-v4-copper-bright); }
+
 /* Details replace Finder content in the same surface. A permanent third pane made
    the file grid cramped and looked like another nested window. */
 body.ce-v4-finder-route .workspace-board__drawer {
@@ -420,6 +561,40 @@ body.ce-v4-finder-route .workspace-board__drawer :is(dd, code) { overflow-wrap: 
 body.ce-v4-finder-route .workspace-board__drawer-preview { min-height: 190px; border: 1px solid var(--ce-v4-line); border-radius: 16px; overflow: hidden; background: #090807; }
 body.ce-v4-finder-route .workspace-board__drawer-preview img,
 body.ce-v4-finder-route .workspace-board__drawer-preview video { width: 100%; max-height: 320px; object-fit: contain; }
+body.ce-v4-finder-route :is(
+  .workspace-board__quicklook-section,
+  .workspace-board__quicklook-relations,
+  .workspace-board__quicklook-technical
+) { border-color: var(--ce-v4-line); background: rgba(255,255,255,.018); }
+body.ce-v4-finder-route :is(
+  .workspace-board__quicklook-section-head h3,
+  .workspace-board__quicklook-list h4,
+  .workspace-board__quicklook-history h4,
+  .workspace-board__quicklook-relations h4,
+  .workspace-board__quicklook-facts dd,
+  .workspace-board__quicklook-technical dd
+) { color: var(--ce-v4-text); }
+body.ce-v4-finder-route :is(
+  .workspace-board__quicklook-section-head p,
+  .workspace-board__quicklook-relations a
+) { color: var(--ce-v4-copper-bright); }
+body.ce-v4-finder-route :is(
+  .workspace-board__quicklook-facts > div,
+  .workspace-board__quicklook-technical dl > div,
+  .workspace-board__quicklook-list li,
+  .workspace-board__quicklook-history li,
+  .workspace-board__quicklook-relations li,
+  .workspace-board__quicklook-unavailable
+) { border-color: var(--ce-v4-line); background: rgba(255,255,255,.018); }
+body.ce-v4-finder-route :is(
+  .workspace-board__quicklook-facts dt,
+  .workspace-board__quicklook-technical dt,
+  .workspace-board__quicklook-list li,
+  .workspace-board__quicklook-history li,
+  .workspace-board__quicklook-relations li,
+  .workspace-board__quicklook-unavailable,
+  .workspace-board__quicklook-technical summary
+) { color: var(--ce-v4-muted); }
 
 .ce-v4-finder-detail-bar {
   display: none;
@@ -489,17 +664,21 @@ body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__d
 .ce-v4-quicklook-inline__title small { color: var(--ce-v4-copper-bright); font-size: 12px; font-weight: 800; letter-spacing: .12em; }
 .ce-v4-quicklook-inline__title strong { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .ce-v4-quicklook-inline__controls { display: flex; align-items: center; gap: 7px; }
-.ce-v4-quicklook-inline__controls button { min-height: 42px; padding: 0 12px; border: 1px solid var(--ce-v4-line); border-radius: 11px; color: var(--ce-v4-muted); background: rgba(255,255,255,.025); cursor: pointer; font-size: 12px; font-weight: 720; }
+.ce-v4-quicklook-inline__controls button { min-height: 44px; padding: 0 12px; border: 1px solid var(--ce-v4-line); border-radius: 11px; color: var(--ce-v4-muted); background: rgba(255,255,255,.025); cursor: pointer; font-size: 12px; font-weight: 720; }
 .ce-v4-quicklook-inline__controls button:hover,
 .ce-v4-quicklook-inline__controls button:focus-visible { color: var(--ce-v4-text); border-color: rgba(236,136,75,.3); outline: none; background: rgba(236,136,75,.1); }
 body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__drawer-head,
 body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__drawer-description,
+body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__quicklook-sections,
+body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__drawer-actions,
+body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__research-links,
 body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__drawer-facts,
+body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__quicklook-technical,
 body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__move-panel { grid-column: 2; }
 body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__drawer-preview { grid-column: 1; grid-row: 2 / span 5; min-height: 60svh; }
 body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__drawer-close { display: none !important; }
 
-@media (max-width: 1080px) {
+@container ce-v4-finder-host (max-width: 1080px) {
   body.ce-v4-finder-route .workspace-board__layout { grid-template-columns: minmax(190px,230px) minmax(0,1fr) !important; }
   body.ce-v4-finder-route .workspace-board__drawer { display: none !important; }
   body.ce-v4-finder-route .workspace-board.is-detail-inline .workspace-board__layout { grid-template-columns: minmax(0,1fr) !important; }
@@ -521,7 +700,7 @@ body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__d
   body.ce-v4-finder-route .workspace-board.is-detail-inline .workspace-board__drawer-close { display: none !important; }
 }
 
-@media (max-width: 760px) {
+@container ce-v4-finder-host (max-width: 760px) {
   body.ce-v4-finder-route .workspace-board { height: auto; min-height: 100%; border-radius: 18px; }
   body.ce-v4-finder-route .workspace-board__layout { grid-template-columns: 1fr !important; }
   body.ce-v4-finder-route .workspace-board__sidebar {
@@ -564,23 +743,57 @@ body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__d
   body.ce-v4-finder-route .workspace-board__collection-head { align-items: flex-start; }
   .workspace-board__context-hint { max-width: 145px; line-height: 1.25; }
   body.ce-v4-finder-route .workspace-board__grid { grid-template-columns: repeat(2,minmax(0,1fr)) !important; padding: 8px !important; }
+  body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] .workspace-board__grid {
+    width: 100%;
+    max-width: 100%;
+    padding: 0 !important;
+    grid-template-columns: 270px 230px 270px !important;
+    overflow-x: auto;
+    overflow-y: visible;
+  }
   body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__drawer.ce-v4-quicklook-inline { grid-template-columns: 1fr; }
   .ce-v4-quicklook-inline__bar { grid-template-columns: 1fr; }
-  .ce-v4-quicklook-inline__controls { overflow-x: auto; }
+  .ce-v4-quicklook-inline__controls {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow: visible;
+  }
+  .ce-v4-quicklook-inline__controls button {
+    min-width: 0;
+    padding-inline: 7px;
+    line-height: 1.15;
+    white-space: normal;
+  }
   body.ce-v4-finder-route .workspace-board.is-quicklook-inline :is(
     .workspace-board__drawer-preview,
     .workspace-board__drawer-head,
     .workspace-board__drawer-description,
+    .workspace-board__quicklook-sections,
+    .workspace-board__drawer-actions,
+    .workspace-board__research-links,
     .workspace-board__drawer-facts,
+    .workspace-board__quicklook-technical,
     .workspace-board__move-panel
   ) { grid-column: 1; grid-row: auto; }
   body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__drawer-preview { min-height: 42svh; }
   body.ce-v4-finder-route .workspace-board.is-detail-inline .ce-v4-finder-detail-bar { grid-template-columns: 1fr; }
 }
 
-@media (max-width: 480px) {
+@container ce-v4-finder-host (max-width: 480px) {
   body.ce-v4-finder-route .workspace-board__grid { grid-template-columns: 1fr !important; }
+  body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] .workspace-board__grid {
+    grid-template-columns: 250px 220px 250px !important;
+  }
   body.ce-v4-finder-route .workspace-board__filters { grid-template-columns: 1fr !important; }
+  .ce-v4-quicklook-inline__controls button { font-size: 0; }
+  .ce-v4-quicklook-inline__controls button::before {
+    font-size: var(--ce-v4-font-helper);
+    line-height: 1.15;
+  }
+  .ce-v4-quicklook-inline__previous::before { content: "← Назад"; }
+  .ce-v4-quicklook-inline__next::before { content: "Далее →"; }
+  .ce-v4-quicklook-inline__close::before { content: "К файлам"; }
 }
 
 @media (prefers-reduced-motion: reduce) {

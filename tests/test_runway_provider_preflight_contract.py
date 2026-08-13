@@ -43,8 +43,9 @@ def test_preflight_is_membership_scoped_and_returns_only_safe_booleans() -> None
         "const preflightPayload = readPreflightPayload",
     )
     assert '"creator_generation_spend_overview"' in handler
+    assert '"creator_generation_provider_policy"' in EDGE
     assert "organization_id: payload.organization_id" in handler
-    assert 'provider: "runway"' in handler
+    assert "provider: payload.provider" in handler
     assert "balance_sufficient: readiness.balanceSufficient" in handler
     assert "model_available: readiness.modelAvailable" in handler
     assert "daily_quota_available: readiness.dailyQuotaAvailable" in handler
@@ -52,7 +53,8 @@ def test_preflight_is_membership_scoped_and_returns_only_safe_booleans() -> None
     assert "await recordProviderReadiness(" in handler
     assert "receipt_id: receipt.receiptId" in handler
     assert "receipt_hash: receipt.receiptHash" in handler
-    assert 'receipt_version: "generation-provider-readiness-receipt-v2"' in handler
+    assert 'version: "generation-provider-readiness-receipt-v3"' in handler
+    assert "spend_confirmation: readiness.spendConfirmation" in handler
     assert "creditBalance" not in handler
     assert "maxDailyGenerations" not in handler
 
@@ -60,7 +62,7 @@ def test_preflight_is_membership_scoped_and_returns_only_safe_booleans() -> None
 def test_server_rechecks_provider_immediately_before_paid_post() -> None:
     claim = EDGE.index("const claim = await claimSystemJob(current.id)")
     readiness = EDGE.index(
-        "const providerReadiness = await checkRunwayProviderReadiness",
+        "const providerReadiness = startJob.provider === \"google\"",
         claim,
     )
     provider_endpoint = EDGE.index("const providerEndpoint", readiness)
@@ -71,7 +73,7 @@ def test_server_rechecks_provider_immediately_before_paid_post() -> None:
     assert claim < readiness < provider_endpoint < provider_post
     guard = EDGE[readiness:provider_endpoint]
     assert "if (!providerReadiness.ready)" in guard
-    assert "await markFailed(startJob.id, providerReadiness.failureCode)" in guard
+    assert "providerReadiness.failureCode || \"provider_request_failed\"" in guard
 
 
 def test_client_performs_free_preflight_before_starting_paid_generation() -> None:
@@ -90,13 +92,17 @@ def test_client_performs_free_preflight_before_starting_paid_generation() -> Non
         "async function runGenerationPreflightForPaidStart(",
         "async function submitRealGenerationReconciliation(",
     )
-    assert "awaitRetry: true" in paid_preflight
-    assert 'setFormBusy(form, true, "Проверяем Runway без списания…")' in submit
+    assert 'existing?.status !== "ready"' in paid_preflight
+    assert "runGenerationPreflight(form" not in paid_preflight
+    assert 'setFormBusy(form, true, "Проверяем точный выбор и квитанцию…")' in submit
     assert "providerStartAttempted = true" in submit
-    assert "validateGenerationPreflight(preflightOutcome, generationSku)" in submit
-    assert "Платный запуск не создан: бесплатная проверка Runway не пройдена" in submit
+    assert "const launchPreflight = validateGenerationPreflight(" in submit
+    assert "state.api.bindRealGenerationClientContext(payload, {" in submit
+    assert "expectedActorId: launchContext.userId" in submit
+    assert "isContextCurrent: paidLaunchIsCurrent" in submit
+    assert "свежая бесплатная проверка выбранной модели не пройдена" in submit
 
-    assert "realGenerationPreflight(model, durationSeconds)" in ADAPTER
+    assert "realGenerationPreflight(selection, legacyDurationSeconds = undefined)" in ADAPTER
     invoke = _between(
         ADAPTER,
         "async invokeRealGeneration(action, payload = {})",
@@ -105,11 +111,20 @@ def test_client_performs_free_preflight_before_starting_paid_generation() -> Non
     assert '"preflight"' in invoke
     assert 'new Set(["start", "reconcile"]).has(action)' in invoke
     assert 'if (action === "preflight")' in invoke
+    assert "if (expectedActorId && actorId !== expectedActorId)" in invoke
+    assert 'typeof isContextCurrent === "function"' in invoke
+    assert "isContextCurrent() === true" in invoke
+    assert invoke.index("actorId !== expectedActorId") < invoke.index(
+        "this.supabase.functions.invoke"
+    )
+    assert invoke.index("actorId !== expectedActorId") < invoke.index(
+        "writeMutationKeys(this.mutationKeys)"
+    )
 
 
 def test_user_can_run_preflight_without_confirming_a_paid_generation() -> None:
     assert 'data-action="check-runway-readiness"' in APP
-    assert "Проверить Runway бесплатно" in APP
+    assert "Проверить доступность и стоимость" in APP
     runner = _between(
         APP,
         "async function runGenerationPreflight(",
@@ -120,7 +135,8 @@ def test_user_can_run_preflight_without_confirming_a_paid_generation() -> None:
     assert "real_spend_confirmation" not in runner
     assert "startRealGeneration" not in runner
     assert "generationPreflightDecision(previous" in runner
-    assert "return previous.promise" in runner
+    assert "const joined = await previous.promise" in runner
+    assert "generationPreflightContextIsCurrent(requestContext, key)" in runner
     assert "generationPreflightRetryDelay({" in runner
     validator = _between(
         APP,
@@ -129,8 +145,9 @@ def test_user_can_run_preflight_without_confirming_a_paid_generation() -> None:
     )
     assert "normalizeGenerationProviderPreflight(" in validator
     assert "gateVersion: GENERATION_LEARNING_GATE_VERSION" in validator
-    assert "preflight.model !== sku.model" in validator
-    assert "preflight.estimated_credits !== sku.estimatedCredits" in validator
+    assert "expectedSelection: sku" in validator
+    assert "expectedSelection: sku" in validator
+    assert "preflight === null" in validator
     assert "Проверка не создаёт задачу и ничего не списывает." in APP
 
 
@@ -146,7 +163,7 @@ def test_real_mode_automatically_runs_one_free_deduplicated_preflight() -> None:
     assert "startRealGeneration" not in scheduler
     assert "real_spend_confirmation" not in scheduler
     assert "scheduleAutomaticGenerationPreflight(form)" in APP
-    assert "if (real && spendAllowed)" in APP
+    assert "scheduleAutomaticGenerationPreflight(form)" in APP
 
 
 def test_transient_preflight_retries_are_bounded_context_bound_and_read_only() -> None:
@@ -162,19 +179,31 @@ def test_transient_preflight_retries_are_bounded_context_bound_and_read_only() -
     )
     for token in (
         "generationPreflightRetryDelay({",
-        "requestEpoch === state.dataEpoch",
-        "requestUserId === state.user?.id",
+        "captureGenerationRequestContext(",
+        "generationPreflightContextIsCurrent(retryContext",
         'document.querySelector("#mock-batch-form")',
         "generationPreflightKey(currentSku) === generationPreflightKey(sku)",
         "currentEntry === entry",
-        "realGenerationSpendAllowed(",
-        "window.setTimeout(() =>",
+            "window.setTimeout(() =>",
         "clearGenerationPreflightRetry(entry)",
     ):
         assert token in recovery
-    assert "currentForm?.isConnected" in runner
-    assert "generationSkuForForm(currentForm)" in runner
-    assert "form.isConnected" not in runner
+    assert "generationPreflightContextIsCurrent(requestContext, key)" in runner
+    identity_guard = _between(
+        APP,
+        "function generationRequestIdentityIsCurrent(context)",
+        "function generationRequestContextIsCurrent(context)",
+    )
+    context_guard = _between(
+        APP,
+        "function generationRequestContextIsCurrent(context)",
+        "function generationPreflightContextIsCurrent(context, key)",
+    )
+    assert 'state.route?.path === context.route' in identity_guard
+    assert "currentWorkspaceProjectId() === context.projectId" in identity_guard
+    assert "generationRequestIdentityIsCurrent(context)" in context_guard
+    assert "form?.isConnected" in context_guard
+    assert 'document.querySelector("#mock-batch-form") === form' in context_guard
     for token in (
         "automaticRetry = false",
         "awaitRetry = false",
@@ -200,10 +229,10 @@ def test_transient_preflight_retries_are_bounded_context_bound_and_read_only() -
         "async function runGenerationPreflightForPaidStart(",
         "async function submitRealGenerationReconciliation(",
     )
-    assert 'existing?.status === "loading" && existing.promise' in paid_preflight
-    assert "await existing.promise" in paid_preflight
-    assert "await runGenerationPreflight(form" in paid_preflight
-    assert "awaitRetry: true" in paid_preflight
+    assert 'existing?.status !== "ready"' in paid_preflight
+    assert "validateGenerationPreflight(" in paid_preflight
+    assert "preflight.spend_confirmation" in paid_preflight
+    assert "runGenerationPreflight(form" not in paid_preflight
     assert "await runGenerationPreflightForPaidStart(" in submit
     assert submit.index("await runGenerationPreflightForPaidStart(") < submit.index(
         "state.api.startRealGeneration(payload)"
@@ -226,17 +255,9 @@ def test_paid_client_requires_the_exact_deployed_learning_gate_version() -> None
 
 
 def test_model_prompt_limits_match_the_provider_contract() -> None:
-    assert "gen4_turbo: 1_000" in EDGE
-    assert "seedance2_fast: 1_200" in EDGE
-    assert "seedream5_lite: 1_200" in EDGE
+    assert "generationModelCatalogEntry(provider, model)?.promptLimit" in EDGE
     assert "!isBoundedText(value.brief, 1, promptLimit)" in EDGE
 
-    for token in (
-        "promptMaxLength: 1000",
-        "promptMaxLength: 1200",
-        "brief.maxLength = sku?.promptMaxLength || 1200",
-        "brief.length > generationSku.promptMaxLength",
-    ):
-        assert token in APP
-    assert "prompt_max_length: 1000" in ADAPTER
-    assert "brief.length > sku.prompt_max_length" in ADAPTER
+    assert "promptMaxLength: Number(catalogModel.promptLimit || 0)" in APP
+    assert "brief.maxLength = sku?.promptMaxLength" in APP
+    assert "brief.length > generationSku.promptMaxLength" in APP

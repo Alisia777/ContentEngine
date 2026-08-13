@@ -2,10 +2,12 @@
 
 const ROUTE = "/workspace/board";
 const STATE_KEY = "contentengine.desktop-v4.finder.v1";
+const VIEW_STATE_PREFIX = "contentengine.desktop-v4.finder-view.v2";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
 const PROJECT_CONTEXT_KEY = "contentengine.desktop-v4.project";
 const PROJECT_QUERY_KEY = "project_id";
 const FOLDER_QUERY_KEY = "folder";
+const FINDER_VIEWS = new Set(["grid", "list", "columns"]);
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
 const MOBILE_SIDEBAR = window.matchMedia("(max-width: 760px)");
 
@@ -18,12 +20,20 @@ const runtime = {
   sortedValue: "",
   selectedKeys: new Set(),
   selectionAnchorKey: "",
+  allowApplicationOpenKey: "",
   batchBusy: false,
+  ephemeralView: "grid",
+  scopedViews: new Map(),
   state: readState(),
 };
 
 function q(selector, root = document) {
   return root?.querySelector?.(selector) || null;
+}
+
+function finderUsesOverlaySidebar() {
+  const width = Math.round(runtime.board?.getBoundingClientRect?.().width || 0);
+  return width > 0 ? width <= 760 : MOBILE_SIDEBAR.matches;
 }
 
 function qa(selector, root = document) {
@@ -51,7 +61,16 @@ function compact(value, limit = 160) {
 function readState() {
   try {
     const value = JSON.parse(window.localStorage.getItem(STATE_KEY) || "{}");
-    return value && typeof value === "object" ? value : {};
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    // v1 stored `view` globally. Never carry that unscoped preference forward:
+    // it could leak one person's folder layout into a different project/session.
+    const scopedState = { ...value };
+    delete scopedState.view;
+    if (Object.hasOwn(value, "view")) {
+      try { window.localStorage.setItem(STATE_KEY, JSON.stringify(scopedState)); }
+      catch { /* best-effort retirement of the old unscoped preference */ }
+    }
+    return scopedState;
   } catch {
     return {};
   }
@@ -129,6 +148,7 @@ function visible(node) {
 function itemKind(card) {
   const type = String(card.dataset.entityType || "").toLowerCase();
   if (type === "task") return { key: "task", label: "Задача" };
+  if (type === "research") return { key: "research", label: "Исследование" };
   const artifactClass = String(card.dataset.artifactClass || "").toLowerCase();
   if (artifactClass === "source") return { key: "source", label: "Источник" };
   if (artifactClass === "generated_output") return { key: "result", label: "Результат" };
@@ -144,11 +164,25 @@ function cards() {
 }
 
 function selectedCard() {
-  return cards().find((card) => card.classList.contains("is-selected") || q('[aria-expanded="true"]', card)) || null;
+  return cards().find((card) => runtime.selectedKeys.has(finderCardKey(card)))
+    || cards().find((card) => card.classList.contains("is-selected") || q('[aria-expanded="true"]', card))
+    || null;
 }
 
 function finderCardKey(card) {
   return String(card?.dataset?.workspaceItemKey || "").trim();
+}
+
+function dockFileDescriptor(card = selectedCard()) {
+  const objectId = String(card?.dataset?.entityId || "").trim().toLowerCase();
+  const projectId = String(finderProjectId() || "").trim().toLowerCase();
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+  if (card?.dataset?.entityType !== "media" || !uuid.test(objectId) || !uuid.test(projectId)) return null;
+  return Object.freeze({
+    objectId,
+    projectId,
+    labelOverride: compact(q(".workspace-board__item-copy strong", card)?.textContent || "Файл", 160),
+  });
 }
 
 function selectedItems() {
@@ -256,6 +290,8 @@ function syncSelectionDom() {
       button.title = selected ? "Снять выбор" : "Выбрать для группового действия";
     }
   });
+  syncQuickLookControl();
+  syncColumnsProjection();
   const toolbar = ensureBatchToolbar();
   if (!toolbar) return;
   const count = runtime.selectedKeys.size;
@@ -302,6 +338,148 @@ function selectCard(card, event = {}) {
   }
   if (!runtime.selectionAnchorKey) runtime.selectionAnchorKey = key;
   syncSelectionDom();
+}
+
+function finderCardTitle(card) {
+  return compact(q(".workspace-board__item-copy strong", card)?.textContent || "Объект", 140);
+}
+
+function finderCardSubtitle(card) {
+  return compact(
+    q(".workspace-board__item-copy > span", card)?.textContent
+      || q(".workspace-board__status", card)?.textContent
+      || "",
+    180,
+  );
+}
+
+function finderFolderTitle(folderId) {
+  const id = String(folderId || "all").trim() || "all";
+  const row = q(`.workspace-board__folder-row[data-folder-id="${CSS.escape(id)}"]`, runtime.board);
+  return compact(
+    q(".workspace-board__folder-button > span:nth-child(2)", row)?.textContent
+      || row?.textContent
+      || (id === "all" ? "Все объекты" : id === "root" ? "Без папки" : "Текущая папка"),
+    100,
+  );
+}
+
+function finderColumnHeading(kicker, title) {
+  const heading = create("header", "ce-v4-finder-column__heading");
+  heading.append(
+    create("small", "", kicker),
+    create("strong", "", title),
+  );
+  return heading;
+}
+
+function finderColumnRow(label, value, className = "") {
+  const row = create("div", `ce-v4-finder-column__row ${className}`.trim());
+  row.append(create("small", "", label), create("strong", "", value));
+  return row;
+}
+
+function ensureColumnsProjection() {
+  const grid = q(".workspace-board__grid", runtime.board);
+  if (!grid) return null;
+  let hierarchy = q(":scope > [data-ce-v4-finder-column='hierarchy']", grid);
+  let preview = q(":scope > [data-ce-v4-finder-column='preview']", grid);
+  if (!hierarchy) {
+    hierarchy = create("section", "ce-v4-finder-column ce-v4-finder-column--hierarchy");
+    hierarchy.dataset.ceV4FinderColumn = "hierarchy";
+    hierarchy.setAttribute("role", "presentation");
+    hierarchy.setAttribute("aria-hidden", "true");
+    grid.append(hierarchy);
+  }
+  if (!preview) {
+    preview = create("aside", "ce-v4-finder-column ce-v4-finder-column--preview");
+    preview.dataset.ceV4FinderColumn = "preview";
+    preview.setAttribute("role", "presentation");
+    preview.setAttribute("aria-hidden", "true");
+    grid.append(preview);
+  }
+  return { grid, hierarchy, preview };
+}
+
+function removeColumnsProjection() {
+  qa("[data-ce-v4-finder-column]", runtime.board).forEach((column) => column.remove());
+}
+
+function syncQuickLookControl() {
+  const button = q("[data-ce-v4-finder-quicklook]", runtime.board);
+  if (!button) return;
+  const card = selectedCard();
+  button.disabled = !card;
+  button.setAttribute("aria-disabled", String(!card));
+  button.title = card
+    ? `Быстрый просмотр: ${finderCardTitle(card)}`
+    : "Сначала выберите объект";
+}
+
+function syncColumnsProjection() {
+  if (!runtime.board || currentFinderView() !== "columns") return;
+  const projection = ensureColumnsProjection();
+  if (!projection) return;
+  const { grid, hierarchy, preview } = projection;
+  // A sparse folder still needs a readable column canvas. Extra implicit rows
+  // are visual space only; they never imply or manufacture child objects.
+  const rowCount = Math.max(6, cards().length);
+  hierarchy.style.gridRow = `1 / span ${rowCount}`;
+  preview.style.gridRow = `1 / span ${rowCount}`;
+
+  const card = selectedCard();
+  const currentFolderId = finderFolderId();
+  const currentFolderTitle = finderFolderTitle(currentFolderId);
+  const hierarchyPanel = create("div", "ce-v4-finder-column__panel");
+  hierarchyPanel.append(
+    finderColumnHeading("ИЕРАРХИЯ", currentFolderTitle),
+    finderColumnRow("Текущая папка", currentFolderTitle, "is-folder"),
+  );
+  if (card) {
+    const itemFolderId = String(card.dataset.folderId || currentFolderId || "root");
+    hierarchyPanel.append(
+      create("span", "ce-v4-finder-column__connector", "↓"),
+      finderColumnRow(itemKind(card).label, finderCardTitle(card), "is-current"),
+      finderColumnRow("Расположение", finderFolderTitle(itemFolderId)),
+    );
+  } else {
+    hierarchyPanel.append(create(
+      "p",
+      "ce-v4-finder-column__empty",
+      "Выберите объект в первой колонке — его положение появится здесь.",
+    ));
+  }
+  hierarchy.replaceChildren(hierarchyPanel);
+
+  const previewPanel = create("div", "ce-v4-finder-column__panel ce-v4-finder-column__panel--preview");
+  if (!card) {
+    previewPanel.append(
+      finderColumnHeading("ПРЕДПРОСМОТР", "Объект не выбран"),
+      create("p", "ce-v4-finder-column__empty", "Один клик выбирает объект. Space открывает Quick Look без смены маршрута."),
+    );
+  } else {
+    const kind = itemKind(card);
+    const status = compact(q(".workspace-board__status", card)?.textContent || "—", 80);
+    const glyph = create("span", "ce-v4-finder-column__glyph", kind.key === "video" ? "▶" : kind.key === "research" ? "✦" : "◇");
+    glyph.dataset.kind = kind.key;
+    previewPanel.append(
+      finderColumnHeading("ПРЕДПРОСМОТР", finderCardTitle(card)),
+      glyph,
+      finderCardSubtitle(card)
+        ? create("p", "ce-v4-finder-column__summary", finderCardSubtitle(card))
+        : create("p", "ce-v4-finder-column__summary", "Метаданные объекта доступны без открытия нового маршрута."),
+      finderColumnRow("Тип", kind.label),
+      finderColumnRow("Статус", status),
+      finderColumnRow("Доступ", card.dataset.readOnly === "true" ? "Только чтение" : "По правам проекта"),
+      create("p", "ce-v4-finder-column__hint", "Enter — открыть · Space — Quick Look"),
+    );
+  }
+  preview.replaceChildren(previewPanel);
+  // Sorting may move canonical cards. Keep only the runtime projection after
+  // them; never move or replace a business-owned item node.
+  if (grid.lastElementChild !== preview || preview.previousElementSibling !== hierarchy) {
+    grid.append(hierarchy, preview);
+  }
 }
 
 function refreshFinderBoard() {
@@ -397,13 +575,16 @@ function annotateCards() {
 }
 
 function applyView() {
-  const view = runtime.state.view === "list" ? "list" : "grid";
+  const view = currentFinderView();
   runtime.board.dataset.ceV4FinderView = view;
   qa("[data-ce-v4-finder-view]", runtime.board).forEach((button) => {
     const active = button.dataset.ceV4FinderView === view;
     button.classList.toggle("is-active", active);
     button.setAttribute("aria-pressed", String(active));
   });
+  if (view === "columns") syncColumnsProjection();
+  else removeColumnsProjection();
+  syncQuickLookControl();
 }
 
 function sortCards(value) {
@@ -433,6 +614,7 @@ function sortCards(value) {
   runtime.sortedBoard = runtime.board;
   runtime.sortedValue = value;
   if (runtime.state.sort !== value) remember({ sort: value });
+  if (currentFinderView() === "columns") syncColumnsProjection();
 }
 
 function filterFolders(query) {
@@ -515,14 +697,15 @@ function sidebarParts() {
 function setSidebarOpen(open, { restoreFocus = false } = {}) {
   const { sidebar, toggle } = sidebarParts();
   if (!sidebar) return;
-  const next = MOBILE_SIDEBAR.matches && Boolean(open);
+  const compact = finderUsesOverlaySidebar();
+  const next = compact && Boolean(open);
   runtime.sidebarOpen = next;
   runtime.board?.classList.toggle("is-sidebar-open", next);
   sidebar.classList.toggle("is-open", next);
   toggle?.setAttribute("aria-expanded", String(next));
   toggle?.setAttribute("aria-label", next ? "Закрыть папки" : "Показать папки");
 
-  if (MOBILE_SIDEBAR.matches) sidebar.setAttribute("aria-hidden", String(!next));
+  if (compact) sidebar.setAttribute("aria-hidden", String(!next));
   else sidebar.removeAttribute("aria-hidden");
 
   if (next) {
@@ -624,15 +807,33 @@ function buildToolbar() {
   list.type = "button";
   list.dataset.ceV4FinderView = "list";
   list.textContent = "Список";
+  const columns = create("button", "ce-v4-finder-view");
+  columns.type = "button";
+  columns.dataset.ceV4FinderView = "columns";
+  columns.textContent = "Колонки";
+  const quickLook = create("button", "ce-v4-finder-quicklook", "Быстрый просмотр");
+  quickLook.type = "button";
+  quickLook.dataset.ceV4FinderQuicklook = "true";
+  quickLook.disabled = true;
+  quickLook.setAttribute("aria-disabled", "true");
   const upload = create("a", "ce-v4-finder-upload", "Добавить материал");
   upload.href = scopedWorkspaceHref("/workspace/media");
-  controls.append(browse, organize, sort, grid, list, upload);
+  controls.append(browse, organize, sort, grid, list, columns, quickLook, upload);
   toolbar.append(title, controls);
   content.prepend(toolbar);
   toolbar.addEventListener("click", (event) => {
+    const quickLookButton = event.target instanceof Element
+      ? event.target.closest("[data-ce-v4-finder-quicklook]")
+      : null;
+    if (quickLookButton) {
+      event.preventDefault();
+      if (!quickLookButton.disabled) void openQuickLook(selectedCard());
+      return;
+    }
     const button = event.target instanceof Element ? event.target.closest("[data-ce-v4-finder-view]") : null;
     if (!button) return;
-    remember({ view: button.dataset.ceV4FinderView });
+    event.preventDefault();
+    rememberFinderView(button.dataset.ceV4FinderView);
     applyView();
   });
   sort.addEventListener("change", () => sortCards(sort.value));
@@ -691,12 +892,6 @@ function applyRouteFolder() {
         return;
       }
     }
-  } else {
-    const allRow = q('.workspace-board__folder-row[data-folder-id="all"]', runtime.board);
-    if (allRow && !allRow.classList.contains("is-selected")) {
-      q(".workspace-board__folder-button", allRow)?.click();
-      return;
-    }
   }
   if (query.get("create") === "project") {
     const input = q("#workspace-folder-create-form input[name='folder_name']", runtime.board);
@@ -710,7 +905,7 @@ function applyRouteFolder() {
 function ensureSelectedDrawer(card) {
   if (!card) return Promise.resolve(q("[data-workspace-item-drawer]", runtime.board));
   const button = q('[data-action="open-workspace-item"]', card);
-  if (button && !card.classList.contains("is-selected")) button.click();
+  if (button && !card.classList.contains("is-selected")) requestApplicationOpen(card);
   return new Promise((resolve) => {
     let attempts = 0;
     const read = () => {
@@ -723,9 +918,79 @@ function ensureSelectedDrawer(card) {
   });
 }
 
+function normalizedFinderView(value) {
+  const view = String(value || "").trim().toLowerCase();
+  return FINDER_VIEWS.has(view) ? view : "grid";
+}
+
+function finderFolderId() {
+  const queryId = String(routeFinderQuery().get(FOLDER_QUERY_KEY) || "").trim();
+  if (queryId) return queryId;
+  return String(
+    q(".workspace-board__folder-row.is-selected[data-folder-id]", runtime.board)?.dataset.folderId
+      || "all",
+  ).trim() || "all";
+}
+
+function finderViewPreferenceKey() {
+  // Only route/loaded-DOM project identity is suitable for persistence. The
+  // sessionStorage project convenience can be stale after a user/project switch.
+  const queryProjectId = String(routeFinderQuery().get(PROJECT_QUERY_KEY) || "").trim();
+  const loadedProjectId = String(q("[data-project-flow-root]")?.dataset.projectId || "").trim();
+  const projectId = queryProjectId || loadedProjectId;
+  if (!projectId) return "";
+  return `${VIEW_STATE_PREFIX}.${encodeURIComponent(projectId)}.${encodeURIComponent(finderFolderId())}`;
+}
+
+function currentFinderView() {
+  const preferenceKey = finderViewPreferenceKey();
+  if (!preferenceKey) return normalizedFinderView(runtime.ephemeralView);
+  if (runtime.scopedViews.has(preferenceKey)) {
+    return normalizedFinderView(runtime.scopedViews.get(preferenceKey));
+  }
+  let view = "grid";
+  try { view = normalizedFinderView(window.localStorage.getItem(preferenceKey)); }
+  catch { /* scoped preference is optional */ }
+  runtime.scopedViews.set(preferenceKey, view);
+  return view;
+}
+
+function rememberFinderView(value) {
+  const view = normalizedFinderView(value);
+  const preferenceKey = finderViewPreferenceKey();
+  if (!preferenceKey) {
+    runtime.ephemeralView = view;
+    return view;
+  }
+  runtime.scopedViews.set(preferenceKey, view);
+  try { window.localStorage.setItem(preferenceKey, view); }
+  catch { /* scoped preference is optional */ }
+  return view;
+}
+
+function requestApplicationOpen(card) {
+  const trigger = q('[data-action="open-workspace-item"]', card);
+  const key = finderCardKey(card);
+  if (!trigger || !key) return false;
+  runtime.allowApplicationOpenKey = key;
+  trigger.click();
+  runtime.allowApplicationOpenKey = "";
+  return true;
+}
+
+function openCanonicalCard(card = selectedCard()) {
+  if (!card) return false;
+  selectCard(card);
+  setSidebarOpen(false);
+  return requestApplicationOpen(card);
+}
+
 async function openQuickLook(card = selectedCard() || cards().find(visible)) {
   if (!card) return;
-  if (runtime.quickLook) closeQuickLook({ restoreFocus: false, clearSelection: false });
+  if (runtime.quickLook) closeQuickLook({ restoreFocus: false, closeDetail: false });
+  // Quick Look follows the canonical Finder selection. This updates classes
+  // only; the business-owned collection and object remain untouched.
+  selectCard(card);
   setSidebarOpen(false);
   const cardKey = String(card.dataset.workspaceItemKey || "");
   const drawer = await ensureSelectedDrawer(card);
@@ -739,13 +1004,17 @@ async function openQuickLook(card = selectedCard() || cards().find(visible)) {
     create("strong", "", compact(q("h2", drawer)?.textContent || "Объект", 100)),
   );
   const controls = create("div", "ce-v4-quicklook-inline__controls");
-  const previous = create("button", "", "← Предыдущий");
+  const previous = create("button", "ce-v4-quicklook-inline__previous", "← Предыдущий");
   previous.type = "button";
-  const next = create("button", "", "Следующий →");
+  const next = create("button", "ce-v4-quicklook-inline__next", "Следующий →");
   next.type = "button";
+  const pin = create("button", "ce-v4-quicklook-inline__pin", "Закрепить в Dock");
+  pin.type = "button";
+  pin.dataset.ceV4QuicklookPinDock = "true";
+  pin.hidden = !dockFileDescriptor(card);
   const close = create("button", "ce-v4-quicklook-inline__close", "Назад к файлам");
   close.type = "button";
-  controls.append(previous, next, close);
+  controls.append(previous, next, pin, close);
   bar.append(copy, controls);
   drawer.prepend(bar);
   drawer.classList.add("ce-v4-quicklook-inline");
@@ -754,6 +1023,10 @@ async function openQuickLook(card = selectedCard() || cards().find(visible)) {
   runtime.quickLook = { board, drawer, bar, cardKey };
   previous.addEventListener("click", () => navigateQuickLook(-1));
   next.addEventListener("click", () => navigateQuickLook(1));
+  pin.addEventListener("click", () => {
+    const descriptor = dockFileDescriptor(card);
+    if (descriptor) window.ContentEngineDesktopV4?.pinDockFileShortcut?.(descriptor);
+  });
   close.addEventListener("click", () => closeQuickLook());
   close.focus({ preventScroll: true });
   if (!REDUCED_MOTION.matches && typeof drawer.animate === "function") {
@@ -764,7 +1037,7 @@ async function openQuickLook(card = selectedCard() || cards().find(visible)) {
   }
 }
 
-function closeQuickLook({ restoreFocus = true, clearSelection = true } = {}) {
+function closeQuickLook({ restoreFocus = true, closeDetail = true } = {}) {
   const current = runtime.quickLook;
   if (!current) return;
   q("video", current.drawer)?.pause?.();
@@ -772,7 +1045,7 @@ function closeQuickLook({ restoreFocus = true, clearSelection = true } = {}) {
   current.drawer?.classList.remove("ce-v4-quicklook-inline");
   current.board?.classList.remove("is-quicklook-inline");
   runtime.quickLook = null;
-  if (clearSelection) q('[data-action="close-workspace-item"]', current.drawer)?.click();
+  if (closeDetail) q('[data-action="close-workspace-item"]', current.drawer)?.click();
   if (restoreFocus) {
     window.requestAnimationFrame(() => {
       q(`[data-workspace-item-key="${CSS.escape(current.cardKey)}"] [data-action="open-workspace-item"]`)
@@ -787,7 +1060,7 @@ function navigateQuickLook(direction) {
   const currentKey = runtime.quickLook?.cardKey || "";
   const index = Math.max(0, availableCards.findIndex((card) => card.dataset.workspaceItemKey === currentKey));
   const next = availableCards[(index + direction + availableCards.length) % availableCards.length];
-  closeQuickLook({ restoreFocus: false, clearSelection: false });
+  closeQuickLook({ restoreFocus: false, closeDetail: false });
   window.requestAnimationFrame(() => void openQuickLook(next));
 }
 
@@ -804,16 +1077,8 @@ function handleBoardDoubleClick(event) {
   const card = quickLookCardFromTarget(event.target);
   if (!card) return;
   event.preventDefault();
-  void openQuickLook(card);
-}
-
-function handleBoardQuickLookKeydown(event) {
-  if (event.key !== "Enter" && event.key !== " ") return;
-  const card = quickLookCardFromTarget(event.target);
-  if (!card) return;
-  event.preventDefault();
   event.stopImmediatePropagation();
-  void openQuickLook(card);
+  openCanonicalCard(card);
 }
 
 function handleBoardSelectionClick(event) {
@@ -865,6 +1130,12 @@ function handleBoardSelectionKeydown(event) {
 
 function handleBoardFolderSelection(event) {
   if (!(event.target instanceof Element)) return;
+  const provenance = event.target.closest('[data-action="select-workspace-provenance"]');
+  if (provenance) {
+    setFolderUrl("all");
+    if (finderUsesOverlaySidebar()) window.requestAnimationFrame(() => setSidebarOpen(false));
+    return;
+  }
   const toggle = event.target.closest("[data-folder-toggle]");
   if (toggle) {
     event.preventDefault();
@@ -880,7 +1151,7 @@ function handleBoardFolderSelection(event) {
   rememberProjectRow(row);
   const projectId = String(button.dataset.projectId || row?.dataset.projectId || "").trim();
   setFolderUrl(folderId, { projectId });
-  if (MOBILE_SIDEBAR.matches) window.requestAnimationFrame(() => setSidebarOpen(false));
+  if (finderUsesOverlaySidebar()) window.requestAnimationFrame(() => setSidebarOpen(false));
 }
 
 function handleBoardItemSelection(event) {
@@ -888,14 +1159,16 @@ function handleBoardItemSelection(event) {
   const trigger = event.target.closest('[data-action="open-workspace-item"]');
   const card = trigger?.closest(".workspace-board__item");
   if (!card) return;
-  const cardKey = String(card.dataset.workspaceItemKey || "");
-  // Let the application's document-level handler render the real detail node,
-  // then replace Finder with that detail in the same surface.
-  window.requestAnimationFrame(() => {
-    const current = cardKey
-      ? q(`[data-workspace-item-key="${CSS.escape(cardKey)}"]`, runtime.board)
-      : card;
-    void openQuickLook(current || card);
+  const cardKey = finderCardKey(card);
+  if (runtime.allowApplicationOpenKey && runtime.allowApplicationOpenKey === cardKey) return;
+  // Finder owns selection. The application's document handler only receives a
+  // synthetic, explicitly allowed open command from Enter/double-click/QL.
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  selectCard(card, {
+    ctrlKey: event.ctrlKey,
+    metaKey: event.metaKey,
+    shiftKey: event.shiftKey,
   });
 }
 
@@ -905,7 +1178,6 @@ function bindBoard() {
   runtime.board.addEventListener("dblclick", handleBoardDoubleClick);
   runtime.board.addEventListener("click", handleBoardSelectionClick);
   runtime.board.addEventListener("keydown", handleBoardSelectionKeydown, true);
-  runtime.board.addEventListener("keydown", handleBoardQuickLookKeydown, true);
   runtime.board.addEventListener("click", handleBoardItemSelection);
   runtime.board.addEventListener("click", handleBoardFolderSelection);
 }
@@ -913,7 +1185,7 @@ function bindBoard() {
 function mount() {
   if (routePath() !== ROUTE) {
     setSidebarOpen(false);
-    closeQuickLook({ restoreFocus: false, clearSelection: false });
+    closeQuickLook({ restoreFocus: false, closeDetail: false });
     runtime.page = null;
     runtime.board = null;
     document.body.classList.remove("ce-v4-finder-route");
@@ -922,7 +1194,7 @@ function mount() {
   }
   const board = q(".workspace-board");
   if (!board) return;
-  if (routeView() === "trash") closeQuickLook({ restoreFocus: false, clearSelection: false });
+  if (routeView() === "trash") closeQuickLook({ restoreFocus: false, closeDetail: false });
   runtime.board = board;
   runtime.page = board.closest(".page-wrap") || board.parentElement;
   document.body.classList.add("ce-v4-finder-route");
@@ -944,20 +1216,59 @@ function mount() {
 }
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && runtime.selectedKeys.size && routePath() === ROUTE) {
-    event.preventDefault();
-    clearSelection({ restoreFocus: true });
+  if (routePath() !== ROUTE) return;
+  if (runtime.quickLook) {
+    if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); closeQuickLook(); }
+    if (event.key === "ArrowLeft") { event.preventDefault(); event.stopImmediatePropagation(); navigateQuickLook(-1); }
+    if (event.key === "ArrowRight") { event.preventDefault(); event.stopImmediatePropagation(); navigateQuickLook(1); }
     return;
   }
   if (event.key === "Escape" && runtime.sidebarOpen) {
     event.preventDefault();
+    event.stopImmediatePropagation();
     setSidebarOpen(false, { restoreFocus: true });
     return;
   }
-  if (!runtime.quickLook) return;
-  if (event.key === "Escape") { event.preventDefault(); closeQuickLook(); }
-  if (event.key === "ArrowLeft") { event.preventDefault(); navigateQuickLook(-1); }
-  if (event.key === "ArrowRight") { event.preventDefault(); navigateQuickLook(1); }
+  if (event.key === "Escape" && runtime.selectedKeys.size) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    clearSelection({ restoreFocus: true });
+    return;
+  }
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target || !runtime.board?.contains(target)) return;
+  if (target.closest("input, textarea, select, [contenteditable='true']")) return;
+  const focusedControl = target.closest("button, a[href]");
+  if (focusedControl && !focusedControl.matches('[data-action="open-workspace-item"]')) return;
+  const current = selectedCard();
+  if ((event.key === " " || event.key === "Enter") && current) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (event.key === " ") void openQuickLook(current);
+    else openCanonicalCard(current);
+    return;
+  }
+  if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+  const available = selectionCards();
+  if (!available.length) return;
+  const currentIndex = Math.max(0, available.indexOf(current));
+  // Columns keeps its two projected panes read-only: all arrows therefore move
+  // the canonical selection in the first pane, never dispatch an implicit open.
+  const movesBackward = ["ArrowLeft", "ArrowUp"];
+  const nextIndex = event.key === "Home"
+    ? 0
+    : event.key === "End"
+      ? available.length - 1
+      : Math.max(0, Math.min(
+        available.length - 1,
+        currentIndex + (movesBackward.includes(event.key) ? -1 : 1),
+      ));
+  const next = available[nextIndex];
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  selectCard(next);
+  q('[data-action="open-workspace-item"]', next)?.focus({ preventScroll: true });
+  next.scrollIntoView?.({ block: "nearest", inline: "nearest", behavior: "auto" });
 }, true);
 
 window.addEventListener("popstate", () => {
@@ -972,6 +1283,8 @@ if (typeof MOBILE_SIDEBAR.addEventListener === "function") {
   MOBILE_SIDEBAR.addListener?.(handleSidebarViewport);
 }
 
+document.addEventListener("contentengine:workspace-window-geometry", handleSidebarViewport);
+
 window.ContentEngineDesktopV4.registerAdapter("finder-board", mount, { priority: 100 });
 
 window.ContentEngineFinderV4 = Object.freeze({
@@ -983,4 +1296,11 @@ window.ContentEngineFinderV4 = Object.freeze({
   trashSelection: trashSelectedItems,
   focusBatchMove: () => q("[data-ce-v4-batch-destination]", runtime.board)?.focus({ preventScroll: true }),
   schedule: () => window.ContentEngineDesktopV4.requestMount(),
+  selectedObjectId: () => dockFileDescriptor(selectedCard())?.objectId || "",
+  quickLookObjectId: () => {
+    const card = runtime.quickLook?.cardKey
+      ? cards().find((item) => finderCardKey(item) === runtime.quickLook.cardKey)
+      : null;
+    return dockFileDescriptor(card)?.objectId || "";
+  },
 });

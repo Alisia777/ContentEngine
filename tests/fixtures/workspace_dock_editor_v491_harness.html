@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ContentEngine Dock editor v4.9.1 harness</title>
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4.css?v=fixture-dock-editor-v491-1" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-stability.css?v=fixture-dock-editor-v491-1" />
+    <style>
+      html, body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      .fixture-page { display: grid; align-content: start; gap: 12px; color: #e6ebf0; }
+      .fixture-page h1 { margin: 0; font-size: clamp(24px, 5vw, 42px); }
+      .fixture-page p { max-width: 58ch; color: #82909f; line-height: 1.5; }
+    </style>
+  </head>
+  <body>
+    <div id="app" class="app-root">
+      <div
+        class="workspace-shell workspace-shell-v4"
+        data-workspace-section="ai"
+        data-workspace-role="owner"
+        data-workspace-authorized-routes="/workspace/home /workspace/board /workspace/stats /workspace/research /workspace/ai /workspace/generation /workspace/review /workspace/placement /workspace/work /workspace/tasks /workspace/team"
+        data-project-id="11111111-1111-4111-8111-111111111111"
+        data-project-name="Bombbar · Август"
+      >
+        <main class="workspace-main">
+          <div id="main-content">
+            <div id="workspace-content">
+              <section class="page-wrap fixture-page">
+                <h1>Dock остаётся одним системным владельцем</h1>
+                <p>Library показывает только авторитетные объекты текущего проекта. Dock хранится отдельно для организации и пользователя.</p>
+                <article
+                  class="workspace-board__item"
+                  data-workspace-item-key="media:33333333-3333-4333-8333-333333333333"
+                  data-entity-type="media"
+                  data-entity-id="33333333-3333-4333-8333-333333333333"
+                >
+                  <span class="workspace-board__item-copy"><strong>hero-video.mp4</strong></span>
+                  <button
+                    type="button"
+                    draggable="true"
+                    data-workspace-drag-item
+                    data-entity-type="media"
+                    data-entity-id="33333333-3333-4333-8333-333333333333"
+                    data-item-key="media:33333333-3333-4333-8333-333333333333"
+                  >Перетащить файл</button>
+                </article>
+              </section>
+            </div>
+          </div>
+        </main>
+      </div>
+      <script id="workspace-project-flow-snapshot" type="application/json">
+        {
+          "project_id": "11111111-1111-4111-8111-111111111111",
+          "project": {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "name": "Bombbar · Август",
+            "current_stage": "review"
+          },
+          "stages": [
+            { "code": "files", "state": "done", "count": 12 },
+            { "code": "generation", "state": "done", "count": 2 },
+            { "code": "review", "state": "current", "count": 2 },
+            { "code": "placement", "state": "future", "count": 1 },
+            { "code": "stats", "state": "future", "count": 0 }
+          ]
+        }
+      </script>
+    </div>
+    <div id="toast-region" aria-live="polite"></div>
+    <script type="module">
+      const scopes = Object.freeze({
+        a: Object.freeze({
+          organizationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        }),
+        organizationB: Object.freeze({
+          organizationId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        }),
+        userB: Object.freeze({
+          organizationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          userId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        }),
+      });
+      let activeScope = scopes.a;
+      const commandGestures = [];
+      const projectId = "11111111-1111-4111-8111-111111111111";
+      const folderId = "22222222-2222-4222-8222-222222222222";
+      const fileId = "33333333-3333-4333-8333-333333333333";
+      window.ContentEngineWorkspaceRuntime = Object.freeze({
+        getDockScope: () => activeScope,
+        getDockLibrarySnapshot: () => Object.freeze({
+          scope: activeScope,
+          currentProjectId: projectId,
+          projects: Object.freeze([{ id: projectId, rootFolderId: projectId, name: "Bombbar · Август", permission: "edit", current: true }]),
+          folders: Object.freeze([{ id: folderId, projectId, name: "Референсы", kind: "folder", permission: "edit" }]),
+          files: Object.freeze([{ id: fileId, projectId, folderId, name: "hero-video.mp4", permission: "edit" }]),
+        }),
+        resolveDockShortcut: async (descriptor) => Object.freeze({
+          state: "live",
+          targetType: descriptor.type === "file_shortcut" ? "file" : "folder",
+          objectId: descriptor.objectId || folderId,
+          projectId: descriptor.sectionKey,
+          label: descriptor.labelOverride || "Объект",
+          authority: Object.freeze({ permission: "allowed", existence: "present", freshness: "current" }),
+        }),
+        executeDockCommand: (envelope) => {
+          commandGestures.push(envelope.gestureId);
+          return true;
+        },
+      });
+      window.location.hash = "#/workspace/ai?project_id=11111111-1111-4111-8111-111111111111";
+      await import("../../web/app/workspace-os-v4.js?fixture=v491-dock-editor-1");
+      await window.ContentEngineDesktopV4.flush();
+      const originalSetItem = Storage.prototype.setItem;
+      let storageWrites = 0;
+      Storage.prototype.setItem = function (...args) {
+        storageWrites += 1;
+        return originalSetItem.apply(this, args);
+      };
+      window.__dockEditorFixture = Object.freeze({
+        storageWrites: () => storageWrites,
+        resetStorageWrites: () => { storageWrites = 0; },
+        setScope: (key) => { activeScope = scopes[key]; },
+        scope: () => activeScope,
+        commandGestures: () => [...commandGestures],
+        fileId,
+        projectId,
+        order: () => [...document.querySelectorAll("[data-ce-v4-dock-key]")]
+          .filter((item) => !item.hidden)
+          .map((item) => item.dataset.ceV4DockKey),
+      });
+      document.body.dataset.fixtureDockEditorReady = "true";
+    </script>
+  </body>
+</html>

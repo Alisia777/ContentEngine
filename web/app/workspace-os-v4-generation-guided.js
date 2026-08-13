@@ -1,3 +1,10 @@
+import {
+  GENERATION_MODEL_RECOMMENDATION_ACTIONS,
+  createGenerationModelRecommendationState,
+  generationModelRecommendationReducer,
+} from "./generation-model-recommendation.js?v=20260813.os4.39";
+import { normalizeGenerationModelAcceptance } from "./generation-model-acceptance-view.js?v=20260813.os4.39";
+
 /*
  * ContentEngine Desktop v4 · guided generation.
  *
@@ -47,7 +54,137 @@ const STEPS = Object.freeze([
 
 const runtime = {
   form: null,
+  catalog: null,
+  catalogSignals: null,
+  catalogStatus: "idle",
+  catalogRequest: 0,
+  recommendationState: null,
+  applyingModel: false,
+  modelFilter: "relevant",
+  externalSelectionActive: false,
+  repeatSettings: null,
+  pendingRepeatSettings: null,
 };
+
+const LEGACY_MODEL_BY_MODE = Object.freeze({
+  real_photo: Object.freeze({ provider: "runway", model: "seedream5_lite" }),
+  real_gen4: Object.freeze({ provider: "runway", model: "gen4_turbo" }),
+  real_seedance: Object.freeze({ provider: "runway", model: "seedance2_fast" }),
+});
+
+const LEGACY_MODE_BY_MODEL = Object.freeze(
+  Object.fromEntries(
+    Object.entries(LEGACY_MODEL_BY_MODE).map(([mode, identity]) => [
+      `${identity.provider}:${identity.model}`,
+      mode,
+    ]),
+  ),
+);
+
+const MODEL_COPY = Object.freeze({
+  readiness_unverified: "Техническая готовность проверится перед запуском",
+  estimate_missing: "Стоимость будет подтверждена сервером до оплаты",
+  budget_estimate_missing: "Нужна серверная оценка стоимости",
+  organization_feature_disabled: "Нужен доступ организации",
+  sql_authority_parity_pending: "Серверный безопасный запуск этой модели ещё проходит проверку",
+  premium_model_launch_unsupported: "Премиальная модель пока доступна только для сравнения",
+  direct_google_disabled: "Прямой запуск Google пока отключён; модель доступна только для сравнения",
+  model_disabled: "Модель пока отключена",
+  content_kind_mismatch: "Не подходит для выбранного результата",
+  duration_not_supported: "Не поддерживает выбранную длительность",
+  no_compatible_model: "Для текущих условий нет полностью совместимой модели",
+  content_kind_unsupported: "Не подходит для выбранного типа результата",
+  duration_unsupported: "Не поддерживает выбранную длительность",
+  duration_resolution_unsupported: "Эта длительность недоступна в выбранном разрешении",
+  input_mode_unsupported: "Не поддерживает выбранный тип исходника",
+  reference_images_unsupported: "Не принимает выбранные фото",
+  reference_image_count_unsupported: "Слишком много исходных фото",
+  audio_unsupported: "Не создаёт требуемый звук",
+  spoken_dialogue_unsupported: "Не подходит для речи или диалога",
+  cost_estimate_required: "Нужна новая серверная оценка стоимости",
+  budget_exceeded: "Не укладывается в текущий лимит",
+  provider_not_ready: "Провайдер сейчас не готов",
+  model_not_ready: "Модель сейчас не готова",
+  launch_route_pending: "Безопасный маршрут запуска ещё подключается",
+  selection_required: "Сначала выберите модель",
+  ratio_unsupported: "Не поддерживает текущее соотношение сторон",
+  resolution_unsupported: "Не поддерживает текущее разрешение",
+  reference_video_unsupported: "Не принимает видео как исходник",
+  first_frame_unsupported: "Не принимает главный кадр",
+  last_frame_unsupported: "Не принимает финальный кадр",
+  last_frame_duration_unsupported: "Финальный кадр доступен только для указанной моделью длительности",
+});
+
+const MODEL_REASON_COPY = Object.freeze({
+  content_kind_match: "подходит для выбранного типа результата",
+  input_mode_match: "работает с текущим типом исходника",
+  duration_supported: "поддерживает выбранную длительность",
+  ratio_supported: "подходит для текущего формата кадра",
+  resolution_supported: "поддерживает выбранное разрешение",
+  audio_supported: "может создать звук вместе с роликом",
+  spoken_dialogue_supported: "подходит для речи и диалога",
+  reference_images_supported: "принимает выбранные ракурсы товара",
+  reference_video_supported: "принимает готовое видео как исходник",
+  first_frame_supported: "точный главный кадр можно зафиксировать",
+  last_frame_supported: "можно зафиксировать финальный кадр",
+  within_budget: "укладывается в текущий лимит кампании",
+  accepted_output_evidence: "есть принятый реальный результат и независимая проверка",
+  research_recommendation_match: "совпадает с утверждённой рекомендацией исследования",
+  performance_recommendation_match: "подтверждается результатами прошлого контента",
+  intent_fast_draft_fit: "подходит для быстрого черновика",
+  intent_economy_fit: "экономно использует бюджет",
+  intent_premium_quality_fit: "подходит для сложного финального визуала",
+  intent_audio_fit: "подходит для сцены со звуком",
+  intent_dialogue_fit: "подходит для UGC с речью",
+  intent_source_video_fit: "подходит для вариации готового видео",
+  intent_product_reference_fit: "сохраняет связь с точным кадром товара",
+  provider_model_ready: "предварительная техническая готовность подтверждена",
+});
+
+const MODEL_WARNING_COPY = Object.freeze({
+  readiness_unknown: "техническая готовность ещё не проверена",
+  cost_estimate_unavailable: "точную цену должен подтвердить сервер",
+  model_unproven: "модель ещё не принята по реальному результату",
+  acceptance_stale: "прежнее подтверждение качества устарело",
+  accepted_output_not_compatible: "принятый ранее результат не совпадает с текущими условиями",
+  experimental_model: "модель пока экспериментальная",
+  preview_model: "модель находится в preview",
+  no_compatible_model: "для текущих условий нет полностью совместимой модели",
+});
+
+const SELECTION_SOURCE_COPY = Object.freeze({
+  manual: "Выбрано вручную",
+  accepted_recommendation: "Рекомендация ИИ принята",
+  system_recommendation: "Предложено системой",
+  form_default: "Текущий режим формы",
+});
+
+const QUALITY_LABELS = Object.freeze({
+  economy: "Экономно",
+  balanced: "Сбалансировано",
+  premium: "Лучшее качество",
+});
+
+const SPEED_LABELS = Object.freeze({
+  fast: "быстро",
+  normal: "обычно",
+  slow: "медленнее",
+});
+
+const COST_TIER_LABELS = Object.freeze({
+  economy: "низкая стоимость",
+  balanced: "средняя стоимость",
+  premium: "высокая стоимость",
+});
+
+const MODEL_FILTERS = Object.freeze([
+  ["relevant", "Для вас"],
+  ["all", "Все модели"],
+  ["economy", "Экономно"],
+  ["balanced", "Сбалансировано"],
+  ["premium", "Лучшее качество"],
+  ["experimental", "Экспериментально"],
+]);
 
 function q(selector, root = document) {
   return root?.querySelector?.(selector) || null;
@@ -62,6 +199,1386 @@ function element(tagName, className = "", text = "") {
   if (className) node.className = className;
   if (text) node.textContent = text;
   return node;
+}
+
+function modelKey(value) {
+  const provider = String(value?.provider || "").trim();
+  const model = String(value?.model || "").trim();
+  return provider && model ? `${provider}:${model}` : "";
+}
+
+function modelIdentityForMode(mode) {
+  const identity = LEGACY_MODEL_BY_MODE[String(mode || "").trim()];
+  return identity ? { ...identity } : null;
+}
+
+function modeForModel(value, form = null) {
+  const legacy = LEGACY_MODE_BY_MODEL[modelKey(value)];
+  if (legacy) return legacy;
+  if (value?.contentKind === "photo") return "real_photo";
+  if (value?.contentKind !== "video") return "";
+  const exactAudio = modelKey(value) === modelKey(selectedModelForForm(form))
+    ? String(form?.elements?.generation_audio?.value || "")
+    : "";
+  const audio = exactAudio === "true"
+    ? true
+    : exactAudio === "false"
+      ? false
+      : value?.selectionDefaults?.audio === true;
+  return audio ? "real_seedance" : "real_gen4";
+}
+
+function canonicalSelectionSource(state = runtime.recommendationState) {
+  const source = String(state?.selectionSource || "").trim();
+  if (source === "alternative_after_block") return "alternative_after_block";
+  if (source !== "accepted_recommendation") return "manual_choice";
+  const provenance = String(
+    state?.recommendation?.source
+      || state?.recommendation?.provenance
+      || runtime.catalogSignals?.recommendation_source
+      || "",
+  ).trim().toLowerCase();
+  if (provenance.includes("research")) return "research_recommendation";
+  if (provenance.includes("performance")) return "performance_recommendation";
+  return "system_recommendation";
+}
+
+function modelCanUseExistingLaunch(form, model) {
+  const mode = modeForModel(model, form);
+  const select = form?.elements?.generation_mode;
+  return Boolean(
+    model?.enabled === true
+    && model?.executionSupported === true
+    && model?.launchEnabled === true
+    && mode
+    && select instanceof HTMLSelectElement
+    && [...select.options].some((option) => option.value === mode && !option.disabled),
+  );
+}
+
+function modelContentKind(form) {
+  const mode = String(form?.elements?.generation_mode?.value || "mock");
+  return mode === "real_photo" ? "photo" : mode === "mock" ? null : "video";
+}
+
+function selectedModelForForm(form) {
+  const provider = String(form?.elements?.generation_provider?.value || "").trim();
+  const model = String(form?.elements?.generation_model_id?.value || "").trim();
+  if (provider && model) return { provider, model };
+  return modelIdentityForMode(form?.elements?.generation_mode?.value);
+}
+
+function acceptanceSignals() {
+  const snapshot = window.ContentEngineWorkspaceRuntime?.getGenerationModelAcceptance?.();
+  const normalized = snapshot?.normalized
+    || normalizeGenerationModelAcceptance(snapshot?.data, runtime.catalog);
+  return Object.fromEntries(
+    normalized.models.map((item) => [
+      modelKey(item),
+      Object.freeze({
+        status: item.status,
+        reasonCode: item.reasonCode,
+        nextActionCode: item.nextActionCode,
+        successfulRuns: item.successfulRuns,
+        reviewedRuns: item.reviewedRuns,
+        acceptedRuns: item.acceptedRuns,
+        pendingReviewRuns: item.pendingReviewRuns,
+        evidence: item.evidence,
+        pendingReview: item.pendingReview,
+      }),
+    ]),
+  );
+}
+
+function signalRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function exactSignal(map, identity) {
+  const key = typeof identity === "string" ? identity : modelKey(identity);
+  return key && Object.prototype.hasOwnProperty.call(signalRecord(map), key)
+    ? map[key]
+    : undefined;
+}
+
+function exactProviderSignal(map, provider) {
+  const key = String(provider || "").trim();
+  return key && Object.prototype.hasOwnProperty.call(signalRecord(map), key)
+    ? map[key]
+    : undefined;
+}
+
+function preflightSignal(form, identity) {
+  if (modelKey(identity) !== modelKey(selectedModelForForm(form))) return undefined;
+  const status = q("#runway-readiness-status", form);
+  if (!status) return undefined;
+  if (status.dataset.status === "ready") {
+    return { ready: true, status: "fresh", freshness: "fresh" };
+  }
+  if (status.dataset.status === "error") {
+    return { ready: false, status: "not_ready", reasonCode: "provider_not_ready" };
+  }
+  return undefined;
+}
+
+function modelContext(form) {
+  const mode = String(form?.elements?.generation_mode?.value || "mock");
+  const repeated = runtime.repeatSettings;
+  const repeatedModel = repeated
+    ? runtime.catalog?.models?.find((entry) => modelKey(entry) === modelKey(repeated))
+    : null;
+  const contentKind = repeatedModel?.contentKind || modelContentKind(form);
+  const rawDuration = Number(form?.elements?.duration_seconds?.value || 0);
+  const selectedMedia = qa('input[name="media_id"]:checked:not(:disabled)', form).length;
+  const format = String(form?.elements?.format?.value || "").trim();
+  const brief = String(form?.elements?.brief?.value || "").trim().toLowerCase();
+  const speechRequested = /(?:реплик|говорит|речь|диалог|голос|озвуч)/u.test(brief);
+  const personRequested = speechRequested || /(?:\bugc\b|блогер|человек|герой|лицо)/u.test(brief);
+  const sourceVideoRequested = repeated?.inputMode === "video" || Boolean(
+    String(form?.elements?.generation_reference_url?.value || "").trim(),
+  );
+  const currentIdentity = selectedModelForForm(form);
+  const currentModelKey = modelKey(currentIdentity);
+  const referenceBundle = [
+    "runway:seedream5_lite",
+    "runway:seedance2_fast",
+    "runway:seedance2_mini",
+  ].includes(currentModelKey);
+  const selectedAudio = String(form?.elements?.generation_audio?.value || "");
+  const selectedResolution = String(form?.elements?.generation_resolution?.value || "").trim();
+  const selectedLastFrame = form?.elements?.generation_last_frame?.checked === true;
+  const currentPreflight = preflightSignal(form, currentIdentity);
+  const readiness = { ...signalRecord(runtime.catalogSignals?.readiness) };
+  if (currentPreflight && currentIdentity) readiness[modelKey(currentIdentity)] = currentPreflight;
+  (runtime.catalog?.models || []).forEach((model) => {
+    if (!modelCanUseExistingLaunch(form, model)) {
+      readiness[modelKey(model)] = {
+        ready: false,
+        status: "blocked",
+        reasonCode: "launch_route_pending",
+      };
+    }
+  });
+  const intents = contentKind === "photo"
+    ? ["product_image"]
+    : contentKind === "video" && sourceVideoRequested
+      ? ["source_video_variation"]
+      : contentKind === "video" && speechRequested
+        ? ["ugc", "dialogue"]
+        : contentKind === "video" && personRequested
+          ? ["ugc"]
+          : contentKind === "video"
+            ? ["product_motion"]
+            : [];
+  return {
+    contentKind,
+    intents,
+    inputMode: repeated?.inputMode || (selectedMedia > 0 ? "image" : "text"),
+    referenceImageCount: repeated?.referenceCount !== null
+      && repeated?.referenceCount !== undefined
+      && Number.isInteger(Number(repeated.referenceCount))
+      ? Math.max(0, Number(repeated.referenceCount))
+      : referenceBundle
+        ? selectedMedia
+        : 0,
+    referenceVideo: repeated?.inputMode === "video",
+    firstFrame: typeof repeated?.firstFrame === "boolean"
+      ? repeated.firstFrame
+      : contentKind === "video" && selectedMedia > 0 && !referenceBundle,
+    lastFrame: typeof repeated?.lastFrame === "boolean"
+      ? repeated.lastFrame
+      : selectedLastFrame,
+    durationSeconds: contentKind === "photo"
+      ? 0
+      : Number.isFinite(Number(repeated?.durationSeconds)) && Number(repeated.durationSeconds) > 0
+        ? Number(repeated.durationSeconds)
+        : Number.isFinite(rawDuration) && rawDuration > 0
+        ? rawDuration
+        : null,
+    ratio: /^\d+:\d+$/u.test(String(repeated?.ratio || ""))
+      ? String(repeated.ratio)
+      : /^\d+:\d+$/u.test(format)
+      ? format
+      : contentKind === "photo"
+        ? "1:1"
+        : null,
+    resolution: repeated?.resolution
+      ? String(repeated.resolution)
+      : selectedResolution
+        ? selectedResolution
+      : contentKind === "photo" ? "2k" : contentKind === "video" ? "720p" : null,
+    audio: speechRequested
+      ? true
+      : typeof repeated?.audio === "boolean"
+        ? repeated.audio
+        : selectedAudio === "true"
+          ? true
+          : selectedAudio === "false"
+            ? false
+            : null,
+    spokenDialogue: repeated?.spokenDialogue === true || speechRequested,
+    estimatedCosts: signalRecord(runtime.catalogSignals?.estimatedCosts),
+    readiness,
+    providerReadiness: signalRecord(runtime.catalogSignals?.providerReadiness),
+    acceptance: {
+      ...acceptanceSignals(),
+      ...signalRecord(runtime.catalogSignals?.acceptance),
+    },
+    researchRecommendations: runtime.catalogSignals?.researchRecommendations || [],
+    performanceRecommendations: runtime.catalogSignals?.performanceRecommendations || [],
+    effectiveBudgetMinor: runtime.catalogSignals?.effectiveBudgetMinor ?? null,
+    currency: runtime.catalogSignals?.currency || "USD",
+  };
+}
+
+function recommendationReason(codes = []) {
+  const visible = codes
+    .map((code) => MODEL_REASON_COPY[String(code || "")] || MODEL_COPY[String(code || "")])
+    .filter(Boolean);
+  return visible[0] || "Подходит по формату и ограничениям текущего запуска";
+}
+
+function translatedList(codes = [], dictionary = MODEL_REASON_COPY, fallbackDictionary = MODEL_COPY) {
+  return [...new Set(
+    (Array.isArray(codes) ? codes : [])
+      .map((code) => dictionary[String(code || "")] || fallbackDictionary[String(code || "")])
+      .filter(Boolean),
+  )];
+}
+
+function plainCatalogCopy(value, fallback) {
+  const text = String(value || "").replace(/\s+/gu, " ").trim();
+  return text || fallback;
+}
+
+function firstCatalogCopy(values, fallback) {
+  return plainCatalogCopy(Array.isArray(values) ? values[0] : "", fallback);
+}
+
+function modelInputSummary(model) {
+  const parts = [];
+  if (model.inputModes?.includes("image")) {
+    const imageOnly = model.inputModes.length === 1;
+    parts.push(imageOnly
+      ? "Нужно фото"
+      : model.maxReferenceImages > 0
+        ? `Можно до ${model.maxReferenceImages} фото`
+        : "Фото можно добавить");
+  }
+  if (model.inputModes?.includes("video")) parts.push("Принимает готовое видео");
+  if (model.inputModes?.includes("text")) parts.push("Можно без исходника");
+  return parts.join(" · ") || "Требования к исходнику уточняются";
+}
+
+function modelOutputSummary(model) {
+  if (model.contentKind === "photo") {
+    return `${(model.allowedResolutions || []).join("/") || "фото"} · ${(model.allowedRatios || []).join(", ")} · без звука`;
+  }
+  const duration = Array.isArray(model.allowedDurations) && model.allowedDurations.length
+    ? `${Math.min(...model.allowedDurations)}–${Math.max(...model.allowedDurations)} сек.`
+    : "длительность уточняется";
+  const audio = model.supportsSpokenDialogue
+    ? "с речью"
+    : model.supportsGeneratedAudio
+      ? "со звуком"
+      : "без звука";
+  const resolutions = (model.allowedResolutions || []).join("/");
+  const allowedRatios = Array.isArray(model.allowedRatios) ? model.allowedRatios : [];
+  const ratios = allowedRatios.length > 3
+    ? `${allowedRatios.slice(0, 3).join(", ")} +${allowedRatios.length - 3}`
+    : allowedRatios.join(", ");
+  return [duration, ratios ? `форматы ${ratios}` : "", resolutions, audio].filter(Boolean).join(" · ");
+}
+
+function modelCandidate(state, model) {
+  const key = modelKey(model);
+  const candidates = [
+    state?.recommendation?.recommended,
+    ...(state?.recommendation?.alternatives || []),
+    ...(state?.recommendation?.unavailable || []),
+  ];
+  return candidates.find((candidate) => modelKey(candidate) === key) || null;
+}
+
+function modelUnavailableCodes(state, model) {
+  const candidate = modelCandidate(state, model);
+  return Array.isArray(candidate?.unavailableReasonCodes)
+    ? candidate.unavailableReasonCodes
+    : [];
+}
+
+function acceptanceStatus(state, model) {
+  const signal = exactSignal(state?.context?.acceptance, model);
+  if (signal === true) return "accepted";
+  if (typeof signal === "string") return signal.trim().toLowerCase();
+  return String(signal?.status || "").trim().toLowerCase();
+}
+
+function modelQualityState(model, executable, state) {
+  if (!executable || model.enabled !== true) return "Недоступно";
+  if (model.lifecycle === "experimental" || model.lifecycle === "preview") {
+    return "Экспериментально";
+  }
+  if (["accepted", "approved", "verified"].includes(acceptanceStatus(state, model))) {
+    return "Проверено";
+  }
+  return "Нужна перепроверка";
+}
+
+function currentFormEstimateMinor(form, model) {
+  if (modelKey(model) !== modelKey(selectedModelForForm(form))) return null;
+  const receipt = window.ContentEngineWorkspaceRuntime
+    ?.getGenerationProviderReadiness?.();
+  const minor = Number(receipt?.estimated_cost_minor);
+  return receipt?.ready === true && Number.isSafeInteger(minor) && minor >= 0
+    ? minor
+    : null;
+}
+
+function formatMinor(value, currency = "USD") {
+  const minor = Number(value);
+  if (!Number.isFinite(minor) || minor < 0) return "";
+  if (String(currency || "USD").toUpperCase() === "USD") return `$${(minor / 100).toFixed(2)}`;
+  return `${(minor / 100).toFixed(2)} ${String(currency).toUpperCase()}`;
+}
+
+function modelCostPresentation(form, model, state) {
+  const candidate = modelCandidate(state, model);
+  if (
+    candidate?.estimatedCostMinor !== null
+    && candidate?.estimatedCostMinor !== undefined
+    && Number.isFinite(Number(candidate.estimatedCostMinor))
+  ) {
+    return {
+      text: `${formatMinor(candidate.estimatedCostMinor, state?.context?.currency)} · оценка сервера`,
+      minor: Number(candidate.estimatedCostMinor),
+      source: "server",
+    };
+  }
+  const formEstimate = currentFormEstimateMinor(form, model);
+  if (formEstimate !== null) {
+    return {
+      text: `около ${formatMinor(formEstimate)} · сервер подтвердит до оплаты`,
+      minor: formEstimate,
+      source: "server_preflight",
+    };
+  }
+  return {
+    text: "рассчитает сервер после выбора параметров",
+    minor: null,
+    source: "missing",
+  };
+}
+
+function signalReadiness(value) {
+  if (value === true) return "ready";
+  if (value === false) return "blocked";
+  if (typeof value === "string") {
+    const status = value.trim().toLowerCase();
+    if (["ready", "fresh", "available"].includes(status)) return "ready";
+    if (["blocked", "disabled", "down", "not_ready", "offline", "unavailable"].includes(status)) return "blocked";
+    return "unknown";
+  }
+  if (!value || typeof value !== "object") return "unknown";
+  if (value.ready === true || value.available === true || ["ready", "fresh"].includes(String(value.status || "").toLowerCase())) return "ready";
+  if (value.ready === false || value.available === false || ["blocked", "disabled", "down", "not_ready", "offline", "unavailable"].includes(String(value.status || "").toLowerCase())) return "blocked";
+  return "unknown";
+}
+
+function modelReadinessPresentation(form, model, state, executable) {
+  if (!executable) {
+    return { state: "blocked", text: "Маршрут запуска ещё не подключён" };
+  }
+  const modelSignal = exactSignal(state?.context?.readiness, model) ?? preflightSignal(form, model);
+  const providerSignal = exactProviderSignal(state?.context?.providerReadiness, model.provider);
+  const exact = signalReadiness(modelSignal);
+  const provider = signalReadiness(providerSignal);
+  if (exact === "blocked" || provider === "blocked") {
+    return { state: "blocked", text: "Техническая готовность не подтверждена" };
+  }
+  if (exact === "ready" && (provider === "ready" || provider === "unknown")) {
+    return { state: "ready", text: "Предварительно готово · перед оплатой проверится снова" };
+  }
+  return { state: "unknown", text: "Проверится бесплатно перед платным запуском" };
+}
+
+function numberedHeading(number, title, hint = "", level = 4) {
+  const header = element("header", "ce-v4-model-section-heading");
+  header.append(
+    element("span", "ce-v4-model-section-heading__number", String(number).padStart(2, "0")),
+    element("div", "ce-v4-model-section-heading__copy"),
+  );
+  const copy = q(".ce-v4-model-section-heading__copy", header);
+  copy.append(element(level === 5 ? "h5" : "h4", "", title));
+  if (hint) copy.append(element("p", "", hint));
+  return header;
+}
+
+function createContentKindChooser() {
+  const section = element("section", "ce-v4-model-kind");
+  section.dataset.ceV4ModelKind = "";
+  section.append(numberedHeading(
+    1,
+    "Что создаём?",
+    "Сначала выберите результат. Точную модель можно выбрать ниже.",
+  ));
+  const choices = element("div", "ce-v4-model-kind__choices");
+  choices.setAttribute("role", "group");
+  choices.setAttribute("aria-label", "Тип результата");
+  [
+    ["video", "Видео", "Товар в движении, UGC, речь или вариация"],
+    ["photo", "Фото товара", "Точный кадр по фото или тексту"],
+  ].forEach(([kind, title, hint]) => {
+    const button = element("button", "ce-v4-model-kind__choice");
+    button.type = "button";
+    button.dataset.ceV4ContentKind = kind;
+    button.setAttribute("aria-pressed", "false");
+    button.append(element("strong", "", title), element("small", "", hint));
+    choices.append(button);
+  });
+  section.append(choices);
+  return section;
+}
+
+function createBudgetMarker() {
+  const marker = element("section", "ce-v4-model-budget-marker");
+  marker.dataset.ceV4ModelBudgetMarker = "";
+  marker.append(numberedHeading(
+    4,
+    "Кампания и бюджет",
+    "Ниже остаются исходные поля длительности, кампании, лимита и отдельного согласия на оплату.",
+  ));
+  return marker;
+}
+
+function createSelectionSummary() {
+  const section = element("section", "ce-v4-model-selection-summary");
+  section.dataset.ceV4ModelSelectionSummary = "";
+  section.setAttribute("aria-labelledby", "ce-v4-model-selection-summary-title");
+  const heading = numberedHeading(
+    5,
+    "Точный выбор",
+    "Сверьте модель и параметры. Это резюме ничего не запускает.",
+  );
+  q("h4", heading).id = "ce-v4-model-selection-summary-title";
+  const body = element("div", "ce-v4-model-selection-summary__body");
+  body.dataset.ceV4ModelSelectionSummaryBody = "";
+  section.append(heading, body);
+  return section;
+}
+
+function hiddenExactControl(name) {
+  const input = document.createElement("input");
+  input.type = "hidden";
+  input.name = name;
+  input.dataset.ceV4ExactModelControl = "true";
+  return input;
+}
+
+function createExactModelSettings() {
+  const section = element("section", "ce-v4-model-exact-settings");
+  section.dataset.ceV4ModelExactSettings = "";
+  section.hidden = true;
+  [
+    "generation_provider",
+    "generation_model_id",
+    "generation_input_mode",
+    "generation_content_kind",
+    "generation_prompt_limit",
+    "generation_catalog_version",
+    "generation_pricing_version",
+    "generation_selection_source",
+    "generation_launch_enabled",
+  ].forEach((name) => section.append(hiddenExactControl(name)));
+
+  const grid = element("div", "ce-v4-model-exact-settings__grid");
+  const resolutionField = element("label", "field");
+  resolutionField.append(element("span", "", "Разрешение"));
+  const resolution = document.createElement("select");
+  resolution.name = "generation_resolution";
+  resolution.required = true;
+  resolutionField.append(resolution, element("small", "field-hint", "Доступные варианты задаёт выбранная модель."));
+
+  const audioField = element("label", "field");
+  audioField.append(element("span", "", "Звук"));
+  const audio = document.createElement("select");
+  audio.name = "generation_audio";
+  audio.required = true;
+  audioField.append(audio, element("small", "field-hint", "Если звук обязателен для модели, переключатель будет зафиксирован."));
+
+  const lastFrame = element("label", "option ce-v4-model-exact-settings__last-frame");
+  const lastFrameInput = document.createElement("input");
+  lastFrameInput.type = "checkbox";
+  lastFrameInput.name = "generation_last_frame";
+  lastFrame.append(
+    lastFrameInput,
+    element("span", "", "Использовать второе выбранное фото как точный финальный кадр"),
+  );
+  grid.append(resolutionField, audioField, lastFrame);
+  const capabilityStatus = element(
+    "p",
+    "ce-v4-model-exact-settings__status",
+    "Параметры проверяются по точным возможностям выбранной модели.",
+  );
+  capabilityStatus.dataset.ceV4ModelCapabilityStatus = "";
+  capabilityStatus.setAttribute("role", "status");
+  section.append(grid, capabilityStatus);
+  return section;
+}
+
+function replaceOptions(control, values, selectedValue, label = (value) => String(value)) {
+  if (!(control instanceof HTMLSelectElement)) return "";
+  const unique = [...new Set((Array.isArray(values) ? values : []).map(String).filter(Boolean))];
+  const selected = unique.includes(String(selectedValue || ""))
+    ? String(selectedValue)
+    : unique[0] || "";
+  control.replaceChildren(...unique.map((value) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label(value);
+    option.selected = value === selected;
+    return option;
+  }));
+  return selected;
+}
+
+function exactDefaults(model) {
+  const defaults = model?.selectionDefaults && typeof model.selectionDefaults === "object"
+    ? model.selectionDefaults
+    : {};
+  return {
+    inputMode: String(defaults.inputMode || "image"),
+    durationSeconds: Number(defaults.durationSeconds),
+    format: String(defaults.format || model?.allowedRatios?.[0] || ""),
+    resolution: String(defaults.resolution || model?.allowedResolutions?.[0] || ""),
+    audio: defaults.audio === true,
+    lastFrame: defaults.lastFrame === true,
+  };
+}
+
+function imageCapability(model) {
+  const capability = model?.inputCapabilities?.image;
+  return capability && typeof capability === "object" && !Array.isArray(capability)
+    ? capability
+    : null;
+}
+
+function exactCapabilityOptions(model, { resolution = "", lastFrame = false } = {}) {
+  const capability = imageCapability(model);
+  const allowedRatios = Array.isArray(capability?.allowedRatios)
+    ? capability.allowedRatios
+    : model?.allowedRatios;
+  const allowedResolutions = Array.isArray(capability?.allowedResolutions)
+    ? capability.allowedResolutions
+    : model?.allowedResolutions;
+  const resolutionDurations = capability?.allowedDurationsByResolution?.[resolution];
+  let allowedDurations = Array.isArray(resolutionDurations)
+    ? resolutionDurations
+    : model?.allowedDurations;
+  const lastFrameDuration = Number(capability?.lastFrameDurationSeconds);
+  if (lastFrame && Number.isSafeInteger(lastFrameDuration)) {
+    allowedDurations = (Array.isArray(allowedDurations) ? allowedDurations : [])
+      .filter((value) => Number(value) === lastFrameDuration);
+  }
+  return {
+    capability,
+    allowedRatios: Array.isArray(allowedRatios) ? allowedRatios : [],
+    allowedResolutions: Array.isArray(allowedResolutions) ? allowedResolutions : [],
+    allowedDurations: Array.isArray(allowedDurations) ? allowedDurations : [],
+    lastFrameSupported: capability?.supportsLastFrame === true
+      && model?.lastFrameSupported === true,
+    lastFrameDuration: Number.isSafeInteger(lastFrameDuration)
+      ? lastFrameDuration
+      : null,
+  };
+}
+
+function syncExactModelControls(form, model, { emit = false } = {}) {
+  const section = q("[data-ce-v4-model-exact-settings]", form);
+  if (!section) return false;
+  if (!model) {
+    section.hidden = true;
+    qa("[data-ce-v4-exact-model-control]", section).forEach((control) => { control.value = ""; });
+    return false;
+  }
+  const previousKey = `${form.elements?.generation_provider?.value || ""}:${form.elements?.generation_model_id?.value || ""}`;
+  const nextKey = modelKey(model);
+  const sameModel = previousKey === nextKey;
+  const defaults = exactDefaults(model);
+  const setHidden = (name, value) => {
+    const control = form.elements?.[name];
+    if (control instanceof HTMLInputElement) control.value = String(value ?? "");
+  };
+  setHidden("generation_provider", model.provider);
+  setHidden("generation_model_id", model.model);
+  setHidden("generation_input_mode", defaults.inputMode);
+  setHidden("generation_content_kind", model.contentKind);
+  setHidden("generation_prompt_limit", Number(model.promptLimit || 0));
+  setHidden("generation_catalog_version", runtime.catalog?.version || "");
+  setHidden("generation_pricing_version", model.pricingVersion || "");
+  setHidden("generation_selection_source", canonicalSelectionSource());
+  setHidden("generation_launch_enabled", modelCanUseExistingLaunch(form, model) ? "true" : "false");
+
+  const resolutionControl = form.elements?.generation_resolution;
+  const lastFrameControl = form.elements?.generation_last_frame;
+  const requestedResolution = sameModel
+    ? resolutionControl?.value
+    : defaults.resolution;
+  const baseCapability = exactCapabilityOptions(model, {
+    resolution: requestedResolution,
+    lastFrame: sameModel && lastFrameControl?.checked === true,
+  });
+  const selectedResolution = replaceOptions(
+    resolutionControl,
+    baseCapability.allowedResolutions,
+    requestedResolution,
+  );
+  const selectedLastFrame = baseCapability.lastFrameSupported
+    && (sameModel ? lastFrameControl?.checked === true : defaults.lastFrame);
+  const capability = exactCapabilityOptions(model, {
+    resolution: selectedResolution,
+    lastFrame: selectedLastFrame,
+  });
+  const duration = form.elements?.duration_seconds;
+  if (duration instanceof HTMLSelectElement) {
+    replaceOptions(
+      duration,
+      capability.allowedDurations,
+      sameModel ? duration.value : defaults.durationSeconds,
+      (value) => model.contentKind === "photo" ? "Статичное фото" : `${value} секунд`,
+    );
+  }
+  const format = form.elements?.format;
+  if (format instanceof HTMLSelectElement) {
+    replaceOptions(
+      format,
+      capability.allowedRatios,
+      sameModel ? format.value : defaults.format,
+    );
+  }
+  const audioModes = Array.isArray(model.audioModes) && model.audioModes.length
+    ? model.audioModes.map((value) => value === true)
+    : [defaults.audio];
+  replaceOptions(
+    form.elements?.generation_audio,
+    audioModes.map(String),
+    sameModel ? form.elements?.generation_audio?.value : String(defaults.audio),
+    (value) => value === "true" ? "Со звуком" : "Без сгенерированного звука",
+  );
+  if (form.elements?.generation_audio instanceof HTMLSelectElement) {
+    form.elements.generation_audio.disabled = false;
+    form.elements.generation_audio.setAttribute(
+      "aria-disabled",
+      audioModes.length === 1 ? "true" : "false",
+    );
+  }
+  const lastFrame = lastFrameControl;
+  const lastFrameField = lastFrame?.closest?.("label");
+  if (lastFrame instanceof HTMLInputElement) {
+    lastFrame.checked = selectedLastFrame;
+    lastFrame.disabled = !capability.lastFrameSupported;
+    if (lastFrameField) lastFrameField.hidden = !capability.lastFrameSupported;
+  }
+  const capabilityStatus = q("[data-ce-v4-model-capability-status]", section);
+  if (capabilityStatus) {
+    const noExactCombination = model.contentKind !== "photo"
+      && capability.allowedDurations.length === 0;
+    capabilityStatus.dataset.state = noExactCombination ? "blocked" : "ready";
+    capabilityStatus.textContent = noExactCombination
+      ? "Для этого сочетания разрешения и финального кадра нет допустимой длительности. Измените параметры — запуск заблокирован."
+      : capability.lastFrameDuration !== null && selectedLastFrame
+        ? `Финальный кадр требует точную длительность ${capability.lastFrameDuration} секунд.`
+        : "Показаны только сочетания параметров, разрешённые выбранной моделью.";
+  }
+  section.hidden = false;
+  if (emit) {
+    form.elements.generation_model_id?.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  return true;
+}
+
+function createModelAdvisor() {
+  const section = element("section", "ce-v4-model-advisor");
+  section.dataset.ceV4ModelAdvisor = "";
+  section.setAttribute("aria-labelledby", "ce-v4-model-advisor-title");
+
+  const header = element("header", "ce-v4-model-advisor__header");
+  const copy = element("div", "ce-v4-model-advisor__copy");
+  const eyebrow = element("p", "ce-v4-model-advisor__eyebrow", "СОВЕТ ИИ · РЕШЕНИЕ ЧЕЛОВЕКА");
+  const title = element("h4", "", "Модели для вашего результата");
+  title.id = "ce-v4-model-advisor-title";
+  copy.append(
+    eyebrow,
+    title,
+    element(
+      "p",
+      "",
+      "ИИ сравнивает совместимость, качество, скорость и бюджет. Это совет: ручной выбор никогда не будет заменён автоматически.",
+    ),
+  );
+  const badge = element("span", "ce-v4-model-advisor__authority", "Вы решаете");
+  header.append(copy, badge);
+
+  const status = element("p", "ce-v4-model-advisor__status", "Загружаем доступные модели…");
+  status.dataset.ceV4ModelAdvisorStatus = "";
+  status.setAttribute("role", "status");
+  status.setAttribute("aria-live", "polite");
+
+  const recommendation = element("div", "ce-v4-model-advisor__recommendation");
+  recommendation.dataset.ceV4ModelRecommendation = "";
+  recommendation.hidden = true;
+
+  const recommendationSection = element("section", "ce-v4-model-advisor__section");
+  recommendationSection.append(numberedHeading(
+    2,
+    "Системная рекомендация",
+    "Показываем причины, компромисс, цену и готовность до любой оплаты.",
+    5,
+  ), recommendation);
+
+  const catalogSection = element("section", "ce-v4-model-advisor__section");
+  catalogSection.append(numberedHeading(
+    3,
+    "Модели",
+    "Выберите карточку мышью или клавиатурой. Недоступные модели остаются видимы с точной причиной.",
+    5,
+  ));
+  const filters = element("div", "ce-v4-model-advisor__filters");
+  filters.dataset.ceV4ModelFilters = "";
+  filters.setAttribute("role", "toolbar");
+  filters.setAttribute("aria-label", "Показать модели по классу");
+  MODEL_FILTERS.forEach(([key, label]) => {
+    const button = element("button", "ce-v4-model-advisor__filter", label);
+    button.type = "button";
+    button.dataset.ceV4ModelFilter = key;
+    button.setAttribute("aria-pressed", key === "relevant" ? "true" : "false");
+    filters.append(button);
+  });
+  const list = element("div", "ce-v4-model-advisor__grid");
+  list.dataset.ceV4ModelGrid = "";
+  list.setAttribute("role", "radiogroup");
+  list.setAttribute("aria-label", "Модель генерации");
+  catalogSection.append(filters, list);
+
+  section.append(header, status, recommendationSection, catalogSection);
+  return section;
+}
+
+function ensureModelAdvisor(form) {
+  let advisor = q("[data-ce-v4-model-advisor]", form);
+  const modeControl = form.elements?.generation_mode;
+  const modeField = modeControl?.closest?.("label, .field");
+  if (modeField && !q("[data-ce-v4-model-kind]", form)) {
+    modeField.before(createContentKindChooser());
+    modeField.classList.add("ce-v4-model-native-mode");
+  }
+  if (!advisor) {
+    advisor = createModelAdvisor();
+    if (modeField?.parentElement) modeField.after(advisor);
+    else contentFor(form, "mode")?.prepend(advisor);
+  }
+  let exactSettings = q("[data-ce-v4-model-exact-settings]", form);
+  if (!exactSettings) {
+    exactSettings = createExactModelSettings();
+    advisor.after(exactSettings);
+  }
+  const modeContent = contentFor(form, "mode");
+  if (advisor && !q("[data-ce-v4-model-budget-marker]", form)) {
+    exactSettings.after(createBudgetMarker());
+  }
+  if (modeContent && !q("[data-ce-v4-model-selection-summary]", form)) {
+    modeContent.append(createSelectionSummary());
+  }
+  return advisor;
+}
+
+function modelCard(form, model, state) {
+  const key = modelKey(model);
+  const recommendationKey = modelKey(state?.recommendation?.recommended);
+  const selectedKey = modeIsReal(form) || runtime.externalSelectionActive
+    ? modelKey(state?.selection)
+    : "";
+  const executable = modelCanUseExistingLaunch(form, model);
+  const recommended = key === recommendationKey;
+  const selected = key === selectedKey;
+  const candidate = modelCandidate(state, model);
+  const unavailableCodes = modelUnavailableCodes(state, model);
+  const disabledReasons = translatedList(unavailableCodes);
+  const policyDisabledReason = MODEL_COPY[String(model.disabledReasonCode || "")] || "";
+  const primaryDisabledReason = policyDisabledReason || disabledReasons[0] || "Недоступно";
+  const costPresentation = modelCostPresentation(form, model, state);
+  const readiness = modelReadinessPresentation(form, model, state, executable);
+  const qualityText = modelQualityState(model, executable, state);
+
+  const card = element("article", "ce-v4-model-card");
+  card.dataset.provider = String(model.provider || "");
+  card.dataset.model = String(model.model || "");
+  card.dataset.recommended = recommended ? "true" : "false";
+  card.dataset.available = executable ? "true" : "false";
+  card.dataset.lifecycle = String(model.lifecycle || "");
+  card.dataset.quality = String(model.qualityTier || "");
+  card.dataset.readiness = readiness.state;
+  card.dataset.disabledReasonCode = String(model.disabledReasonCode || "");
+  card.classList.toggle("is-selected", selected);
+  if (!executable) {
+    card.tabIndex = 0;
+    card.setAttribute("aria-disabled", "true");
+  }
+
+  const radio = document.createElement("input");
+  radio.type = "radio";
+  radio.name = "generation_model";
+  radio.value = key;
+  radio.checked = selected;
+  radio.disabled = !executable;
+  radio.dataset.ceV4GenerationModel = "";
+  radio.setAttribute(
+    "aria-label",
+    `${model.publicLabel || model.model}. ${executable ? "Можно выбрать" : primaryDisabledReason}`,
+  );
+
+  const top = element("span", "ce-v4-model-card__top");
+  const provider = element("span", "ce-v4-model-card__provider", String(model.provider || "ИИ").toUpperCase());
+  const flag = element(
+    "span",
+    recommended ? "ce-v4-model-card__flag is-recommended" : "ce-v4-model-card__flag",
+    recommended && selected
+      ? "Ваш выбор · ИИ советует"
+      : recommended
+        ? "ИИ советует"
+        : selected
+          ? "Ваш выбор"
+          : executable
+            ? "Доступна"
+            : "Недоступна",
+  );
+  top.append(provider, flag);
+
+  const name = element("strong", "ce-v4-model-card__name", String(model.publicLabel || model.model || "Модель"));
+  const kind = model.contentKind === "photo" ? "Фото" : "Видео";
+  const quality = QUALITY_LABELS[String(model.qualityTier || "")] || "";
+  const speed = SPEED_LABELS[String(model.speedTier || "")] || "";
+  const costTier = COST_TIER_LABELS[String(model.qualityTier || "")] || "";
+  const meta = element(
+    "span",
+    "ce-v4-model-card__meta",
+    [kind, quality, speed, costTier].filter(Boolean).join(" · "),
+  );
+
+  const fit = element("span", "ce-v4-model-card__fact");
+  fit.append(
+    element("b", "", "Подходит: "),
+    document.createTextNode(firstCatalogCopy(model.bestFor, "для базового результата")),
+  );
+  const limit = element("span", "ce-v4-model-card__fact");
+  limit.append(
+    element("b", "", "Ограничение: "),
+    document.createTextNode(firstCatalogCopy(model.avoidFor, "проверить условия перед запуском")),
+  );
+  const inputs = element("span", "ce-v4-model-card__fact");
+  inputs.append(element("b", "", "Исходники: "), document.createTextNode(modelInputSummary(model)));
+  const output = element("span", "ce-v4-model-card__fact");
+  output.append(element("b", "", "Результат: "), document.createTextNode(modelOutputSummary(model)));
+  const cost = element("span", "ce-v4-model-card__cost");
+  cost.dataset.estimateSource = costPresentation.source;
+  cost.append(element("b", "", "Цена: "), document.createTextNode(costPresentation.text));
+  const readinessLine = element("span", "ce-v4-model-card__readiness");
+  readinessLine.dataset.state = readiness.state;
+  readinessLine.append(element("b", "", "Готовность: "), document.createTextNode(readiness.text));
+  const qualityState = element(
+    "span",
+    "ce-v4-model-card__quality",
+    qualityText,
+  );
+  qualityState.dataset.state = qualityText === "Проверено"
+    ? "verified"
+    : qualityText === "Недоступно"
+      ? "blocked"
+      : qualityText === "Экспериментально"
+        ? "experimental"
+        : "recheck";
+
+  const copy = executable
+    ? recommended
+      ? recommendationReason(candidate?.reasonCodes || state?.recommendation?.reasonCodes)
+      : "Можно выбрать и затем отдельно подтвердить запуск"
+    : policyDisabledReason
+      || disabledReasons[0]
+      || (model.enabled === true
+        ? MODEL_COPY.launch_route_pending
+        : "Пока недоступна вашей организации");
+  const explanation = element("small", "ce-v4-model-card__explanation", copy);
+
+  const choice = element("label", "ce-v4-model-card__choice");
+  choice.append(
+    radio,
+    top,
+    name,
+    meta,
+    fit,
+    limit,
+    cost,
+    readinessLine,
+    qualityState,
+    explanation,
+  );
+  const technical = element("details", "ce-v4-model-card__technical");
+  technical.append(element("summary", "", "Исходники и формат"));
+  const technicalBody = element("span", "ce-v4-model-card__technical-body");
+  technicalBody.append(inputs, output);
+  technical.append(technicalBody);
+  card.append(choice, technical);
+  return card;
+}
+
+function modelGroupKey(model) {
+  if (["experimental", "preview"].includes(String(model.lifecycle || ""))) return "experimental";
+  return ["economy", "balanced", "premium"].includes(String(model.qualityTier || ""))
+    ? String(model.qualityTier)
+    : "balanced";
+}
+
+function groupedModelCards(form, models, state) {
+  const labels = Object.fromEntries(MODEL_FILTERS);
+  if (runtime.modelFilter === "relevant" && models.length) {
+    const section = element("section", "ce-v4-model-group ce-v4-model-group--relevant");
+    section.dataset.modelGroup = "relevant";
+    const heading = element("h6", "ce-v4-model-group__title", "Подходят сейчас");
+    heading.append(element("span", "", String(models.length)));
+    const list = element("div", "ce-v4-model-group__grid");
+    list.append(...models.map((model) => modelCard(form, model, state)));
+    section.append(heading, list);
+    return [section];
+  }
+  const order = ["economy", "balanced", "premium", "experimental"];
+  const groups = order.flatMap((groupKey) => {
+    const groupModels = models.filter((model) => modelGroupKey(model) === groupKey);
+    if (!groupModels.length) return [];
+    const section = element("section", "ce-v4-model-group");
+    section.dataset.modelGroup = groupKey;
+    const heading = element("h6", "ce-v4-model-group__title", labels[groupKey]);
+    heading.append(element("span", "", String(groupModels.length)));
+    const list = element("div", "ce-v4-model-group__grid");
+    list.append(...groupModels.map((model) => modelCard(form, model, state)));
+    section.append(heading, list);
+    return [section];
+  });
+  if (groups.length) return groups;
+  const empty = element(
+    "p",
+    "ce-v4-model-advisor__empty-filter",
+    `В разделе «${labels[runtime.modelFilter] || labels.all}» пока нет моделей. Выберите другой фильтр — текущий ручной выбор сохранён.`,
+  );
+  empty.setAttribute("role", "status");
+  return [empty];
+}
+
+function visibleModelsForFilter(models, state, form) {
+  if (runtime.modelFilter === "all") return models;
+  if (runtime.modelFilter !== "relevant") {
+    return models.filter((model) => modelGroupKey(model) === runtime.modelFilter);
+  }
+
+  const selectedKey = modelKey(state?.selection);
+  const recommendedKey = modelKey(state?.recommendation?.recommended);
+  const currentKind = state?.context?.contentKind || modelContentKind(form);
+  const preferredKeys = [
+    selectedKey,
+    recommendedKey,
+    ...(state?.recommendation?.alternatives || []).map(modelKey),
+  ].filter(Boolean);
+  const ranked = [
+    ...preferredKeys.map((key) => models.find((model) => modelKey(model) === key)).filter(Boolean),
+    ...models.filter((model) => model.contentKind === currentKind && modelCanUseExistingLaunch(form, model)),
+    ...models.filter((model) => model.contentKind === currentKind),
+    ...models,
+  ];
+  const seen = new Set();
+  return ranked.filter((model) => {
+    const key = modelKey(model);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 4);
+}
+
+function syncContentKindChooser(form) {
+  const kind = modelContentKind(form);
+  qa("[data-ce-v4-content-kind]", form).forEach((button) => {
+    const active = button.dataset.ceV4ContentKind === kind;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
+
+function recommendationSource(state) {
+  const reasons = state?.recommendation?.reasonCodes || [];
+  if (reasons.includes("research_recommendation_match")) return "По исследованию";
+  if (reasons.includes("performance_recommendation_match")) return "По результатам контента";
+  return "По параметрам текущей сцены";
+}
+
+function recommendationCompromise(recommendedModel, selectedModel) {
+  if (!recommendedModel) return "";
+  if (selectedModel && modelKey(selectedModel) !== modelKey(recommendedModel)) {
+    const selectedFit = firstCatalogCopy(selectedModel.bestFor, "вашей альтернативы");
+    const recommendedLimit = firstCatalogCopy(recommendedModel.avoidFor, "точных ограничений сцены");
+    return `Ваш вариант сильнее для «${selectedFit}», а рекомендованный требует учесть: ${recommendedLimit}.`;
+  }
+  const limitation = firstCatalogCopy(
+    recommendedModel.avoidFor,
+    "сцен без предварительной проверки цены и готовности",
+  );
+  return `Не лучший выбор для: ${limitation}.`;
+}
+
+function comparisonCell(title, model, form, state) {
+  const cell = element("div", "ce-v4-model-comparison__cell");
+  const cost = modelCostPresentation(form, model, state);
+  cell.append(
+    element("small", "", title),
+    element("strong", "", String(model.publicLabel || model.model)),
+    element("span", "", `${QUALITY_LABELS[model.qualityTier] || ""} · ${SPEED_LABELS[model.speedTier] || ""}`),
+    element("span", "", firstCatalogCopy(model.bestFor, "Базовый результат")),
+    element("span", "", `Цена: ${cost.text}`),
+  );
+  return cell;
+}
+
+function renderRecommendationPanel(form, recommendation, state, suggestedModel, selectedModel) {
+  recommendation.replaceChildren();
+  if (!suggestedModel) {
+    const empty = element("div", "ce-v4-model-advisor__recommendation-empty");
+    empty.append(
+      element("strong", "", "Нет совместимой рекомендации"),
+      element("p", "", "Текущий ручной выбор сохранён. Исправьте исходник, длительность, звук или бюджет — ничего не будет запущено автоматически."),
+    );
+    recommendation.append(empty);
+    recommendation.hidden = false;
+    recommendation.dataset.state = "blocked";
+    return;
+  }
+
+  const recommendedCandidate = modelCandidate(state, suggestedModel) || state.recommendation?.recommended;
+  const reasonLines = translatedList(recommendedCandidate?.reasonCodes || state.recommendation?.reasonCodes)
+    .slice(0, 3);
+  const warningLines = translatedList(
+    recommendedCandidate?.warningCodes || state.recommendation?.warningCodes,
+    MODEL_WARNING_COPY,
+  );
+  const executable = modelCanUseExistingLaunch(form, suggestedModel);
+  const cost = modelCostPresentation(form, suggestedModel, state);
+  const readiness = modelReadinessPresentation(form, suggestedModel, state, executable);
+  const sameSelection = modelKey(state.selection) === modelKey(suggestedModel)
+    && (modeIsReal(form) || runtime.externalSelectionActive);
+  const accepted = sameSelection && state.selectionSource === "accepted_recommendation";
+
+  const hero = element("div", "ce-v4-model-recommendation-hero");
+  const title = element("div", "ce-v4-model-recommendation-hero__title");
+  title.append(
+    element("span", "ce-v4-model-recommendation-hero__source", recommendationSource(state)),
+    element("small", "", `Рекомендация ИИ · ${String(suggestedModel.provider || "ИИ").toUpperCase()}`),
+    element("strong", "", String(suggestedModel.publicLabel || suggestedModel.model)),
+  );
+  const metrics = element("div", "ce-v4-model-recommendation-hero__metrics");
+  const costMetric = element("span", "");
+  costMetric.append(element("small", "", "Оценка цены"), element("strong", "", cost.text));
+  const readinessMetric = element("span", "");
+  readinessMetric.dataset.state = readiness.state;
+  readinessMetric.append(element("small", "", "Готовность"), element("strong", "", readiness.text));
+  metrics.append(costMetric, readinessMetric);
+  hero.append(title, metrics);
+
+  const reasons = element("div", "ce-v4-model-recommendation__reasons");
+  reasons.append(element("strong", "", "Почему"));
+  const reasonList = element("ul");
+  (reasonLines.length ? reasonLines : [recommendationReason(state.recommendation?.reasonCodes)])
+    .forEach((line) => reasonList.append(element("li", "", line)));
+  reasons.append(reasonList);
+
+  const compromise = element("p", "ce-v4-model-recommendation__compromise");
+  compromise.append(
+    element("strong", "", "Компромисс: "),
+    document.createTextNode(recommendationCompromise(suggestedModel, selectedModel)),
+  );
+
+  const details = element("details", "ce-v4-model-recommendation__why");
+  details.append(element("summary", "", "Почему эта рекомендация?"));
+  const detailBody = element("div", "ce-v4-model-recommendation__why-body");
+  detailBody.append(
+    element("p", "", `Источник: ${recommendationSource(state)}. Каталог: ${state.recommendation?.catalogVersion || "версия не получена"}.`),
+  );
+  if (warningLines.length) {
+    const warnings = element("ul", "ce-v4-model-recommendation__warnings");
+    warningLines.forEach((line) => warnings.append(element("li", "", line)));
+    detailBody.append(element("strong", "", "Что нужно учесть"), warnings);
+  } else {
+    detailBody.append(element("p", "", "Критических предупреждений для текущей сцены нет."));
+  }
+  details.append(detailBody);
+
+  const actions = element("div", "ce-v4-model-recommendation__actions");
+  const apply = element(
+    "button",
+    "btn btn-secondary btn-small",
+    accepted ? "Рекомендация принята" : "Применить рекомендацию",
+  );
+  apply.type = "button";
+  apply.dataset.ceV4ApplyModelRecommendation = "";
+  apply.disabled = !executable || accepted;
+  actions.append(apply);
+
+  if (selectedModel && modelKey(selectedModel) !== modelKey(suggestedModel)) {
+    const comparison = element("details", "ce-v4-model-comparison");
+    comparison.dataset.ceV4ModelComparison = "";
+    comparison.append(element("summary", "", "Сравнить с моим выбором"));
+    const comparisonGrid = element("div", "ce-v4-model-comparison__grid");
+    comparisonGrid.append(
+      comparisonCell("ИИ советует", suggestedModel, form, state),
+      comparisonCell("Вы выбрали", selectedModel, form, state),
+    );
+    comparison.append(comparisonGrid);
+    actions.append(comparison);
+  }
+
+  recommendation.append(hero, reasons, compromise, details, actions);
+  recommendation.hidden = false;
+  recommendation.dataset.state = executable ? "ready" : "blocked";
+}
+
+function selectedInputText(state) {
+  const context = state?.context || {};
+  const input = context.inputMode === "video"
+    ? "готовое видео"
+    : context.inputMode === "image"
+      ? "фото"
+      : "текст";
+  const references = Number(context.referenceImageCount || 0);
+  return `${input}${references ? ` · ${references} референс` : ""}`;
+}
+
+function modelLaunchBlocker(form, state, selectedModel) {
+  if (!modeIsReal(form) && !runtime.externalSelectionActive) return "";
+  if (!selectedModel) return "Выберите модель генерации.";
+  if (!modelCanUseExistingLaunch(form, selectedModel)) {
+    return translatedList(modelUnavailableCodes(state, selectedModel))[0]
+      || "Безопасный маршрут этой модели ещё не подключён. Выберите другую модель.";
+  }
+  if (state?.selectionStatus?.blocked) {
+    return translatedList(state.selectionStatus.unavailableReasonCodes || state.selectionStatus.reasonCodes)[0]
+      || "Модель несовместима с текущими параметрами.";
+  }
+  return "";
+}
+
+function syncModelLaunchGuard(form, blocker) {
+  const mode = form?.elements?.generation_mode;
+  if (!(mode instanceof HTMLSelectElement)) return;
+  if (blocker) {
+    mode.setCustomValidity(blocker);
+    mode.dataset.ceV4ModelBlocker = "true";
+    form.dataset.ceV4ModelSelectionBlocked = "true";
+  } else {
+    if (mode.dataset.ceV4ModelBlocker === "true") mode.setCustomValidity("");
+    delete mode.dataset.ceV4ModelBlocker;
+    delete form.dataset.ceV4ModelSelectionBlocked;
+  }
+}
+
+function summaryRow(label, value) {
+  const row = element("div", "ce-v4-model-selection-summary__row");
+  row.append(element("dt", "", label), element("dd", "", value));
+  return row;
+}
+
+function renderSelectionSummary(form, state, selectedModel) {
+  const body = q("[data-ce-v4-model-selection-summary-body]", form);
+  if (!body) return;
+  if (!modeIsReal(form) && !runtime.externalSelectionActive) {
+    syncModelLaunchGuard(form, "");
+    body.dataset.state = "dry-run";
+    body.replaceChildren(
+      element("strong", "ce-v4-model-selection-summary__title", "Dry-run без медиафайла и списаний"),
+      element("p", "ce-v4-model-selection-summary__note", "Выберите «Видео», «Фото товара» или карточку модели, чтобы подготовить платный режим. Сам запуск не произойдёт."),
+    );
+    return;
+  }
+
+  const blocker = modelLaunchBlocker(form, state, selectedModel);
+  syncModelLaunchGuard(form, blocker);
+  const cost = selectedModel ? modelCostPresentation(form, selectedModel, state) : { text: "—" };
+  const readiness = selectedModel
+    ? modelReadinessPresentation(form, selectedModel, state, modelCanUseExistingLaunch(form, selectedModel))
+    : { state: "blocked", text: "модель не выбрана" };
+  const context = state?.context || {};
+  const nativeMode = String(form.elements?.generation_mode?.value || "");
+  const spokenDialogue = runtime.repeatSettings
+    ? context.spokenDialogue === true
+    : nativeMode === "real_seedance";
+  const generatedAudio = runtime.repeatSettings
+    ? context.audio === true
+    : nativeMode === "real_seedance";
+  const title = element(
+    "strong",
+    "ce-v4-model-selection-summary__title",
+    selectedModel ? String(selectedModel.publicLabel || selectedModel.model) : "Модель не выбрана",
+  );
+  const badge = element(
+    "span",
+    "ce-v4-model-selection-summary__badge",
+    blocker ? "Запуск заблокирован" : "Выбор зафиксирован",
+  );
+  badge.dataset.state = blocker ? "blocked" : "ready";
+  const head = element("div", "ce-v4-model-selection-summary__head");
+  head.append(title, badge);
+  const list = element("dl", "ce-v4-model-selection-summary__list");
+  list.append(
+    summaryRow("Источник выбора", SELECTION_SOURCE_COPY[state?.selectionSource] || "Выбрано вручную"),
+    summaryRow("Провайдер · модель", selectedModel ? `${selectedModel.provider} · ${selectedModel.model}` : "—"),
+    summaryRow("Длительность · формат", selectedModel?.contentKind === "photo"
+      ? `фото · ${context.ratio || "1:1"} · ${context.resolution || "2K"}`
+      : `${context.durationSeconds || "—"} сек. · ${context.ratio || "формат уточнится"} · ${context.resolution || "разрешение уточнится"}`),
+    summaryRow("Звук", spokenDialogue ? "речь и звук" : generatedAudio ? "генерируемый звук" : "без сгенерированного звука"),
+    summaryRow("Исходники", selectedInputText(state)),
+    summaryRow("Оценка цены", cost.text),
+    summaryRow("Техническая готовность", readiness.text),
+  );
+  const note = element(
+    "p",
+    "ce-v4-model-selection-summary__note",
+    blocker
+      ? `${blocker} Ваш выбор остаётся видимым; деньги не спишутся.`
+      : "Цена и готовность будут сверены сервером ещё раз перед явным подтверждением оплаты.",
+  );
+  body.dataset.state = blocker ? "blocked" : "ready";
+  body.replaceChildren(head, list, note);
+}
+
+function renderModelAdvisor(form) {
+  const advisor = ensureModelAdvisor(form);
+  const status = q("[data-ce-v4-model-advisor-status]", advisor);
+  const recommendation = q("[data-ce-v4-model-recommendation]", advisor);
+  const grid = q("[data-ce-v4-model-grid]", advisor);
+  if (!status || !recommendation || !grid) return;
+  syncContentKindChooser(form);
+  qa("[data-ce-v4-model-filter]", advisor).forEach((button) => {
+    const active = button.dataset.ceV4ModelFilter === runtime.modelFilter;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+
+  if (!runtime.catalog || !Array.isArray(runtime.catalog.models)) {
+    grid.replaceChildren();
+    recommendation.hidden = true;
+    syncModelLaunchGuard(form, "");
+    const summary = q("[data-ce-v4-model-selection-summary-body]", form);
+    if (summary) {
+      summary.dataset.state = runtime.catalogStatus === "error" ? "blocked" : "loading";
+      summary.replaceChildren(
+        element("strong", "ce-v4-model-selection-summary__title", runtime.catalogStatus === "error"
+          ? "Каталог моделей не ответил"
+          : "Загружаем точный каталог…"),
+        element("p", "ce-v4-model-selection-summary__note", "Исходный режим формы сохранён. Мы не выдумываем модель, цену или готовность без ответа сервера."),
+      );
+    }
+    status.dataset.state = runtime.catalogStatus === "error" ? "error" : "loading";
+    status.textContent = runtime.catalogStatus === "error"
+      ? "Каталог моделей сейчас недоступен. Текущий режим формы сохранён; платный запуск не изменён."
+      : "Загружаем доступные модели…";
+    return;
+  }
+
+  const currentIdentity = selectedModelForForm(form)
+    || modelIdentityForMode(form.elements?.generation_mode?.value);
+  const currentModel = runtime.catalog.models.find((model) => modelKey(model) === modelKey(currentIdentity));
+  if (currentModel) syncExactModelControls(form, currentModel);
+  if (!runtime.recommendationState) {
+    runtime.recommendationState = createGenerationModelRecommendationState({
+      catalogSnapshot: runtime.catalog,
+      context: modelContext(form),
+      selection: currentIdentity,
+      selectionSource: currentIdentity ? "form_default" : null,
+      manualLock: Boolean(currentIdentity),
+    });
+  } else {
+    runtime.recommendationState = generationModelRecommendationReducer(
+      runtime.recommendationState,
+      {
+        type: GENERATION_MODEL_RECOMMENDATION_ACTIONS.RECOMMEND,
+        catalogSnapshot: runtime.catalog,
+        context: modelContext(form),
+      },
+    );
+  }
+
+  const state = runtime.recommendationState;
+  const models = [...runtime.catalog.models].sort((left, right) => {
+    const leftKey = modelKey(left);
+    const rightKey = modelKey(right);
+    const recommendedKey = modelKey(state.recommendation?.recommended);
+    const selectedKey = modelKey(state.selection);
+    const rank = (key) => key === selectedKey ? 0 : key === recommendedKey ? 1 : 2;
+    return rank(leftKey) - rank(rightKey)
+      || Number(modelCanUseExistingLaunch(form, right)) - Number(modelCanUseExistingLaunch(form, left))
+      || String(left.publicLabel || left.model).localeCompare(String(right.publicLabel || right.model), "ru");
+  });
+  const visibleModels = visibleModelsForFilter(models, state, form);
+  grid.replaceChildren(...groupedModelCards(form, visibleModels, state));
+
+  const suggested = state.recommendation?.recommended;
+  const suggestedModel = runtime.catalog.models.find((model) => modelKey(model) === modelKey(suggested));
+  const selectedModel = runtime.catalog.models.find((model) => modelKey(model) === modelKey(state.selection));
+  syncExactModelControls(form, selectedModel);
+  renderRecommendationPanel(form, recommendation, state, suggestedModel, selectedModel);
+  renderSelectionSummary(form, state, selectedModel);
+  const selectionActive = modeIsReal(form) || runtime.externalSelectionActive;
+  status.dataset.state = !selectionActive ? "advisory" : state.manualLock ? "manual" : "advisory";
+  status.textContent = !selectionActive
+    ? "Сейчас выбран dry-run. Совет ИИ не применён и ничего платного не запустит."
+    : selectedModel
+      ? state.manualLock
+        ? `Ваш выбор: ${selectedModel.publicLabel || selectedModel.model}. Он зафиксирован: новые советы ИИ не заменят его без вашей команды.`
+        : `Предложение ИИ: ${selectedModel.publicLabel || selectedModel.model}. Применение требует вашего действия.`
+      : "Выберите доступную модель. Рекомендация ИИ носит только советующий характер.";
+}
+
+async function loadModelCatalog(form) {
+  if (runtime.catalog) {
+    renderModelAdvisor(form);
+    return;
+  }
+  const request = ++runtime.catalogRequest;
+  runtime.catalogStatus = "loading";
+  renderModelAdvisor(form);
+  try {
+    const api = window.ContentEngineWorkspaceRuntime?.getApi?.();
+    if (!api || typeof api.generationModelCatalog !== "function") {
+      throw new Error("generation_model_catalog_unavailable");
+    }
+    const response = await api.generationModelCatalog();
+    const catalog = response?.catalog || response;
+    if (
+      request !== runtime.catalogRequest
+      || !form.isConnected
+      || !catalog
+      || typeof catalog.version !== "string"
+      || !Array.isArray(catalog.models)
+    ) return;
+    runtime.catalog = catalog;
+    runtime.catalogSignals = response?.signals || response?.recommendation_context || null;
+    runtime.catalogStatus = "ready";
+    runtime.recommendationState = null;
+    window.ContentEngineWorkspaceRuntime?.setGenerationModelCatalog?.(catalog);
+    const pending = runtime.pendingRepeatSettings;
+    runtime.pendingRepeatSettings = null;
+    if (!pending || pending.form !== form || !applyRepeatedSettings(form, pending.detail)) {
+      renderModelAdvisor(form);
+    }
+  } catch {
+    if (request !== runtime.catalogRequest || !form.isConnected) return;
+    runtime.catalogStatus = "error";
+    renderModelAdvisor(form);
+  }
 }
 
 function routePath() {
@@ -287,6 +1804,15 @@ function organizeOriginalNodes(form, shell, originalNodes, submit) {
   }
 }
 
+function exposeProviderReadinessControl(form) {
+  const control = q('[data-action="check-runway-readiness"]', form);
+  if (!(control instanceof HTMLButtonElement)) return;
+  control.hidden = false;
+  control.removeAttribute("tabindex");
+  control.setAttribute("aria-hidden", "false");
+  control.classList.add("ce-v4-generation-guided__preflight");
+}
+
 function adoptDirectChildren(form, shell) {
   const loose = [...form.children].filter((node) => node !== shell);
   loose.forEach((node) => {
@@ -431,6 +1957,9 @@ function selectLabel(control) {
 
 function summaryValues(form) {
   const mode = form.elements?.generation_mode;
+  const selectedModel = runtime.catalog?.models?.find(
+    (model) => modelKey(model) === modelKey(runtime.recommendationState?.selection),
+  );
   const sku = compact(form.elements?.sku?.value, 36);
   const productName = compact(form.elements?.product_name?.value, 54);
   const platform = selectLabel(form.elements?.platform);
@@ -438,7 +1967,10 @@ function summaryValues(form) {
   const brief = compact(form.elements?.brief?.value, 110);
   const mediaCount = qa('input[name="media_id"]:checked:not(:disabled)', form).length;
   return {
-    mode: compact(selectLabel(mode), 90),
+    mode: compact(
+      [selectLabel(mode), selectedModel?.publicLabel].filter(Boolean).join(" · "),
+      110,
+    ),
     product: productName === "Не заполнено" && sku === "Не заполнено"
       ? "Не заполнено"
       : [productName, sku].filter((value) => value !== "Не заполнено").join(" · "),
@@ -459,13 +1991,20 @@ function syncSummary(form) {
   if (status) {
     const ready = submit && !submit.disabled && form.dataset.busy !== "true";
     const busy = form.dataset.busy === "true";
+    const preflightPhase = submit?.dataset.launchPhase === "preflight";
     const rawBlocker = String(submit?.dataset.launchBlocker || "").trim();
     const blocker = rawBlocker ? compact(rawBlocker, 240) : "";
-    status.dataset.state = ready ? "ready" : busy ? "working" : "pending";
-    status.textContent = ready
-      ? modeIsReal(form)
-        ? "Всё готово. Одно нажатие подготовит техническое ТЗ и отправит ровно один платный результат на создание."
-        : "Готов только dry-run: он создаст задачи, но не создаст видео или другой медиафайл. Для ролика вернитесь в «Режим и бюджет» и выберите платный видеорежим."
+    status.dataset.state = ready && !preflightPhase
+      ? "ready"
+      : busy
+        ? "working"
+        : "pending";
+    status.textContent = ready && preflightPhase
+      ? "Следующий шаг бесплатный: портал подготовит точное ТЗ и проверит стоимость. Генерация не запустится и деньги не спишутся."
+      : ready
+        ? modeIsReal(form)
+          ? "Всё готово. Следующее нажатие отправит один подтверждённый платный запуск."
+          : "Готов только dry-run: он создаст задачи, но не создаст видео или другой медиафайл. Для ролика вернитесь в «Режим и бюджет» и выберите платный видеорежим."
       : busy
         ? "Портал проверяет техническое ТЗ. Не нажимайте запуск повторно."
         : blocker || "Заполните обязательное поле текущего шага.";
@@ -488,11 +2027,15 @@ function syncCompletion(form) {
 function scheduleSync(form) {
   window.queueMicrotask(() => {
     if (!form.isConnected) return;
+    exposeProviderReadinessControl(form);
+    if (runtime.catalog) renderModelAdvisor(form);
     syncSummary(form);
     syncCompletion(form);
   });
   window.requestAnimationFrame(() => {
     if (!form.isConnected) return;
+    exposeProviderReadinessControl(form);
+    if (runtime.catalog) renderModelAdvisor(form);
     syncSummary(form);
     syncCompletion(form);
   });
@@ -596,9 +2139,238 @@ function moveTo(form, requestedIndex) {
   return true;
 }
 
+function applyModelIdentity(form, identity, {
+  acceptRecommendation = false,
+  preserveRepeatSettings = false,
+} = {}) {
+  const model = runtime.catalog?.models?.find((entry) => modelKey(entry) === modelKey(identity));
+  const mode = modeForModel(model, form);
+  const modeSelect = form?.elements?.generation_mode;
+  if (!model || !modelCanUseExistingLaunch(form, model) || !mode || !(modeSelect instanceof HTMLSelectElement)) {
+    renderModelAdvisor(form);
+    return false;
+  }
+
+  runtime.recommendationState = generationModelRecommendationReducer(
+    runtime.recommendationState,
+    acceptRecommendation
+      ? { type: GENERATION_MODEL_RECOMMENDATION_ACTIONS.ACCEPT_RECOMMENDATION }
+      : {
+          type: GENERATION_MODEL_RECOMMENDATION_ACTIONS.SELECT_MANUAL,
+          selection: { provider: model.provider, model: model.model },
+        },
+  );
+  runtime.externalSelectionActive = false;
+  if (!preserveRepeatSettings) runtime.repeatSettings = null;
+  syncExactModelControls(form, model);
+  runtime.applyingModel = true;
+  modeSelect.value = mode;
+  modeSelect.dispatchEvent(new Event("change", { bubbles: true }));
+  runtime.applyingModel = false;
+  if (form.elements?.real_spend_confirmation?.checked) {
+    form.elements.real_spend_confirmation.checked = false;
+    form.elements.real_spend_confirmation.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  syncExactModelControls(form, model, { emit: true });
+  renderModelAdvisor(form);
+  scheduleSync(form);
+  return true;
+}
+
+function chooseContentKind(form, kind) {
+  if (kind === "photo") {
+    return applyModelIdentity(form, LEGACY_MODEL_BY_MODE.real_photo);
+  }
+  if (kind === "video") {
+    const current = String(form.elements?.generation_mode?.value || "");
+    const mode = ["real_gen4", "real_seedance"].includes(current)
+      ? current
+      : "real_gen4";
+    return applyModelIdentity(form, LEGACY_MODEL_BY_MODE[mode]);
+  }
+  return false;
+}
+
+function setRepeatedNativeValue(control, value) {
+  if (!control || value === undefined || value === null || value === "") return false;
+  const normalized = String(value);
+  if (control instanceof HTMLSelectElement) {
+    const option = [...control.options].find((item) => item.value === normalized && !item.disabled);
+    if (!option) return false;
+  }
+  if (!(control instanceof HTMLInputElement) && !(control instanceof HTMLSelectElement)) return false;
+  if (control.value === normalized) return true;
+  control.value = normalized;
+  control.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+}
+
+function refreshRepeatedSetting(form, control) {
+  if (!runtime.repeatSettings || !control) return;
+  const next = { ...runtime.repeatSettings };
+  if (control.name === "duration_seconds") {
+    const duration = Number(control.value);
+    next.durationSeconds = Number.isFinite(duration) && duration > 0 ? duration : null;
+  } else if (control.name === "format") {
+    next.ratio = /^\d+:\d+$/u.test(String(control.value || "")) ? String(control.value) : "";
+  } else if (control.name === "generation_resolution") {
+    next.resolution = String(control.value || "").trim();
+  } else if (control.name === "generation_audio") {
+    next.audio = String(control.value || "") === "true";
+  } else if (control.name === "generation_last_frame") {
+    next.lastFrame = control.checked === true;
+  } else if (control.name === "generation_reference_url") {
+    next.inputMode = String(control.value || "").trim()
+      ? "video"
+      : qa('input[name="media_id"]:checked:not(:disabled)', form).length
+        ? "image"
+        : "text";
+  } else if (control.name === "media_id") {
+    const references = qa('input[name="media_id"]:checked:not(:disabled)', form).length;
+    next.referenceCount = references;
+    if (next.inputMode !== "video") next.inputMode = references ? "image" : "text";
+  } else {
+    return;
+  }
+  runtime.repeatSettings = Object.freeze(next);
+}
+
+function normalizeRepeatSettings(value) {
+  const detail = value && typeof value === "object" ? value : {};
+  return Object.freeze({
+    provider: String(detail.provider || "").trim().slice(0, 80),
+    model: String(detail.model || "").trim().slice(0, 120),
+    durationSeconds: Number.isFinite(Number(detail.durationSeconds))
+      ? Number(detail.durationSeconds)
+      : null,
+    ratio: String(detail.ratio || "").trim().slice(0, 24),
+    resolution: String(detail.resolution || "").trim().slice(0, 24),
+    audio: typeof detail.audio === "boolean" ? detail.audio : null,
+    firstFrame: typeof detail.firstFrame === "boolean" ? detail.firstFrame : null,
+    lastFrame: typeof detail.lastFrame === "boolean" ? detail.lastFrame : null,
+    inputMode: String(detail.inputMode || "").trim().slice(0, 40),
+    referenceCount: detail.referenceCount !== null
+      && detail.referenceCount !== undefined
+      && Number.isInteger(Number(detail.referenceCount))
+      ? Math.max(0, Number(detail.referenceCount))
+      : null,
+  });
+}
+
+function clearRepeatPaymentAndPreflight(form) {
+  const confirmation = form.elements?.real_spend_confirmation;
+  if (confirmation instanceof HTMLInputElement) {
+    confirmation.checked = false;
+    confirmation.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  delete form.dataset.autoGenerationPreflightKey;
+}
+
+function applyRepeatedSettings(form, detail) {
+  const model = runtime.catalog.models.find((entry) => (
+    entry.provider === String(detail.provider || "").trim()
+    && entry.model === String(detail.model || "").trim()
+  ));
+  if (!model) return false;
+  runtime.modelFilter = "relevant";
+  runtime.repeatSettings = Object.freeze({ ...detail, provider: model.provider, model: model.model });
+  if (!runtime.recommendationState) renderModelAdvisor(form);
+  runtime.recommendationState = generationModelRecommendationReducer(
+    runtime.recommendationState,
+    {
+      type: GENERATION_MODEL_RECOMMENDATION_ACTIONS.SELECT_MANUAL,
+      selection: { provider: model.provider, model: model.model },
+    },
+  );
+  const executable = modelCanUseExistingLaunch(form, model);
+  runtime.externalSelectionActive = !executable;
+  if (executable) {
+    applyModelIdentity(form, model, { preserveRepeatSettings: true });
+    setRepeatedNativeValue(form.elements?.duration_seconds, detail.durationSeconds);
+    setRepeatedNativeValue(form.elements?.format, detail.ratio);
+    setRepeatedNativeValue(form.elements?.generation_resolution, detail.resolution);
+    if (typeof detail.audio === "boolean") {
+      setRepeatedNativeValue(form.elements?.generation_audio, String(detail.audio));
+    }
+    const lastFrame = form.elements?.generation_last_frame;
+    if (lastFrame instanceof HTMLInputElement) {
+      lastFrame.checked = detail.lastFrame === true && !lastFrame.disabled;
+      lastFrame.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  } else {
+    syncExactModelControls(form, model, { emit: true });
+  }
+  clearRepeatPaymentAndPreflight(form);
+  renderModelAdvisor(form);
+  scheduleSync(form);
+  return true;
+}
+
+function handleRepeatSettings(event) {
+  const form = event.currentTarget;
+  const detail = normalizeRepeatSettings(event?.detail);
+  if (!detail.provider || !detail.model) return;
+  event.preventDefault?.();
+  clearRepeatPaymentAndPreflight(form);
+  if (!runtime.catalog || !Array.isArray(runtime.catalog.models)) {
+    runtime.pendingRepeatSettings = { form, detail };
+    return;
+  }
+  runtime.pendingRepeatSettings = null;
+  applyRepeatedSettings(form, detail);
+}
+
+function handleExactScope(event) {
+  const form = event.currentTarget;
+  const scope = event?.detail && typeof event.detail === "object"
+    ? event.detail
+    : null;
+  const model = runtime.catalog?.models?.find((entry) => (
+    entry.provider === scope?.provider && entry.model === scope?.model
+  ));
+  if (!model || !modelCanUseExistingLaunch(form, model)) return;
+  event.preventDefault?.();
+  if (!applyModelIdentity(form, model, { preserveRepeatSettings: true })) return;
+  setRepeatedNativeValue(form.elements?.duration_seconds, scope.duration_seconds);
+  setRepeatedNativeValue(form.elements?.format, scope.ratio || scope.format);
+  setRepeatedNativeValue(form.elements?.generation_resolution, scope.resolution);
+  setRepeatedNativeValue(form.elements?.generation_audio, String(scope.audio === true));
+  const lastFrame = form.elements?.generation_last_frame;
+  if (lastFrame instanceof HTMLInputElement) {
+    lastFrame.checked = scope.last_frame === true && !lastFrame.disabled;
+    lastFrame.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  syncExactModelControls(form, model);
+  clearRepeatPaymentAndPreflight(form);
+  renderModelAdvisor(form);
+}
+
 function handleFormClick(event) {
   if (!(event.target instanceof Element)) return;
   const form = event.currentTarget;
+  const contentKind = event.target.closest("[data-ce-v4-content-kind]");
+  if (contentKind) {
+    event.preventDefault();
+    chooseContentKind(form, contentKind.dataset.ceV4ContentKind);
+    return;
+  }
+  const modelFilter = event.target.closest("[data-ce-v4-model-filter]");
+  if (modelFilter) {
+    event.preventDefault();
+    runtime.modelFilter = MODEL_FILTERS.some(([key]) => key === modelFilter.dataset.ceV4ModelFilter)
+      ? modelFilter.dataset.ceV4ModelFilter
+      : "relevant";
+    renderModelAdvisor(form);
+    return;
+  }
+  const applyRecommendation = event.target.closest("[data-ce-v4-apply-model-recommendation]");
+  if (applyRecommendation) {
+    event.preventDefault();
+    applyModelIdentity(form, runtime.recommendationState?.recommendation?.recommended, {
+      acceptRecommendation: true,
+    });
+    return;
+  }
   const stepButton = event.target.closest("[data-ce-v4-generation-target]");
   if (stepButton) {
     event.preventDefault();
@@ -618,6 +2390,62 @@ function handleFormClick(event) {
 
 function handleFormEdit(event) {
   const form = event.currentTarget;
+  const control = event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement
+    ? event.target
+    : null;
+  if (control?.matches?.('[data-ce-v4-generation-model]')) {
+    const selected = runtime.catalog?.models?.find((model) => modelKey(model) === control.value);
+    applyModelIdentity(form, selected);
+    return;
+  }
+  refreshRepeatedSetting(form, control);
+  if ([
+    "generation_model_id",
+    "generation_input_mode",
+    "duration_seconds",
+    "format",
+    "generation_resolution",
+    "generation_audio",
+    "generation_last_frame",
+  ].includes(control?.name)) {
+    delete form.dataset.autoGenerationPreflightKey;
+    const confirmation = form.elements?.real_spend_confirmation;
+    if (confirmation instanceof HTMLInputElement && control?.name !== "real_spend_confirmation") {
+      confirmation.checked = false;
+      confirmation.value = "";
+    }
+    if (control?.name === "generation_audio") {
+      const selected = runtime.catalog?.models?.find(
+        (model) => modelKey(model) === modelKey(selectedModelForForm(form)),
+      );
+      const proxyMode = modeForModel(selected, form);
+      const modeSelect = form.elements?.generation_mode;
+      if (
+        proxyMode
+        && modeSelect instanceof HTMLSelectElement
+        && modeSelect.value !== proxyMode
+      ) {
+        runtime.applyingModel = true;
+        modeSelect.value = proxyMode;
+        modeSelect.dispatchEvent(new Event("change", { bubbles: true }));
+        runtime.applyingModel = false;
+      }
+    }
+  }
+  if (control?.name === "generation_mode" && runtime.catalog && !runtime.applyingModel) {
+    runtime.externalSelectionActive = false;
+    runtime.repeatSettings = null;
+    const identity = modelIdentityForMode(control.value);
+    runtime.recommendationState = identity
+      ? generationModelRecommendationReducer(runtime.recommendationState, {
+          type: GENERATION_MODEL_RECOMMENDATION_ACTIONS.SELECT_MANUAL,
+          selection: identity,
+        })
+      : createGenerationModelRecommendationState({
+          catalogSnapshot: runtime.catalog,
+          context: modelContext(form),
+        });
+  }
   const panel = event.target instanceof Element
     ? event.target.closest("[data-ce-v4-generation-panel]")
     : null;
@@ -631,6 +2459,8 @@ function bindForm(form) {
   form.addEventListener("click", handleFormClick);
   form.addEventListener("input", handleFormEdit);
   form.addEventListener("change", handleFormEdit);
+  form.addEventListener("contentengine:generation-repeat-settings", handleRepeatSettings);
+  form.addEventListener("contentengine:generation-apply-exact-scope", handleExactScope);
 }
 
 function setupForm(form) {
@@ -647,6 +2477,8 @@ function setupForm(form) {
     adoptDirectChildren(form, shell);
   }
 
+  ensureModelAdvisor(form);
+  exposeProviderReadinessControl(form);
   bindForm(form);
   const saved = readSession(form);
   const initial = form.dataset.ceV4GenerationStep || saved.step || STEPS[0].key;
@@ -663,6 +2495,7 @@ function setupForm(form) {
   form.dataset.ceV4GenerationMaxVisited = String(restoredMax);
   setStep(form, restoredIndex);
   scheduleSync(form);
+  void loadModelCatalog(form);
   return shell;
 }
 
@@ -670,10 +2503,18 @@ function mount() {
   if (routePath() !== ROUTE) {
     document.body.classList.remove("ce-v4-generation-guided-route");
     runtime.form = null;
+    runtime.pendingRepeatSettings = null;
     return;
   }
   const form = q("#mock-batch-form");
   if (!form) return;
+  if (runtime.form !== form) {
+    runtime.recommendationState = null;
+    runtime.modelFilter = "relevant";
+    runtime.externalSelectionActive = false;
+    runtime.repeatSettings = null;
+    runtime.pendingRepeatSettings = null;
+  }
   runtime.form = form;
   document.body.classList.add("ce-v4-generation-guided-route");
   setupForm(form);
@@ -684,8 +2525,55 @@ window.ContentEngineDesktopV4.registerAdapter("generation-guided", mount, { prio
 window.ContentEngineGenerationGuidedV4 = Object.freeze({
   mount,
   steps: STEPS,
+  getSelectionSnapshotMetadata(form = runtime.form) {
+    const identity = selectedModelForForm(form);
+    const model = runtime.catalog?.models?.find(
+      (entry) => modelKey(entry) === modelKey(identity),
+    );
+    if (!model || !runtime.recommendationState) return null;
+    const candidate = modelCandidate(runtime.recommendationState, model);
+    const status = acceptanceStatus(runtime.recommendationState, model);
+    const acceptanceStatusAtLaunch = ["accepted", "approved", "verified"].includes(status)
+      ? "accepted"
+      : ["stale", "needs_revalidation", "pending_review"].includes(status)
+        ? "needs_revalidation"
+        : "unproven";
+    return Object.freeze({
+      provider: model.provider,
+      model: model.model,
+      modelPublicLabel: String(model.publicLabel || model.model),
+      selectionSource: canonicalSelectionSource(),
+      recommendationReasonCodes: Object.freeze([...(candidate?.reasonCodes || [])]),
+      recommendationWarningCodes: Object.freeze([...(candidate?.warningCodes || [])]),
+      recommendationCatalogVersion: String(runtime.catalog.version || ""),
+      acceptanceStatusAtLaunch,
+    });
+  },
+  setModelCatalog(catalog) {
+    if (!catalog || typeof catalog.version !== "string" || !Array.isArray(catalog.models)) return false;
+    runtime.catalog = catalog;
+    runtime.catalogStatus = "ready";
+    runtime.recommendationState = null;
+    window.ContentEngineWorkspaceRuntime?.setGenerationModelCatalog?.(catalog);
+    if (runtime.form?.isConnected) {
+      const pending = runtime.pendingRepeatSettings;
+      runtime.pendingRepeatSettings = null;
+      if (!pending || pending.form !== runtime.form || !applyRepeatedSettings(runtime.form, pending.detail)) {
+        renderModelAdvisor(runtime.form);
+      }
+    }
+    return true;
+  },
   goToStep(value) {
     if (!runtime.form?.isConnected) return false;
     return moveTo(runtime.form, stepIndex(value));
   },
+});
+
+window.addEventListener("contentengine:workspace-runtime-ready", () => {
+  if (runtime.form?.isConnected && !runtime.catalog) void loadModelCatalog(runtime.form);
+});
+
+window.addEventListener("contentengine:generation-model-acceptance-updated", () => {
+  if (runtime.form?.isConnected && runtime.catalog) renderModelAdvisor(runtime.form);
 });

@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ContentEngine Quick Look v4.8 harness</title>
+    <link rel="stylesheet" href="../../web/app/styles.css" />
+    <link rel="stylesheet" href="../../web/app/interface-system.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-board.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-finder.css" />
+    <style>
+      html, body { min-width: 0; min-height: 100%; margin: 0; overflow-x: hidden; background: #070605; color: #f7f1e9; }
+      body { padding: 8px; box-sizing: border-box; }
+      #app, #workspace-content { width: 100%; min-width: 0; }
+      #result { position: fixed; z-index: 99999; right: 4px; bottom: 4px; padding: 3px 6px; border-radius: 6px; color: #07100d; background: #8ce7d2; font: 700 11px/1.2 system-ui; }
+    </style>
+  </head>
+  <body>
+    <div id="app"><main id="workspace-content"></main></div>
+    <output id="result" role="status">Проверка…</output>
+    <script type="module">
+      const adapters = [];
+      window.ContentEngineDesktopV4 = Object.freeze({
+        registerAdapter(_name, adapter) {
+          adapters.push(adapter);
+          adapter();
+        },
+        requestMount() {
+          adapters.forEach((adapter) => adapter());
+        },
+        async flush() {
+          adapters.forEach((adapter) => adapter());
+          await Promise.resolve();
+        },
+      });
+      history.replaceState({}, "", "#/workspace/board?project_id=project-alpha&folder=all");
+
+      const { workspaceBoardMarkup } = await import("../../web/app/workspace-board-view.js");
+      const png = Uint8Array.from(
+        atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="),
+        (character) => character.charCodeAt(0),
+      );
+      const imageUrl = URL.createObjectURL(new Blob([png], { type: "image/png" }));
+      const videoUrl = URL.createObjectURL(new Blob([], { type: "video/mp4" }));
+      const sha = "a".repeat(64);
+      const rawBoard = {
+        capabilities: {
+          manage_folders: false,
+          move_items: false,
+          research_artifacts: { read_only: true, scope: "project" },
+        },
+        folders: [
+          { id: "sources", name: "Источники", kind: "project", system_role: "sources", position: 10 },
+          { id: "ready", name: "Готово", kind: "folder", system_role: "ready", position: 9 },
+        ],
+        items: [
+          {
+            id: "video-alpha",
+            entity_type: "media",
+            folder_id: "sources",
+            title: "Интервью покупателя.mp4",
+            original_filename: "Интервью покупателя.mp4",
+            object_key: "project-alpha/source/video-alpha.mp4",
+            source_identity: "WB review · 1488",
+            mime_type: "video/mp4",
+            signed_url: videoUrl,
+            artifact_class: "source",
+            lifecycle_stage: "sources",
+            status: "ready",
+            duration_seconds: 73.4,
+            version_count: 3,
+            product_id: "product-alpha",
+            product_name: "Протеиновый батончик",
+            sku: "BAR-001",
+            wb_article: "12345678",
+            task_id: "task-alpha",
+            sha256: sha,
+            created_at: "2026-08-12T09:00:00Z",
+            position: 50,
+          },
+          {
+            id: "image-alpha",
+            entity_type: "media",
+            folder_id: "sources",
+            title: "Главный кадр.png",
+            original_filename: "Главный кадр.png",
+            object_key: "project-alpha/source/image-alpha.png",
+            mime_type: "image/png",
+            signed_url: imageUrl,
+            artifact_class: "source",
+            lifecycle_stage: "sources",
+            status: "ready",
+            width: 1800,
+            height: 2400,
+            product_id: "product-alpha",
+            product_name: "Протеиновый батончик",
+            sku: "BAR-001",
+            created_at: "2026-08-12T09:10:00Z",
+            position: 40,
+          },
+          {
+            id: "research-alpha",
+            entity_type: "research",
+            title: "Исследование карточки товара",
+            status: "done",
+            created_by: "profile-alpha",
+            created_at: "2026-08-12T09:20:00Z",
+            deep_link: "#/workspace/research?project_id=project-alpha&run=research-alpha",
+            category_binding_id: "binding-alpha",
+            research_source: "Отзывы покупателей · WB · 120 карточек",
+            evidence_summary: "Повторяются две проверенные причины отказа: слишком сладкий вкус и непонятный размер порции.",
+            selected_conclusions: ["Показать размер порции в первом кадре", "Снизить визуальный акцент на сладости"],
+            rejected_conclusions: ["Обещать лечебный эффект"],
+            next_action: "Сотрудник проверяет выводы и вручную выбирает, что переносить в ТЗ.",
+            ai_receipt: {
+              receipt_id: "receipt-alpha",
+              status: "learned",
+              received_at: "2026-08-12T09:24:00Z",
+              deep_link: "#/workspace/ai?project_id=project-alpha&receipt=receipt-alpha",
+            },
+            disposition: {
+              disposition_id: "decision-alpha",
+              status: "accepted_with_edits",
+              decided_at: "2026-08-12T09:26:00Z",
+            },
+            learning_selection: {
+              selection_id: "selection-alpha",
+              status: "selected",
+              selected_at: "2026-08-12T09:27:00Z",
+            },
+            position: 30,
+          },
+          {
+            id: "generated-alpha",
+            entity_type: "media",
+            folder_id: "ready",
+            title: "Готовый ролик · версия 4",
+            object_key: "project-alpha/generated/generated-alpha.mp4",
+            mime_type: "video/mp4",
+            signed_url: videoUrl,
+            artifact_class: "generated_output",
+            lifecycle_stage: "ready",
+            status: "ready",
+            content_version: "v4",
+            actual_cost_minor: 118,
+            currency: "USD",
+            generation_selection_snapshot: {
+              provider: "runway",
+              model: "gen4_turbo",
+              model_public_label: "Runway Gen-4 Turbo",
+              selection_source: "manual_choice",
+              acceptance_status_at_launch: "accepted",
+              estimated_cost_minor: 125,
+              currency: "USD",
+              input_mode: "image",
+              reference_count: 2,
+              requested_duration_seconds: 5,
+              requested_ratio: "9:16",
+              requested_resolution: "1080p",
+              requested_audio: false,
+            },
+            review_history: [{ status: "Принято редактором", reviewed_at: "2026-08-12T10:00:00Z" }],
+            publication_history: [{ status: "Опубликовано в WB", published_at: "2026-08-12T11:00:00Z" }],
+            product_id: "product-alpha",
+            product_name: "Протеиновый батончик",
+            task_id: "task-alpha",
+            created_at: "2026-08-12T09:30:00Z",
+            position: 20,
+          },
+          {
+            id: "generated-legacy",
+            entity_type: "media",
+            folder_id: "ready",
+            title: "Исторический результат",
+            object_key: "project-alpha/generated/legacy.mp4",
+            mime_type: "video/mp4",
+            artifact_class: "generated_output",
+            lifecycle_stage: "ready",
+            status: "ready",
+            created_at: "2026-08-12T08:00:00Z",
+            position: 10,
+          },
+        ],
+      };
+      const rawBefore = JSON.stringify(rawBoard, (key, value) => key === "signed_url" ? "[ephemeral]" : value);
+      const content = document.querySelector("#workspace-content");
+      let applicationOpenCount = 0;
+      let selectedItemKey = "";
+      let runtimeFetchCount = 0;
+      const originalFetch = window.fetch;
+
+      function render() {
+        content.innerHTML = `<div class="page-wrap" data-project-flow-root data-project-id="project-alpha">${workspaceBoardMarkup(rawBoard, {
+          selectedFolderId: "all",
+          selectedItemKey,
+          entityType: "all",
+          provenanceFilter: "all",
+          visibleItemLimit: 20,
+          viewerProfileId: "profile-alpha",
+          viewerName: "Анна",
+        })}</div>`;
+        window.ContentEngineDesktopV4.requestMount();
+      }
+
+      render();
+      document.addEventListener("click", (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        const close = target?.closest?.('[data-action="close-workspace-item"]');
+        if (close) {
+          selectedItemKey = "";
+          render();
+          return;
+        }
+        const open = target?.closest?.('[data-action="open-workspace-item"]');
+        const card = open?.closest?.(".workspace-board__item");
+        if (!card) return;
+        applicationOpenCount += 1;
+        selectedItemKey = String(card.dataset.workspaceItemKey || "");
+        render();
+      });
+
+      await import("../../web/app/workspace-os-v4-finder.js");
+      await window.ContentEngineDesktopV4.flush();
+      window.fetch = (...args) => {
+        runtimeFetchCount += 1;
+        return originalFetch(...args);
+      };
+
+      const waitFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+      async function waitFor(selector, present = true) {
+        for (let attempt = 0; attempt < 30; attempt += 1) {
+          const node = document.querySelector(selector);
+          if (Boolean(node) === present) return node;
+          await waitFrame();
+        }
+        return document.querySelector(selector);
+      }
+      const itemButton = (key) => document.querySelector(`[data-workspace-item-key="${CSS.escape(key)}"] [data-action="open-workspace-item"]`);
+      async function selectOnly(key) {
+        const button = itemButton(key);
+        button.click();
+        await waitFrame();
+        return itemButton(key);
+      }
+      async function openBySpace(key) {
+        const button = await selectOnly(key);
+        button.focus({ preventScroll: true });
+        button.dispatchEvent(new KeyboardEvent("keydown", { key: " ", code: "Space", bubbles: true, cancelable: true }));
+        await waitFor(".workspace-board.is-quicklook-inline");
+        return document.querySelector("[data-workspace-item-drawer]");
+      }
+      async function closeQuickLook(key) {
+        window.ContentEngineFinderV4.closeQuickLook();
+        await waitFor(".workspace-board.is-quicklook-inline", false);
+        await waitFrame();
+        await waitFrame();
+        return itemButton(key);
+      }
+
+      const checks = {};
+      const search = document.querySelector('#workspace-board-filter-form input[name="query"]');
+      const beforeControlSpace = applicationOpenCount;
+      search.focus({ preventScroll: true });
+      search.dispatchEvent(new KeyboardEvent("keydown", { key: " ", code: "Space", bubbles: true, cancelable: true }));
+      checks.spaceIgnoredInsideControl = applicationOpenCount === beforeControlSpace && !document.querySelector(".is-quicklook-inline");
+
+      const videoButton = await selectOnly("media:video-alpha");
+      checks.singleClickSelectsWithoutOpen = applicationOpenCount === 0
+        && videoButton.closest(".workspace-board__item").getAttribute("aria-selected") === "true"
+        && !document.querySelector("[data-workspace-item-drawer]");
+
+      const beforeDoubleClick = applicationOpenCount;
+      videoButton.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
+      await waitFor("[data-workspace-item-drawer]");
+      checks.doubleClickOpensOnce = applicationOpenCount - beforeDoubleClick === 1;
+      document.querySelector('[data-action="close-workspace-item"]')?.click();
+      await waitFor("[data-workspace-item-drawer]", false);
+
+      const enterButton = itemButton("media:video-alpha");
+      enterButton.focus({ preventScroll: true });
+      const beforeEnter = applicationOpenCount;
+      enterButton.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      await waitFor("[data-workspace-item-drawer]");
+      checks.enterOpensOnce = applicationOpenCount - beforeEnter === 1;
+      document.querySelector('[data-action="close-workspace-item"]')?.click();
+      await waitFor("[data-workspace-item-drawer]", false);
+
+      const hashBeforeQuickLook = location.hash;
+      const videoDrawer = await openBySpace("media:video-alpha");
+      const videoText = videoDrawer?.textContent || "";
+      const video = videoDrawer?.querySelector("video");
+      checks.videoMetadataExact = videoText.includes("1 мин. 13,4 сек.")
+        && videoText.includes("Версий")
+        && videoText.includes("WB review · 1488")
+        && videoText.includes("Протеиновый батончик")
+        && videoText.includes("Задача");
+      checks.videoDoesNotAutoplay = Boolean(video) && !video.autoplay && video.getAttribute("preload") === "none";
+      checks.quickLookNoRouteMutation = location.hash === hashBeforeQuickLook;
+      checks.singleInlineOwner = document.querySelectorAll(".workspace-board.is-quicklook-inline").length === 1
+        && document.querySelectorAll(".ce-v4-quicklook-inline").length === 1
+        && document.querySelectorAll("[aria-modal='true']").length === 0;
+      const restoredVideoButton = await closeQuickLook("media:video-alpha");
+      checks.closeRestoresFocusAndSelection = document.activeElement === restoredVideoButton
+        && restoredVideoButton.closest(".workspace-board__item").getAttribute("aria-selected") === "true";
+
+      const imageDrawer = await openBySpace("media:image-alpha");
+      const imageText = imageDrawer?.textContent || "";
+      checks.imageMetadataExact = imageText.includes("1800 × 2400 px")
+        && imageText.includes("Главный кадр.png")
+        && imageText.includes("BAR-001");
+      await closeQuickLook("media:image-alpha");
+
+      const researchDrawer = await openBySpace("research:research-alpha");
+      const researchText = researchDrawer?.textContent || "";
+      checks.researchMetadataExact = researchText.includes("Отзывы покупателей · WB · 120 карточек")
+        && researchText.includes("Принятые выводы")
+        && researchText.includes("Отклонённые выводы")
+        && researchText.includes("Решение человека")
+        && researchText.includes("Выбор для обучения")
+        && researchText.includes("Сотрудник проверяет выводы");
+      checks.researchActionsExact = researchDrawer?.querySelectorAll(".workspace-board__research-links a").length === 2
+        && [...researchDrawer.querySelectorAll(".workspace-board__research-links a")].every((link) => link.getAttribute("href")?.startsWith("#/workspace/"));
+      await closeQuickLook("research:research-alpha");
+
+      await selectOnly("media:generated-alpha");
+      const quickLookButton = document.querySelector("[data-ce-v4-finder-quicklook]");
+      checks.visibleToolbarButton = Boolean(quickLookButton) && !quickLookButton.disabled;
+      quickLookButton.click();
+      const generatedDrawer = await waitFor(".workspace-board.is-quicklook-inline [data-workspace-item-drawer]");
+      const generatedText = generatedDrawer?.textContent || "";
+      checks.generatedMetadataExact = generatedText.includes("Runway Gen-4 Turbo")
+        && generatedText.includes("gen4_turbo")
+        && generatedText.includes("Ручной выбор человека")
+        && generatedText.includes("1,25 $")
+        && generatedText.includes("1,18 $")
+        && generatedText.includes("Изображение · референсов: 2")
+        && generatedText.includes("Принято редактором")
+        && generatedText.includes("Опубликовано в WB")
+        && generatedText.includes("v4");
+      await closeQuickLook("media:generated-alpha");
+
+      const legacyDrawer = await openBySpace("media:generated-legacy");
+      const legacyText = legacyDrawer?.textContent || "";
+      checks.legacyDoesNotInventModel = legacyText.includes("Модель, стоимость и входы не переданы")
+        && !legacyText.includes("Runway Gen-4 Turbo")
+        && !legacyText.includes("gen4_turbo");
+      await closeQuickLook("media:generated-legacy");
+
+      await openBySpace("media:generated-alpha");
+      const board = document.querySelector(".workspace-board");
+      const drawer = document.querySelector("[data-workspace-item-drawer]");
+      const drawerRect = drawer.getBoundingClientRect();
+      checks.noHorizontalOverflow = document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1
+        && document.body.scrollWidth <= document.body.clientWidth + 1
+        && board.scrollWidth <= board.clientWidth + 1
+        && drawerRect.left >= -1
+        && drawerRect.right <= innerWidth + 1;
+      checks.controlsMeetTouchTarget = [...document.querySelectorAll(".ce-v4-quicklook-inline__controls button")]
+        .every((button) => button.getBoundingClientRect().height >= 44);
+      checks.lowerObjectUnchanged = JSON.stringify(rawBoard, (key, value) => key === "signed_url" ? "[ephemeral]" : value) === rawBefore;
+      checks.noApiOrPaidSideEffect = runtimeFetchCount === 0;
+      checks.noSignedUrlPersistence = ![...Object.values(localStorage), ...Object.values(sessionStorage)]
+        .some((value) => String(value).includes("blob:"));
+
+      const passed = Object.values(checks).every(Boolean);
+      const result = document.querySelector("#result");
+      result.dataset.passed = String(passed);
+      result.dataset.checks = JSON.stringify(checks);
+      result.textContent = passed ? "PASS" : "FAIL";
+      window.__workspaceQuickLookV48 = Object.freeze({ checks, applicationOpenCount });
+    </script>
+  </body>
+</html>

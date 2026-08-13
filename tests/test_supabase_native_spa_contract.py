@@ -317,12 +317,13 @@ def test_spa_payload_and_workspace_fields_match_the_creator_rpc_migration() -> N
         for name in re.findall(r'"(creator_[a-z0-9_]+)"', adapter)
         if name != "creator_api_error"
     ]
-    assert len(set(rpc_names)) == 101
+    assert len(set(rpc_names)) == 104
     assert "creator_admin_snapshot" in rpc_names
     assert "creator_admin_mutate" in rpc_names
     assert "creator_operational_health" in rpc_names
     assert "creator_generation_learning_policy" in rpc_names
     assert "creator_generation_repair_policy" in rpc_names
+    assert "creator_generation_archive" in rpc_names
     assert "creator_create_generation_campaign" in rpc_names
     assert "creator_update_generation_campaign_spend_policy" in rpc_names
     assert "creator_prepare_content_review_evidence" in rpc_names
@@ -335,6 +336,9 @@ def test_spa_payload_and_workspace_fields_match_the_creator_rpc_migration() -> N
     assert "creator_project_members" in rpc_names
     assert "creator_grant_project_member" in rpc_names
     assert "creator_revoke_project_member" in rpc_names
+    assert "creator_notification_center" in rpc_names
+    assert "creator_validate_notification_action" in rpc_names
+    assert "creator_mark_visible_notifications_read" in rpc_names
     for function_name in (
         "creator_project_flow",
         "creator_create_workspace_project",
@@ -432,7 +436,9 @@ def test_generation_keeps_mock_safe_and_requires_explicit_paid_runway_confirmati
     assert "allow_real_spend: true" in adapter
     assert "`RUNWAY_GEN4_TURBO_${duration}S_USD_${estimatedUsd}`" in adapter
     assert "`RUNWAY_SEEDANCE2_FAST_${duration}S_AUDIO_USD_${estimatedUsd}`" in adapter
-    assert "batch?.spend_confirmation !== sku.confirmation" in adapter
+    assert 'String(batch?.spend_confirmation || "")' in adapter
+    assert '!isUuid(String(batch?.provider_readiness_receipt_id || ""))' in adapter
+    assert "PROVIDER_READINESS_SHA256_PATTERN.test(" in adapter
     assert "batch.media_ids.length > 5" in adapter
     assert "new Set(batch.media_ids.map(String)).size" in adapter
     assert "edge:${REAL_GENERATION_FUNCTION}" in adapter
@@ -487,7 +493,7 @@ def test_password_reset_has_a_bounded_wait_and_always_unlocks_the_form() -> None
     assert "finally" in reset
     assert "if (form.isConnected) setFormBusy(form, false)" in reset
     assert "Promise.race([operation, timeout])" in app
-    assert './app.js?v=20260812.os4.38' in index
+    assert './app.js?v=20260813.os4.39' in index
 
 
 def test_novice_workspace_has_required_tabs_and_last_mile_forms() -> None:

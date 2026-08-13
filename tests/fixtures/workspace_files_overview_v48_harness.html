@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ContentEngine Files semantic overview v4.8</title>
+    <link rel="stylesheet" href="../../web/app/styles.css?v=files-overview-v1" />
+    <link rel="stylesheet" href="../../web/app/workspace-board.css?v=files-overview-v5" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-finder.css?v=files-overview-v5" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4.css?v=files-overview-v5" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-stability.css?v=files-overview-v5" />
+  </head>
+  <body>
+    <div id="app" class="app-root">
+      <div
+        class="workspace-shell workspace-shell-v4"
+        data-workspace-section="board"
+        data-workspace-role="owner"
+        data-workspace-authorized-routes="/workspace/home /workspace/board /workspace/generation /workspace/review /workspace/placement /workspace/stats /workspace/research /workspace/ai /workspace/tasks /workspace/work"
+        data-project-id="11111111-1111-4111-8111-111111111111"
+        data-project-name="Bombbar · Август"
+      >
+        <main class="workspace-main">
+          <div id="main-content"><div id="workspace-content"></div></div>
+        </main>
+      </div>
+      <script id="workspace-project-flow-snapshot" type="application/json">
+        {
+          "project_id": "11111111-1111-4111-8111-111111111111",
+          "project": { "id": "11111111-1111-4111-8111-111111111111", "name": "Bombbar · Август", "progress_percent": 42, "current_stage": "files" },
+          "projects": [{ "id": "11111111-1111-4111-8111-111111111111", "name": "Bombbar · Август", "progress_percent": 42, "current_stage": "files" }],
+          "counts": { "files": 34, "generation_jobs": 2, "reviews": 1, "placements": 0, "metric_snapshots": 0, "notifications_unread": 2 },
+          "stages": [
+            { "code": "files", "state": "current", "count": 34 },
+            { "code": "generation", "state": "future", "count": 2 },
+            { "code": "review", "state": "future", "count": 1 },
+            { "code": "placement", "state": "future", "count": 0 },
+            { "code": "stats", "state": "future", "count": 0 }
+          ]
+        }
+      </script>
+    </div>
+    <div id="toast-region" aria-live="polite"></div>
+    <script type="module">
+      import { workspaceBoardMarkup } from "../../web/app/workspace-board-view.js?fixture=files-overview-v1";
+
+      const projectId = "11111111-1111-4111-8111-111111111111";
+      const folders = [
+        { id: "21111111-1111-4111-8111-111111111111", project_id: projectId, name: "Исходники", system_role: "sources", item_count: 31 },
+        { id: "31111111-1111-4111-8111-111111111111", project_id: projectId, name: "Черновики", system_role: "drafts", item_count: 1 },
+        { id: "41111111-1111-4111-8111-111111111111", project_id: projectId, name: "На проверке", system_role: "review", item_count: 1 },
+        { id: "51111111-1111-4111-8111-111111111111", project_id: projectId, name: "Готово", system_role: "ready", item_count: 0 },
+        { id: "61111111-1111-4111-8111-111111111111", project_id: projectId, name: "Опубликовано", system_role: "published", item_count: 0 }
+      ];
+      const sourceItems = Array.from({ length: 31 }, (_, index) => ({
+        id: `71111111-1111-4111-8111-${String(index + 1).padStart(12, "0")}`,
+        entity_type: "media",
+        title: `Источник ${index + 1}`,
+        folder_id: folders[0].id,
+        artifact_class: "source",
+        lifecycle_stage: "sources",
+        status: "ready",
+        owner_id: "99999999-9999-4999-8999-999999999999",
+        owner_name: "Мария"
+      }));
+      const generatedItems = [
+        { id: "81111111-1111-4111-8111-111111111111", entity_type: "media", title: "Черновик ролика", folder_id: folders[1].id, artifact_class: "generated_output", lifecycle_stage: "drafts", status: "ready" },
+        { id: "81111111-1111-4111-8111-111111111112", entity_type: "media", title: "Ролик на проверке", folder_id: folders[2].id, artifact_class: "generated_output", lifecycle_stage: "review", status: "ready" }
+      ];
+      const researchArtifacts = Array.from({ length: 11 }, (_, index) => ({
+        id: `91111111-1111-4111-8111-${String(index + 1).padStart(12, "0")}`,
+        entity_type: "research",
+        title: `Исследование товара ${index + 1}`,
+        status: "completed",
+        read_only: true,
+        can_move: false,
+        created_by: "88888888-8888-4888-8888-888888888888",
+        created_by_name: "Иван"
+      }));
+      document.querySelector("#workspace-content").innerHTML = workspaceBoardMarkup({
+        capabilities: { manage_folders: true, move_items: true, research_artifacts: { read_only: true, scope: "project" } },
+        folders,
+        items: [...sourceItems, ...generatedItems],
+        research_artifacts: researchArtifacts
+      }, {
+        selectedFolderId: "all",
+        selectedItemKey: "",
+        query: "",
+        entityType: "all",
+        provenanceFilter: "all",
+        landingOverview: true,
+        viewerProfileId: "99999999-9999-4999-8999-999999999999",
+        viewerName: "Мария"
+      });
+      window.location.hash = `#/workspace/board?project_id=${projectId}`;
+      await import("../../web/app/workspace-os-v4.js?fixture=files-overview-v5");
+      await import("../../web/app/workspace-os-v4-finder.js?fixture=files-overview-v5");
+      await window.ContentEngineDesktopV4.flush();
+
+      const requestedWindowWidth = Number.parseInt(
+        new URLSearchParams(window.location.search).get("window_width") || "",
+        10,
+      );
+      const shellWindow = document.querySelector(".ce-v4-window");
+      if (Number.isFinite(requestedWindowWidth) && requestedWindowWidth > 0 && window.innerWidth > 850) {
+        shellWindow.style.width = `${requestedWindowWidth}px`;
+        shellWindow.dataset.fixtureProgrammaticWidth = String(requestedWindowWidth);
+      }
+      // Reading the real window box forces style and layout after the optional
+      // width change. Geometry does not depend on an arbitrary timer budget.
+      shellWindow?.getBoundingClientRect();
+
+      document.body.dataset.fixtureReady = "true";
+      window.__workspaceFilesOverviewFixtureReady = true;
+      const overview = document.querySelector(".workspace-board__overview");
+      const semanticOverview = Boolean(
+        overview
+        && !document.querySelector(".workspace-board__grid")
+        && overview.querySelector('[data-overview-kind="source"]')
+        && overview.querySelector('[data-overview-kind="research"]')
+        && overview.querySelector('[data-overview-kind="generated_output"]')
+      );
+      document.body.dataset.fixtureSemanticOverview = String(semanticOverview);
+      window.__workspaceFilesOverviewRendered = semanticOverview;
+      window.__workspaceFilesOverviewShellMounted = Boolean(
+        shellWindow
+        && document.querySelector(".ce-v4-dock")
+      );
+      const overviewCards = [...document.querySelectorAll(".workspace-board__overview-card")];
+      const measured = [
+        ["workspace-content", document.querySelector("#workspace-content")],
+        ["board", document.querySelector(".workspace-board")],
+        ["layout", document.querySelector(".workspace-board__layout")],
+        ["content", document.querySelector(".workspace-board__content")],
+        ["overview", overview],
+        ...overviewCards.map((card, index) => [`card-${index + 1}`, card]),
+      ].filter(([, node]) => Boolean(node));
+      const overflowMetrics = measured.map(([name, node]) => ({
+        name,
+        clientWidth: node.clientWidth,
+        scrollWidth: node.scrollWidth,
+        ok: node.scrollWidth <= node.clientWidth,
+      }));
+      const overflowFailures = overflowMetrics.filter((metric) => !metric.ok).map((metric) => metric.name);
+      const noHorizontalOverflow = overflowFailures.length === 0;
+      const cardRects = overviewCards.map((card) => card.getBoundingClientRect());
+      const near = (left, right) => Math.abs(left - right) <= 1;
+      const oneColumn = cardRects.length === 3
+        && cardRects.every((rect) => near(rect.left, cardRects[0].left))
+        && cardRects[1].top > cardRects[0].top
+        && cardRects[2].top > cardRects[1].top;
+      const twoPlusOne = cardRects.length === 3
+        && near(cardRects[0].top, cardRects[1].top)
+        && !near(cardRects[0].left, cardRects[1].left)
+        && cardRects[2].top > cardRects[0].top
+        && near(cardRects[2].left, cardRects[0].left)
+        && cardRects[2].width > cardRects[0].width * 1.8;
+      const contentWidth = document.querySelector(".workspace-board__content")?.clientWidth || 0;
+      document.body.dataset.fixtureOverviewCards = String(overviewCards.length);
+      document.body.dataset.fixtureBoardGridPresent = String(Boolean(document.querySelector(".workspace-board__grid")));
+      document.body.dataset.fixtureMeasuredNodes = String(measured.length);
+      document.body.dataset.fixtureNoHorizontalOverflow = String(noHorizontalOverflow);
+      document.body.dataset.fixtureOverflowFailures = overflowFailures.join(",");
+      document.body.dataset.fixtureContentWidth = String(contentWidth);
+      document.body.dataset.fixtureOneColumn = String(oneColumn);
+      document.body.dataset.fixtureTwoPlusOne = String(twoPlusOne);
+      document.body.dataset.fixtureProgrammaticWindow = String(Boolean(shellWindow?.dataset.fixtureProgrammaticWidth));
+      window.__workspaceFilesOverviewGeometry = {
+        overviewCards: overviewCards.length,
+        boardGridPresent: Boolean(document.querySelector(".workspace-board__grid")),
+        contentWidth,
+        oneColumn,
+        twoPlusOne,
+        noHorizontalOverflow,
+        overflowMetrics,
+      };
+    </script>
+  </body>
+</html>

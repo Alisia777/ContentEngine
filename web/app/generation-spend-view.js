@@ -203,6 +203,19 @@ export function generationSpendSnapshotMarkup(state = {}, { requestMinor = null,
 
   const overview = normalizeGenerationSpendOverview(state.data);
   const stale = state?.status === "error";
+  const estimateMissing = requestMinor === null || requestMinor === undefined;
+  if (!stale && estimateMissing) {
+    return `
+      <aside class="generation-spend-snapshot generation-spend-snapshot-neutral" role="status">
+        <div><strong>Стоимость ещё не подтверждена</strong><span>Выберите модель и параметры, затем выполните бесплатную серверную проверку. Остаток не разрешает платный запуск без точной цены.</span></div>
+        <dl>
+          <div><dt>Сегодня</dt><dd>${formatUsd(overview.day.remainingMinor)}</dd></div>
+          <div><dt>Месяц</dt><dd>${formatUsd(overview.month.remainingMinor)}</dd></div>
+          <div><dt>Один запуск</dt><dd>${formatUsd(overview.policy.perRequestLimitMinor)}</dd></div>
+        </dl>
+      </aside>
+    `;
+  }
   const allowed = !stale && generationSpendAllowsMinor(overview, requestMinor, campaignId);
   const selectedCampaign = overview.campaigns.find((campaign) => campaign.id === safeText(campaignId));
   const campaignMessage = !safeText(campaignId)
