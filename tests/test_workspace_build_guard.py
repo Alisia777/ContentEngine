@@ -28,12 +28,14 @@ def test_build_id_is_consistent_across_entrypoints() -> None:
 
 def test_desktop_flag_loader_runs_before_app_and_build_guard_runs_last() -> None:
     build_id = MANIFEST["id"]
+    entry_cache_key = f"{build_id}.bad-context.1"
     assert f'<link rel="stylesheet" href="./workspace-os-v4.css?v={build_id}" />' in APP_INDEX
-    assert f'<script type="module" src="./workspace-os-v4-loader.js?v={build_id}"></script>' in APP_INDEX
+    assert f'<script type="module" src="./workspace-os-v4-loader.js?v={entry_cache_key}"></script>' in APP_INDEX
+    assert f'<script type="module" src="./app.js?v={entry_cache_key}"></script>' in APP_INDEX
     assert f'./workspace-build-guard.css?v={build_id}' in APP_INDEX
     assert f'./workspace-build-guard.js?v={build_id}' in APP_INDEX
     assert APP_INDEX.index(f'./workspace-os-v4.css?v={build_id}') < APP_INDEX.index('./workspace-build-guard.css')
-    assert APP_INDEX.index(f'./workspace-os-v4-loader.js?v={build_id}') < APP_INDEX.index('./app.js')
+    assert APP_INDEX.index(f'./workspace-os-v4-loader.js?v={entry_cache_key}') < APP_INDEX.index(f'./app.js?v={entry_cache_key}')
     assert APP_INDEX.index('./app.js') < APP_INDEX.index(f'./workspace-build-guard.js?v={build_id}')
     assert "window.CONTENTENGINE_DESKTOP_V4 = true" in (
         APP_DIR / "workspace-os-v4-loader.js"
