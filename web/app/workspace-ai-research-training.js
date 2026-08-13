@@ -139,25 +139,76 @@ function currentTrainingProjectId() {
   });
 }
 
+function trainingShellAccess() {
+  const shell = typeof document === "undefined"
+    ? null
+    : document.querySelector(".workspace-shell");
+  const receiptScope = clean(
+    shell?.dataset?.aiResearchReceiptScope,
+    20,
+  ).toLowerCase();
+  if (!shell && typeof document !== "undefined" && !document.documentElement) {
+    return {
+      allowed: true,
+      receiptScope: "project",
+      ownOnly: false,
+      canDecide: true,
+      canEdit: true,
+    };
+  }
+  return {
+    allowed: ["own", "project"].includes(receiptScope),
+    receiptScope,
+    ownOnly: receiptScope === "own",
+    canDecide: shell?.dataset?.aiResearchCanDecide === "true",
+    canEdit: shell?.dataset?.aiResearchCanEdit === "true",
+  };
+}
+
 export function projectScopedTrainingPayload(payload, projectId) {
   const normalized = normalizedProjectId(projectId);
   if (!normalized) throw new Error("project_id_required");
   return { ...object(payload), project_id: normalized };
 }
 
-export function projectScopedTrainingSnapshot(value, expectedProjectId) {
+export function projectScopedTrainingSnapshot(
+  value,
+  expectedProjectId,
+  receiptScope = "project",
+) {
   const projectId = normalizedProjectId(expectedProjectId);
   const source = unwrap(value);
-  if (!projectId || normalizedProjectId(source.project_id) !== projectId) {
+  const normalizedReceiptScope = ["own", "project"].includes(receiptScope)
+    ? receiptScope
+    : "none";
+  if (
+    !projectId
+    || normalizedReceiptScope === "none"
+    || normalizedProjectId(source.project_id) !== projectId
+  ) {
     return null;
   }
-  const exactProjectItems = (items) => (Array.isArray(items) ? items : [])
-    .filter((item) => normalizedProjectId(item?.project_id) === projectId);
+  const exactProjectItems = (items) => {
+    const candidates = Array.isArray(items) ? items : [];
+    if (normalizedReceiptScope === "own") {
+      if (candidates.some((item) => (
+        normalizedProjectId(item?.project_id) !== projectId
+        || item?.ownership !== "own"
+      ))) return null;
+      return candidates;
+    }
+    return candidates.filter((item) => (
+      normalizedProjectId(item?.project_id) === projectId
+    ));
+  };
+  const queue = exactProjectItems(source.queue);
+  const learned = exactProjectItems(source.learned);
+  if (!queue || !learned) return null;
   return {
     ...source,
     project_id: projectId,
-    queue: exactProjectItems(source.queue),
-    learned: exactProjectItems(source.learned),
+    queue,
+    learned,
   };
 }
 
@@ -171,6 +222,20 @@ function routeCategory() {
   return normalizedCategory(
     params.get("category") || params.get("product_category") || "",
   );
+}
+
+function routeReceipt() {
+  const params = routeParams();
+  const values = params.getAll("receipt");
+  if (!values.length) return { requested: false, valid: true, id: "" };
+  const id = values.length === 1
+    ? clean(values[0], 80).toLowerCase()
+    : "";
+  return {
+    requested: true,
+    valid: values.length === 1 && UUID_PATTERN.test(id),
+    id,
+  };
 }
 
 function legacyCategoryControlVisible(control) {
@@ -369,12 +434,13 @@ function addTextList(parent, values, emptyText = "Нет подтверждён�
   parent.append(ul);
 }
 
-function insightCard({ key, title, description, content }) {
+function insightCard({ key, title, description, content, disabled = false }) {
   const label = el("label", "ai-research-training__insight");
   const checkbox = el("input");
   checkbox.type = "checkbox";
   // Analysis blocks are suggestions too; approval requires a human check.
   checkbox.checked = false;
+  checkbox.disabled = disabled;
   checkbox.dataset.insightKey = key;
   const body = el("span", "ai-research-training__insight-body");
   const head = el("span", "ai-research-training__insight-title");
@@ -387,7 +453,7 @@ function insightCard({ key, title, description, content }) {
   return label;
 }
 
-function categoryInsight(analysis) {
+function categoryInsight(analysis, disabled = false) {
   const category = object(analysis.category_analysis);
   const block = el("span");
   const summary = clean(category.definition || category.summary || category.category_name, 900);
@@ -403,10 +469,11 @@ function categoryInsight(analysis) {
     title: "Категория и покупатель",
     description: "Что человек пытается решить товаром",
     content: block,
+    disabled,
   });
 }
 
-function competitorInsight(analysis) {
+function competitorInsight(analysis, disabled = false) {
   const competitors = object(analysis.competitor_analysis);
   const block = el("span");
   const reusable = list(
@@ -430,10 +497,11 @@ function competitorInsight(analysis) {
     title: "Конкуренты и насыщенные приёмы",
     description: "Структуры для адаптации, а не копирования",
     content: block,
+    disabled,
   });
 }
 
-function trendInsight(analysis) {
+function trendInsight(analysis, disabled = false) {
   const trends = object(analysis.trend_analysis);
   const signals = Array.isArray(trends.signals) ? trends.signals.slice(0, 6) : [];
   const block = el("span");
@@ -458,10 +526,11 @@ function trendInsight(analysis) {
     title: "Тренды и свежие сигналы",
     description: "Только подтверждённые или честно помеченные гипотезы",
     content: block,
+    disabled,
   });
 }
 
-function briefInsight(brief) {
+function briefInsight(brief, disabled = false) {
   const block = el("span");
   const audience = list(brief.audience, 4);
   const pains = list(brief.pains, 4);
@@ -477,6 +546,7 @@ function briefInsight(brief) {
     title: "Коммуникационная рамка",
     description: "Аудитория, боли, возражения и доказательства",
     content: block,
+    disabled,
   });
 }
 
@@ -495,7 +565,12 @@ function shotListText(value) {
   }).filter(Boolean).join("\n");
 }
 
-function field(labelText, value, name, { textarea = false, rows = 2 } = {}) {
+function field(
+  labelText,
+  value,
+  name,
+  { textarea = false, rows = 2, disabled = false } = {},
+) {
   const label = el("label", "field ai-research-training__edit-field");
   label.append(el("span", "", labelText));
   const control = el(textarea ? "textarea" : "input");
@@ -503,11 +578,12 @@ function field(labelText, value, name, { textarea = false, rows = 2 } = {}) {
   control.value = String(value || "");
   if (textarea) control.rows = rows;
   control.maxLength = textarea ? 5000 : 1500;
+  control.disabled = disabled;
   label.append(control);
   return label;
 }
 
-function scenarioCard(scenario, position) {
+function scenarioCard(scenario, position, { disabled = false } = {}) {
   const source = object(scenario);
   const card = el("article", "ai-research-training__scenario");
   card.dataset.scenarioPosition = String(position);
@@ -517,6 +593,7 @@ function scenarioCard(scenario, position) {
   checkbox.type = "checkbox";
   // Every recommendation is advisory: even position 1 waits for a human choice.
   checkbox.checked = false;
+  checkbox.disabled = disabled;
   checkbox.dataset.scenarioSelect = String(position);
   select.append(
     checkbox,
@@ -527,23 +604,23 @@ function scenarioCard(scenario, position) {
 
   const grid = el("div", "ai-research-training__scenario-grid");
   grid.append(
-    field("Название", source.title, "title"),
-    field("Хук", source.hook, "hook", { textarea: true, rows: 2 }),
+    field("Название", source.title, "title", { disabled }),
+    field("Хук", source.hook, "hook", { textarea: true, rows: 2, disabled }),
     field(
       "Реплика / сценарий",
       source.spoken_script || source.script,
       "spoken_script",
-      { textarea: true, rows: 4 },
+      { textarea: true, rows: 4, disabled },
     ),
     field(
       "Кадры",
       shotListText(source.shot_list || source.shots),
       "shot_list",
-      { textarea: true, rows: 5 },
+      { textarea: true, rows: 5, disabled },
     ),
-    field("Ключевое сообщение", source.goal || source.angle, "key_message", { textarea: true, rows: 2 }),
-    field("Визуальное направление", source.angle, "visual_direction", { textarea: true, rows: 2 }),
-    field("CTA", source.cta, "cta", { textarea: true, rows: 2 }),
+    field("Ключевое сообщение", source.goal || source.angle, "key_message", { textarea: true, rows: 2, disabled }),
+    field("Визуальное направление", source.angle, "visual_direction", { textarea: true, rows: 2, disabled }),
+    field("CTA", source.cta, "cta", { textarea: true, rows: 2, disabled }),
   );
   const evidence = el("div", "ai-research-training__scenario-evidence");
   const proof = list(source.proof_points, 6);
@@ -563,7 +640,7 @@ function sourceCard(source) {
   const projectId = clean(item.project_id, 80).toLowerCase();
   const mediaId = clean(item.media_object_id, 80).toLowerCase();
   const projectFileUrl = UUID_PATTERN.test(projectId) && UUID_PATTERN.test(mediaId)
-    ? `#/workspace/board?project_id=${encodeURIComponent(projectId)}&folder=all`
+    ? `#/workspace/board?project_id=${encodeURIComponent(projectId)}&folder=all&media=${encodeURIComponent(mediaId)}`
     : "";
   const url = externalUrl || projectFileUrl;
   const title = clean(item.title, 300) || "Источник исследования";
@@ -759,6 +836,7 @@ export function normalizeLearnedResearch(item) {
     ?? source.forecasts;
   return {
     selectionId: clean(source.selection_id, 80),
+    receiptId: clean(source.receipt_id, 80).toLowerCase(),
     projectId: normalizedProjectId(source.project_id),
     title: clean(source.product_name, 300)
       || clean(source.research_title, 300)
@@ -951,13 +1029,20 @@ function learnedRecommendationCard(recommendation, learned) {
   return card;
 }
 
-function receiptCard(item, canDecide) {
+function receiptCard(item, {
+  canDecide = false,
+  canEdit = false,
+  open = false,
+} = {}) {
   const source = object(item);
   const card = el("details", "ai-research-training__receipt");
-  card.open = true;
+  card.open = open;
   card.dataset.receiptId = clean(source.receipt_id, 80);
   card.dataset.receiptHash = clean(source.receipt_hash, 80);
   card.dataset.projectId = normalizedProjectId(source.project_id);
+  card.dataset.ownership = clean(source.ownership, 20).toLowerCase();
+  card.dataset.canDecide = String(canDecide);
+  card.dataset.canEdit = String(canEdit);
 
   const summary = el("summary", "ai-research-training__receipt-summary");
   const titleBox = el("span");
@@ -990,39 +1075,59 @@ function receiptCard(item, canDecide) {
   const insightSection = el("section", "ai-research-training__section");
   insightSection.append(
     el("h4", "", "2. Что именно взять в обучение"),
-    el("p", "muted", "Снимите галочку с блока, который не должен влиять на рекомендации."),
+    el(
+      "p",
+      "muted",
+      canEdit
+        ? "Снимите галочку с блока, который не должен влиять на рекомендации."
+        : "Сервер открыл этот чек только для чтения.",
+    ),
   );
   const insights = el("div", "ai-research-training__insights");
   const analysis = object(source.analysis);
   const brief = object(source.creative_brief);
   insights.append(
-    categoryInsight(analysis),
-    competitorInsight(analysis),
-    trendInsight(analysis),
-    briefInsight(brief),
+    categoryInsight(analysis, !canEdit),
+    competitorInsight(analysis, !canEdit),
+    trendInsight(analysis, !canEdit),
+    briefInsight(brief, !canEdit),
   );
   insightSection.append(insights);
 
   const scenarioSection = el("section", "ai-research-training__section");
   scenarioSection.append(
     el("h4", "", "3. Рекомендации, которые получит генерация"),
-    el("p", "muted", "Отметьте варианты и поправьте текст прямо здесь. Эти правки станут утверждённой версией."),
+    el(
+      "p",
+      "muted",
+      canEdit
+        ? "Отметьте варианты и поправьте текст прямо здесь. Эти правки станут утверждённой версией."
+        : "Рекомендации показаны без права изменения.",
+    ),
   );
   const scenarios = el("div", "ai-research-training__scenarios");
   const scenarioItems = Array.isArray(source.scenarios) ? source.scenarios.slice(0, 3) : [];
   if (scenarioItems.length) {
-    scenarioItems.forEach((scenario, index) => scenarios.append(scenarioCard(scenario, index + 1)));
+    scenarioItems.forEach((scenario, index) => scenarios.append(
+      scenarioCard(scenario, index + 1, { disabled: !canEdit }),
+    ));
   } else {
     scenarios.append(el("p", "ai-research-training__empty-copy", "В исследовании нет пригодных сценариев. Такой результат нельзя обучить как рекомендацию."));
   }
   scenarioSection.append(scenarios);
 
   const controls = el("footer", "ai-research-training__controls");
-  const notes = field("Комментарий к отбору (необязательно)", "", "operator_notes", { textarea: true, rows: 2 });
+  const notes = field(
+    "Комментарий к отбору (необязательно)",
+    "",
+    "operator_notes",
+    { textarea: true, rows: 2, disabled: !canEdit },
+  );
   notes.classList.add("ai-research-training__notes");
   const confirmation = el("label", "check-row ai-research-training__confirmation");
   const confirmationInput = el("input");
   confirmationInput.type = "checkbox";
+  confirmationInput.disabled = !canDecide;
   confirmationInput.dataset.trainingConfirmation = "true";
   confirmation.append(
     confirmationInput,
@@ -1035,7 +1140,7 @@ function receiptCard(item, canDecide) {
   const approve = el("button", "btn", "Обучить на выбранном и сохранить рекомендации");
   approve.type = "button";
   approve.dataset.trainingDecision = "approve";
-  approve.disabled = !canDecide || !scenarioItems.length;
+  approve.disabled = !canDecide || !canEdit || !scenarioItems.length;
   reject.disabled = !canDecide;
   actions.append(reject, approve);
   controls.append(notes, confirmation, actions);
@@ -1045,10 +1150,12 @@ function receiptCard(item, canDecide) {
   return card;
 }
 
-function learnedCard(item) {
+function learnedCard(item, { open = false } = {}) {
   const learned = normalizeLearnedResearch(item);
   const card = el("details", "ai-research-training__learned-card");
+  card.open = open;
   card.dataset.selectionId = learned.selectionId;
+  card.dataset.receiptId = learned.receiptId;
 
   const summary = el("summary", "ai-research-training__learned-summary");
   const head = el("span");
@@ -1182,11 +1289,35 @@ function learnedCard(item) {
 }
 
 function renderSnapshot(root, snapshot, expectedProjectId = runtime.projectId) {
-  const source = projectScopedTrainingSnapshot(snapshot, expectedProjectId);
+  const shellAccess = trainingShellAccess();
+  if (!shellAccess.allowed) return false;
+  const projectSnapshot = projectScopedTrainingSnapshot(snapshot, expectedProjectId);
+  const source = shellAccess.ownOnly
+    ? projectScopedTrainingSnapshot(snapshot, expectedProjectId, "own")
+    : projectSnapshot;
   if (!source) return false;
-  const queue = Array.isArray(source.queue) ? source.queue : [];
-  const learned = Array.isArray(source.learned) ? source.learned : [];
+  const receiptRoute = routeReceipt();
+  const allQueue = Array.isArray(source.queue) ? source.queue : [];
+  const allLearned = Array.isArray(source.learned) ? source.learned : [];
+  const queue = receiptRoute.requested
+    ? receiptRoute.valid
+      ? allQueue.filter((item) => (
+          clean(item?.receipt_id, 80).toLowerCase() === receiptRoute.id
+        ))
+      : []
+    : allQueue;
+  const learned = receiptRoute.requested
+    ? receiptRoute.valid
+      ? allLearned.filter((item) => (
+          clean(item?.receipt_id, 80).toLowerCase() === receiptRoute.id
+        ))
+      : []
+    : allLearned;
   const capabilities = object(source.capabilities);
+  const canDecide = shellAccess.canDecide
+    && capabilities.can_decide === true;
+  const canEdit = shellAccess.canEdit
+    && capabilities.can_edit_recommendations === true;
   const selectedCategory = normalizedCategory(source.product_category)
     || normalizedCategory(runtime.category)
     || "other";
@@ -1197,7 +1328,14 @@ function renderSnapshot(root, snapshot, expectedProjectId = runtime.projectId) {
   queueHost.replaceChildren();
   historyHost.replaceChildren();
 
-  if (!queue.length) {
+  if (receiptRoute.requested && !queue.length && !learned.length) {
+    const unavailable = el("div", "ai-research-training__empty");
+    unavailable.append(
+      el("strong", "", "Этот чек недоступен"),
+      el("p", "", "Сервер не подтвердил, что чек принадлежит вам и выбранному проекту. Другие чеки по этой ссылке не открываются."),
+    );
+    queueHost.append(unavailable);
+  } else if (!queue.length) {
     const empty = el("div", "ai-research-training__empty");
     empty.append(
       el("strong", "", `В категории «${selectedCategoryLabel}» нет исследований для отбора`),
@@ -1208,7 +1346,11 @@ function renderSnapshot(root, snapshot, expectedProjectId = runtime.projectId) {
     empty.append(link);
     queueHost.append(empty);
   } else {
-    queue.forEach((item) => queueHost.append(receiptCard(item, capabilities.can_decide === true)));
+    queue.forEach((item, index) => queueHost.append(receiptCard(item, {
+      canDecide,
+      canEdit,
+      open: receiptRoute.requested || index === 0,
+    })));
   }
 
   if (!learned.length) {
@@ -1218,7 +1360,9 @@ function renderSnapshot(root, snapshot, expectedProjectId = runtime.projectId) {
       `В категории «${selectedCategoryLabel}» пока нет сохранённых отборов.`,
     ));
   } else {
-    learned.slice(0, 12).forEach((item) => historyHost.append(learnedCard(item)));
+    learned.slice(0, 12).forEach((item) => historyHost.append(learnedCard(item, {
+      open: receiptRoute.requested,
+    })));
   }
 
   const oldInbox = document.querySelector(".ai-learning-research-inbox");
@@ -1228,13 +1372,18 @@ function renderSnapshot(root, snapshot, expectedProjectId = runtime.projectId) {
   }
   setStatus(
     root,
-    queue.length
+    receiptRoute.requested && !queue.length && !learned.length
+      ? "Сервер не подтвердил доступ к запрошенному чеку."
+      : queue.length
       ? `Категория «${selectedCategoryLabel}»: исследований для отбора — ${queue.length}.`
       : `Категория «${selectedCategoryLabel}»: очередь пуста — ждём завершённое исследование.`,
     queue.length ? "ready" : "neutral",
   );
   root.dataset.renderedProjectId = expectedProjectId;
   root.dataset.renderedCategory = selectedCategory;
+  root.dataset.renderedReceiptId = receiptRoute.requested
+    ? receiptRoute.id
+    : "";
   return true;
 }
 
@@ -1242,6 +1391,7 @@ function invalidateRenderedTrainingScope(root) {
   if (!(root instanceof HTMLElement)) return;
   root.dataset.renderedProjectId = "";
   root.dataset.renderedCategory = "";
+  root.dataset.renderedReceiptId = "";
   root.querySelector("[data-ai-research-training-queue]")?.replaceChildren();
   root.querySelector("[data-ai-research-training-history]")?.replaceChildren();
 }
@@ -1249,10 +1399,15 @@ function invalidateRenderedTrainingScope(root) {
 function guardRenderedTrainingScopeClick(event) {
   const root = event.currentTarget;
   if (!(root instanceof HTMLElement)) return;
+  const activeReceipt = typeof routeReceipt === "function"
+    && routeReceipt().requested
+    ? routeReceipt().id
+    : "";
   if (
     routePath() === ROUTE
     && root.dataset.renderedProjectId === currentTrainingProjectId()
     && root.dataset.renderedCategory === currentCategory()
+    && String(root.dataset.renderedReceiptId || "") === activeReceipt
   ) return;
   event.preventDefault();
   event.stopImmediatePropagation();
@@ -1310,7 +1465,8 @@ function buildRoot() {
 }
 
 function hostForRoot() {
-  return document.querySelector(".ai-learning-control-room")
+  return document.querySelector("[data-ai-research-training-host]")
+    || document.querySelector(".ai-learning-control-room")
     || document.querySelector(".ai-learning-page")
     || document.querySelector("#workspace-content")
     || document.querySelector("#main-content");
@@ -1321,6 +1477,11 @@ function ensureRoot() {
   if (root instanceof HTMLElement) return prepareTrainingRoot(root);
   const host = hostForRoot();
   if (!(host instanceof HTMLElement)) return null;
+  if (
+    host.matches("[data-ai-research-training-host]")
+    && normalizedProjectId(host.dataset.projectId)
+      !== currentTrainingProjectId()
+  ) return null;
   root = buildRoot();
   const oldInbox = host.querySelector(".ai-learning-research-inbox");
   if (oldInbox?.parentNode) oldInbox.parentNode.insertBefore(root, oldInbox);
@@ -1365,9 +1526,14 @@ async function load(
   category = runtime.category,
   projectId = runtime.projectId || currentTrainingProjectId(),
 ) {
+  const shellAccess = trainingShellAccess();
   const selectedCategory = normalizedCategory(category) || "other";
   const selectedProjectId = normalizedProjectId(projectId);
-  if (!root || routePath() !== ROUTE) return;
+  const selectedReceipt = routeReceipt();
+  const selectedReceiptKey = selectedReceipt.requested
+    ? selectedReceipt.id
+    : "";
+  if (!root || routePath() !== ROUTE || !shellAccess.allowed) return;
   if (!selectedProjectId) return;
   root.hidden = false;
   delete root.dataset.projectRequired;
@@ -1384,6 +1550,7 @@ async function load(
       RPC_QUEUE,
       payloadWithOrganization(api, projectScopedTrainingPayload({
         product_category: selectedCategory,
+        ...(selectedReceiptKey ? { receipt_id: selectedReceiptKey } : {}),
         limit: 30,
       }, selectedProjectId)),
     );
@@ -1393,6 +1560,10 @@ async function load(
       || runtime.category !== selectedCategory
       || runtime.projectId !== selectedProjectId
       || currentTrainingProjectId() !== selectedProjectId
+      || !trainingShellAccess().allowed
+      || trainingShellAccess().receiptScope !== shellAccess.receiptScope
+      || (routeReceipt().requested ? routeReceipt().id : "")
+        !== selectedReceiptKey
     ) return;
     if (!renderSnapshot(root, response, selectedProjectId)) {
       throw new Error("ai_research_training_project_scope_mismatch");
@@ -1403,6 +1574,10 @@ async function load(
       || runtime.category !== selectedCategory
       || runtime.projectId !== selectedProjectId
       || currentTrainingProjectId() !== selectedProjectId
+      || !trainingShellAccess().allowed
+      || trainingShellAccess().receiptScope !== shellAccess.receiptScope
+      || (routeReceipt().requested ? routeReceipt().id : "")
+        !== selectedReceiptKey
     ) return;
     console.warn("Research training queue unavailable", error);
     setStatus(
@@ -1453,12 +1628,23 @@ async function decide(card, decision) {
   const projectId = currentTrainingProjectId()
     || normalizedProjectId(routeParams().get("project_id"));
   const category = runtime.category;
+  const shellAccess = trainingShellAccess();
   if (
     routePath() !== ROUTE
     || !mutationRoot
     || !projectId
     || runtime.projectId !== projectId
     || normalizedProjectId(card.dataset.projectId) !== projectId
+    || !shellAccess.allowed
+    || card.dataset.canDecide !== "true"
+    || (
+      decision === "approve"
+      && card.dataset.canEdit !== "true"
+    )
+    || (
+      shellAccess.ownOnly
+      && card.dataset.ownership !== "own"
+    )
   ) return;
   const confirmation = card.querySelector("[data-training-confirmation]");
   if (!(confirmation instanceof HTMLInputElement) || !confirmation.checked) {
@@ -1542,7 +1728,8 @@ function handleChange(event) {
   syncLegacyCategoryButtons(category);
   updateCategoryRoute(category);
   const projectId = currentTrainingProjectId();
-  const requestKey = `${projectId}:${category}:${runtime.root?.isConnected}`;
+  const receipt = routeReceipt();
+  const requestKey = `${projectId}:${category}:${receipt.requested ? receipt.id : ""}:${trainingShellAccess().receiptScope}:${runtime.root?.isConnected}`;
   if (changed || runtime.requestKey !== requestKey) {
     if (changed) invalidateRenderedTrainingScope(runtime.root);
     runtime.requestKey = requestKey;
@@ -1566,7 +1753,8 @@ function handleLegacyCategoryClick(event) {
   syncTrainingCategorySelect(category);
   if (changed && runtime.root?.isConnected) {
     invalidateRenderedTrainingScope(runtime.root);
-    runtime.requestKey = `${projectId}:${category}:${runtime.root.isConnected}`;
+    const receipt = routeReceipt();
+    runtime.requestKey = `${projectId}:${category}:${receipt.requested ? receipt.id : ""}:${trainingShellAccess().receiptScope}:${runtime.root.isConnected}`;
     void load(runtime.root, category, projectId);
   }
   window.queueMicrotask(() => {
@@ -1583,6 +1771,9 @@ function handleClick(event) {
       && (
         root.dataset.renderedProjectId !== currentTrainingProjectId()
         || root.dataset.renderedCategory !== currentCategory()
+        || root.dataset.renderedReceiptId !== (
+          routeReceipt().requested ? routeReceipt().id : ""
+        )
       )
     )
   ) {
@@ -1609,7 +1800,8 @@ function unmount() {
 }
 
 function mount() {
-  if (routePath() !== ROUTE) {
+  const shellAccess = trainingShellAccess();
+  if (routePath() !== ROUTE || !shellAccess.allowed) {
     unmount();
     return;
   }
@@ -1620,15 +1812,28 @@ function mount() {
   if (!root) return;
   const category = currentCategory();
   const projectId = currentTrainingProjectId();
+  if (shellAccess.ownOnly) {
+    const projectHost = root.closest("[data-ai-research-training-host]");
+    if (
+      !(projectHost instanceof HTMLElement)
+      || normalizedProjectId(projectHost.dataset.projectId) !== projectId
+    ) {
+      unmount();
+      return;
+    }
+  }
   const scopeChanged = previousRoot !== root
     || previousProjectId !== projectId
     || previousCategory !== category;
   runtime.root = root;
   if (projectId) canonicalizeTrainingRoute(category, projectId);
-  const requestKey = `${projectId}:${category}:${root.isConnected}`;
+  const receipt = routeReceipt();
+  const requestKey = `${projectId}:${category}:${receipt.requested ? receipt.id : ""}:${shellAccess.receiptScope}:${root.isConnected}`;
   runtime.category = category;
   runtime.projectId = projectId;
+  const requestChanged = runtime.requestKey !== requestKey;
   if (scopeChanged) invalidateRenderedTrainingScope(root);
+  else if (requestChanged) invalidateRenderedTrainingScope(root);
   rememberCategory(category);
   syncLegacyCategoryButtons(category);
   syncTrainingCategorySelect(category);
@@ -1638,7 +1843,7 @@ function mount() {
     return;
   }
   root.hidden = false;
-  if (runtime.requestKey !== requestKey || !root.dataset.loaded) {
+  if (requestChanged || !root.dataset.loaded) {
     runtime.requestKey = requestKey;
     root.dataset.loaded = "true";
     void load(root, category, projectId);
@@ -1663,6 +1868,10 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
     );
   }
   window.addEventListener("contentengine:v4-route-ready", scheduleMount);
+  window.addEventListener(
+    "contentengine:workspace-capabilities-ready",
+    scheduleMount,
+  );
   window.addEventListener("hashchange", scheduleMount);
   document.addEventListener("click", handleLegacyCategoryClick, true);
   window.queueMicrotask(scheduleMount);

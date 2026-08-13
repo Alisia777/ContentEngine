@@ -58,6 +58,13 @@ def test_v4_scaffold_exposes_authorized_inline_route_without_legacy_navigation()
         const workspaceNavigationTabs = () => [["work", "Моя работа", "✓"]];
         const consumeRouteTransitionClass = () => "";
         const projectFlowSnapshotMarkup = () => "";
+        const projectAiResearchCapabilities = () => ({{
+          receipt_scope: "none",
+          can_decide_own: false,
+          can_edit_own: false,
+        }});
+        const canOpenProjectAiResearch = () => false;
+        const aiExactYoutubeSourceScope = () => "none";
         const brandMarkup = () => "";
         const workspaceNavLinkMarkup = () => "";
         const sidebarFooterMarkup = () => "";

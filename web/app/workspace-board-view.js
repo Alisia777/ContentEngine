@@ -7,6 +7,7 @@ const ENTITY_TYPE_PATTERN = /^[a-z][a-z0-9_-]{0,39}$/;
 const ID_MAX_LENGTH = 180;
 const QUERY_MAX_LENGTH = 120;
 const NORMALIZED_BOARDS = new WeakSet();
+const PROVENANCE_FILTERS = new Set(["all", "source", "research", "generated_output"]);
 
 const ENTITY_LABELS = Object.freeze({
   media: "Материал",
@@ -56,6 +57,11 @@ function normalizedId(value) {
 function normalizedEntityType(value, fallback = "media") {
   const normalized = String(value || fallback).trim().toLowerCase();
   return ENTITY_TYPE_PATTERN.test(normalized) ? normalized : fallback;
+}
+
+function normalizedProvenanceFilter(value) {
+  const normalized = String(value || "all").trim().toLowerCase();
+  return PROVENANCE_FILTERS.has(normalized) ? normalized : "all";
 }
 
 function normalizedFolderReference(value) {
@@ -108,6 +114,7 @@ function itemSources(source) {
     ["generation_batches", "generation"],
     ["research", "research"],
     ["research_runs", "research"],
+    ["research_artifacts", "research"],
     ["placements", "placement"],
     ["placement_items", "placement"],
     ["publications", "publication"],
@@ -178,6 +185,7 @@ function normalizeItem(item, index, fallbackType = "") {
     source.entity_type ?? source.entityType ?? source.object_type ?? source.type,
     inferEntityType(source, fallbackType),
   );
+  const researchArtifact = entityType === "research";
   const key = workspaceBoardItemKey(entityType, id);
   if (!key) return null;
   const title = safeText(
@@ -186,6 +194,7 @@ function normalizeItem(item, index, fallbackType = "") {
       source.original_filename ??
       source.product_name ??
       source.sku ??
+      (researchArtifact ? "Исследование товара" : null) ??
       `${ENTITY_LABELS[entityType] || "Объект"} ${id}`,
     240,
   );
@@ -211,6 +220,11 @@ function normalizeItem(item, index, fallbackType = "") {
     source.lifecycle_stage ?? source.lifecycleStage,
     40,
   ).toLowerCase();
+  const deepLinkCandidate = safeText(source.deep_link ?? source.deepLink, 2_000);
+  const deepLink = deepLinkCandidate.startsWith("#/workspace/") ? deepLinkCandidate : "";
+  const aiReceipt = asRecord(source.ai_receipt ?? source.aiReceipt);
+  const aiDeepLinkCandidate = safeText(aiReceipt.deep_link ?? aiReceipt.deepLink, 2_000);
+  const aiDeepLink = aiDeepLinkCandidate.startsWith("#/workspace/") ? aiDeepLinkCandidate : "";
   return {
     key,
     id,
@@ -237,6 +251,11 @@ function normalizeItem(item, index, fallbackType = "") {
     updatedAt: safeText(source.updated_at ?? source.updatedAt, 80),
     sortOrder: finiteNumber(source.position, source.sort_order, source.sortOrder, index),
     movable: source.can_move !== false && source.movable !== false,
+    readOnly: source.read_only === true || source.readOnly === true || researchArtifact,
+    deepLink,
+    aiReceiptId: normalizedId(aiReceipt.receipt_id ?? aiReceipt.receiptId),
+    aiReceiptStatus: normalizedStatus(aiReceipt.status, ""),
+    aiDeepLink,
   };
 }
 
@@ -288,6 +307,7 @@ function freezeBoard(board) {
   Object.freeze(board.items);
   Object.freeze(board.entityTypes);
   Object.freeze(board.counts);
+  Object.freeze(board.capabilities.researchArtifacts);
   Object.freeze(board.capabilities);
   Object.freeze(board);
   NORMALIZED_BOARDS.add(board);
@@ -300,6 +320,18 @@ export function workspaceBoardItemKey(type, id) {
   return entityType && entityId ? `${entityType}:${entityId}` : "";
 }
 
+export function workspaceBoardPaginationState(meta, exactMediaAccepted = false) {
+  if (exactMediaAccepted === true) return { hasMore: false, nextCursor: null };
+  const source = asRecord(meta);
+  return {
+    hasMore: source.has_more === true,
+    nextCursor: source.next_cursor && typeof source.next_cursor === "object"
+      && !Array.isArray(source.next_cursor)
+      ? source.next_cursor
+      : null,
+  };
+}
+
 export function normalizeWorkspaceBoard(raw) {
   if (raw && typeof raw === "object" && NORMALIZED_BOARDS.has(raw)) {
     return raw;
@@ -307,9 +339,19 @@ export function normalizeWorkspaceBoard(raw) {
   const payload = raw?.data ?? raw;
   const source = asRecord(payload);
   const rawCapabilities = asRecord(source.capabilities);
+  const rawResearchArtifacts = asRecord(
+    rawCapabilities.research_artifacts ?? rawCapabilities.researchArtifacts,
+  );
+  const researchArtifactScope = safeText(rawResearchArtifacts.scope, 20).toLowerCase();
   const capabilities = {
     manageFolders: rawCapabilities.manage_folders === true || rawCapabilities.manageFolders === true,
     moveItems: rawCapabilities.move_items === true || rawCapabilities.moveItems === true,
+    researchArtifacts: {
+      readOnly: rawResearchArtifacts.read_only === true || rawResearchArtifacts.readOnly === true,
+      scope: ["own", "project", "none"].includes(researchArtifactScope)
+        ? researchArtifactScope
+        : "none",
+    },
   };
   const rawFolders = Array.isArray(source.folders)
     ? source.folders
@@ -342,7 +384,7 @@ export function normalizeWorkspaceBoard(raw) {
         folderId: normalized.folderId && folderIds.has(normalized.folderId)
           ? normalized.folderId
           : null,
-        movable: normalized.movable && capabilities.moveItems,
+        movable: normalized.movable && !normalized.readOnly && capabilities.moveItems,
       });
     });
   });
@@ -355,11 +397,16 @@ export function normalizeWorkspaceBoard(raw) {
     ));
   const smartFolders = smartFoldersForItems(items);
   const folders = [...smartFolders, ...realFolders];
-  const entityTypes = [...new Set(["media", "task", ...items.map((item) => item.entityType)])].sort();
+  // Research is a separate read-only provenance projection, not a mutable
+  // workspace-browser entity type. Exposing it in this selector would make
+  // the client send an entity_types value that the exact RPC correctly
+  // rejects. The dedicated provenance selector owns this view.
+  const entityTypes = ["media", "task"];
   const counts = {
     all: items.length,
     files: items.filter((item) => item.entityType === "media").length,
-    root: items.filter((item) => !item.folderId).length,
+    root: items.filter((item) => item.entityType !== "research" && !item.folderId).length,
+    research: items.filter((item) => item.entityType === "research").length,
   };
   smartFolders.forEach((folder) => {
     counts[folder.id] = folder.itemCount;
@@ -497,8 +544,9 @@ function itemMatchesQuery(item, query) {
   return haystack.includes(query.normalize("NFKC").toLocaleLowerCase("ru-RU"));
 }
 
-function filteredItems(board, folderId, query, entityType) {
+function filteredItems(board, folderId, query, entityType, provenanceFilter) {
   return board.items.filter((item) => {
+    if (item.entityType === "research" && folderId !== "all") return false;
     if (folderId === "root" && item.folderId) return false;
     if (isWorkspaceSmartFolderId(folderId) && !smartFolderMatchesItem(folderId, item)) return false;
     if (
@@ -507,7 +555,18 @@ function filteredItems(board, folderId, query, entityType) {
       && !isWorkspaceSmartFolderId(folderId)
       && item.folderId !== folderId
     ) return false;
-    if (entityType !== "all" && item.entityType !== entityType) return false;
+    if (
+      provenanceFilter === "all"
+      && entityType !== "all"
+      && item.entityType !== entityType
+    ) return false;
+    if (provenanceFilter === "source" && (
+      item.entityType !== "media" || item.artifactClass !== "source"
+    )) return false;
+    if (provenanceFilter === "research" && item.entityType !== "research") return false;
+    if (provenanceFilter === "generated_output" && (
+      item.entityType !== "media" || item.artifactClass !== "generated_output"
+    )) return false;
     return itemMatchesQuery(item, query);
   });
 }
@@ -783,7 +842,10 @@ function folderManagementMarkup(board, selectedFolderId, busy, pendingArchiveFol
 }
 
 function filterMarkup(board, options, resultCount, busy) {
-  const selectedType = board.entityTypes.includes(options.entityType) ? options.entityType : "all";
+  const selectedProvenance = normalizedProvenanceFilter(options.provenanceFilter);
+  const selectedType = selectedProvenance === "all" && board.entityTypes.includes(options.entityType)
+    ? options.entityType
+    : "all";
   return `
     <form id="workspace-board-filter-form" class="workspace-board__filters" role="search">
       <label class="workspace-board__search">
@@ -804,6 +866,15 @@ function filterMarkup(board, options, resultCount, busy) {
             <option value="${escapeHtml(entityType)}" ${selectedType === entityType ? "selected" : ""}>
               ${escapeHtml(humanEntityType(entityType))}
             </option>`).join("")}
+        </select>
+      </label>
+      <label>
+        <span>Происхождение</span>
+        <select name="provenance_filter" ${busy ? "disabled" : ""}>
+          <option value="all" ${selectedProvenance === "all" ? "selected" : ""}>Все</option>
+          <option value="source" ${selectedProvenance === "source" ? "selected" : ""}>Источники</option>
+          <option value="research" ${selectedProvenance === "research" ? "selected" : ""}>Исследования</option>
+          <option value="generated_output" ${selectedProvenance === "generated_output" ? "selected" : ""}>Результаты</option>
         </select>
       </label>
       <button class="workspace-board__filter-submit" type="submit" ${busy ? "disabled" : ""}>Показать</button>
@@ -845,6 +916,7 @@ function itemCardMarkup(item, selectedItemKey, busy) {
              data-artifact-class="${escapeHtml(item.artifactClass)}"
              data-lifecycle-stage="${escapeHtml(item.lifecycleStage)}"
              data-folder-id="${escapeHtml(item.folderId || "root")}"
+             data-read-only="${item.readOnly ? "true" : "false"}"
              data-selected="false"
              role="option"
              aria-selected="false">
@@ -874,7 +946,7 @@ function itemCardMarkup(item, selectedItemKey, busy) {
           ${escapeHtml(humanStatus(item.status))}
         </span>
       </button>
-      <button class="workspace-board__select-item"
+      ${!item.readOnly ? `<button class="workspace-board__select-item"
               type="button"
               data-ce-v4-select-item
               data-item-key="${escapeHtml(item.key)}"
@@ -887,7 +959,7 @@ function itemCardMarkup(item, selectedItemKey, busy) {
               data-ce-v4-context-trigger="item"
               aria-label="Действия с файлом «${escapeHtml(item.title)}»"
               title="Действия"
-              ${busy ? "disabled" : ""}>⋯</button>
+              ${busy ? "disabled" : ""}>⋯</button>` : ""}
       ${item.movable ? `
         <button class="workspace-board__drag-handle"
                 type="button"
@@ -930,6 +1002,12 @@ function itemDrawerMarkup(board, selectedItem, busy) {
   ].filter((folder) => folder.id !== (selectedItem.folderId || "root"));
   const formattedSize = formatBytes(selectedItem.sizeBytes);
   const formattedDate = formatDate(selectedItem.createdAt);
+  const researchLinks = selectedItem.entityType === "research"
+    ? [
+      selectedItem.deepLink ? { href: selectedItem.deepLink, label: "Открыть исследование" } : null,
+      selectedItem.aiDeepLink ? { href: selectedItem.aiDeepLink, label: "Открыть свою квитанцию в ИИ-центре" } : null,
+    ].filter(Boolean)
+    : [];
   return `
     <aside id="workspace-board-item-drawer"
            class="workspace-board__drawer"
@@ -955,9 +1033,17 @@ function itemDrawerMarkup(board, selectedItem, busy) {
                   data-entity-id="${escapeHtml(selectedItem.id)}"
                   ${busy ? "disabled" : ""}>Создать из этого файла</button>
         </div>` : ""}
+      ${researchLinks.length ? `
+        <div class="workspace-board__research-links">
+          ${researchLinks.map((link) => `<a class="btn btn-secondary" href="${escapeHtml(link.href)}">${escapeHtml(link.label)}</a>`).join("")}
+        </div>` : ""}
       <dl class="workspace-board__drawer-facts">
         <div><dt>Статус</dt><dd>${escapeHtml(humanStatus(selectedItem.status))}</dd></div>
-        <div><dt>Папка</dt><dd>${escapeHtml(currentFolder ? folderDisplayName(currentFolder) : "Без папки")}</dd></div>
+        <div><dt>Папка</dt><dd>${escapeHtml(
+          selectedItem.entityType === "research"
+            ? "Отдельный журнал исследования"
+            : currentFolder ? folderDisplayName(currentFolder) : "Без папки",
+        )}</dd></div>
         ${selectedItem.artifactClass ? `<div><dt>Роль файла</dt><dd><span class="workspace-board__artifact-badge"
           data-artifact-class="${escapeHtml(selectedItem.artifactClass)}">${escapeHtml(artifactClassLabel(selectedItem.artifactClass))}</span></dd></div>` : ""}
         ${selectedItem.lifecycleStage ? `<div><dt>Этап</dt><dd><span class="workspace-board__lifecycle-badge"
@@ -996,6 +1082,7 @@ export function workspaceBoardMarkup(board, options = {}) {
     selectedItemKey: safeText(options.selectedItemKey, ID_MAX_LENGTH * 2 + 1),
     query: safeText(options.query, QUERY_MAX_LENGTH),
     entityType: normalizedEntityType(options.entityType, "media"),
+    provenanceFilter: normalizedProvenanceFilter(options.provenanceFilter),
     busy: options.busy === true,
     notice: safeText(options.notice, 1_000),
     error: safeText(options.error, 1_000),
@@ -1012,6 +1099,7 @@ export function workspaceBoardMarkup(board, options = {}) {
     normalizedOptions.selectedFolderId,
     normalizedOptions.query,
     normalizedOptions.entityType,
+    normalizedOptions.provenanceFilter,
   );
   const visibleItems = items.slice(0, normalizedOptions.visibleItemLimit);
   const selectedItem = workspaceBoardItemByKey(normalizedBoard, normalizedOptions.selectedItemKey);
@@ -1035,8 +1123,8 @@ export function workspaceBoardMarkup(board, options = {}) {
       <header class="workspace-board__head">
         <div>
           <p class="workspace-board__eyebrow">Рабочее пространство</p>
-          <h1 id="workspace-board-title">Файлы и папки</h1>
-          <p>Откройте карточку нажатием. Для быстрых действий нажмите ⋯ или используйте правую кнопку мыши.</p>
+          <h1 id="workspace-board-title">Файлы, исследования и папки</h1>
+          <p>Источники, исследовательские журналы и созданные результаты разделены по происхождению. Откройте карточку, чтобы увидеть точную запись.</p>
         </div>
         <span class="workspace-board__head-count">${normalizedBoard.items.length} ${normalizedBoard.partial ? "загружено" : "объектов"}</span>
       </header>
@@ -1098,10 +1186,10 @@ export function workspaceBoardMarkup(board, options = {}) {
             <div class="workspace-board__empty">
               <span aria-hidden="true">◇</span>
               <h3>Здесь пока пусто</h3>
-              <p>${normalizedOptions.query || normalizedOptions.entityType !== "all"
+              <p>${normalizedOptions.query || normalizedOptions.entityType !== "all" || normalizedOptions.provenanceFilter !== "all"
                 ? "Сбросьте фильтры или выберите другую папку."
                 : "Добавьте объект или переместите его сюда из другой папки."}</p>
-              ${normalizedOptions.query || normalizedOptions.entityType !== "all" ? `
+              ${normalizedOptions.query || normalizedOptions.entityType !== "all" || normalizedOptions.provenanceFilter !== "all" ? `
                 <button type="button" data-action="reset-workspace-filters">Сбросить фильтры</button>` : ""}
             </div>`}
         </section>

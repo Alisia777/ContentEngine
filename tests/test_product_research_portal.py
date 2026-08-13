@@ -748,7 +748,8 @@ def test_alternative_brief_envelope_keeps_raw_research_sections_for_save() -> No
 
 
 def test_research_run_and_approval_recover_after_reload() -> None:
-    assert "persistProductResearchRunId(run?.id)" in APP
+    assert "persistProductResearchRunId(run?.id, projectId)" in APP
+    assert "persistProductResearchRunId(startedRecord.id, projectId)" in APP
     assert "restoreProductResearchSession()" in APP
     assert "window.sessionStorage.getItem(key)" in APP
     poll = _between(

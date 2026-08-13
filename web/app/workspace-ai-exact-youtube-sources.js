@@ -44,6 +44,18 @@ function projectId() {
   return UUID_PATTERN.test(value) ? value : "";
 }
 
+function exactYoutubeProjectScopeAllowed() {
+  const shell = typeof document === "undefined"
+    ? null
+    : document.querySelector(".workspace-shell");
+  // Real browsers always expose documentElement. A document-less adapter
+  // harness may exercise pure lifecycle behavior without a workspace shell.
+  if (!shell && typeof document !== "undefined" && !document.documentElement) {
+    return true;
+  }
+  return shell?.dataset?.aiExactYoutubeSourceScope === "project";
+}
+
 function el(tag, className = "", text = "") {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -188,7 +200,7 @@ function aiLearningHash(source) {
   return workspaceHash("/workspace/ai", {
     project_id: projectId(),
     category: clean(latest?.product_category, 40).toLowerCase(),
-    research_receipt: clean(latest?.receipt_id, 64).toLowerCase(),
+    receipt: clean(latest?.receipt_id, 64).toLowerCase(),
   });
 }
 
@@ -421,6 +433,7 @@ function sourceCard(source) {
           primaryLabel: "Проверить сохранённый файл",
           primaryHref: workspaceHash("/workspace/board", {
             project_id: projectId(),
+            media: attachedMediaId,
           }),
           secondaryLabel: "Открыть Исследования",
           secondaryHref: exactResearchHash(source),
@@ -545,7 +558,11 @@ function renderError(root) {
 
 async function load() {
   const currentProjectId = projectId();
-  if (routePath() !== ROUTE || !currentProjectId) return;
+  if (
+    routePath() !== ROUTE
+    || !currentProjectId
+    || !exactYoutubeProjectScopeAllowed()
+  ) return;
   if (runtime.loading) {
     runtime.pendingLoad = true;
     return;
@@ -570,6 +587,7 @@ async function load() {
       || projectId() !== currentProjectId
       || runtime.root !== root
       || !root.isConnected
+      || !exactYoutubeProjectScopeAllowed()
     ) return;
     const value = response?.data && typeof response.data === "object"
       && !Array.isArray(response.data)
@@ -598,6 +616,7 @@ async function load() {
       && projectId() === currentProjectId
       && runtime.root === root
       && root.isConnected
+      && exactYoutubeProjectScopeAllowed()
     ) renderError(root);
   } finally {
     if (runtime.loadToken === loadToken) {
@@ -605,7 +624,12 @@ async function load() {
       if (root.isConnected) root.removeAttribute("aria-busy");
       const pendingLoad = runtime.pendingLoad;
       runtime.pendingLoad = false;
-      if (pendingLoad && routePath() === ROUTE && projectId()) void load();
+      if (
+        pendingLoad
+        && routePath() === ROUTE
+        && projectId()
+        && exactYoutubeProjectScopeAllowed()
+      ) void load();
     }
   }
 }
@@ -622,7 +646,11 @@ function unmount() {
 
 function mount({ force = false } = {}) {
   const currentProjectId = projectId();
-  if (routePath() !== ROUTE || !currentProjectId) {
+  if (
+    routePath() !== ROUTE
+    || !currentProjectId
+    || !exactYoutubeProjectScopeAllowed()
+  ) {
     unmount();
     return;
   }
@@ -653,6 +681,10 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
   window.addEventListener(
     "contentengine:v4-route-ready",
     () => mount(),
+  );
+  window.addEventListener(
+    "contentengine:workspace-capabilities-ready",
+    () => mount({ force: true }),
   );
   window.addEventListener(
     "hashchange",
