@@ -271,14 +271,16 @@ def test_archive_dom_window_is_twenty_rows_with_a_hard_two_hundred_row_cap() -> 
         "cap": 200,
         "visible": [20, 20, 20, 40, 199, 200],
     }
-    render_generation = _between(APP, "function renderGenerationSection", "function generationArchiveMarkup")
+    render_generation = _between(APP, "function renderGenerationSection", "function generationArchiveCardMarkup")
+    archive_card = _between(APP, "function generationArchiveCardMarkup", "function syncGenerationArchiveCardUi")
     archive_markup = _between(APP, "function generationArchiveMarkup", "function submitGenerationArchiveFilters")
     archive_table = _between(APP, "function generationTable", "function generationBatchDetails")
     click_actions = _between(APP, 'if (action === "reset-generation-filters")', 'if (action === "reload-page")')
-    assert "routeFilteredBatches.slice(0, archiveFilters.visible)" in render_generation
+    assert "generationArchiveCardMarkup(sectionState)" in render_generation
+    assert "routeFilteredBatches.slice(0, filters.visible)" in archive_card
     assert re.search(
-        r"generationArchiveMarkup\(\s*batches,\s*routeFilteredBatches,\s*visibleBatches,\s*archiveFilters,\s*Boolean\(routeJobId\)",
-        render_generation,
+        r"generationArchiveMarkup\(\s*batches,\s*routeFilteredBatches,\s*visibleBatches,\s*filters,\s*Boolean\(routeJobId\)",
+        archive_card,
     )
     assert "function generationArchiveMarkup(batches, filteredBatches, visibleBatches, filters, interactive = false)" in archive_markup
     assert 'data-generation-archive-mode="${interactive ? "exact" : "browse"}"' in archive_markup

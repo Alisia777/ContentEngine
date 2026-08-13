@@ -244,6 +244,7 @@ def test_course_completion_hands_off_to_the_next_required_academy_action() -> No
 
 def test_generation_archive_executes_browse_and_exact_job_modes() -> None:
     archive_markup = _function_source("generationArchiveMarkup")
+    archive_card = _function_source("generationArchiveCardMarkup")
     generation_table = _function_source("generationTable")
     generation_section = _function_source("renderGenerationSection")
     payload = _run_node(
@@ -311,10 +312,11 @@ def test_generation_archive_executes_browse_and_exact_job_modes() -> None:
         "exactPreview": True,
         "missingFailClosed": True,
     }
-    assert 'safeWorkspaceRouteEntityId("job")' in generation_section
-    assert "generationBatchDetails(item).jobId === routeJobId" in generation_section
-    assert "routeFilteredBatches.slice(0, archiveFilters.visible)" in generation_section
-    assert "Boolean(routeJobId)" in generation_section
+    assert "generationArchiveCardMarkup(sectionState)" in generation_section
+    assert 'safeWorkspaceRouteEntityId("job")' in archive_card
+    assert "generationBatchDetails(item).jobId === routeJobId" in archive_card
+    assert "routeFilteredBatches.slice(0, filters.visible)" in archive_card
+    assert "Boolean(routeJobId)" in archive_card
     assert "export const GENERATION_VISIBLE_STEP = 20" in PORTAL_EXPERIENCE
     assert "export const GENERATION_VISIBLE_CAP = 200" in PORTAL_EXPERIENCE
 
