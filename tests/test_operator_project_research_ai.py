@@ -15,6 +15,9 @@ QUEUE_SOURCE_PATH = (
     ROOT
     / "supabase/migrations/202608100001_research_ai_center_generation_presets.sql"
 )
+DECISION_SOURCE_PATH = (
+    ROOT / "supabase/migrations/202608050004_research_trained_recommendations.sql"
+)
 EXACT_QUEUE_SOURCE_PATH = (
     ROOT
     / "supabase/migrations/202608110004_exact_youtube_source_research_lifecycle.sql"
@@ -314,6 +317,9 @@ def test_pending_and_learned_operator_filters_execute_before_limit() -> None:
         definition, migration, "old_queue_receipt_declare", "new_queue_receipt_declare"
     )
     definition = _replace_anchor(
+        definition, migration, "old_queue_role", "new_queue_role"
+    )
+    definition = _replace_anchor(
         definition, migration, "old_queue_project_gate", "new_queue_project_gate"
     )
     definition = _replace_anchor(
@@ -361,6 +367,14 @@ def test_pending_and_learned_operator_filters_execute_before_limit() -> None:
     assert definition.count("receipt_id_value is null") == 2
     assert definition.index("receipt.id = receipt_id_value") < first_limit
     assert definition.index("selection.receipt_id = receipt_id_value") < learned_limit
+    operator_role_gate = definition.index(
+        "array['owner', 'admin', 'producer', 'reviewer', 'operator']"
+    )
+    mature_training_gate = definition.index(
+        "array['owner', 'admin', 'producer', 'reviewer']", operator_role_gate
+    )
+    assert operator_role_gate < mature_training_gate < first_query
+    assert "organization_id_value, true, null" not in definition[:first_query]
 
 
 def test_exact_youtube_operator_source_and_lifecycle_filters_precede_limit() -> None:
@@ -384,6 +398,43 @@ def test_exact_youtube_operator_source_and_lifecycle_filters_precede_limit() -> 
     assert definition.count(
         "qualified_operator_own_ai_research_receipt_allowed("
     ) >= 2
+    operator_role_gate = definition.index(
+        "array['owner', 'admin', 'producer', 'reviewer', 'operator']"
+    )
+    mature_training_gate = definition.index(
+        "array['owner', 'admin', 'producer', 'reviewer']", operator_role_gate
+    )
+    assert operator_role_gate < mature_training_gate < outer_limit
+
+
+def test_private_decision_snapshot_uses_locked_receipt_project() -> None:
+    migration = _read(MIGRATION_PATH)
+    source = _read(DECISION_SOURCE_PATH)
+    function_start = source.index(
+        "create or replace function public.creator_decide_ai_research_training("
+    )
+    function_end = source.index(
+        "\nrevoke all on function public.creator_decide_ai_research_training",
+        function_start,
+    )
+    definition = source[function_start:function_end]
+    definition = _replace_anchor(
+        definition, migration, "old_decision_role", "new_decision_role"
+    )
+    definition = _replace_anchor(
+        definition, migration, "old_decision_snapshot", "new_decision_snapshot"
+    )
+
+    assert parse_sql(definition)
+    snapshot_start = definition.index(
+        "'snapshot', public.creator_ai_research_training_queue("
+    )
+    snapshot_end = definition.index("\n    )", snapshot_start) + len("\n    )")
+    snapshot = definition[snapshot_start:snapshot_end]
+    assert "'project_id', receipt_row.project_id" in snapshot
+    assert snapshot.index("'organization_id'") < snapshot.index("'project_id'")
+    assert snapshot.index("'project_id'") < snapshot.index("'product_category'")
+    assert "p_payload ->> 'project_id'" not in snapshot
 
 
 def test_status_ownership_and_qualification_run_before_mature_delegate() -> None:

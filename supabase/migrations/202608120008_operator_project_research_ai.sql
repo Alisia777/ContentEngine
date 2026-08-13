@@ -986,6 +986,34 @@ begin
     patched_value := replace(patched_value, old_value, new_value);
   end if;
 
+  -- Resolve the coarse role before invoking any training gate.  A qualified
+  -- operator is checked by the exact project predicate below; mature manager
+  -- and reviewer reads retain their existing full training requirements.
+  old_value := $old_queue_role$
+  actor_role_value := content_factory_private.membership_role(
+    organization_id_value, true, null
+  );$old_queue_role$;
+  new_value := $new_queue_role$
+  actor_role_value := content_factory_private.membership_role(
+    organization_id_value,
+    false,
+    array['owner', 'admin', 'producer', 'reviewer', 'operator']
+  );
+  if actor_role_value <> 'operator' then
+    perform content_factory_private.membership_role(
+      organization_id_value,
+      true,
+      array['owner', 'admin', 'producer', 'reviewer']
+    );
+  end if;$new_queue_role$;
+  if strpos(patched_value, new_value) = 0 then
+    if strpos(patched_value, old_value) = 0 then
+      raise exception using
+        errcode = '55000', message = 'ai_research_queue_role_changed';
+    end if;
+    patched_value := replace(patched_value, old_value, new_value);
+  end if;
+
   -- Operators must enter the queue through the same explicit project ACL and
   -- current qualification boundary used by the project flow.  The mature
   -- manager branch keeps its existing project-membership semantics.
@@ -1234,9 +1262,16 @@ begin
   new_value := $new_exact_role$
   actor_role_value := content_factory_private.membership_role(
     organization_id_value,
-    true,
+    false,
     array['owner', 'admin', 'producer', 'reviewer', 'operator']
-  );$new_exact_role$;
+  );
+  if actor_role_value <> 'operator' then
+    perform content_factory_private.membership_role(
+      organization_id_value,
+      true,
+      array['owner', 'admin', 'producer', 'reviewer']
+    );
+  end if;$new_exact_role$;
   if strpos(patched_value, new_value) = 0 then
     if strpos(patched_value, old_value) = 0 then
       raise exception using
@@ -1431,6 +1466,51 @@ begin
   execute patched_value;
 end;
 $patch_ai_research_decision_for_operator$;
+
+-- The preserved unscoped decision strips project_id from its legacy payload,
+-- but its returned queue snapshot now requires an explicit project for an
+-- operator.  Bridge only the immutable project from the already locked and
+-- validated receipt row; never trust a second caller-supplied project value.
+do $patch_ai_research_decision_snapshot_project$
+declare
+  signature_value constant regprocedure :=
+    'content_factory_private.contentengine_decide_ai_research_training_unscoped_v1(jsonb)'::regprocedure;
+  definition_value text := pg_catalog.pg_get_functiondef(signature_value);
+  patched_value text;
+  old_value constant text := $old_decision_snapshot$
+    'snapshot', public.creator_ai_research_training_queue(
+      jsonb_build_object(
+        'organization_id', organization_id_value,
+        'product_category', category_value
+      )
+    )$old_decision_snapshot$;
+  new_value constant text := $new_decision_snapshot$
+    'snapshot', public.creator_ai_research_training_queue(
+      jsonb_build_object(
+        'organization_id', organization_id_value,
+        'project_id', receipt_row.project_id,
+        'product_category', category_value
+      )
+    )$new_decision_snapshot$;
+begin
+  if strpos(definition_value, new_value) > 0 then
+    return;
+  end if;
+  if strpos(definition_value, old_value) = 0 then
+    raise exception using
+      errcode = '55000',
+      message = 'ai_research_decision_snapshot_topology_changed';
+  end if;
+  patched_value := replace(definition_value, old_value, new_value);
+  if patched_value = definition_value
+     or strpos(patched_value, new_value) = 0 then
+    raise exception using
+      errcode = '55000',
+      message = 'ai_research_decision_snapshot_project_patch_failed';
+  end if;
+  execute patched_value;
+end;
+$patch_ai_research_decision_snapshot_project$;
 
 -- The mature project wrapper performs the exact receipt/project checks, but
 -- its private delegate supports idempotent replay.  Put current operator
@@ -1745,9 +1825,33 @@ declare
   project_status_definition text := pg_catalog.pg_get_functiondef(
     'public.creator_project_research_status(jsonb)'::regprocedure
   );
+  queue_role_definition constant text := $queue_role_definition$
+  actor_role_value := content_factory_private.membership_role(
+    organization_id_value,
+    false,
+    array['owner', 'admin', 'producer', 'reviewer', 'operator']
+  );
+  if actor_role_value <> 'operator' then
+    perform content_factory_private.membership_role(
+      organization_id_value,
+      true,
+      array['owner', 'admin', 'producer', 'reviewer']
+    );
+  end if;$queue_role_definition$;
+  decision_snapshot_definition constant text := $decision_snapshot_definition$
+    'snapshot', public.creator_ai_research_training_queue(
+      jsonb_build_object(
+        'organization_id', organization_id_value,
+        'project_id', receipt_row.project_id,
+        'product_category', category_value
+      )
+    )$decision_snapshot_definition$;
 begin
   if strpos(queue_definition,
        'qualified_operator_own_ai_research_receipt_allowed') = 0
+     or strpos(queue_definition, queue_role_definition) = 0
+     or strpos(queue_definition, queue_role_definition) >
+       strpos(queue_definition, 'select coalesce(jsonb_agg')
      or strpos(queue_definition, 'operator_own_receipts_only') = 0
      or strpos(queue_definition, '''ownership''') = 0
      or strpos(queue_definition, '''ownership''') >
@@ -1771,11 +1875,15 @@ begin
        'qualified_operator_project_research_allowed') >
        strpos(exact_source_definition,
          'select coalesce')
+     or strpos(exact_source_definition, queue_role_definition) = 0
+     or strpos(exact_source_definition, queue_role_definition) >
+       strpos(exact_source_definition, 'select coalesce')
      or strpos(decision_definition,
        'qualified_operator_own_ai_research_receipt_allowed') = 0
      or strpos(decision_definition,
        'qualified_operator_own_ai_research_receipt_allowed') >
        strpos(decision_definition, 'begin_command(')
+     or strpos(decision_definition, decision_snapshot_definition) = 0
      or strpos(decision_outer_definition,
        'qualified_operator_own_ai_research_receipt_allowed') = 0
      or strpos(decision_outer_definition,
