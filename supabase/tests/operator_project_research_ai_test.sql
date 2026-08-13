@@ -503,7 +503,8 @@ $$;
 
 -- Immediate mode makes the deferred INSERT-only invariant executable inside
 -- throws_ok.  No direct operator run may survive without its exact snapshot.
-set constraints enforce_operator_research_price_confirmation immediate;
+set constraints
+  content_factory.enforce_operator_research_price_confirmation immediate;
 
 select throws_ok(
   $unconfirmed_insert$
@@ -525,7 +526,8 @@ select throws_ok(
   'future direct operator run insert without exact snapshot is rejected'
 );
 
-set constraints enforce_operator_research_price_confirmation deferred;
+set constraints
+  content_factory.enforce_operator_research_price_confirmation deferred;
 
 -- Seed both actor-scoped runs before exercising status and queue boundaries.
 -- The later calls with the same raw key are deliberate replay assertions.
@@ -575,8 +577,10 @@ update operator_research_context
 set run_id = (start_result #>> '{run,id}')::uuid
 where actor_id = 'dc000000-0000-4000-8000-000000000003';
 
-set constraints enforce_operator_research_price_confirmation immediate;
-set constraints enforce_operator_research_price_confirmation deferred;
+set constraints
+  content_factory.enforce_operator_research_price_confirmation immediate;
+set constraints
+  content_factory.enforce_operator_research_price_confirmation deferred;
 
 do $$
 begin
@@ -945,7 +949,8 @@ select is(
 
 -- Flushing the deferred event proves the wrapper inserted its append-only
 -- confirmation in the same statement as the new run.
-set constraints enforce_operator_research_price_confirmation immediate;
+set constraints
+  content_factory.enforce_operator_research_price_confirmation immediate;
 
 select ok(
   exists (
@@ -999,7 +1004,8 @@ select ok(
   'operator run carries the exact full metered authorization'
 );
 
-set constraints enforce_operator_research_price_confirmation deferred;
+set constraints
+  content_factory.enforce_operator_research_price_confirmation deferred;
 
 update operator_research_context context_row
 set replay_result = public.creator_start_project_research(
@@ -1047,7 +1053,8 @@ update operator_research_context
 set run_id = (start_result #>> '{run,id}')::uuid
 where actor_id = 'dc000000-0000-4000-8000-000000000003';
 
-set constraints enforce_operator_research_price_confirmation immediate;
+set constraints
+  content_factory.enforce_operator_research_price_confirmation immediate;
 
 select ok(
   (select a.run_id <> b.run_id
@@ -1077,7 +1084,8 @@ select is(
   'both fresh actor-scoped starts are provider-attempt free'
 );
 
-set constraints enforce_operator_research_price_confirmation deferred;
+set constraints
+  content_factory.enforce_operator_research_price_confirmation deferred;
 
 -- A later explicit server action may bind the one paid provider attempt.
 -- This is a direct test call, never a side effect of start/queue/decision.

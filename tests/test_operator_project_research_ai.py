@@ -237,6 +237,7 @@ def test_price_snapshot_is_metered_exact_and_runtime_model_is_pinned() -> None:
 
 def test_price_confirmation_is_append_only_and_required_before_commit() -> None:
     migration = _read(MIGRATION_PATH)
+    pgtap = _read(PGTAP_PATH)
     for token in (
         "research_operator_price_confirmation_immutable",
         "before update or delete on",
@@ -256,6 +257,15 @@ def test_price_confirmation_is_append_only_and_required_before_commit() -> None:
     ]
     assert "after insert on content_factory.product_research_runs" in trigger
     assert "after insert or update" not in trigger
+    assert pgtap.count(
+        "content_factory.enforce_operator_research_price_confirmation"
+    ) == 8
+    assert not re.search(
+        r"set\s+constraints\s+(?!content_factory\.)"
+        r"enforce_operator_research_price_confirmation",
+        pgtap,
+        re.IGNORECASE,
+    )
 
 
 def test_start_return_is_provider_free_and_committed_replay_is_exactly_pinned() -> None:
