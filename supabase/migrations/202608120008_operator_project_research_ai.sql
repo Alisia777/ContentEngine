@@ -345,13 +345,20 @@ begin
   perform content_factory_private.require_workspace_project(
     organization_id, project_id_value
   );
-  if not (
-    content_factory_private.membership_role(organization_id, true, null)
-      = any(array['owner', 'admin', 'producer'])
-  ) and not content_factory_private.qualified_operator_project_research_allowed(
-    organization_id, project_id_value, user_id
-  ) then
-    raise exception using errcode = '42501', message = 'role_not_allowed';
+  if content_factory_private.membership_role(
+    organization_id,
+    false,
+    array['owner', 'admin', 'producer', 'operator']
+  ) = 'operator' then
+    if not content_factory_private.qualified_operator_project_research_allowed(
+      organization_id, project_id_value, user_id
+    ) then
+      raise exception using errcode = '42501', message = 'role_not_allowed';
+    end if;
+  else
+    perform content_factory_private.membership_role(
+      organization_id, true, array['owner', 'admin', 'producer']
+    );
   end if;$new_base$;
   if strpos(definition_value, new_value) = 0 then
     if strpos(definition_value, old_value) = 0 then
@@ -382,15 +389,21 @@ begin
   user_id := content_factory_private.current_profile_id();
   organization_id_value :=
     content_factory_private.resolve_organization(delegated_payload);
-  if not (
-    content_factory_private.membership_role(
-      organization_id_value, true, null
-    ) = any(array['owner', 'admin', 'producer'])
-  ) and not content_factory_private
-    .qualified_operator_project_research_context_allowed(
-      organization_id_value, user_id
-    ) then
-    raise exception using errcode = '42501', message = 'role_not_allowed';
+  if content_factory_private.membership_role(
+    organization_id_value,
+    false,
+    array['owner', 'admin', 'producer', 'operator']
+  ) = 'operator' then
+    if not content_factory_private
+      .qualified_operator_project_research_context_allowed(
+        organization_id_value, user_id
+      ) then
+      raise exception using errcode = '42501', message = 'role_not_allowed';
+    end if;
+  else
+    perform content_factory_private.membership_role(
+      organization_id_value, true, array['owner', 'admin', 'producer']
+    );
   end if;$new_provider_outer$;
   if strpos(definition_value, new_value) = 0 then
     if strpos(definition_value, old_value) = 0 then
@@ -419,14 +432,21 @@ begin
   user_id := content_factory_private.current_profile_id();
   organization_id := content_factory_private.resolve_organization(p_payload);
   actor_role := content_factory_private.membership_role(
-    organization_id, true, null
+    organization_id,
+    false,
+    array['owner', 'admin', 'producer', 'operator']
   );
-  if not (actor_role = any(array['owner', 'admin', 'producer']))
-     and not content_factory_private
-       .qualified_operator_project_research_context_allowed(
-         organization_id, user_id
-       ) then
-    raise exception using errcode = '42501', message = 'role_not_allowed';
+  if actor_role = 'operator' then
+    if not content_factory_private
+      .qualified_operator_project_research_context_allowed(
+        organization_id, user_id
+      ) then
+      raise exception using errcode = '42501', message = 'role_not_allowed';
+    end if;
+  else
+    perform content_factory_private.membership_role(
+      organization_id, true, array['owner', 'admin', 'producer']
+    );
   end if;$new_provider_inner$;
   if strpos(definition_value, new_value) = 0 then
     if strpos(definition_value, old_value) = 0 then
@@ -467,14 +487,20 @@ begin
   perform content_factory_private.require_workspace_project_access(
     organization_id_value, project_id_value, actor_id_value
   );
-  if not (
-    content_factory_private.membership_role(
-      organization_id_value, true, null
-    ) = any(array['owner', 'admin', 'producer'])
-  ) and not content_factory_private.qualified_operator_project_research_allowed(
-    organization_id_value, project_id_value, actor_id_value
-  ) then
-    raise exception using errcode = '42501', message = 'role_not_allowed';
+  if content_factory_private.membership_role(
+    organization_id_value,
+    false,
+    array['owner', 'admin', 'producer', 'operator']
+  ) = 'operator' then
+    if not content_factory_private.qualified_operator_project_research_allowed(
+      organization_id_value, project_id_value, actor_id_value
+    ) then
+      raise exception using errcode = '42501', message = 'role_not_allowed';
+    end if;
+  else
+    perform content_factory_private.membership_role(
+      organization_id_value, true, array['owner', 'admin', 'producer']
+    );
   end if;$new_exact_outer$;
   if strpos(definition_value, new_value) = 0 then
     if strpos(definition_value, old_value) = 0 then
@@ -556,8 +582,15 @@ begin
     organization_id_value, project_id_value, actor_id_value
   );
   actor_role_value := content_factory_private.membership_role(
-    organization_id_value, true, null
+    organization_id_value,
+    false,
+    array['owner', 'admin', 'producer', 'operator']
   );
+  if actor_role_value <> 'operator' then
+    perform content_factory_private.membership_role(
+      organization_id_value, true, array['owner', 'admin', 'producer']
+    );
+  end if;
   paid_authorization_value := p_payload -> 'paid_analysis_authorization';
   exact_video_keys_present := p_payload ?| array[
     'exact_youtube_source_id', 'exact_youtube_attachment_id',
@@ -1533,6 +1566,7 @@ as $$
 declare
   actor_id_value uuid;
   actor_role_value text;
+  profile_status_value text;
   organization_id_value uuid;
   project_id_value uuid;
   snapshot_value jsonb;
@@ -1540,7 +1574,29 @@ declare
   latest_run_value jsonb;
 begin
   p_payload := content_factory_private.require_payload(p_payload);
-  actor_id_value := content_factory_private.current_profile_id();
+  actor_id_value := auth.uid();
+  if actor_id_value is null then
+    raise exception using
+      errcode = '42501', message = 'authentication_required';
+  end if;
+  if not exists (
+    select 1
+    from auth.users auth_user
+    where auth_user.id = actor_id_value
+      and auth_user.email is not null
+  ) then
+    raise exception using
+      errcode = '42501', message = 'verified_email_required';
+  end if;
+  select profile.status
+    into profile_status_value
+  from content_factory.profiles profile
+  where profile.id = actor_id_value;
+  if profile_status_value is not null
+     and profile_status_value <> 'active' then
+    raise exception using
+      errcode = '42501', message = 'profile_not_active';
+  end if;
   organization_id_value :=
     content_factory_private.resolve_organization(p_payload);
   actor_role_value := content_factory_private.membership_role(

@@ -114,6 +114,59 @@ def test_all_four_mature_start_gates_are_fail_closed_patches() -> None:
     assert patch.count("patched_value := replace(") == 4
 
 
+def test_all_five_start_layers_reject_role_before_training() -> None:
+    migration = _read(MIGRATION_PATH)
+    patch = migration[
+        migration.index("$patch_project_research_start_layers$") :
+        migration.index("$preserve_project_research_before_operator_price$")
+    ]
+
+    widened_blocks: list[str] = []
+    for tag in (
+        "new_base",
+        "new_provider_outer",
+        "new_provider_inner",
+        "new_exact_outer",
+    ):
+        marker = f"${tag}$"
+        start = patch.index(marker) + len(marker)
+        widened_blocks.append(patch[start : patch.index(marker, start)])
+
+    price_wrapper = migration[
+        migration.index("create or replace function public.creator_start_project_research(") :
+        migration.index("$preserve_project_research_status_before_operator_own_v1$")
+    ]
+    widened_blocks.append(price_wrapper)
+
+    for block in widened_blocks:
+        role_gate = block.index(
+            "array['owner', 'admin', 'producer', 'operator']"
+        )
+        manager_training = block.index(
+            "array['owner', 'admin', 'producer']", role_gate + 1
+        )
+        assert role_gate < manager_training
+        assert "true, null" not in block
+
+    pgtap = _read(PGTAP_PATH)
+    acl_setup = pgtap[: pgtap.index("public.creator_grant_project_member")]
+    assert "'workspace_generation', 'active', 'owner', 'owner'" in acl_setup
+
+
+def test_project_flow_keeps_the_read_only_authentication_boundary() -> None:
+    migration = _read(MIGRATION_PATH)
+    project_flow = migration[
+        migration.index("create or replace function public.creator_project_flow(") :
+        migration.index("-- Assert the installed topology")
+    ]
+
+    assert "actor_id_value := auth.uid();" in project_flow
+    assert "current_profile_id" not in project_flow
+    assert "from auth.users auth_user" in project_flow
+    assert "into profile_status_value" in project_flow
+    assert "message = 'profile_not_active'" in project_flow
+
+
 def test_operator_idempotency_and_full_metered_authorization_are_actor_scoped() -> None:
     migration = _read(MIGRATION_PATH)
     wrapper = migration[

@@ -113,6 +113,20 @@ from (values
   ('dc000000-0000-4000-8000-000000000005', 'revoked')
 ) fixture(profile_id, status);
 
+-- Project membership grants intentionally retain the mature training gate.
+-- Qualify this test-only owner so the ACL setup exercises the real RPC rather
+-- than bypassing or weakening its authorization boundary.
+insert into content_factory.training_access_waivers (
+  organization_id, profile_id, scope, status, previous_role, granted_role,
+  grant_reason, granted_by
+) values (
+  'dc100000-0000-4000-8000-000000000001'::uuid,
+  'dc000000-0000-4000-8000-000000000001'::uuid,
+  'workspace_generation', 'active', 'owner', 'owner',
+  'TEST-ONLY owner qualification for project ACL fixture.',
+  'dc000000-0000-4000-8000-000000000001'::uuid
+);
+
 do $$
 begin
   perform set_config('request.jwt.claim.role', 'authenticated', true);
