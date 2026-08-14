@@ -311,7 +311,7 @@ select 'read-operator-one',
     'organization_id', 'a9200000-0000-4000-8000-000000000001',
     'filter', 'all',
     'notification_ids', jsonb_build_array((
-      select payload #>> '{items,0,id}'
+      select payload #>> '{items,0,notification_id}'
       from notification_v491_results
       where name = 'operator-one-center'
     )),
@@ -483,7 +483,7 @@ select throws_ok(
       'organization_id', 'a9200000-0000-4000-8000-000000000001',
       'filter', 'system',
       'notification_ids', jsonb_build_array((
-        select payload #>> '{items,0,id}'
+        select payload #>> '{items,0,notification_id}'
         from notification_v491_results
         where name = 'live-after-expired'
       )),
