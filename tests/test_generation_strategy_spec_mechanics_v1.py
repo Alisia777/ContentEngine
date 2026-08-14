@@ -23,13 +23,13 @@ FROZEN = {
     / "supabase"
     / "migrations"
     / "202608130006_generation_strategy_authority_v1.sql": (
-        "1b34bc270b026435966805b7830cea960e99b26c333bda02e005bc3325b21b16"
+        "f8184163e9270a7d26220550f01effe5127f9dcba061af862b03f774b030f600"
     ),
     ROOT
     / "supabase"
     / "migrations"
     / "202608130007_generation_strategy_execution_v1.sql": (
-        "20131dfd244f50686472857a51c491714aa1545e2d5e2a251384ef5f53e3eefb"
+        "cb2b1039f30eec07cc6e8e1d2b7f1e2b005210eccd47c29f23d7ca4ed572fed7"
     ),
 }
 SPEC_BASE = ROOT / "supabase" / "migrations" / "202608030017_generation_spec_control.sql"
@@ -78,6 +78,17 @@ def test_migration_and_pgtap_parse_and_frozen_contracts_are_untouched() -> None:
     assert len(parse_sql(pgtap)) >= 12
     for path, expected in FROZEN.items():
         assert hashlib.sha256(path.read_bytes()).hexdigest() == expected
+
+
+def test_plpgsql_strategy_scope_case_expression_is_parser_safe() -> None:
+    sql = _read(MIGRATION)
+    scope = _function(
+        sql,
+        "content_factory_private.generation_strategy_spec_scope_v1",
+    )
+
+    assert "or input_mode_value <> (case strategy_id_value" in scope
+    assert "or input_mode_value <> case strategy_id_value" not in scope
 
 
 def test_strategy_scope_is_explicit_recipe_authority_not_model_proxy() -> None:

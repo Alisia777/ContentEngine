@@ -973,11 +973,11 @@ begin
        or primary_count + product_reference_count not between 1 and 10
        or asset_count <> primary_count + product_reference_count
              + style_reference_count +
-             case when binding_row.source_basis = 'exact_source_video'
-               then 1 else 0 end
+             (case when binding_row.source_basis = 'exact_source_video'
+               then 1 else 0 end)
        or source_video_count <>
-            case when binding_row.source_basis = 'exact_source_video'
-              then 1 else 0 end
+            (case when binding_row.source_basis = 'exact_source_video'
+              then 1 else 0 end)
        or binding_row.likeness_consent_confirmed
        or (
          binding_row.source_basis = 'exact_source_video'

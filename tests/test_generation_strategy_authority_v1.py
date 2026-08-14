@@ -46,6 +46,28 @@ def test_generation_strategy_sql_and_pgtap_parse() -> None:
     assert migration.rstrip().endswith("commit;")
 
 
+def test_plpgsql_binding_current_case_expressions_are_parser_safe() -> None:
+    sql = _read(MIGRATION)
+    validator = _section(
+        sql,
+        "generation_strategy_binding_current(",
+        "create or replace function\n  content_factory_private.enforce_generation_strategy_binding_current()",
+    )
+
+    assert (
+        "+ style_reference_count +\n"
+        "             (case when binding_row.source_basis = 'exact_source_video'\n"
+        "               then 1 else 0 end)"
+    ) in validator
+    assert (
+        "or source_video_count <>\n"
+        "            (case when binding_row.source_basis = 'exact_source_video'\n"
+        "              then 1 else 0 end)"
+    ) in validator
+    assert "+ style_reference_count +\n             case when" not in validator
+    assert "or source_video_count <>\n            case when" not in validator
+
+
 def test_three_business_ids_have_one_exact_runway_recipe_each() -> None:
     sql = _read(MIGRATION)
 

@@ -474,11 +474,11 @@ begin
      or recipe_value <> content_factory_private.generation_strategy_recipe(
        strategy_id_value
      )
-     or input_mode_value <> case strategy_id_value
+     or input_mode_value <> (case strategy_id_value
        when 'viral_avatar_ugc' then 'character_and_product_images'
        when 'viral_product_swap' then 'video_and_product_images'
        when 'viral_rebuild' then 'product_images'
-       else null end
+       else null end)
      or duration_value <>
           (selection_value ->> 'duration_seconds')::integer
      or audio_value <> (selection_value ->> 'audio')::boolean
