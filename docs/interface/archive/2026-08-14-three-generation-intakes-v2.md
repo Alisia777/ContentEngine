@@ -130,11 +130,13 @@ content_factory.research_exact_youtube_media_attachments
 content_factory.generation_intakes_v2
 ```
 
-И RPC:
+И подготовительный RPC:
 
 ```text
-public.creator_save_generation_intake_v2(jsonb)
+public.contentengine_save_generation_intake_v2(jsonb)
 ```
+
+Namespace `contentengine_*` выбран намеренно: это подготовка источника и вводных, а не полноценная команда генерации из рабочего контура `creator_*`.
 
 RPC принимает только два компактных маршрута:
 
@@ -196,4 +198,5 @@ RPC принимает только два компактных маршрута
 - `web/app/generation-strategy-intake-v3.css`
 - `web/app/workspace-os-v4-loader.js`
 - `supabase/migrations/202608140001_generation_intake_v2.sql`
+- `supabase/migrations/202608140002_generation_intake_v2_rpc_namespace.sql`
 - `tests/test_generation_strategy_intake_v2.py`
