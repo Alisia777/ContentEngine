@@ -566,6 +566,441 @@
           .every((input) => input.checked === false),
         validatedSelection: guided.getStrategySelection(form),
       };
+
+      // The Python harness drives this small adapter through the Chrome DevTools
+      // Input domain.  Keeping the pointer dispatch outside the page is
+      // intentional: HTMLElement.click() creates an untrusted event and did not
+      // reproduce the production failure where a visually enabled control lost
+      // its delegated listener after cloneNode(true).
+      const trustedPointerEvents = [];
+      let capturedPointerNodes = null;
+      let persistedAttestation = null;
+      const activeForm = () => document.querySelector("#mock-batch-form");
+      const stableSettle = async () => {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        await settle();
+      };
+      const pointerTarget = (kind, value = "") => {
+        const currentForm = activeForm();
+        if (!currentForm) return null;
+        if (kind === "strategy") {
+          return currentForm.querySelector(
+            `[data-generation-strategy-action="SELECT"][data-strategy-id="${CSS.escape(value)}"]`,
+          );
+        }
+        if (kind === "attestation") {
+          return value
+            ? currentForm.querySelector(
+              `#generation-strategy-assets input[data-generation-strategy-attestation="${CSS.escape(value)}"]`,
+            )
+            : currentForm.querySelector(
+              "#generation-strategy-assets input[data-generation-strategy-attestation]",
+            );
+        }
+        if (kind === "source") {
+          if (value) {
+            return currentForm.querySelector(
+              `[data-generation-strategy-source-toggle="${CSS.escape(value)}"]`,
+            );
+          }
+          return currentForm.querySelector(
+            "[data-generation-strategy-source-toggle]:not(:disabled)",
+          );
+        }
+        if (kind === "product_media") {
+          if (value) {
+            return currentForm.querySelector(
+              `input[name="media_id"][value="${CSS.escape(value)}"]:not(:disabled)`,
+            );
+          }
+          return currentForm.querySelector('input[name="media_id"]:not(:disabled)');
+        }
+        if (kind === "model") {
+          const radios = [...currentForm.querySelectorAll("input[data-ce-v4-generation-model]")];
+          if (value) return radios.find((radio) => radio.value === value) || null;
+          const legacyKey = `${currentForm.elements.generation_provider?.value || ""}:${currentForm.elements.generation_model_id?.value || ""}`;
+          return radios.find((radio) => !radio.disabled && radio.value !== legacyKey && !radio.checked)
+            || radios.find((radio) => !radio.disabled && !radio.checked)
+            || radios.find((radio) => !radio.disabled)
+            || radios[0]
+            || null;
+        }
+        return null;
+      };
+      const classifyPointerTarget = (target) => {
+        if (!(target instanceof Element)) return { kind: "other", value: "" };
+        const strategy = target.closest('[data-generation-strategy-action="SELECT"]');
+        if (strategy) return { kind: "strategy", value: strategy.dataset.strategyId || "" };
+        const model = target.closest("[data-ce-v4-generation-model]");
+        if (model) return { kind: "model", value: model.value || "" };
+        const attestation = target.closest("[data-generation-strategy-attestation]");
+        if (attestation) {
+          return {
+            kind: "attestation",
+            value: attestation.dataset.generationStrategyAttestation || "",
+          };
+        }
+        const source = target.closest("[data-generation-strategy-source-toggle]");
+        if (source) {
+          return {
+            kind: "source",
+            value: source.dataset.generationStrategySourceToggle || "",
+          };
+        }
+        const productMedia = target.closest('input[name="media_id"]');
+        if (productMedia) {
+          return { kind: "product_media", value: productMedia.value || "" };
+        }
+        return { kind: "other", value: "" };
+      };
+      const recordTrustedPointerEvent = (event) => {
+        const classified = classifyPointerTarget(event.target);
+        if (classified.kind === "other") return;
+        trustedPointerEvents.push({
+          type: event.type,
+          isTrusted: event.isTrusted,
+          kind: classified.kind,
+          value: classified.value,
+        });
+      };
+      const legacyIdentity = () => {
+        const currentForm = activeForm();
+        return {
+          mode: currentForm?.elements?.generation_mode?.value || "",
+          provider: currentForm?.elements?.generation_provider?.value || "",
+          model: currentForm?.elements?.generation_model_id?.value || "",
+        };
+      };
+      const interactionState = () => {
+        const currentForm = activeForm();
+        const checkedModel = currentForm?.querySelector(
+          "input[data-ce-v4-generation-model]:checked",
+        );
+        return {
+          selectedStrategy: currentForm?.elements?.generation_strategy_id?.value || "",
+          pressedStrategies: [...(currentForm?.querySelectorAll(
+            '[data-generation-strategy-action="SELECT"][aria-pressed="true"]',
+          ) || [])].map((button) => button.dataset.strategyId),
+          checkedModel: checkedModel?.value || "",
+          checkedModelCardSelected: checkedModel?.closest(".ce-v4-model-card")
+            ?.classList.contains("is-selected") === true,
+          enabledModelCount: currentForm?.querySelectorAll(
+            "input[data-ce-v4-generation-model]:not(:disabled)",
+          ).length || 0,
+          modelCount: currentForm?.querySelectorAll(
+            "input[data-ce-v4-generation-model]",
+          ).length || 0,
+          modelAdvisorMode: currentForm?.querySelector("[data-ce-v4-model-advisor]")
+            ?.dataset?.strategyAdvisoryOnly || "",
+          checkedAttestations: [...(currentForm?.querySelectorAll(
+            "#generation-strategy-assets input[data-generation-strategy-attestation]:checked",
+          ) || [])].map((input) => input.dataset.generationStrategyAttestation),
+          selectedSourceIds: guided.getStrategySourcePickerProjection(currentForm)
+            ?.selected?.map((item) => item.source_media_id) || [],
+          checkedProductMediaIds: [...(currentForm?.querySelectorAll(
+            'input[name="media_id"]:checked:not(:disabled)',
+          ) || [])].map((input) => input.value),
+          allAttestationsUnchecked: [...(currentForm?.querySelectorAll(
+            "#generation-strategy-assets input[data-generation-strategy-attestation]",
+          ) || [])].every((input) => input.checked === false),
+          legacy: legacyIdentity(),
+          legacyBlocker: currentForm?.dataset?.ceV4ModelSelectionBlocked || "",
+          legacyValidationMessage: currentForm?.elements?.generation_mode?.validationMessage || "",
+        };
+      };
+      const identityState = () => {
+        if (!capturedPointerNodes) {
+          return {
+            pointerSame: false,
+            strategySame: false,
+            modelSame: false,
+            attestationSame: false,
+          };
+        }
+        const currentForm = activeForm();
+        const currentPointer = pointerTarget(
+          capturedPointerNodes.pointerKind,
+          capturedPointerNodes.pointerValue,
+        );
+        const currentStrategy = currentForm?.querySelector(
+          `[data-generation-strategy-action="SELECT"][data-strategy-id="${CSS.escape(capturedPointerNodes.strategyId)}"]`,
+        );
+        const currentModel = [...(currentForm?.querySelectorAll(
+          "input[data-ce-v4-generation-model]",
+        ) || [])].find((radio) => radio.value === capturedPointerNodes.modelValue) || null;
+        const currentAttestation = currentForm?.querySelector(
+          `#generation-strategy-assets input[data-generation-strategy-attestation="${CSS.escape(capturedPointerNodes.attestationId)}"]`,
+        );
+        return {
+          pointerSame: currentPointer === capturedPointerNodes.pointer,
+          strategySame: currentStrategy === capturedPointerNodes.strategy,
+          modelSame: currentModel === capturedPointerNodes.model,
+          attestationSame: currentAttestation === capturedPointerNodes.attestation,
+          pointerConnected: capturedPointerNodes.pointer?.isConnected === true,
+          strategyConnected: capturedPointerNodes.strategy?.isConnected === true,
+          modelConnected: capturedPointerNodes.model?.isConnected === true,
+          attestationConnected: capturedPointerNodes.attestation?.isConnected === true,
+        };
+      };
+      window.__generationStrategyTrustedPointerDriver = Object.freeze({
+        async cloneAndRemount() {
+          const original = activeForm();
+          const clone = original.cloneNode(true);
+          const staleBoundBeforeMount = clone.dataset.ceV4GenerationGuidedBound || "";
+          clone.addEventListener("pointerdown", recordTrustedPointerEvent, true);
+          clone.addEventListener("click", recordTrustedPointerEvent, true);
+          original.replaceWith(clone);
+          guided.mount();
+          await stableSettle();
+          return {
+            formWasReplaced: activeForm() === clone && original !== clone,
+            originalDisconnected: original.isConnected === false,
+            staleBoundBeforeMount,
+            boundAfterMount: clone.dataset.ceV4GenerationGuidedBound || "",
+            selectedStrategy: clone.elements.generation_strategy_id?.value || "",
+          };
+        },
+        async goToStep(step) {
+          const moved = guided.goToStep(step);
+          await stableSettle();
+          return {
+            moved: moved !== false,
+            step: activeForm()?.dataset?.ceV4GenerationStep || "",
+          };
+        },
+        async preparePointer(kind, value = "") {
+          let node = pointerTarget(kind, value);
+          if (!(node instanceof HTMLElement)) {
+            capturedPointerNodes = null;
+            return { ok: false, kind, value, reason: "target_missing" };
+          }
+          const resolvedValue = kind === "strategy"
+            ? node.dataset.strategyId || ""
+            : kind === "attestation"
+              ? node.dataset.generationStrategyAttestation || ""
+              : kind === "source"
+                ? node.dataset.generationStrategySourceToggle || ""
+                : node.value || "";
+          node.scrollIntoView({ behavior: "instant", block: "center", inline: "center" });
+          await stableSettle();
+          node = pointerTarget(kind, resolvedValue);
+          if (!(node instanceof HTMLElement)) {
+            capturedPointerNodes = null;
+            return { ok: false, kind, value: resolvedValue, reason: "target_replaced_without_successor" };
+          }
+          node.scrollIntoView({ behavior: "instant", block: "center", inline: "center" });
+          await settle();
+          const currentForm = activeForm();
+          const strategy = kind === "strategy"
+            ? node
+            : currentForm.querySelector(
+              '[data-generation-strategy-action="SELECT"][aria-pressed="true"]',
+            ) || currentForm.querySelector('[data-generation-strategy-action="SELECT"]');
+          const model = kind === "model"
+            ? node
+            : currentForm.querySelector("input[data-ce-v4-generation-model]");
+          const attestation = kind === "attestation"
+            ? node
+            : currentForm.querySelector(
+              "#generation-strategy-assets input[data-generation-strategy-attestation]",
+            );
+          capturedPointerNodes = {
+            pointer: node,
+            pointerKind: kind,
+            pointerValue: kind === "strategy"
+              ? node.dataset.strategyId || ""
+              : kind === "attestation"
+                ? node.dataset.generationStrategyAttestation || ""
+                : kind === "source"
+                  ? node.dataset.generationStrategySourceToggle || ""
+                  : node.value || "",
+            strategy,
+            strategyId: strategy?.dataset?.strategyId || "",
+            model,
+            modelValue: model?.value || "",
+            attestation,
+            attestationId: attestation?.dataset?.generationStrategyAttestation || "",
+          };
+          const rect = node.getBoundingClientRect();
+          return {
+            ok: true,
+            kind,
+            value: capturedPointerNodes.pointerValue,
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+            width: rect.width,
+            height: rect.height,
+            rendered: rect.width > 0 && rect.height > 0,
+            disabled: "disabled" in node && node.disabled === true,
+            baselineNodes: {
+              strategy: Boolean(strategy),
+              model: Boolean(model),
+              attestation: Boolean(attestation),
+            },
+          };
+        },
+        async churnMounts(count = 25) {
+          for (let index = 0; index < count; index += 1) guided.mount();
+          await stableSettle();
+          return identityState();
+        },
+        async settle() {
+          await stableSettle();
+          return interactionState();
+        },
+        state() {
+          return interactionState();
+        },
+        rememberCheckedAttestation() {
+          const currentForm = activeForm();
+          persistedAttestation = currentForm?.querySelector(
+            "#generation-strategy-assets input[data-generation-strategy-attestation]:checked",
+          ) || null;
+          return {
+            remembered: Boolean(persistedAttestation),
+            id: persistedAttestation?.dataset?.generationStrategyAttestation || "",
+            checked: persistedAttestation?.checked === true,
+          };
+        },
+        attestationPersistence() {
+          const currentForm = activeForm();
+          const id = persistedAttestation?.dataset?.generationStrategyAttestation || "";
+          const current = id
+            ? currentForm?.querySelector(
+              `#generation-strategy-assets input[data-generation-strategy-attestation="${CSS.escape(id)}"]`,
+            )
+            : null;
+          return {
+            id,
+            sameNode: current === persistedAttestation,
+            oldNodeConnected: persistedAttestation?.isConnected === true,
+            checked: current?.checked === true,
+          };
+        },
+        strategyReset() {
+          const currentForm = activeForm();
+          const attestations = [...(currentForm?.querySelectorAll(
+            "#generation-strategy-assets input[data-generation-strategy-attestation]",
+          ) || [])];
+          return {
+            selectedStrategy: currentForm?.elements?.generation_strategy_id?.value || "",
+            allUnchecked: attestations.length > 0
+              && attestations.every((input) => input.checked === false),
+            attestationCount: attestations.length,
+            rememberedNodeDisconnected: persistedAttestation?.isConnected === false,
+          };
+        },
+        seedLegacyIdentity() {
+          const currentForm = activeForm();
+          currentForm.elements.generation_mode.value = "real_seedance";
+          currentForm.elements.generation_provider.value = "runway";
+          currentForm.elements.generation_model_id.value = "seedance2_fast";
+          return legacyIdentity();
+        },
+        async observerLoopProbe() {
+          await stableSettle();
+          const currentForm = activeForm();
+          const strategy = currentForm?.querySelector(
+            '[data-generation-strategy-action="SELECT"][aria-pressed="true"]',
+          );
+          const model = currentForm?.querySelector(
+            "input[data-ce-v4-generation-model]:checked",
+          ) || currentForm?.querySelector("input[data-ce-v4-generation-model]");
+          const attestation = currentForm?.querySelector(
+            "#generation-strategy-assets input[data-generation-strategy-attestation]",
+          );
+          const strategyId = strategy?.dataset?.strategyId || "";
+          const modelValue = model?.value || "";
+          const attestationId = attestation?.dataset?.generationStrategyAttestation || "";
+          const adapterMount = window.__generationStrategyFixture.mount;
+          let observerCallbacks = 0;
+          let scheduledMounts = 0;
+          let mountCount = 0;
+          let queued = false;
+          const observer = new MutationObserver(() => {
+            observerCallbacks += 1;
+            if (queued) return;
+            queued = true;
+            scheduledMounts += 1;
+            requestAnimationFrame(() => {
+              queued = false;
+              observer.disconnect();
+              mountCount += 1;
+              adapterMount();
+              observer.observe(document.documentElement, {
+                childList: true,
+                subtree: true,
+              });
+            });
+          });
+          observer.observe(document.documentElement, {
+            childList: true,
+            subtree: true,
+          });
+          const trigger = document.createElement("span");
+          trigger.dataset.fixtureObserverMountTrigger = "true";
+          document.body.append(trigger);
+          trigger.remove();
+          const waitWindows = async (count) => {
+            for (let index = 0; index < count; index += 1) {
+              await new Promise((resolve) => requestAnimationFrame(resolve));
+              await new Promise((resolve) => setTimeout(resolve, 12));
+            }
+          };
+          const nodeIdentity = () => ({
+            strategySame: currentForm?.querySelector(
+              `[data-generation-strategy-action="SELECT"][data-strategy-id="${CSS.escape(strategyId)}"]`,
+            ) === strategy,
+            modelSame: [...(currentForm?.querySelectorAll(
+              "input[data-ce-v4-generation-model]",
+            ) || [])].find((input) => input.value === modelValue) === model,
+            attestationSame: currentForm?.querySelector(
+              `#generation-strategy-assets input[data-generation-strategy-attestation="${CSS.escape(attestationId)}"]`,
+            ) === attestation,
+            strategyConnected: strategy?.isConnected === true,
+            modelConnected: model?.isConnected === true,
+            attestationConnected: attestation?.isConnected === true,
+          });
+          await waitWindows(8);
+          const countAfterSettling = mountCount;
+          const callbacksAfterSettling = observerCallbacks;
+          const scheduledAfterSettling = scheduledMounts;
+          const identityAfterSettling = nodeIdentity();
+          await waitWindows(8);
+          const countAfterQuietWindow = mountCount;
+          const callbacksAfterQuietWindow = observerCallbacks;
+          const scheduledAfterQuietWindow = scheduledMounts;
+          const identityAfterQuietWindow = nodeIdentity();
+          observer.disconnect();
+          return {
+            baseline: {
+              strategyId,
+              modelValue,
+              attestationId,
+              allNodesPresent: Boolean(strategy && model && attestation),
+            },
+            countAfterSettling,
+            countAfterQuietWindow,
+            callbacksAfterSettling,
+            callbacksAfterQuietWindow,
+            scheduledAfterSettling,
+            scheduledAfterQuietWindow,
+            queuedAfterQuietWindow: queued,
+            identityAfterSettling,
+            identityAfterQuietWindow,
+          };
+        },
+        finish() {
+          return {
+            state: interactionState(),
+            trustedPointerEvents: [...trustedPointerEvents],
+            browserErrors: [...window.__generationStrategyFixture.errors],
+            nonCatalogApiCalls: window.__generationStrategyFixture.nonCatalogApiCalls,
+            preflightClicks: window.__generationStrategyFixture.preflightClicks,
+            submitCalls: window.__generationStrategyFixture.submitCalls,
+          };
+        },
+      });
       const result = document.querySelector("#fixture-result");
       result.textContent = JSON.stringify({
         catalogProjection: {
