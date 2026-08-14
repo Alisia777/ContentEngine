@@ -701,6 +701,14 @@ begin
   begin duration_value := (p_duration #>> '{}')::integer;
   exception when numeric_value_out_of_range then return null;
   end;
+  -- The installed five-argument Seedance owner is vertical-only.  The v2
+  -- canonical helper may describe other provider ratios, but widening this
+  -- legacy seam would let the old prompt/adapter chain launch an unsupported
+  -- shape.
+  if model_value='seedance2_fast'
+     and p_format is distinct from '9:16' then
+    return null;
+  end if;
   sku_value := content_factory_private.real_generation_multimodel_sku(
     'runway',model_value,'image',duration_value,p_format,
     case model_value when 'seedream5_lite' then '2K' else '720p' end,
@@ -1998,24 +2006,54 @@ alter table content_factory.generation_batches
       )
       or (
         mode='real' and allow_real_spend
-        and content_factory_private.real_generation_sku_from_input(
-          provider,input
-        ) is not null
-        and model=content_factory_private.real_generation_sku_from_input(
-          provider,input
-        ) ->> 'model'
-        and duration_seconds::text=content_factory_private
-          .real_generation_sku_from_input(provider,input)
-          ->> 'duration_seconds'
-        and audio=(content_factory_private.real_generation_sku_from_input(
-          provider,input
-        ) ->> 'audio')::boolean
-        and estimated_cost_minor::text=content_factory_private
-          .real_generation_sku_from_input(provider,input)
-          ->> 'estimated_cost_minor'
-        and to_jsonb(estimated_credits)=content_factory_private
-          .real_generation_sku_from_input(provider,input)
-          -> 'estimated_credits'
+        and (
+          -- Rows written under the original three-SKU contract did not
+          -- persist the v4 request envelope.  Their immutable table facts
+          -- remain sufficient to prove the deployed SKU and price exactly.
+          -- This branch is intentionally closed to every new model.
+          (
+            provider='runway'
+            and (
+              (
+                model='gen4_turbo'
+                and duration_seconds between 2 and 10 and not audio
+                and estimated_cost_minor=duration_seconds*5
+                and estimated_credits=duration_seconds*5
+              )
+              or (
+                model='seedance2_fast'
+                and duration_seconds between 4 and 15 and audio
+                and estimated_cost_minor=duration_seconds*29
+                and estimated_credits=duration_seconds*29
+              )
+              or (
+                model='seedream5_lite'
+                and duration_seconds=0 and not audio
+                and estimated_cost_minor=4 and estimated_credits=4
+              )
+            )
+          )
+          or (
+            content_factory_private.real_generation_sku_from_input(
+              provider,input
+            ) is not null
+            and model=content_factory_private.real_generation_sku_from_input(
+              provider,input
+            ) ->> 'model'
+            and duration_seconds::text=content_factory_private
+              .real_generation_sku_from_input(provider,input)
+              ->> 'duration_seconds'
+            and audio=(content_factory_private.real_generation_sku_from_input(
+              provider,input
+            ) ->> 'audio')::boolean
+            and estimated_cost_minor::text=content_factory_private
+              .real_generation_sku_from_input(provider,input)
+              ->> 'estimated_cost_minor'
+            and to_jsonb(estimated_credits)=content_factory_private
+              .real_generation_sku_from_input(provider,input)
+              -> 'estimated_credits'
+          )
+        )
       )
     );
 
@@ -2041,12 +2079,54 @@ alter table content_factory.generation_jobs
           'queued','starting','submitted','processing',
           'succeeded','failed','cancelled'
         )
-        and content_factory_private.real_generation_sku_from_input(
-          provider,input
-        ) is not null
-        and estimated_cost_minor::text=content_factory_private
-          .real_generation_sku_from_input(provider,input)
-          ->> 'estimated_cost_minor'
+        and (
+          -- Preserve the installed old3 job contract for historical and
+          -- learning rows.  New4 and every non-Runway provider can pass only
+          -- through the exact canonical request-envelope branch below.
+          (
+            provider='runway'
+            and (
+              (
+                input ->> 'model'='gen4_turbo'
+                and coalesce(input -> 'audio','false'::jsonb)='false'::jsonb
+                and case
+                  when jsonb_typeof(input -> 'duration_seconds')='number'
+                    and input ->> 'duration_seconds' ~ '^[0-9]+$'
+                  then (input ->> 'duration_seconds')::integer between 2 and 10
+                    and estimated_cost_minor=
+                      (input ->> 'duration_seconds')::integer*5
+                  else false
+                end
+              )
+              or (
+                input ->> 'model'='seedance2_fast'
+                and input -> 'audio'='true'::jsonb
+                and case
+                  when jsonb_typeof(input -> 'duration_seconds')='number'
+                    and input ->> 'duration_seconds' ~ '^[0-9]+$'
+                  then (input ->> 'duration_seconds')::integer between 4 and 15
+                    and estimated_cost_minor=
+                      (input ->> 'duration_seconds')::integer*29
+                  else false
+                end
+              )
+              or (
+                input ->> 'model'='seedream5_lite'
+                and input -> 'duration_seconds'='0'::jsonb
+                and coalesce(input -> 'audio','false'::jsonb)='false'::jsonb
+                and estimated_cost_minor=4
+              )
+            )
+          )
+          or (
+            content_factory_private.real_generation_sku_from_input(
+              provider,input
+            ) is not null
+            and estimated_cost_minor::text=content_factory_private
+              .real_generation_sku_from_input(provider,input)
+              ->> 'estimated_cost_minor'
+          )
+        )
       )
     );
 
@@ -3745,8 +3825,8 @@ begin
     review_terms_value:='generated-video-qa-autostart-v1';
   end if;
 
-  if p_payload -> 'generation_spec_context'
-       -array['spec_id','spec_version','spec_hash']::text[]<>'{}'::jsonb
+  if ((p_payload -> 'generation_spec_context')
+       -array['spec_id','spec_version','spec_hash']::text[])<>'{}'::jsonb
      or not p_payload -> 'generation_spec_context' ?& array[
        'spec_id','spec_version','spec_hash'
      ]::text[]

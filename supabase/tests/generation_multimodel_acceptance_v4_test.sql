@@ -116,6 +116,16 @@ insert into content_factory.products (
   'd4000000-0000-4000-8000-000000000001'
 );
 
+insert into content_factory.generation_campaigns (
+  id, organization_id, name, kind, status, created_by, updated_by
+) values (
+  'd4700000-0000-4000-8000-000000000001',
+  'd4100000-0000-4000-8000-000000000001',
+  'Multi-model acceptance fixture', 'managed', 'active',
+  'd4000000-0000-4000-8000-000000000001',
+  'd4000000-0000-4000-8000-000000000001'
+);
+
 -- Fixture writes bypass workflow triggers only. Every table CHECK remains in
 -- force, including canonical provider/model/SKU and paid-job constraints.
 set local session_replication_role = replica;
@@ -166,7 +176,7 @@ insert into content_factory.generation_batches (
   id, organization_id, project_id, product_id, created_by, name, mode,
   allow_real_spend, status, total_requested, total_created, input,
   request_hash, idempotency_key, provider, model, duration_seconds, audio,
-  estimated_cost_minor, estimated_credits, currency
+  estimated_cost_minor, estimated_credits, currency, campaign_id
 )
 select
   fixture.batch_id,
@@ -182,7 +192,7 @@ select
   'runway', fixture.model, fixture.duration_seconds, fixture.audio,
   (sku.sku ->> 'estimated_cost_minor')::bigint,
   (sku.sku ->> 'estimated_credits')::bigint,
-  'USD'
+  'USD', 'd4700000-0000-4000-8000-000000000001'
 from acceptance_v4_fixture fixture
 cross join lateral (
   select content_factory_private.real_generation_multimodel_sku(
@@ -195,7 +205,7 @@ insert into content_factory.generation_jobs (
   id, organization_id, project_id, product_id, batch_id, ordinal,
   requested_by, assigned_to, mode, provider, allow_real_spend,
   estimated_cost_minor, actual_cost_minor, status, input, output,
-  request_hash, idempotency_key
+  request_hash, idempotency_key, campaign_id
 )
 select
   fixture.job_id,
@@ -215,7 +225,8 @@ select
     'sha256', fixture.media_sha
   ),
   repeat(to_hex(fixture.fixture_position + 10), 64),
-  'acceptance-v4-job-' || fixture.fixture_position
+  'acceptance-v4-job-' || fixture.fixture_position,
+  'd4700000-0000-4000-8000-000000000001'
 from acceptance_v4_fixture fixture
 cross join lateral (
   select content_factory_private.real_generation_multimodel_sku(

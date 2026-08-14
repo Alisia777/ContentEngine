@@ -158,11 +158,78 @@ def test_plpgsql_if_case_expressions_are_parenthesized_for_runtime_compile() -> 
     assert "else true end) then" in scope
     assert "new.total_created<>(case when new.status='succeeded'" in batch_guard
     assert "between 1 and (case model_value" in starter
+    assert (
+        "if ((p_payload -> 'generation_spec_context') "
+        "-array['spec_id','spec_version','spec_hash']::text[])<>'{}'::jsonb"
+        in starter
+    )
 
     assert "distinct from case model_value" not in scope
     assert "or case model_value" not in scope
     assert "new.total_created<>case" not in batch_guard
     assert "between 1 and case model_value" not in starter
+
+
+def test_legacy_constraints_are_old3_only_and_new_models_require_exact_input() -> None:
+    sql = _normalized(_read())
+
+    batch_legacy_at = sql.index(
+        "rows written under the original three-sku contract"
+    )
+    batch_exact_at = sql.index(
+        "content_factory_private.real_generation_sku_from_input(",
+        batch_legacy_at,
+    )
+    batch_legacy = sql[batch_legacy_at:batch_exact_at]
+
+    job_legacy_at = sql.index("preserve the installed old3 job contract")
+    job_exact_at = sql.index(
+        "content_factory_private.real_generation_sku_from_input(",
+        job_legacy_at,
+    )
+    job_legacy = sql[job_legacy_at:job_exact_at]
+
+    for legacy_model in (
+        "gen4_turbo",
+        "seedance2_fast",
+        "seedream5_lite",
+    ):
+        assert f"'{legacy_model}'" in batch_legacy
+        assert f"'{legacy_model}'" in job_legacy
+    for exact_model in (
+        "gen4.5",
+        "seedance2_mini",
+        "veo3.1_fast",
+        "gemini_omni_flash",
+    ):
+        assert f"'{exact_model}'" not in batch_legacy
+        assert f"'{exact_model}'" not in job_legacy
+
+    # CHECK compatibility is only for historical/replica restoration. Every
+    # ordinary service-role insert/update still crosses the installed trigger
+    # functions, which deliberately have no legacy-envelope bypass.
+    for guard_name in (
+        "content_factory_private.guard_generation_batch_contract",
+        "content_factory_private.guard_generation_job_contract",
+    ):
+        guard = _normalized(_function(_read(), guard_name))
+        assert "real_generation_sku_from_input(" in guard
+        assert "sku_config is null" in guard
+        assert "original three-sku contract" not in guard
+        assert "installed old3 job contract" not in guard
+
+
+def test_legacy_seedance_helper_remains_vertical_only() -> None:
+    legacy = _normalized(
+        _function(
+            _read(), "content_factory_private.real_generation_sku_config"
+        )
+    )
+    assert "model_value='seedance2_fast'" in legacy
+    assert "p_format is distinct from '9:16'" in legacy
+    assert legacy.index("p_format is distinct from '9:16'") < legacy.index(
+        "real_generation_multimodel_sku("
+    )
 
 
 def test_snapshot_uses_shared_exact_seventeen_fields_only() -> None:

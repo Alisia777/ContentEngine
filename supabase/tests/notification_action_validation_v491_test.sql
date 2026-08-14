@@ -110,32 +110,28 @@ select matches(
   'content_factory\.placements',
   'process actions may resolve an exact visible placement'
 );
-select unlike(
+select ok(
   lower(pg_get_functiondef(
     'public.creator_validate_notification_action(jsonb)'::regprocedure
-  )),
-  'update[[:space:]]+content_factory\.user_notifications',
+  )) !~ 'update[[:space:]]+content_factory\.user_notifications',
   'validation does not mark the notification read'
 );
-select unlike(
+select ok(
   lower(pg_get_functiondef(
     'public.creator_validate_notification_action(jsonb)'::regprocedure
-  )),
-  'insert[[:space:]]+into',
+  )) !~ 'insert[[:space:]]+into',
   'validation creates no parallel feed or command row'
 );
-select unlike(
+select ok(
   lower(pg_get_functiondef(
     'public.creator_validate_notification_action(jsonb)'::regprocedure
-  )),
-  'deep_link',
+  )) !~ 'deep_link',
   'historical deep links are never executed or returned'
 );
-select unlike(
+select ok(
   lower(pg_get_functiondef(
     'public.creator_validate_notification_action(jsonb)'::regprocedure
-  )),
-  'https?[:/]',
+  )) !~ 'https?[:/]',
   'validator returns no web URL'
 );
 select matches(

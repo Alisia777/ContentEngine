@@ -68,7 +68,7 @@ select ok(
   'canonical producer helper is not a PostgREST service endpoint'
 );
 select is(
-  content_factory_private.notification_type_v491(491, 'system'),
+  content_factory_private.notification_type_v491(491::smallint, 'system'),
   'system_info',
   'legacy system aliases to canonical system_info'
 );
