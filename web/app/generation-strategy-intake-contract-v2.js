@@ -35,7 +35,8 @@ function field(value) {
 export const GENERATION_INTAKE_STRATEGIES = deepFreeze([
   {
     strategy_id: GENERATION_INTAKE_STRATEGY_IDS.copy,
-    legacy_strategy_id: "viral_product_swap",
+    preparation_recipe: "product_swap",
+    authority_strategy_id: "viral_product_swap",
     public_label: "Скопировать ролик",
     public_summary:
       "Повторить действия, ракурсы, темп, свет и монтаж референса максимально близко и заменить товар на ваш.",
@@ -58,12 +59,13 @@ export const GENERATION_INTAKE_STRATEGIES = deepFreeze([
   },
   {
     strategy_id: GENERATION_INTAKE_STRATEGY_IDS.avatar,
-    legacy_strategy_id: "viral_avatar_ugc",
+    preparation_recipe: "character_performance",
+    authority_strategy_id: null,
     public_label: "Сделать с аватаром",
     public_summary:
       "Создать нового героя по вашему описанию и повторить им механику выбранного ролика.",
     promise:
-      "В форме остаются только пожелания к аватару, ссылка на ролик и необязательный комментарий. Технические референсы система готовит сама и не маскирует их под ввод пользователя.",
+      "В форме остаются только пожелания к аватару, ссылка на ролик и необязательный комментарий. Технический character reference система готовит сама и не маскирует его под ввод пользователя.",
     form_kind: "compact",
     fields: [
       field({ id: "avatar_wishes", kind: "textarea", required: true, max_length: 1_200 }),
@@ -75,13 +77,14 @@ export const GENERATION_INTAKE_STRATEGIES = deepFreeze([
       "attach_lawful_media",
       "analyze_reference",
       "generate_avatar_reference",
-      "run_character_performance_or_ugc",
+      "run_character_performance",
       "human_review",
     ],
   },
   {
     strategy_id: GENERATION_INTAKE_STRATEGY_IDS.strategy,
-    legacy_strategy_id: "viral_rebuild",
+    preparation_recipe: "generation_spec",
+    authority_strategy_id: "viral_rebuild",
     public_label: "Создать видео по стратегии",
     public_summary:
       "Полный конструктор: товар, задача, площадка, сценарий, исходники, модель, длительность и бюджет.",
@@ -107,12 +110,20 @@ export function generationIntakeStrategy(strategyId) {
   ) || null;
 }
 
-export function generationIntakeStrategyForLegacy(legacyStrategyId) {
-  const normalized = String(legacyStrategyId || "").trim().toLowerCase();
+export function generationIntakeStrategyForAuthority(authorityStrategyId) {
+  const normalized = String(authorityStrategyId || "").trim().toLowerCase();
+  if (!normalized) return null;
   return GENERATION_INTAKE_STRATEGIES.find(
-    (strategy) => strategy.legacy_strategy_id === normalized,
+    (strategy) => strategy.authority_strategy_id === normalized,
   ) || null;
 }
+
+// Compatibility name for old drafts and tests. It is intentionally an alias
+// to authority lookup, not a claim that every compact route has a legacy paid
+// strategy. Avatar uses Character Performance and therefore returns null for
+// the old Product UGC authority.
+export const generationIntakeStrategyForLegacy =
+  generationIntakeStrategyForAuthority;
 
 export function canonicalGenerationIntakeSourceUrl(value) {
   const raw = String(value || "").trim();
@@ -175,7 +186,8 @@ export function createGenerationIntakeDraft(strategyId, seed = {}) {
   return deepFreeze({
     version: GENERATION_INTAKE_VERSION,
     strategy_id: strategy.strategy_id,
-    legacy_strategy_id: strategy.legacy_strategy_id,
+    preparation_recipe: strategy.preparation_recipe,
+    authority_strategy_id: strategy.authority_strategy_id,
     source_url: canonicalGenerationIntakeSourceUrl(seed.source_url),
     source_id: UUID_PATTERN.test(String(seed.source_id || "").trim())
       ? String(seed.source_id).trim().toLowerCase()
@@ -199,8 +211,14 @@ export function validateGenerationIntakeDraft(value) {
   if (value.version !== GENERATION_INTAKE_VERSION) {
     errors.push({ code: "version_mismatch", field: "version" });
   }
-  if (String(value.legacy_strategy_id || "") !== strategy.legacy_strategy_id) {
-    errors.push({ code: "legacy_strategy_mismatch", field: "legacy_strategy_id" });
+  if (String(value.preparation_recipe || "") !== strategy.preparation_recipe) {
+    errors.push({ code: "preparation_recipe_mismatch", field: "preparation_recipe" });
+  }
+  const suppliedAuthority = value.authority_strategy_id === null
+    ? null
+    : String(value.authority_strategy_id || "");
+  if (suppliedAuthority !== strategy.authority_strategy_id) {
+    errors.push({ code: "authority_strategy_mismatch", field: "authority_strategy_id" });
   }
   if (strategy.form_kind === "compact" && !normalized.source_url) {
     errors.push({ code: "source_url_required", field: "source_url" });
@@ -222,6 +240,12 @@ export function validateGenerationIntakeDraft(value) {
     && normalized.avatar_wishes
   ) {
     errors.push({ code: "avatar_wishes_forbidden", field: "avatar_wishes" });
+  }
+  if (
+    strategy.strategy_id !== GENERATION_INTAKE_STRATEGY_IDS.copy
+    && normalized.product_media_ids.length > 0
+  ) {
+    errors.push({ code: "product_media_forbidden", field: "product_media_ids" });
   }
   return deepFreeze({
     ok: errors.length === 0,
@@ -259,7 +283,8 @@ export function generationIntakePublicSummary(value) {
   return deepFreeze({
     version: draft.version,
     strategy_id: strategy.strategy_id,
-    legacy_strategy_id: strategy.legacy_strategy_id,
+    preparation_recipe: strategy.preparation_recipe,
+    authority_strategy_id: strategy.authority_strategy_id,
     public_label: strategy.public_label,
     source_url: draft.source_url,
     source_registered: Boolean(draft.source_id),
