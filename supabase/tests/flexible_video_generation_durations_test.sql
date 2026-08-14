@@ -95,12 +95,21 @@ select ok(
   'provider readiness receipts are duration-specific'
 );
 
-select matches(
+select ok(
   pg_get_functiondef(
     'public.system_record_generation_provider_readiness(jsonb)'::regprocedure
-  ),
-  'duration_value [*] 29',
-  'trusted readiness recording recalculates Seedance credits'
+  ) like '%real_generation_multimodel_sku%'
+  and pg_get_functiondef(
+    'public.system_record_generation_provider_readiness(jsonb)'::regprocedure
+  ) like '%to_jsonb(estimated_credits_value)%'
+  and pg_get_functiondef(
+    'public.system_record_generation_provider_readiness(jsonb)'::regprocedure
+  ) like '%sku_value -> ''estimated_credits''%'
+  and pg_get_functiondef(
+    'content_factory_private.real_generation_multimodel_sku(text,text,text,integer,text,text,boolean,boolean)'
+      ::regprocedure
+  ) like '%p_duration * 29%',
+  'trusted readiness binds supplied Seedance credits to the canonical SKU price'
 );
 
 select matches(

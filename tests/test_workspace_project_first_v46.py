@@ -283,7 +283,9 @@ def test_finder_uses_one_surface_for_list_preview_context_actions_and_trash() ->
     assert "display: none !important" in drawer_rule
     assert "is-quicklook-inline" in FINDER_CSS
     assert "handleBoardItemSelection" in FINDER
-    assert "openQuickLook(current || card)" in FINDER
+    assert "void openQuickLook(selectedCard())" in FINDER
+    assert "void openQuickLook(current)" in FINDER
+    assert "else openCanonicalCard(current)" in FINDER
     assert 'document.body.dataset.ceV4FinderMode === "organize"' in CONTEXT_TRASH
     for action in ("Переместить в папку", "Переместить в Корзину"):
         assert action in CONTEXT_TRASH
@@ -308,7 +310,7 @@ def test_review_decision_hands_the_user_to_the_real_next_stage() -> None:
 def test_mobile_menubar_keeps_search_without_horizontal_page_overflow() -> None:
     mobile = CORE_CSS[CORE_CSS.index("@media (max-width: 680px)") :]
     assert re.search(
-        r"\.ce-v4-menubar\s*\{[^{}]*grid-template-columns:\s*34px\s+minmax\(0,\s*1fr\)\s+auto",
+        r"\.ce-v4-menubar\s*\{[^{}]*grid-template-columns:\s*minmax\(104px,\s*auto\)\s+minmax\(88px,\s*1fr\)\s+auto",
         mobile,
         flags=re.DOTALL,
     )

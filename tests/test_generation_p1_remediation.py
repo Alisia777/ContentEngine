@@ -84,7 +84,7 @@ def test_paid_generation_reserves_capacity_before_provider_dispatch() -> None:
     assert "generation_storage_reservation_consume_required" in MIGRATION
     claim = GENERATOR.index("const claim = await claimSystemJob(current.id)")
     provider_post = GENERATOR.index(
-        "`${RUNWAY_API_ORIGIN}/v1/image_to_video`", claim
+        "createResponse = await fetchProviderJsonWithDeadline(", claim
     )
     assert claim < provider_post
 

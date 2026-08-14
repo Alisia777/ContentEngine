@@ -57,7 +57,7 @@ def test_money_is_reserved_and_rechecked_before_the_runway_post() -> None:
         assert marker in MIGRATION
 
     claim = EDGE.index("const claim = await claimSystemJob(current.id)")
-    post = EDGE.index('`${RUNWAY_API_ORIGIN}/v1/image_to_video`', claim)
+    post = EDGE.index("createResponse = await fetchProviderJsonWithDeadline(", claim)
     between = EDGE[claim:post]
     assert 'claim.outcome !== "claimed"' in between
     assert "if (!claim.claimed)" in between

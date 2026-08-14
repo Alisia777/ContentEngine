@@ -155,7 +155,8 @@ def test_primary_navigation_keeps_six_step_flow_then_adds_research_and_ai() -> N
     ]
     assert "/learn" not in routes
     assert "/learn" not in secondary_routes
-    assert "ROUTES.forEach((item, index)" in dock
+    assert "DOCK_APPS.forEach((item, index)" in dock
+    assert "workspaceDockReducer" in WORKSPACE_OS
     assert 'dock.setAttribute("aria-label"' in dock
 
 
@@ -455,8 +456,13 @@ def test_paid_generation_stays_single_flight_across_workspace_rerenders() -> Non
     assert "if (state.realGenerationStartInFlight)" in submit
     assert "state.realGenerationStartInFlight = true" in submit
     assert "finally" in submit
+    assert "state.realGenerationStartRequestId === startRequestId" in submit
     assert "state.realGenerationStartInFlight = false" in submit
-    assert 'document.querySelector("#mock-batch-form")' in submit
+    assert "const renderedForm = launchContext.form" in submit
+    finalizer = submit[submit.index("} finally {") :]
+    assert 'document.querySelector("#mock-batch-form")' not in finalizer
+    assert "paidLaunchIdentityIsCurrent()" in finalizer
+    assert "paidLaunchIsCurrent()" in finalizer
 
     assert 'form.dataset.busy = "true"' in busy
     assert "delete form.dataset.busy" in busy

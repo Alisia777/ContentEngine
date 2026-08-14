@@ -311,10 +311,14 @@ def test_status_exposes_incident_but_only_owner_admin_can_resolve_it() -> None:
 
 def test_edge_marks_every_ambiguous_create_outcome_and_never_reposts() -> None:
     create = _edge_between(
-        '`${RUNWAY_API_ORIGIN}/v1/image_to_video`',
+        "const providerEndpoint =",
         "const submittedPayload",
     )
-    assert EDGE.count('`${RUNWAY_API_ORIGIN}/v1/image_to_video`') == 1
+    assert create.count("createResponse = await fetchProviderJsonWithDeadline(") == 1
+    assert "serializedProviderRequest = JSON.stringify(providerRequest.body)" in create
+    assert "body: serializedProviderRequest" in create
+    assert "`${RUNWAY_API_ORIGIN}${providerRequest.endpointPath}`" in create
+    assert "`${GOOGLE_GENERATIVE_LANGUAGE_API_ORIGIN}${providerRequest.endpointPath}`" in create
     # The deadline helper combines transport timeout and a bounded-but-invalid
     # response body in one catch, while preserving their two exact reasons.
     assert create.count("markReconciliationRequired(") == 3
@@ -355,8 +359,13 @@ def test_edge_stops_blind_waiting_and_server_verifies_the_manual_task() -> None:
         "generation_reconciliation_wait_required",
     ):
         assert token in reconciliation
-    assert "providerCreatedAt > Date.now() + 60_000" in reconciliation
+    assert 'authorization.provider === "google"' in reconciliation
+    assert "providerTask?.createdAt === null" in reconciliation
+    assert "Number.isFinite(providerCreatedAt)" in reconciliation
+    assert "providerCreatedAt <= Date.now() + 60_000" in reconciliation
+    assert "createdAt: authorization.startingAt" not in reconciliation
     assert "systemPayload.provider_task_id = providerTask.id" in reconciliation
+    assert 'if (authorization.provider === "runway") {' in reconciliation
     assert (
         "systemPayload.provider_task_created_at = providerTask.createdAt"
         in reconciliation
@@ -403,7 +412,7 @@ def test_browser_adapter_validates_and_idempotently_sends_manual_resolution() ->
         'this.invokeRealGeneration("reconcile"',
     ):
         assert token in reconcile
-    assert 'new Set(["preflight", "start", "status", "reconcile"])' in API
+    assert 'new Set(["model_catalog", "preflight", "start", "status", "reconcile"])' in API
     assert 'const idempotencyKey = new Set(["start", "reconcile"]).has(action)' in API
     assert "this.mutationKeys[fingerprint] || crypto.randomUUID()" in API
     assert "real_generation_reconciliation_required" in API

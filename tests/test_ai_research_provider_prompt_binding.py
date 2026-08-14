@@ -22,6 +22,9 @@ TRAINING = (ROOT / "web/app/workspace-ai-research-training.js").read_text(
 EDGE = (ROOT / "supabase/functions/creator-generate/index.ts").read_text(
     encoding="utf-8"
 )
+PROVIDER_ADAPTER = (
+    ROOT / "supabase/functions/_shared/generation-provider-adapters.js"
+).read_text(encoding="utf-8")
 
 
 def _run_module(module: Path, body: str) -> dict:
@@ -957,7 +960,7 @@ def test_free_spec_card_shows_exact_prompt_and_binding_proof() -> None:
         return {
           hidden: /(?:^|\s)hidden(?:\s|>|=)/u.test(html),
           forcedVisible: html.includes("display:block !important"),
-          freeCopy: html.includes("без Runway/списания"),
+          freeCopy: html.includes("без вызова провайдера и списания"),
           exactPromptEscaped: html.includes("AIResearchSelection/v1 exact &lt;provider&gt;"),
           selectionFull: html.includes(selectionId),
           position: html.includes('data-recommendation-position="2"'),
@@ -1016,5 +1019,11 @@ def test_app_preserves_server_authority_and_provider_prompt_exactness() -> None:
     # The provider still receives the immutable server compiled prompt, not
     # editable_intent or an independently rebuilt browser string.
     assert "effectiveGenerationPolicy.compiledPrompt !== startPayload.brief" in EDGE
-    assert "promptText: startJob.promptText" in EDGE
-    assert EDGE.count("promptText: startJob.promptText") >= 3
+    request_builder = EDGE[
+        EDGE.index("function buildProviderRequest(") : EDGE.index(
+            "function readStatusJob("
+        )
+    ]
+    assert "promptText: job.promptText" in request_builder
+    assert request_builder.count("promptText: job.promptText") >= 3
+    assert "promptText: exactPrompt(input, entry)" in PROVIDER_ADAPTER

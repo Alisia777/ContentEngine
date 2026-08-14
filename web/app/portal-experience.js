@@ -15,6 +15,23 @@ export const GENERATION_VISIBLE_CAP = 200;
 const PORTAL_THEME_IDS = new Set(PORTAL_THEMES.map((theme) => theme.id));
 const GENERATION_PERIODS = new Set(["week", "4w", "12w", "all"]);
 const GENERATION_STATUS_GROUPS = new Set(["all", "active", "ready", "issue"]);
+const GENERATION_PROVIDERS = new Set(["all", "runway", "google"]);
+const GENERATION_CONTENT_KINDS = new Set(["all", "video", "photo"]);
+const GENERATION_SELECTION_SOURCES = new Set([
+  "all",
+  "system_recommendation",
+  "research_recommendation",
+  "performance_recommendation",
+  "manual_choice",
+  "alternative_after_block",
+]);
+const GENERATION_QUALITY_STATUSES = new Set([
+  "all",
+  "accepted",
+  "needs_revalidation",
+  "unproven",
+]);
+const GENERATION_MODEL_FILTER_PATTERN = /^[a-z0-9][a-z0-9._-]{0,79}$/u;
 const ACTIVE_GENERATION_STATUSES = new Set([
   "queued",
   "starting",
@@ -77,6 +94,11 @@ export function boundedRoundRobinWindow(items, cursor = 0, limit = 4) {
 export function normalizeGenerationFilters(filters = {}) {
   const period = String(filters.period || "4w").toLowerCase();
   const status = String(filters.status || "all").toLowerCase();
+  const provider = String(filters.provider || "all").trim().toLowerCase();
+  const requestedModel = String(filters.model || "all").trim().toLowerCase();
+  const contentKind = String(filters.contentKind || filters.content_kind || "all").trim().toLowerCase();
+  const selectionSource = String(filters.selectionSource || filters.selection_source || "all").trim().toLowerCase();
+  const qualityStatus = String(filters.qualityStatus || filters.quality_status || "all").trim().toLowerCase();
   const query = String(filters.query || "").trim().slice(0, 120);
   const requestedVisible = Number(filters.visible);
   const visible = Number.isInteger(requestedVisible) && requestedVisible >= GENERATION_VISIBLE_STEP
@@ -85,8 +107,51 @@ export function normalizeGenerationFilters(filters = {}) {
   return {
     period: GENERATION_PERIODS.has(period) ? period : "4w",
     status: GENERATION_STATUS_GROUPS.has(status) ? status : "all",
+    provider: GENERATION_PROVIDERS.has(provider) ? provider : "all",
+    model: requestedModel === "all" || GENERATION_MODEL_FILTER_PATTERN.test(requestedModel)
+      ? requestedModel
+      : "all",
+    contentKind: GENERATION_CONTENT_KINDS.has(contentKind) ? contentKind : "all",
+    selectionSource: GENERATION_SELECTION_SOURCES.has(selectionSource) ? selectionSource : "all",
+    qualityStatus: GENERATION_QUALITY_STATUSES.has(qualityStatus) ? qualityStatus : "all",
     query,
     visible,
+  };
+}
+
+function generationSelectionSnapshot(item) {
+  const parameters = item?.parameters && typeof item.parameters === "object"
+    ? item.parameters
+    : {};
+  // Once the server projects the authoritative archive field, its presence is
+  // terminal even when the value is null. A legacy row must stay visibly
+  // legacy; never resurrect a client/input snapshot from `parameters`.
+  const hasAuthoritativeSnapshot = Boolean(item)
+    && Object.prototype.hasOwnProperty.call(item, "generation_selection_snapshot");
+  const candidates = hasAuthoritativeSnapshot
+    ? [item.generation_selection_snapshot]
+    : [
+      item?.selection_snapshot,
+      parameters.generation_selection_snapshot,
+      parameters.selection_snapshot,
+    ];
+  return candidates.find((value) => value && typeof value === "object" && !Array.isArray(value)) || {};
+}
+
+function generationArchiveIdentity(item) {
+  const parameters = item?.parameters && typeof item.parameters === "object"
+    ? item.parameters
+    : {};
+  const hasAuthoritativeSnapshot = Boolean(item)
+    && Object.prototype.hasOwnProperty.call(item, "generation_selection_snapshot");
+  const snapshot = generationSelectionSnapshot(item);
+  return {
+    provider: String(snapshot.provider || item?.provider || (hasAuthoritativeSnapshot ? "" : parameters.provider) || "").trim().toLowerCase(),
+    model: String(snapshot.model || item?.model || (hasAuthoritativeSnapshot ? "" : parameters.model) || "").trim().toLowerCase(),
+    modelPublicLabel: String(snapshot.model_public_label || item?.model_public_label || (hasAuthoritativeSnapshot ? "" : parameters.model_public_label) || "").trim(),
+    contentKind: String(item?.content_kind || (hasAuthoritativeSnapshot ? "" : parameters.content_kind) || "").trim().toLowerCase(),
+    selectionSource: String(snapshot.selection_source || item?.selection_source || (hasAuthoritativeSnapshot ? "" : parameters.selection_source) || "").trim().toLowerCase(),
+    qualityStatus: String(snapshot.acceptance_status_at_launch || item?.quality_status || (hasAuthoritativeSnapshot ? "" : parameters.quality_status) || "").trim().toLowerCase(),
   };
 }
 
@@ -126,6 +191,12 @@ export function filterGenerationBatches(items, filters = {}, nowMs = Date.now())
 
   return safeItems.filter((item) => {
     if (!matchesGenerationStatus(item, normalized.status)) return false;
+    const identity = generationArchiveIdentity(item);
+    if (normalized.provider !== "all" && identity.provider !== normalized.provider) return false;
+    if (normalized.model !== "all" && identity.model !== normalized.model) return false;
+    if (normalized.contentKind !== "all" && identity.contentKind !== normalized.contentKind) return false;
+    if (normalized.selectionSource !== "all" && identity.selectionSource !== normalized.selectionSource) return false;
+    if (normalized.qualityStatus !== "all" && identity.qualityStatus !== normalized.qualityStatus) return false;
     if (cutoff !== null) {
       const createdAt = new Date(item?.created_at || "").getTime();
       if (Number.isFinite(createdAt) && createdAt < cutoff) return false;
@@ -137,6 +208,9 @@ export function filterGenerationBatches(items, filters = {}, nowMs = Date.now())
       item?.id,
       item?.sku,
       item?.product_name,
+      identity.provider,
+      identity.model,
+      identity.modelPublicLabel,
     ].filter(Boolean).join(" ")).includes(query);
   });
 }

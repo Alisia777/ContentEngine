@@ -85,7 +85,11 @@ def test_mobile_sidebar_has_an_accessible_toggle_and_close_contract() -> None:
 
 def test_tablet_detail_replaces_the_central_list_and_returns_inline() -> None:
     sync_detail = _between(SCRIPT, "function syncInlineDetail()", "function buildToolbar()")
-    tablet = _between(STYLES, "@media (max-width: 1080px)", "@media (max-width: 760px)")
+    tablet = _between(
+        STYLES,
+        "@container ce-v4-finder-host (max-width: 1080px)",
+        "@container ce-v4-finder-host (max-width: 760px)",
+    )
     for marker in (
         'runtime.board.classList.toggle("is-detail-inline", active)',
         'create("header", "ce-v4-finder-detail-bar")',
@@ -106,15 +110,18 @@ def test_tablet_detail_replaces_the_central_list_and_returns_inline() -> None:
 
 def test_finder_inline_surfaces_do_not_overflow_a_320px_viewport() -> None:
     for marker in (
+        "container-name: ce-v4-finder-host",
+        "container-type: inline-size",
         "width: 100%",
         "max-width: 100%",
         ".workspace-board__layout > * { max-width: 100%; }",
         ".ce-v4-finder-toolbar__controls { overflow-x: auto; }",
         "overflow-wrap: anywhere",
-        "@media (max-width: 480px)",
+        "@container ce-v4-finder-host (max-width: 480px)",
         "grid-template-columns: 1fr !important",
     ):
         assert marker in STYLES
+    assert 'id="workspace-content"' in INLINE_FIXTURE.read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("width", [320, 760])
@@ -177,14 +184,23 @@ def test_quick_look_replaces_finder_content_inline_with_safari_safe_motion() -> 
     assert ".workspace-board.is-quicklook-inline" in STYLES
 
 
-def test_quick_look_is_reachable_from_context_open_mouse_and_keyboard() -> None:
+def test_finder_separates_selection_quick_look_and_canonical_open_commands() -> None:
     for marker in (
         "window.ContentEngineFinderV4.openQuickLook(entity.node)",
         'runtime.board.addEventListener("dblclick", handleBoardDoubleClick)',
-        'event.key !== "Enter" && event.key !== " "',
-        'runtime.board.addEventListener("keydown", handleBoardQuickLookKeydown, true)',
+        "openCanonicalCard(card);",
+        'if (event.key === " ") void openQuickLook(current);',
+        "else openCanonicalCard(current);",
+        'runtime.board.addEventListener("click", handleBoardItemSelection)',
     ):
         assert marker in CONTEXT or marker in SCRIPT
+    double_click = _between(
+        SCRIPT,
+        "function handleBoardDoubleClick(",
+        "function handleBoardSelectionClick(",
+    )
+    assert "openCanonicalCard(card)" in double_click
+    assert "openQuickLook(card)" not in double_click
 
 
 def test_finder_assets_parse_and_balance() -> None:

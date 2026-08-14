@@ -154,7 +154,7 @@ process.stdout.write(JSON.stringify({{
 
 def test_one_paid_click_prepares_current_server_spec_without_separate_approval() -> None:
     for token in (
-            'from "./generation-spec.js?v=20260812.generation-spec-consent.1"',
+            'from "./generation-spec.js?v=20260813.os4.39"',
         "generationSpecCardMarkup",
         "currentGenerationSpecContext(form)",
         "generationSpecApproved",
@@ -173,7 +173,7 @@ def test_one_paid_click_prepares_current_server_spec_without_separate_approval()
     assert readiness < card
     assert "hidden: true" not in APP[card : card + 180]
     assert "firstElementChild.hidden = true" not in APP
-    assert "без Runway/списания" in MODULE
+    assert "без вызова провайдера и списания" in MODULE
     helper_start = APP.index("async function ensurePreparedGenerationSpecForPaidStart")
     helper_end = APP.index("function generationLearningOptOut", helper_start)
     helper = APP[helper_start:helper_end]
@@ -380,7 +380,7 @@ def test_edge_accepts_only_atomic_terminal_stale_claim_as_non_retryable() -> Non
         'value.retryable !== false',
         'job.id !== jobId',
         'job.status !== "failed"',
-        'job.provider !== "runway"',
+        "readGenerationProvider(job.provider) === null",
         'job.failure_code !== code',
         'code !== "generation_spec_provider_start_stale"',
     ):
@@ -409,7 +409,7 @@ def test_edge_accepts_only_atomic_terminal_stale_claim_as_non_retryable() -> Non
 
     handler_start = EDGE.index("const claim = await claimSystemJob(current.id)")
     provider_post = EDGE.index(
-        '`${RUNWAY_API_ORIGIN}/v1/image_to_video`', handler_start
+        "createResponse = await fetchProviderJsonWithDeadline(", handler_start
     )
     handler = EDGE[handler_start:provider_post]
     terminal_handler = handler.index(
@@ -425,11 +425,11 @@ def test_edge_accepts_only_atomic_terminal_stale_claim_as_non_retryable() -> Non
 
 
 def test_generation_spec_cache_versions_are_published_consistently() -> None:
-    assert './supabase-api.js?v=20260812.os4.38' in APP
-    assert './app.js?v=20260812.os4.38' in INDEX
+    assert './supabase-api.js?v=20260813.os4.39' in APP
+    assert './app.js?v=20260813.os4.39' in INDEX
     for name in (
         "workspace-os-v4-context-trash.js",
         "workspace-os-v4-trash-rpc-alias.js",
     ):
         source = (ROOT / "web/app" / name).read_text(encoding="utf-8")
-        assert './supabase-api.js?v=20260812.os4.38' in source
+        assert './supabase-api.js?v=20260813.os4.39' in source

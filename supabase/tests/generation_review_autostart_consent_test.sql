@@ -80,6 +80,21 @@ select ok(
 select ok(
   pg_get_functiondef(
     'public.creator_start_real_generation(jsonb)'::regprocedure
+  ) like '%creator_start_real_generation_multimodel_v48%'
+  and pg_get_functiondef(
+    'public.creator_start_real_generation(jsonb)'::regprocedure
+  ) like '%creator_start_real_generation_pre_multimodel_v48%'
+  and pg_get_functiondef(
+    'content_factory_private.creator_start_real_generation_multimodel_v48(jsonb)'
+      ::regprocedure
+  ) like '%generation_review_autostart_consent_invalid%'
+  and pg_get_functiondef(
+    'content_factory_private.creator_start_real_generation_multimodel_v48(jsonb)'
+      ::regprocedure
+  ) like '%generated-video-qa-autostart-v1%'
+  and pg_get_functiondef(
+    'content_factory_private.creator_start_real_generation_pre_multimodel_v48(jsonb)'
+      ::regprocedure
   ) like '%creator_start_real_generation_pre_ai_speech_v56%'
   and pg_get_functiondef(
     'content_factory_private.creator_start_real_generation_pre_ai_speech_v56(jsonb)'::regprocedure

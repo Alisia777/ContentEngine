@@ -1,21 +1,3 @@
-const MODEL_CATALOG = Object.freeze([
-  Object.freeze({
-    model: "seedream5_lite",
-    label: "Seedream 5 Lite",
-    detail: "товарное фото 2K",
-  }),
-  Object.freeze({
-    model: "gen4_turbo",
-    label: "Gen-4 Turbo",
-    detail: "видео 5 секунд",
-  }),
-  Object.freeze({
-    model: "seedance2_fast",
-    label: "Seedance 2 Fast",
-    detail: "видео 8 секунд с речью",
-  }),
-]);
-
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
@@ -118,18 +100,49 @@ function validPendingReview(value) {
   });
 }
 
-export function normalizeGenerationModelAcceptance(raw) {
+function acceptanceCatalog(source, catalogSnapshot) {
+  const canonical = Array.isArray(catalogSnapshot?.models)
+    ? catalogSnapshot.models
+    : [];
+  const rows = canonical.length ? canonical : Array.isArray(source.models) ? source.models : [];
+  const seen = new Set();
+  return rows.flatMap((entry) => {
+    const provider = safeText(entry?.provider || source.provider || "runway").toLowerCase();
+    const model = safeText(entry?.model).toLowerCase();
+    const key = provider && model ? `${provider}:${model}` : "";
+    if (!key || seen.has(key)) return [];
+    seen.add(key);
+    const contentKind = safeText(entry?.contentKind || entry?.content_kind).toLowerCase();
+    const detail = contentKind === "photo"
+      ? "товарное фото"
+      : contentKind === "video"
+        ? "видеогенерация"
+        : safeText(entry?.detail) || "модель генерации";
+    return [Object.freeze({
+      provider,
+      model,
+      label: safeText(entry?.publicLabel || entry?.public_label || entry?.label) || model,
+      detail,
+    })];
+  });
+}
+
+export function normalizeGenerationModelAcceptance(raw, catalogSnapshot = null) {
   const source = raw && typeof raw === "object" && !Array.isArray(raw)
     ? raw
     : {};
   const sourceModels = Array.isArray(source.models) ? source.models : [];
-  const byModel = new Map(
+  const byIdentity = new Map(
     sourceModels
       .filter((item) => item && typeof item === "object" && !Array.isArray(item))
-      .map((item) => [safeText(item.model), item]),
+      .map((item) => [
+        `${safeText(item.provider || source.provider || "runway").toLowerCase()}:${safeText(item.model).toLowerCase()}`,
+        item,
+      ]),
   );
-  const models = MODEL_CATALOG.map((catalog) => {
-    const item = byModel.get(catalog.model) || {};
+  const catalog = acceptanceCatalog(source, catalogSnapshot);
+  const models = catalog.map((catalogEntry) => {
+    const item = byIdentity.get(`${catalogEntry.provider}:${catalogEntry.model}`) || {};
     const evidence = validEvidence(item.evidence);
     const pendingReview = validPendingReview(item.pending_review);
     const threshold = safeInteger(item.quality_threshold) || 80;
@@ -173,7 +186,7 @@ export function normalizeGenerationModelAcceptance(raw) {
       nextActionCode = "run_paid_smoke_and_approve";
     }
     return Object.freeze({
-      ...catalog,
+      ...catalogEntry,
       status,
       reasonCode: safeText(item.reason_code) || "evidence_missing",
       nextActionCode,
@@ -194,8 +207,8 @@ export function normalizeGenerationModelAcceptance(raw) {
     provider: safeText(source.provider) || "runway",
     qualityThreshold: safeInteger(source.quality_threshold) || 80,
     acceptedCount,
-    totalModels: MODEL_CATALOG.length,
-    allModelsAccepted: acceptedCount === MODEL_CATALOG.length,
+    totalModels: catalog.length,
+    allModelsAccepted: catalog.length > 0 && acceptedCount === catalog.length,
     evaluatedAt: safeText(source.evaluated_at),
     models: Object.freeze(models),
   });
@@ -389,7 +402,7 @@ export function nextGenerationModelAcceptanceAction(normalized = {}) {
   });
 }
 
-export function generationModelAcceptanceMarkup(state = {}) {
+export function generationModelAcceptanceMarkup(state = {}, catalogSnapshot = null) {
   const status = safeText(state.status) || "idle";
   if (["idle", "loading"].includes(status)) {
     return `
@@ -411,13 +424,13 @@ export function generationModelAcceptanceMarkup(state = {}) {
         </div>
         <div class="alert alert-warning" role="status">
           <strong aria-hidden="true">!</strong>
-          <span>Статус качества не подтверждён: серверное доказательство временно не загрузилось. Доступность Runway, остаток бюджета и успешный API-ответ не считаются проверкой качества.</span>
+          <span>Статус качества не подтверждён: серверное доказательство временно не загрузилось. Доступность провайдера, остаток бюджета и успешный API-ответ не считаются проверкой качества.</span>
         </div>
       </section>
     `;
   }
 
-  const normalized = normalizeGenerationModelAcceptance(state.data);
+  const normalized = normalizeGenerationModelAcceptance(state.data, catalogSnapshot);
   const primaryAction = nextGenerationModelAcceptanceAction(normalized);
   const primaryModel = primaryAction
     ? normalized.models.find((model) => model.model === primaryAction.model)
@@ -433,7 +446,7 @@ export function generationModelAcceptanceMarkup(state = {}) {
           ${normalized.acceptedCount}/${normalized.totalModels}
         </span>
       </div>
-      <p class="muted tiny">«Проверено» появляется только после реального платного файла, завершённого AI-QA и принятия другим участником. Баланс Runway и успешный API-ответ этого не доказывают.</p>
+      <p class="muted tiny">«Проверено» появляется только после реального платного файла, завершённого AI-QA и принятия другим участником. Баланс провайдера и успешный API-ответ этого не доказывают.</p>
       ${primaryAction && primaryModel ? `
         <div class="generation-model-acceptance__actions">
           <strong>Следующий безопасный шаг: ${escapeHtml(primaryAction.modelLabel)}</strong>
@@ -444,7 +457,7 @@ export function generationModelAcceptanceMarkup(state = {}) {
         ${normalized.models.map((model) => {
           const copy = modelStatusCopy(model);
           return `
-            <article class="generation-model-acceptance__item" data-model="${escapeHtml(model.model)}" data-acceptance-status="${escapeHtml(model.status)}">
+            <article class="generation-model-acceptance__item" data-provider="${escapeHtml(model.provider)}" data-model="${escapeHtml(model.model)}" data-acceptance-status="${escapeHtml(model.status)}">
               <div class="generation-model-acceptance__item-head">
                 <div>
                   <strong>${escapeHtml(model.label)}</strong>

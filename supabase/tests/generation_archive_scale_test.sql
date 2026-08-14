@@ -451,10 +451,11 @@ select is(
       lateral jsonb_object_keys(response -> '_meta') key
   ),
   array[
-    'cursor_mode', 'has_more', 'next_cursor', 'page_size',
-    'period', 'query', 'status'
+    'content_kind', 'cursor_mode', 'has_more', 'model', 'next_cursor',
+    'page_size', 'period', 'provider', 'quality_status', 'query',
+    'selection_source', 'status'
   ]::text[],
-  'archive metadata has the exact paging and filter contract'
+  'archive metadata has the exact paging and multi-model filter contract'
 );
 select is(
   (select response #>> '{_meta,page_size}' from generation_archive_first),

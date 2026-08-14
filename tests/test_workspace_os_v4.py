@@ -28,8 +28,8 @@ BUG_CHECKIN_CSS = (APP / "workspace-ui-bug-checkin.css").read_text(encoding="utf
 def test_desktop_v4_6_is_the_only_eager_workspace_shell() -> None:
     assert "v4." + "28" not in INDEX
     assert "os4." + "28" not in INDEX
-    assert '<link rel="stylesheet" href="./workspace-os-v4.css?v=20260812.os4.38" />' in INDEX
-    assert '<script type="module" src="./workspace-os-v4-loader.js?v=20260812.os4.38.bad-context.1"></script>' in INDEX
+    assert '<link rel="stylesheet" href="./workspace-os-v4.css?v=20260813.os4.39" />' in INDEX
+    assert '<script type="module" src="./workspace-os-v4-loader.js?v=20260813.os4.39"></script>' in INDEX
     assert INDEX.index('./workspace-os-v4-loader.js') < INDEX.index('./app.js')
     assert INDEX.index('./app.js') < INDEX.index('./workspace-build-guard.js')
 
@@ -39,15 +39,15 @@ def test_desktop_v4_6_is_the_only_eager_workspace_shell() -> None:
         flags=re.MULTILINE,
     )
     assert active_modules == [
-        './workspace-os-v4-loader.js?v=20260812.os4.38.bad-context.1',
-        './app.js?v=20260812.os4.38.ai-concept.1',
-        './workspace-build-guard.js?v=20260812.os4.38',
+        './workspace-os-v4-loader.js?v=20260813.os4.39',
+        './app.js?v=20260813.os4.39',
+        './workspace-build-guard.js?v=20260813.os4.39',
     ]
 
 
 def test_route_loader_uses_current_v4_6_guided_assets_and_the_dom_patch() -> None:
     for marker in (
-        'const BUILD = "20260812.os4.38"',
+        'const BUILD = "20260813.os4.39"',
         'new URL(relative, import.meta.url).href',
         'import(href)',
         'return route.startsWith("/workspace/");',
@@ -62,7 +62,7 @@ def test_route_loader_uses_current_v4_6_guided_assets_and_the_dom_patch() -> Non
         'workspace-os-v4-finder.css?v=${BUILD}',
         'workspace-os-v4-finder.js?v=${BUILD}',
         'workspace-os-v4-generation-guided.css?v=${BUILD}',
-        'workspace-os-v4-generation-guided.js?v=20260812.os4.38.bad-context.1',
+        'workspace-os-v4-generation-guided.js?v=${BUILD}',
         'workspace-os-v4-review-guided.css?v=${BUILD}',
         'workspace-os-v4-review-guided.js?v=${BUILD}',
         'match: (route) => route === "/workspace/board"',
@@ -90,7 +90,7 @@ def test_route_loader_uses_current_v4_6_guided_assets_and_the_dom_patch() -> Non
     assert 'fetch(' not in LOADER
     assert 'XMLHttpRequest' not in LOADER
 
-    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260812.os4.38";' in APP_SCRIPT
+    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260813.os4.39";' in APP_SCRIPT
     assert 'patchWorkspaceContent(existingContent, content);' in APP_SCRIPT
     for marker in (
         'export function patchWorkspaceContent(container, markup)',
@@ -108,8 +108,8 @@ def test_system_shell_has_one_dock_one_menubar_and_stable_context_chrome() -> No
         'const ROUTES = Object.freeze([',
         'const SECONDARY_ROUTES = Object.freeze([',
         'if (runtime.menubar?.isConnected) return runtime.menubar;',
-        'if (runtime.dock?.isConnected) {',
-        'syncDockAccess();',
+        'if (runtime.dock?.isConnected) return runtime.dock;',
+        'routeIsAuthorized(record.route)',
         'notifications.dataset.ceV4Notifications = "/workspace/work?view=notifications";',
         'openMission',
         'openSpotlight',
@@ -173,14 +173,18 @@ def test_system_shell_has_one_dock_one_menubar_and_stable_context_chrome() -> No
 
 
 def test_dock_project_guidance_is_clickable_focusable_and_never_uses_a_cross_cursor() -> None:
+    activate = CORE[
+        CORE.index("function activateDockKey(") : CORE.index("\nfunction ensureDock()")
+    ]
     dock = CORE[
         CORE.index("function ensureDock()") : CORE.index("\nfunction updateDock()")
     ]
 
-    assert 'workspaceRouteRequiresProject(destination)' in dock
-    assert '!snapshot.id' in dock
-    assert "event.preventDefault()" in dock
-    assert "explainProjectRequired(destination)" in dock
+    assert "activateDockKey(item.dataset.ceV4DockKey, event)" in dock
+    assert 'workspaceRouteRequiresProject(destination)' in activate
+    assert '!snapshot.id' in activate
+    assert "event?.preventDefault?.()" in activate
+    assert "explainProjectRequired(destination)" in activate
 
     policy = CORE[
         CORE.index("function workspaceRouteRequiresProject(") :
@@ -201,10 +205,11 @@ def test_dock_project_guidance_is_clickable_focusable_and_never_uses_a_cross_cur
 
     update = CORE[CORE.index("function updateDock()") : CORE.index("\nfunction projectFlowRoot(")]
     assert 'item.classList.toggle("is-project-required", projectRequired)' in update
-    assert 'if (locked) item.setAttribute("aria-disabled", "true")' in update
+    assert 'if (locked || !authorized) item.setAttribute("aria-disabled", "true")' in update
+    assert "else item.removeAttribute(\"aria-disabled\")" in update
     assert "locked || projectRequired" not in update
     assert 'item.setAttribute("aria-disabled", "true")' not in update[
-        update.index("const projectRequired") : update.index("if (locked)")
+        update.index("const projectRequired") : update.index("if (locked || !authorized)")
     ]
     assert "нужен проект. Нажмите, чтобы перейти к выбору проекта" in update
     assert ".ce-v4-dock__item.is-project-required" in CORE_CSS
@@ -218,7 +223,15 @@ def test_dock_project_guidance_is_clickable_focusable_and_never_uses_a_cross_cur
         CORE_CSS,
         flags=re.DOTALL,
     )
-    assert "cursor: not-allowed" not in CORE_CSS
+    project_guidance_css = "\n".join(
+        match.group(1)
+        for match in re.finditer(
+            r'(?:\.ce-v4-dock__item(?:\.is-project-required)?(?:\[aria-disabled="true"\])?'
+            r'|\.ce-v4-project-progress__steps\s+a\[aria-disabled="true"\])\s*\{([^}]*)\}',
+            CORE_CSS,
+        )
+    )
+    assert "cursor: not-allowed" not in project_guidance_css
     tooltip_rule = re.search(
         r"\.ce-v4-dock__tooltip\s*\{(?P<body>[^}]*)\}",
         CORE_CSS,

@@ -148,6 +148,51 @@ export function seedanceSpokenWordLimit(durationSeconds = 8) {
   );
 }
 
+function exactSpokenWordLimit(durationSeconds) {
+  const duration = Number(durationSeconds);
+  return Math.max(
+    10,
+    Math.min(42, Math.floor(duration * SEEDANCE_SPOKEN_WORD_LIMIT / 8)),
+  );
+}
+
+function normalizeGenerationPromptSelection(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const provider = cleanText(value.provider).toLowerCase();
+  const model = cleanText(value.model);
+  const format = cleanText(value.format);
+  const durationSeconds = Number(value.durationSeconds);
+  const promptLimit = Number(value.promptLimit);
+  const identity = `${provider}:${model}`;
+  if (
+    !new Set(["runway", "google"]).has(provider)
+    || !new Set([
+      "runway:gen4.5",
+      "runway:seedance2_mini",
+      "runway:veo3.1_fast",
+      "runway:gemini_omni_flash",
+      "google:veo-3.1-lite-generate-preview",
+    ]).has(identity)
+    || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(model)
+    || !/^\d{1,4}:\d{1,4}$/u.test(format)
+    || !Number.isSafeInteger(durationSeconds)
+    || durationSeconds < 1
+    || durationSeconds > 60
+    || !Number.isSafeInteger(promptLimit)
+    || promptLimit < 1
+    || promptLimit > 100_000
+    || typeof value.audio !== "boolean"
+  ) return null;
+  return Object.freeze({
+    provider,
+    model,
+    format,
+    durationSeconds,
+    promptLimit,
+    audio: value.audio,
+  });
+}
+
 export function createContentGenerationHandoff(
   record,
   scenarioIndex,
@@ -535,12 +580,18 @@ export function compileAiResearchHumanIntent({
 function compileAiResearchSpokenIntent({
   currentBrief = "",
   durationSeconds = 8,
+  exactDuration = false,
 } = {}) {
-  const normalizedDuration = contentGenerationDurationSeconds(
-    REAL_SEEDANCE_MODE,
-    durationSeconds,
-  );
-  const wordLimit = seedanceSpokenWordLimit(normalizedDuration);
+  const exactDurationValue = Number(durationSeconds);
+  const normalizedDuration = exactDuration
+    && Number.isSafeInteger(exactDurationValue)
+    && exactDurationValue > 0
+    && exactDurationValue <= 60
+    ? exactDurationValue
+    : contentGenerationDurationSeconds(REAL_SEEDANCE_MODE, durationSeconds);
+  const wordLimit = exactDuration
+    ? exactSpokenWordLimit(normalizedDuration)
+    : seedanceSpokenWordLimit(normalizedDuration);
   const currentRaw = String(currentBrief ?? "");
   const sections = aiResearchBriefSections(currentRaw, { strictSpoken: true });
   const sectionValue = cleanAiResearchHumanText(
@@ -611,8 +662,16 @@ export function compileSafeGenerationBrief({
   productCategory = "",
   researchCategoryRule = null,
   selectedRecommendation = null,
+  generationSelection = null,
 } = {}) {
   const normalizedMode = normalizeMode(mode);
+  const exactGenerationSelection = normalizeGenerationPromptSelection(
+    generationSelection,
+  );
+  const generatedAudio = exactGenerationSelection
+    ? exactGenerationSelection.audio
+    : normalizedMode === REAL_SEEDANCE_MODE;
+  const exactDuration = exactGenerationSelection?.durationSeconds ?? null;
   const exactProductName = cleanText(productName);
   const exactSku = cleanText(sku);
   const rawScenarioIntent = cleanText(scenarioIntent).slice(0, 1_200);
@@ -631,13 +690,14 @@ export function compileSafeGenerationBrief({
       })
     : { ready: true, line: "", changedSections: [] };
   const selectedSpokenIntent = selectedRecommendationRequired
-    && normalizedMode === REAL_SEEDANCE_MODE
+    && generatedAudio
     ? compileAiResearchSpokenIntent({
         currentBrief: selectedRecommendation?.currentBrief,
-        durationSeconds: contentGenerationDurationSeconds(
-          normalizedMode,
+        durationSeconds: exactDuration ?? contentGenerationDurationSeconds(
+          REAL_SEEDANCE_MODE,
           requestedDurationSeconds,
         ),
+        exactDuration: exactGenerationSelection !== null,
       })
     : { ready: true, line: "", spokenWords: 0 };
   const promptScenarioIntent = selectedRecommendationRequired
@@ -692,7 +752,7 @@ export function compileSafeGenerationBrief({
   }
   if (
     selectedRecommendationRequired
-    && normalizedMode === REAL_SEEDANCE_MODE
+    && generatedAudio
     && !selectedSpokenIntent.ready
   ) {
     blockers.push({
@@ -753,7 +813,7 @@ export function compileSafeGenerationBrief({
     return result("", blockers, warnings, {
       durationSeconds: normalizedMode === REAL_PHOTO_MODE
         ? 0
-        : contentGenerationDurationSeconds(
+        : exactDuration ?? contentGenerationDurationSeconds(
           normalizedMode,
           requestedDurationSeconds,
         ),
@@ -789,13 +849,15 @@ export function compileSafeGenerationBrief({
       required("Без бейджей, декоративного текста, рук, людей, реквизита и других товаров. Не перерисовывай текст и логотип референса."),
       optional(safeAvoidClaims.length ? `Не использовать: ${safeAvoidClaims.join("; ")}.` : ""),
     ];
-  } else if (normalizedMode === REAL_GEN4_MODE) {
-    durationSeconds = contentGenerationDurationSeconds(
+  } else if (!generatedAudio) {
+    durationSeconds = exactDuration ?? contentGenerationDurationSeconds(
       normalizedMode,
       requestedDurationSeconds,
     );
     promptLines = [
-      required(`Создай один непрерывный вертикальный ролик длительностью ${durationSeconds} секунд.`),
+      required(exactGenerationSelection
+        ? `Создай один непрерывный ролик длительностью ${durationSeconds} секунд с соотношением сторон ${exactGenerationSelection.format}.`
+        : `Создай один непрерывный вертикальный ролик длительностью ${durationSeconds} секунд.`),
       required(identityLine),
       requiredVerbatim(selectedProviderFragment?.fragment || ""),
       requiredVerbatim(selectedHumanIntent.line),
@@ -818,7 +880,7 @@ export function compileSafeGenerationBrief({
       optional(safeAvoidClaims.length ? `Не использовать: ${safeAvoidClaims.join("; ")}.` : ""),
     ];
   } else {
-    durationSeconds = contentGenerationDurationSeconds(
+    durationSeconds = exactDuration ?? contentGenerationDurationSeconds(
       normalizedMode,
       requestedDurationSeconds,
     );
@@ -830,10 +892,13 @@ export function compileSafeGenerationBrief({
           productName: exactProductName,
           fallback: interaction.spokenLine,
           durationSeconds,
+          exactDuration: exactGenerationSelection !== null,
         });
     spokenWords = words(spokenLine).length;
     promptLines = [
-      required(`Создай один непрерывный вертикальный UGC-ролик длительностью ${durationSeconds} секунд.`),
+      required(exactGenerationSelection
+        ? `Создай один непрерывный UGC-ролик длительностью ${durationSeconds} секунд с соотношением сторон ${exactGenerationSelection.format}.`
+        : `Создай один непрерывный вертикальный UGC-ролик длительностью ${durationSeconds} секунд.`),
       required(identityLine),
       requiredVerbatim(selectedProviderFragment?.fragment || ""),
       requiredVerbatim(selectedHumanIntent.line),
@@ -865,7 +930,11 @@ export function compileSafeGenerationBrief({
     ];
   }
 
-  const prompt = fitPrompt(promptLines, contentGenerationPromptLimit(normalizedMode));
+  const prompt = fitPrompt(
+    promptLines,
+    exactGenerationSelection?.promptLimit
+      ?? contentGenerationPromptLimit(normalizedMode),
+  );
   if (!prompt) {
     blockers.push({
       code: selectedRecommendationRequired
@@ -898,7 +967,7 @@ export function compileSafeGenerationBrief({
     }
     if (
       selectedRecommendationRequired
-      && normalizedMode === REAL_SEEDANCE_MODE
+      && generatedAudio
       && selectedSpokenIntent.ready
     ) {
       const expectedSpokenLine =
@@ -939,6 +1008,7 @@ export function compileSafeGenerationBrief({
     generationReferenceFragment: generationReferenceInspection.ready
       ? generationReferenceInspection.fragment
       : "",
+    generationSelection: exactGenerationSelection,
   });
   for (const blocker of inspection.blockers) {
     if (!blockers.some((item) => item.code === blocker.code)) blockers.push(blocker);
@@ -1628,22 +1698,25 @@ export function inspectContentGenerationPrompt(
     durationSeconds = null,
     researchCategoryRuleRequired = false,
     generationReferenceFragment = "",
+    generationSelection = null,
   } = {},
 ) {
   const promptLines = String(prompt ?? "").split(/\r?\n/u).map(cleanText).filter(Boolean);
   const normalized = cleanText(prompt);
   const normalizedMode = normalizeMode(mode);
-  const normalizedDuration = contentGenerationDurationSeconds(
-    normalizedMode,
-    durationSeconds,
+  const exactGenerationSelection = normalizeGenerationPromptSelection(
+    generationSelection,
   );
+  const normalizedDuration = exactGenerationSelection?.durationSeconds
+    ?? contentGenerationDurationSeconds(normalizedMode, durationSeconds);
   const blockers = [];
   const warnings = [];
   if (!normalized) {
     blockers.push({ code: "prompt_missing", message: "Промпт для генерации пуст." });
     return result(normalized, blockers, warnings);
   }
-  const promptLimit = contentGenerationPromptLimit(normalizedMode);
+  const promptLimit = exactGenerationSelection?.promptLimit
+    ?? contentGenerationPromptLimit(normalizedMode);
   if (normalized.length > promptLimit) {
     blockers.push({
       code: "prompt_too_long",
@@ -1744,7 +1817,8 @@ export function inspectContentGenerationPrompt(
         message: "Удалите из задания для фото длительность, ролик и реплику героя.",
       });
     }
-  } else if (normalizedMode === REAL_SEEDANCE_MODE) {
+  } else if (exactGenerationSelection?.audio === true
+    || (!exactGenerationSelection && normalizedMode === REAL_SEEDANCE_MODE)) {
     if (AI_RESEARCH_DEFAULT_IGNORABLE_PATTERN.test(String(prompt ?? ""))) {
       blockers.push({
         code: "spoken_prompt_ambiguous",
@@ -1761,12 +1835,15 @@ export function inspectContentGenerationPrompt(
         message: "Верните безопасное действие с учётом реального размера товара.",
       });
     }
-    if (!normalized.includes(
-      `Создай один непрерывный вертикальный UGC-ролик длительностью ${normalizedDuration} секунд`,
-    )) {
+    const expectedOutput = exactGenerationSelection
+      ? `Создай один непрерывный UGC-ролик длительностью ${normalizedDuration} секунд с соотношением сторон ${exactGenerationSelection.format}.`
+      : `Создай один непрерывный вертикальный UGC-ролик длительностью ${normalizedDuration} секунд`;
+    if (!normalized.includes(expectedOutput)) {
       blockers.push({
         code: "seedance_output_guard_missing",
-        message: `Верните точный формат одного вертикального UGC-ролика на ${normalizedDuration} секунд.`,
+        message: exactGenerationSelection
+          ? `Верните точные длительность ${normalizedDuration} секунд и соотношение сторон ${exactGenerationSelection.format}.`
+          : `Верните точный формат одного вертикального UGC-ролика на ${normalizedDuration} секунд.`,
       });
     }
     const match = /Реплика героя дословно:\s*«([^»]+)»/u.exec(normalized);
@@ -1777,7 +1854,9 @@ export function inspectContentGenerationPrompt(
       });
     } else {
       const spokenWords = words(match[1]).length;
-      const spokenWordLimit = seedanceSpokenWordLimit(normalizedDuration);
+      const spokenWordLimit = exactGenerationSelection
+        ? exactSpokenWordLimit(normalizedDuration)
+        : seedanceSpokenWordLimit(normalizedDuration);
       if (match[1].includes("[СОКРАТИТЕ") || spokenWords > spokenWordLimit) {
         blockers.push({
           code: "spoken_script_too_long",
@@ -1811,12 +1890,15 @@ export function inspectContentGenerationPrompt(
         message: "Верните безопасное действие с учётом реального размера товара.",
       });
     }
-    if (!normalized.includes(
-      `Создай один непрерывный вертикальный ролик длительностью ${normalizedDuration} секунд`,
-    )) {
+    const expectedOutput = exactGenerationSelection
+      ? `Создай один непрерывный ролик длительностью ${normalizedDuration} секунд с соотношением сторон ${exactGenerationSelection.format}.`
+      : `Создай один непрерывный вертикальный ролик длительностью ${normalizedDuration} секунд`;
+    if (!normalized.includes(expectedOutput)) {
       blockers.push({
         code: "gen4_output_guard_missing",
-        message: `Верните точный формат одного вертикального ролика Gen4 на ${normalizedDuration} секунд.`,
+        message: exactGenerationSelection
+          ? `Верните точные длительность ${normalizedDuration} секунд и соотношение сторон ${exactGenerationSelection.format}.`
+          : `Верните точный формат одного вертикального ролика Gen4 на ${normalizedDuration} секунд.`,
       });
     }
     if (!normalized.includes("Без речи, дикторского текста и сгенерированных надписей")) {
@@ -2203,6 +2285,7 @@ function safeScenarioSpokenLine({
   productName = "",
   fallback = "",
   durationSeconds = 8,
+  exactDuration = false,
 } = {}) {
   const normalizedIntent = cleanText(scenarioIntent).toLocaleLowerCase("ru-RU");
   const normalizedProduct = cleanText(productName).toLocaleLowerCase("ru-RU");
@@ -2218,7 +2301,9 @@ function safeScenarioSpokenLine({
       ? "Готовлю лосось с овощами на пару: без жарки и лишнего масла, равномерно и удобно."
       : "Готовлю на пару без жарки и лишнего масла: равномерно, просто и удобно.";
   }
-  const maximum = seedanceSpokenWordLimit(durationSeconds);
+  const maximum = exactDuration
+    ? exactSpokenWordLimit(durationSeconds)
+    : seedanceSpokenWordLimit(durationSeconds);
   return words(candidate).length <= maximum
     ? candidate
     : words(candidate).slice(0, maximum).join(" ");

@@ -11,7 +11,10 @@ const PLATFORM_SET = new Set([
   "telegram",
   "wildberries",
 ]);
-const MODEL_SET = new Set(["gen4_turbo", "seedance2_fast", "seedream5_lite"]);
+const PROVIDER_PATTERN = /^[a-z][a-z0-9_-]{0,31}$/u;
+const MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+const RATIO_PATTERN = /^\d{1,4}:\d{1,4}$/u;
+const RESOLUTION_PATTERN = /^(?:\d{3,4}p|[1-9]\d?K)$/u;
 const CATEGORY_SET = new Set([
   "cosmetics",
   "baa",
@@ -22,7 +25,6 @@ const CATEGORY_SET = new Set([
   "electronics",
   "other",
 ]);
-const FORMAT_SET = new Set(["9:16", "1:1", "16:9"]);
 const SPEC_STATUS_SET = new Set([
   "draft",
   "approved",
@@ -62,7 +64,7 @@ const ACTION_KEYS = Object.freeze([
   "provider_action",
   "spend_action",
 ]);
-const SCOPE_KEYS = Object.freeze([
+const LEGACY_SCOPE_KEYS = Object.freeze([
   "primary_media_id",
   "media_ids",
   "platform",
@@ -71,6 +73,25 @@ const SCOPE_KEYS = Object.freeze([
   "product_category",
   "format",
   "audio",
+]);
+const SCOPE_KEYS = Object.freeze([
+  "primary_media_id",
+  "media_ids",
+  "platform",
+  "provider",
+  "model",
+  "input_mode",
+  "duration_seconds",
+  "product_category",
+  "format",
+  "ratio",
+  "resolution",
+  "audio",
+  "spoken_dialogue",
+  "reference_count",
+  "reference_video",
+  "first_frame",
+  "last_frame",
 ]);
 const RESEARCH_KEYS = Object.freeze([
   "research_id",
@@ -102,22 +123,45 @@ const SPEC_REQUIRED_KEYS = Object.freeze([
 const SPEC_OPTIONAL_KEYS = Object.freeze(["approved_at"]);
 
 export function normalizeGenerationSpecScope(value) {
+  if (hasExactKeys(value, LEGACY_SCOPE_KEYS)) {
+    const legacyModel = clean(value.model).toLowerCase();
+    if (!["gen4_turbo", "seedance2_fast", "seedream5_lite"].includes(legacyModel)) {
+      return null;
+    }
+    const mediaCount = Array.isArray(value.media_ids) ? value.media_ids.length : 0;
+    return normalizeGenerationSpecScope({
+      ...value,
+      provider: "runway",
+      input_mode: "image",
+      ratio: value.format,
+      resolution: legacyModel === "seedream5_lite" ? "2K" : "720p",
+      spoken_dialogue: legacyModel === "seedance2_fast" && value.audio === true,
+      reference_count: legacyModel === "gen4_turbo" ? 0 : mediaCount,
+      reference_video: false,
+      first_frame: legacyModel === "gen4_turbo",
+      last_frame: false,
+    });
+  }
   if (!hasExactKeys(value, SCOPE_KEYS)) return null;
   const primaryMediaId = normalizedUuid(value.primary_media_id);
   const mediaIds = Array.isArray(value.media_ids)
     ? value.media_ids.map(normalizedUuid)
     : [];
   const platform = clean(value.platform).toLowerCase();
-  const model = clean(value.model).toLowerCase();
+  const provider = clean(value.provider).toLowerCase();
+  const model = clean(value.model);
+  const inputMode = clean(value.input_mode).toLowerCase();
   const productCategory = clean(value.product_category).toLowerCase();
   const format = clean(value.format);
+  const ratio = clean(value.ratio);
+  const resolution = clean(value.resolution);
   const audio = value.audio;
+  const spokenDialogue = value.spoken_dialogue;
+  const referenceCount = Number(value.reference_count);
+  const referenceVideo = value.reference_video;
+  const firstFrame = value.first_frame;
+  const lastFrame = value.last_frame;
   const durationSeconds = Number(value.duration_seconds);
-  const validDuration = model === "seedream5_lite"
-    ? durationSeconds === 0
-    : model === "gen4_turbo"
-      ? [2, 5, 8, 10].includes(durationSeconds)
-      : [4, 8, 12, 15].includes(durationSeconds);
   if (
     !primaryMediaId
     || mediaIds.length < 1
@@ -126,21 +170,45 @@ export function normalizeGenerationSpecScope(value) {
     || new Set(mediaIds).size !== mediaIds.length
     || mediaIds[0] !== primaryMediaId
     || !PLATFORM_SET.has(platform)
-    || !MODEL_SET.has(model)
+    || !PROVIDER_PATTERN.test(provider)
+    || !MODEL_PATTERN.test(model)
+    || !["text", "image", "video"].includes(inputMode)
     || !CATEGORY_SET.has(productCategory)
-    || !FORMAT_SET.has(format)
+    || !RATIO_PATTERN.test(format)
+    || !RATIO_PATTERN.test(ratio)
+    || format !== ratio
+    || !RESOLUTION_PATTERN.test(resolution)
     || typeof audio !== "boolean"
-    || !validDuration
+    || typeof spokenDialogue !== "boolean"
+    || (spokenDialogue && !audio)
+    || !Number.isSafeInteger(referenceCount)
+    || referenceCount < 0
+    || referenceCount > 5
+    || typeof referenceVideo !== "boolean"
+    || typeof firstFrame !== "boolean"
+    || typeof lastFrame !== "boolean"
+    || !Number.isSafeInteger(durationSeconds)
+    || durationSeconds < 0
+    || durationSeconds > 3_600
   ) return null;
   return Object.freeze({
     primary_media_id: primaryMediaId,
     media_ids: Object.freeze(mediaIds),
     platform,
+    provider,
     model,
+    input_mode: inputMode,
     duration_seconds: durationSeconds,
     product_category: productCategory,
     format,
+    ratio,
+    resolution,
     audio,
+    spoken_dialogue: spokenDialogue,
+    reference_count: referenceCount,
+    reference_video: referenceVideo,
+    first_frame: firstFrame,
+    last_frame: lastFrame,
   });
 }
 
@@ -415,7 +483,7 @@ export function generationSpecCardMarkup(state = {}, { expectedScope = null } = 
         : "Подготовить серверное ТЗ бесплатно");
   const primaryReason = dirty
     ? "Поля изменились после последней серверной проверки. Старая версия не будет утверждена автоматически."
-    : next?.reason || "Сервер зафиксирует точный prompt и его происхождение без вызова Runway.";
+    : next?.reason || "Сервер зафиксирует точный prompt и его происхождение без платного вызова провайдера.";
   const controls = spec
     ? [
         ["patch", "Сохранить правки"],
@@ -471,7 +539,7 @@ export function generationSpecCardMarkup(state = {}, { expectedScope = null } = 
         <div><p class="eyebrow">Управляемое ТЗ</p><h3>Серверная версия перед оплатой</h3></div>
         <span class="badge ${approved ? "badge-info" : "badge-warning"}">${escapeHtml(statusLabel)}</span>
       </div>
-      <p class="muted tiny">Ваш замысел остаётся редактируемым. Подготовка и правка бесплатны — без Runway/списания. Платный рендер запускается только отдельным подтверждением человека.</p>
+      <p class="muted tiny">Ваш замысел остаётся редактируемым. Подготовка и правка бесплатны — без вызова провайдера и списания. Платный рендер запускается только отдельным подтверждением человека.</p>
       ${aiResearchBindingReady ? `
         <dl class="generation-spec-card__meta" data-generation-spec-ai-research-binding data-selection-id="${escapeHtml(aiResearchBinding.selection_id)}" data-recommendation-position="${Number(aiResearchBinding.recommendation_position)}" data-provider-prompt-fragment-hash="${escapeHtml(aiResearchBinding.provider_prompt_fragment_hash)}">
           <div><dt>AI selection_id</dt><dd><code>${escapeHtml(aiResearchBinding.selection_id)}</code></dd></div>

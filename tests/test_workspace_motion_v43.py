@@ -20,6 +20,7 @@ FINDER_CSS = (APP_DIR / "workspace-os-v4-finder.css").read_text(
 )
 CORE_CSS = (APP_DIR / "workspace-os-v4.css").read_text(encoding="utf-8")
 STABILITY = (APP_DIR / "workspace-os-v4-stability.css").read_text(encoding="utf-8")
+DOCK_CONTRACT = (APP_DIR / "workspace-dock-contract.js").read_text(encoding="utf-8")
 HARNESS = (ROOT / "tests" / "fixtures" / "workspace_v43_harness.html").read_text(
     encoding="utf-8"
 )
@@ -97,15 +98,18 @@ def test_route_enter_is_one_animation_and_is_released_after_it_finishes() -> Non
     assert load_route.index("armRouteEnterCleanup(route, actionKey, epoch)") < load_route.index("setLoading(false, route)")
 
 
-def test_menubar_has_mac_traffic_lights_and_real_fullscreen_control() -> None:
+def test_menubar_has_one_home_identity_and_real_fullscreen_control() -> None:
     menubar = CORE[CORE.index("function ensureMenubar(") : CORE.index("\nfunction updateClock(")]
     for marker in (
         'create("div", "ce-v4-menubar__start")',
-        'create("span", "ce-v4-traffic")',
+        'create("button", "ce-v4-menubar__identity")',
+        'identity.dataset.ceV4Home = "true"',
+        'create("div", "ce-v4-project-switcher")',
         'fullscreen.dataset.ceV4Fullscreen = "true"',
         "void toggleFullscreen()",
     ):
         assert marker in menubar
+    assert 'create("span", "ce-v4-traffic")' not in menubar
     assert "function toggleFullscreen()" in CORE
     assert "function fullscreenMode()" in CORE
     assert "function fullscreenSupported()" in CORE
@@ -120,7 +124,7 @@ def test_menubar_has_mac_traffic_lights_and_real_fullscreen_control() -> None:
     assert 'aria-pressed' in CORE
     assert "control.hidden = !supported" in CORE
     assert "Браузер не разрешил полноэкранный режим" in CORE
-    assert ".ce-v4-menubar__start" in CORE_CSS
+    assert ".ce-v4-menubar__identity" in CORE_CSS
 
 
 def test_persistent_menubar_does_not_retain_a_webkit_transform_layer() -> None:
@@ -171,9 +175,11 @@ def test_motion_has_reduced_motion_and_mobile_dock_fallbacks() -> None:
     reduced = MOTION[MOTION.index("@media (prefers-reduced-motion: reduce)") :]
     assert 'body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-dock__glass' in compact_dock
     assert 'body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar' in reduced
-    assert "glass.scrollTo" in CORE
-    assert "window.innerWidth <= 900" in CORE
-    assert 'behavior: REDUCED_MOTION.matches ? "auto" : "smooth"' in CORE
+    assert "glass.scrollTo" not in CORE
+    assert "function syncDockPresentation(" in CORE
+    assert "computeWorkspaceDockPresentation(runtime.dockState" in CORE
+    assert 'export function computeWorkspaceDockPresentation(' in DOCK_CONTRACT
+    assert "WORKSPACE_DOCK_MINIMUM_VISIBLE_ITEMS = 6" in DOCK_CONTRACT
 
 
 def test_workspace_rerender_skips_unchanged_markup_and_reveals_loaded_content_once() -> None:
@@ -237,4 +243,5 @@ def test_finder_reconciles_sort_without_unnecessary_dom_moves_and_stabilizes_scr
     assert "document.createDocumentFragment()" in FINDER
     assert "scrollbar-gutter: stable" in FINDER_CSS
     assert "contain-intrinsic-size: 210px 66px" in FINDER_CSS
-    assert "--ce-v4-dim: #91847c" in CORE_CSS
+    assert "--ce-v4-dim: #6d7886" in CORE_CSS
+    assert "color: var(--ce-v4-dim)" in FINDER_CSS

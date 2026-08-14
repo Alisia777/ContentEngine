@@ -21,6 +21,9 @@ EDGE = (
 ).read_text(encoding="utf-8")
 APP = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
 ADAPTER = (ROOT / "web/app/supabase-api.js").read_text(encoding="utf-8")
+PROVIDER_ADAPTER = (
+    ROOT / "supabase/functions/_shared/generation-provider-adapters.js"
+).read_text(encoding="utf-8")
 
 
 def test_database_binds_one_to_five_ordered_references_to_one_product() -> None:
@@ -104,10 +107,20 @@ def test_category_and_scale_requirements_are_enforced_on_both_server_layers() ->
 
 
 def test_supported_models_use_reference_bundle_without_mixing_seedance_modes() -> None:
-    assert "referenceImages: validReferenceUrls.map" in EDGE
-    assert "promptImage: validReferenceUrls.map((uri) => ({ uri }))" in EDGE
-    assert 'position: index === 0 ? "first" : "reference"' not in EDGE
-    assert "promptImage: signedInputUrl" in EDGE
+    seedream = PROVIDER_ADAPTER[
+        PROVIDER_ADAPTER.index("function buildSeedream(") : PROVIDER_ADAPTER.index(
+            "\nfunction buildGen4("
+        )
+    ]
+    seedance = PROVIDER_ADAPTER[
+        PROVIDER_ADAPTER.index("function buildSeedance(") : PROVIDER_ADAPTER.index(
+            "\nfunction buildRunwayVeo("
+        )
+    ]
+    assert "body.referenceImages = references.map" in seedream
+    assert "references.map((uri) => ({ uri }))" in seedance
+    assert 'position: index === 0 ? "first" : "reference"' not in PROVIDER_ADAPTER
+    assert "promptImage: signedInputUrl" not in PROVIDER_ADAPTER
     assert "Promise.all(" in EDGE
 
 

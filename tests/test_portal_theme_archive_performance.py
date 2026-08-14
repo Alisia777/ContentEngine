@@ -173,6 +173,11 @@ def test_generation_filters_cover_all_period_status_and_search_modes() -> None:
     assert result["normalized"] == {
         "period": "4w",
         "status": "all",
+        "provider": "all",
+        "model": "all",
+        "contentKind": "all",
+        "selectionSource": "all",
+        "qualityStatus": "all",
         "query": "x" * 120,
         "visible": 200,
     }
@@ -527,7 +532,11 @@ def test_generation_archive_reload_is_server_filtered_and_grouped_by_week() -> N
 
 
 def test_theme_archive_motion_and_interface_hooks_are_wired_into_the_spa() -> None:
-    assert re.search(r'from "\./portal-experience\.js\?v=\d+\.\d+";', APP)
+    portal_experience_imports = re.findall(
+        r'from "\./portal-experience\.js\?v=([^"]+)";',
+        APP,
+    )
+    assert portal_experience_imports == ["20260813.os4.39"]
     for hook in (
         "PORTAL_THEMES",
         "themePickerMarkup",
@@ -560,7 +569,10 @@ def test_theme_archive_motion_and_interface_hooks_are_wired_into_the_spa() -> No
 
     assert 'data-portal-theme="obsidian"' in INDEX
     assert re.search(r'<script src="\./theme-bootstrap\.js\?v=\d+\.\d+"></script>', INDEX)
-    assert re.search(r'<link rel="stylesheet" href="\./portal-experience\.css\?v=\d+\.\d+"', INDEX)
+    assert (
+        '<link rel="stylesheet" href="./portal-experience.css?v=20260813.os4.39"'
+        in INDEX
+    )
     assert "try" in THEME_BOOTSTRAP and "catch" in THEME_BOOTSTRAP
 
     assert not BRAND_ASSETS.exists()

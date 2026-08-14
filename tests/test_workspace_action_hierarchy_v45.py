@@ -374,12 +374,13 @@ def test_dock_promotes_research_and_ai_while_tools_stay_compact_and_gated() -> N
     assert 'route: "/learn"' not in routes + secondary
     assert 'notifications.dataset.ceV4Notifications = "/workspace/work?view=notifications"' in menubar
     assert 'iconButton("", "Открыть уведомления", "bell")' in menubar
-    assert "notificationControl.dataset.ceV4Notifications" in menubar
+    assert "toggleNotificationCenter(notificationControl)" in menubar
+    assert "navigate(notificationControl.dataset.ceV4Notifications)" not in menubar
     assert 'route: "/workspace/work?view=notifications"' not in routes + secondary
     assert 'const ROLE_GATED_ROUTES = new Set(["/workspace/research", "/workspace/ai", "/workspace/team"])' in CORE
     authorization = _between(CORE, "function routeIsAuthorized(route) {", "function authorizedRoutes(routes) {")
     sync = _between(CORE, "function syncToolsMenu() {", "function closeToolsMenu(")
-    dock_sync = _between(CORE, "function syncDockAccess() {", "function ensureDock() {")
+    dock_sync = _between(CORE, "function updateDock() {", "function updateMenubar() {")
     mission = _between(CORE, "function openMission() {", "function spotlightRecords(")
     spotlight = _between(CORE, "function spotlightRecords(", "function renderSpotlight(")
     shortcuts = _between(CORE, "function handleKeydown(event) {", "function handleScroll() {")
@@ -390,95 +391,35 @@ def test_dock_promotes_research_and_ai_while_tools_stay_compact_and_gated() -> N
     assert 'String(link.getAttribute("href") || "").split("?")[0] === `#${route}`' in authorization
     assert "authorizedRoutes(SECONDARY_ROUTES)" in sync
     assert "existing.forEach((link) => link.remove())" in sync
-    assert "authorizedRoutes(ROUTES)" in dock_sync
-    assert "link.hidden = !authorized" in dock_sync
-    assert 'link.setAttribute("aria-hidden", "true")' in dock_sync
-    assert "authorizedRoutes(ROUTES).forEach" in mission
+    assert "routeIsAuthorized(record.route)" in dock_sync
+    assert 'item.classList.toggle("is-unavailable", !authorized)' in dock_sync
+    assert 'item.setAttribute("aria-disabled", "true")' in dock_sync
+    assert "missionSpaceRecords(snapshot)" in mission
+    assert "runtime.windowManagerState.windows" in mission
+    assert "routeForWorkspaceWindow(windowRecord)" in mission
     assert "authorizedRoutes(ALL_ROUTES).map" in spotlight
-    assert "authorizedRoutes(ROUTES)[Number(event.code.slice(-1)) - 1]" in shortcuts
+    assert "DOCK_APPS" in shortcuts
+    assert ".filter((candidate) => routeIsAuthorized(candidate.route))[Number(event.code.slice(-1)) - 1]" in shortcuts
     assert 'attributeFilter: ["data-workspace-authorized-routes"]' in observer
     for key in ("ArrowDown", "ArrowUp", "Home", "End", "Escape"):
         assert key in tools_keyboard
 
 
 def test_dock_access_matrix_updates_without_recreating_the_dock() -> None:
-    routes = _between(CORE, "const ROUTES = Object.freeze([", "const SECONDARY_ROUTES")
-    gate = re.search(r"const ROLE_GATED_ROUTES = new Set\([^;]+;", CORE)
-    authorization = _between(CORE, "function routeIsAuthorized(route) {", "function createToolsMenuItem(item) {")
-    dock_sync = _between(CORE, "function syncDockAccess() {", "function ensureDock() {")
-    assert gate is not None
+    ensure = _between(CORE, "function ensureDock() {", "function updateDock() {")
+    update = _between(CORE, "function updateDock() {", "function updateMenubar() {")
 
-    probe = f"""
-{routes}
-{gate.group(0)}
-const shell = {{ dataset: {{ workspaceAuthorizedRoutes: "" }} }};
-const links = ROUTES.map((item) => ({{
-  dataset: {{ ceV4Route: item.route }},
-  hidden: false,
-  attributes: {{}},
-  tooltip: {{ textContent: "" }},
-  setAttribute(name, value) {{ this.attributes[name] = String(value); }},
-  removeAttribute(name) {{ delete this.attributes[name]; }},
-}}));
-const runtime = {{ dock: {{}} }};
-function q(selector, root) {{
-  if (selector.includes("workspace-shell")) return shell;
-  if (selector === ".ce-v4-dock__tooltip") return root?.tooltip || null;
-  return null;
-}}
-function qa(selector) {{
-  if (selector === "[data-ce-v4-route]") return links;
-  return [];
-}}
-{authorization}
-{dock_sync}
-function snapshot(declaredRoutes) {{
-  shell.dataset.workspaceAuthorizedRoutes = declaredRoutes.join(" ");
-  syncDockAccess();
-  return links.map((link) => ({{
-    route: link.dataset.ceV4Route,
-    hidden: link.hidden,
-    ariaHidden: link.attributes["aria-hidden"] || "",
-    label: link.attributes["aria-label"] || "",
-  }}));
-}}
-const base = ["home", "board", "generation", "review", "placement", "stats"]
-  .map((route) => `/workspace/${{route}}`);
-process.stdout.write(JSON.stringify({{
-  owner: snapshot([...base, "/workspace/research", "/workspace/ai", "/workspace/team"]),
-  reviewer: snapshot([...base, "/workspace/ai"]),
-  creator: snapshot(base),
-}}));
-"""
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("Node.js is required for the Dock access contract")
-    result = subprocess.run(
-        [node, "-e", probe],
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
-    matrix = json.loads(result.stdout)
-
-    owner_visible = [item for item in matrix["owner"] if not item["hidden"]]
-    assert [item["route"] for item in owner_visible][-2:] == [
-        "/workspace/research",
-        "/workspace/ai",
-    ]
-    assert owner_visible[-2]["label"].endswith("⌥7")
-    assert owner_visible[-1]["label"].endswith("⌥8")
-
-    reviewer = {item["route"]: item for item in matrix["reviewer"]}
-    assert reviewer["/workspace/research"]["hidden"] is True
-    assert reviewer["/workspace/research"]["ariaHidden"] == "true"
-    assert reviewer["/workspace/ai"]["hidden"] is False
-    assert reviewer["/workspace/ai"]["label"].endswith("⌥7")
-
-    creator = {item["route"]: item for item in matrix["creator"]}
-    assert creator["/workspace/research"]["hidden"] is True
-    assert creator["/workspace/ai"]["hidden"] is True
+    # One mount owns the Dock DOM. Role changes update the same keyed tiles in
+    # place through the canonical presentation/update pass.
+    assert "if (runtime.dock?.isConnected) return runtime.dock" in ensure
+    assert "DOCK_APPS.forEach" in ensure
+    assert "link.dataset.ceV4DockKey = item.key" in ensure
+    assert "syncDockPresentation(activeKey)" in update
+    assert "DOCK_APPS.filter((item) => routeIsAuthorized(item.route))" in update
+    assert 'item.classList.toggle("is-unavailable", !authorized)' in update
+    assert 'item.dataset.ceV4DockAvailability = authorized ? "available" : "role_blocked"' in update
+    assert 'if (locked || !authorized) item.setAttribute("aria-disabled", "true")' in update
+    assert "ensureDock()" not in update
 
 
 def test_research_and_team_expose_small_action_hierarchies() -> None:

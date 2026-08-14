@@ -7,41 +7,42 @@ EDGE = (ROOT / "supabase/functions/creator-generate/index.ts").read_text(
 )
 APP = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
 ADAPTER = (ROOT / "web/app/supabase-api.js").read_text(encoding="utf-8")
+PROVIDER_ADAPTER = (
+    ROOT / "supabase/functions/_shared/generation-provider-adapters.js"
+).read_text(encoding="utf-8")
 
 
 def test_edge_accepts_duration_bound_seedance_paid_skus() -> None:
     for token in (
-        'model: "seedance2_fast"',
-        "audio: true",
-        'format: "9:16"',
+        '"runway:seedance2_fast"',
         "minimumDuration: 4",
         "maximumDuration: 15",
         "creditsPerSecond: 29",
         "`RUNWAY_SEEDANCE2_FAST_${duration}S_AUDIO_USD_${estimatedUsd}`",
-        'value.model === "seedance2_fast"',
-        'sku?.model === "seedance2_fast"',
-        "value.audio === true",
-        'value.format === "9:16"',
-        "job.estimated_cost_minor === sku.estimatedCredits",
-        "job.estimated_credits === sku.estimatedCredits",
+        'model === "seedance2_fast"',
+        "startPayload.spend_confirmation !== startSku.confirmation",
+        "job.estimated_cost_minor !== exact.estimatedCostMinor",
+        "job.estimated_credits !== exact.estimatedCredits",
     ):
         assert token in EDGE
 
 
 def test_edge_uses_seedance_reference_mode_with_audio() -> None:
-    seedance_start = EDGE.index('startJob.model === "seedance2_fast"')
-    provider_call = EDGE.index('`${RUNWAY_API_ORIGIN}/v1/image_to_video`')
-    request_section = EDGE[seedance_start:provider_call]
+    seedance_start = PROVIDER_ADAPTER.index("function buildSeedance(")
+    provider_call = PROVIDER_ADAPTER.index("\nfunction buildRunwayVeo(")
+    request_section = PROVIDER_ADAPTER[seedance_start:provider_call]
 
-    assert "promptImage: validReferenceUrls.map((uri) => ({ uri }))" in (
-        request_section
-    )
-    assert "audio: true" in request_section
-    assert "position:" not in request_section
-    assert '"reference"' not in request_section
-    assert "promptText: startJob.promptText" in request_section
-    assert "duration: startJob.durationSeconds" in request_section
-    assert "ratio: startJob.ratio" in request_section
+    assert "references.map((uri) => ({ uri }))" in request_section
+    assert "audio: selection.audio" in request_section
+    reference_branch = request_section[
+        request_section.index("body.promptImage = references.length") :
+        request_section.index("} else {", request_section.index("body.promptImage = references.length"))
+    ]
+    assert 'position: "first"' in reference_branch
+    assert "body.references" not in reference_branch
+    assert "promptText: exactPrompt(input, entry)" in request_section
+    assert "duration: selection.durationSeconds" in request_section
+    assert "ratio: providerRatio" in request_section
 
 
 def test_edge_returns_audio_and_credit_facts_without_provider_secrets() -> None:
@@ -83,11 +84,10 @@ def test_portal_requires_a_product_specific_script_and_never_auto_submits() -> N
 def test_adapter_revalidates_sku_before_invoking_edge() -> None:
     for token in (
         "const REAL_GENERATION_SKUS",
-        "Number(batch?.duration_seconds) !== sku.duration_seconds",
-        "Boolean(batch?.audio) !== sku.audio",
-        "batch?.spend_confirmation !== sku.confirmation",
-        "duration_seconds: sku.duration_seconds",
-        "audio: sku.audio",
-        "spend_confirmation: sku.confirmation",
+        '!/^[A-Z0-9][A-Z0-9_.:-]{2,255}$/u.test',
+        "provider_readiness_receipt_id",
+        "provider_readiness_receipt_hash",
+        "generation_selection_snapshot",
+        "spend_confirmation",
     ):
         assert token in ADAPTER

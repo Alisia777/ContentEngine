@@ -1,5 +1,5 @@
 /*
- * ContentEngine Desktop v4.38 route loader.
+ * ContentEngine Desktop v4.39 route loader.
  *
  * Keeps one global desktop controller alive and loads heavy route adapters only
  * when their workspace is opened. Same-origin assets only; no API calls and no
@@ -7,9 +7,9 @@
  * in favour of one deterministic stability coordinator.
  */
 
-import { workspaceActionKey } from "./workspace-action-key.js?v=20260812.os4.38";
+import { workspaceActionKey } from "./workspace-action-key.js?v=20260813.os4.39";
 
-const BUILD = "20260812.os4.38";
+const BUILD = "20260813.os4.39";
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;
@@ -34,7 +34,7 @@ const ROUTE_ASSETS = Object.freeze({
   generation: Object.freeze({
     match: (route) => route === "/workspace/generation",
     styles: [`workspace-os-v4-generation-guided.css?v=${BUILD}`],
-    modules: ["workspace-os-v4-generation-guided.js?v=20260812.os4.38.bad-context.1"],
+    modules: [`workspace-os-v4-generation-guided.js?v=${BUILD}`],
   }),
   review: Object.freeze({
     match: (route) => route === "/workspace/review",
@@ -248,7 +248,7 @@ function retry() {
   retryPromise = loadRoute(route, actionKey)
     .catch((error) => {
       setFailed(route, error);
-      console.error("ContentEngine Desktop v4.38 route retry failed", error);
+      console.error("ContentEngine Desktop v4.39 route retry failed", error);
       return false;
     })
     .finally(() => {
@@ -264,7 +264,7 @@ function loadCurrentRoute() {
     if (route === routePath() && actionKey === workspaceActionKey()) {
       setFailed(route, error);
     }
-    console.error("ContentEngine Desktop v4.38 current route failed to load", error);
+    console.error("ContentEngine Desktop v4.39 current route failed to load", error);
     return false;
   });
 }
@@ -302,7 +302,7 @@ function schedule() {
       if (scheduledRoute === routePath() && scheduledActionKey === workspaceActionKey()) {
         setFailed(scheduledRoute, error);
       }
-      console.error("ContentEngine Desktop v4.38 route failed to start", error);
+      console.error("ContentEngine Desktop v4.39 route failed to start", error);
     });
   });
 }

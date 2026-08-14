@@ -192,6 +192,7 @@ def test_exact_next_action_is_validated_and_drives_the_canonical_dock_destinatio
     snapshot = _function(CORE, "function projectFlowSnapshot(")
     stage_for_route = _function(CORE, "function stageForRoute(")
     active_index = _function(CORE, "function activeProjectFlowIndex(")
+    dock_destination = _function(CORE, "function dockDestination(")
     update_dock = _function(CORE, "function updateDock(")
 
     for guard in (
@@ -209,20 +210,23 @@ def test_exact_next_action_is_validated_and_drives_the_canonical_dock_destinatio
     assert "nextAction?.stage === item.code && nextAction?.route" in snapshot
     assert "routeParts(stage.canonicalRoute).path" in stage_for_route
     assert "workspaceActionKey() === workspaceActionKey(snapshot.nextAction.route)" in active_index
-    assert "stage?.destination || projectRoute" in update_dock
+    assert "stage?.destination || projectRoute(record.route, context)" in dock_destination
+    assert "dockDestination(record, snapshot)" in update_dock
     assert 'item.href = `#${destination}`' in update_dock
 
 
 def test_future_stage_click_opens_the_required_action_instead_of_dead_end_toasts() -> None:
     locked = _function(CORE, "function openRequiredStage(")
     dock = _function(CORE, "function ensureDock(")
+    activate = _function(CORE, "function activateDockKey(")
     progress = _function(CORE, "function syncProjectProgress(")
 
     assert 'snapshot.nextAction?.route || required?.destination' in locked
     assert 'item.state === "current"' in locked
     assert 'item.state === "blocked"' in locked
     assert "navigatePrimaryRoute(destination)" in locked
-    assert "openRequiredStage(stage, snapshot)" in dock
+    assert "activateDockKey(item.dataset.ceV4DockKey, event)" in dock
+    assert "openRequiredStage(stage, snapshot)" in activate
     assert "openRequiredStage(stage, currentSnapshot)" in progress
     assert "Проверку выполняете вы" in CORE
 
@@ -247,10 +251,14 @@ def test_exact_task_handoff_uses_fresh_server_flow_and_keeps_origin_stage() -> N
     assert 'navigate("/workspace/tasks")' not in transition
 
     active_index = _function(CORE, "function activeProjectFlowIndex(")
-    update_dock = _function(CORE, "function updateDock(")
+    active_dock = _function(CORE, "function activeDockKey(")
+    dock_destination = _function(CORE, "function dockDestination(")
     assert 'routeQuery().get("stage") || routeQuery().get("origin_stage")' in active_index
-    assert 'route === "/workspace/tasks"' in update_dock
-    assert 'focusedStageIndex >= 0 ? PROJECT_FLOW[focusedStageIndex].route : "/workspace/home"' in update_dock
+    assert 'if (route !== "/workspace/tasks") return -1' in active_index
+    assert 'if (requested >= 0) return requested' in active_index
+    assert '["/workspace/tasks", "/workspace/work"].includes(path)' in active_dock
+    assert 'return "processes"' in active_dock
+    assert "stage?.destination || projectRoute(record.route, context)" in dock_destination
 
 
 def test_review_repair_handoff_keeps_the_exact_review_in_the_url() -> None:
@@ -699,7 +707,7 @@ def test_archiving_a_project_uses_its_dedicated_path_and_clears_stale_scope() ->
 
 
 def test_v47_assets_share_one_release_key() -> None:
-    build = "20260812.os4.38"
+    build = "20260813.os4.39"
     assert f'const BUILD = "{build}"' in LOADER
     assert f'const BUILD = "{build}"' in CORE
     for asset in (
@@ -833,7 +841,10 @@ def test_readable_typography_has_shared_ui_and_meta_scales() -> None:
         ALL_CSS,
         flags=re.IGNORECASE,
     )
-    assert re.search(r"font-size\s*:\s*var\(--ce-v4-[^)]+(?:text|font)[^)]+size\)", ALL_CSS)
+    assert "--ce-v4-font-control: var(--ce-v4-ui-font-size)" in CORE_CSS
+    assert "--ce-v4-font-helper: var(--ce-v4-meta-font-size)" in CORE_CSS
+    assert "font-size: var(--ce-v4-font-control)" in ALL_CSS
+    assert "font-size: var(--ce-v4-font-helper)" in ALL_CSS
 
     for filename, source in V4_CSS.items():
         for match in re.finditer(
@@ -864,19 +875,27 @@ def test_readable_typography_has_shared_ui_and_meta_scales() -> None:
         flags=re.IGNORECASE | re.DOTALL,
     )
     for selector in (
-        ".ce-v4-dock__label",
         ".ce-v4-flowbar__label",
         ".ce-v4-stage strong",
-        ".home-project-create summary",
         ".ce-v4-spotlight-result strong",
     ):
         rules = _css_rules(CORE_CSS, selector)
         assert rules and any("var(--ce-v4-font-control)" in body for body in rules), selector
+    dock_label_rules = _css_rules(CORE_CSS, ".ce-v4-dock__label")
+    assert dock_label_rules and any("clip-path: inset(50%)" in body for body in dock_label_rules)
+    home_summary_rules = _css_rules(CORE_CSS, ".home-project-create summary")
+    assert home_summary_rules and any(
+        "var(--ce-v4-font-control)" in body for body in home_summary_rules
+    )
 
 
-def test_main_content_is_the_only_vertical_scroll_owner() -> None:
+def test_workspace_window_body_is_the_only_vertical_route_scroll_owner() -> None:
     main_rules = _css_rules(CORE_CSS, "#main-content")
-    assert main_rules and any(re.search(r"overflow-y\s*:\s*auto", body) for body in main_rules)
+    assert main_rules and any(re.search(r"overflow\s*:\s*hidden", body) for body in main_rules)
+    window_body_rules = _css_rules(CORE_CSS, ".ce-v4-window__body")
+    assert window_body_rules and any(
+        re.search(r"overflow-y\s*:\s*auto", body) for body in window_body_rules
+    )
 
     nested_scrollers = (
         (CORE_CSS, ".home-project-grid"),
@@ -892,7 +911,7 @@ def test_main_content_is_the_only_vertical_scroll_owner() -> None:
     for source, selector in nested_scrollers:
         for body in _css_rules(source, selector):
             assert not re.search(r"overflow-y\s*:\s*(?:auto|scroll)", body), (
-                f"{selector} must grow inside #main-content instead of creating a second vertical scroll"
+                f"{selector} must grow inside the workspace window body instead of creating a second vertical scroll"
             )
 
 

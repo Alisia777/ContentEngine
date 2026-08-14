@@ -22,7 +22,7 @@ def read(path: Path) -> str:
 def test_failed_research_can_be_closed_and_replaced_with_a_fresh_form() -> None:
     source = read(RECOVERY)
     assert (
-        'from "./product-research-view.js?v=20260812.os4.38.bad-context.1"'
+        'from "./product-research-view.js?v=20260813.os4.39"'
         in source
     )
     for marker in (
@@ -71,7 +71,7 @@ def test_recovery_module_is_loaded_on_every_handoff_route() -> None:
     index = read(INDEX)
     assert (
         '"workspace-research-failure-recovery.js":\n'
-        '      "20260812.os4.38.bad-context.1"'
+        '      "20260813.os4.39"'
         in bootstrap
     )
     for marker in (
@@ -81,7 +81,7 @@ def test_recovery_module_is_loaded_on_every_handoff_route() -> None:
         'route === "/workspace/ai"',
         "workspace-research-failure-recovery.css",
         "workspace-research-failure-recovery.js",
-        'const BUILD = "20260812.os4.38"',
+        'const BUILD = "20260813.os4.39"',
     ):
         assert marker in bootstrap
     assert (

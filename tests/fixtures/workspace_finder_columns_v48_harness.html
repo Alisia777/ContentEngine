@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ContentEngine Finder columns v4.8 harness</title>
+    <link rel="stylesheet" href="../../web/app/workspace-board.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-finder.css" />
+    <style>
+      html, body { height: 100%; margin: 0; min-width: 0; background: #070605; color: #f7f1e9; }
+      #app, .workspace-shell, #main-content { height: calc(100vh - 30px) !important; min-height: 620px; }
+      #workspace-content { width: 320px; max-width: 320px; margin: 0; }
+      #result { position: fixed; z-index: 99999; inset: auto 4px 4px; }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div class="workspace-shell" data-workspace-section="board">
+        <main id="main-content">
+          <div id="workspace-content"></div>
+        </main>
+      </div>
+    </div>
+    <output id="result" role="status">Проверка…</output>
+    <script>
+      window.CONTENTENGINE_DESKTOP_V4 = true;
+      Object.keys(localStorage)
+        .filter((key) => key.startsWith("contentengine.desktop-v4.finder-view.v2."))
+        .forEach((key) => localStorage.removeItem(key));
+      localStorage.setItem("contentengine.desktop-v4.finder.v1", JSON.stringify({ view: "list", sort: "name" }));
+      history.replaceState({}, "", "#/workspace/board?project_id=project-alpha&folder=inbox");
+    </script>
+    <script type="module">
+      const content = document.querySelector("#workspace-content");
+      const result = document.querySelector("#result");
+      content.innerHTML = `
+        <div class="page-wrap" data-project-flow-root data-project-id="project-alpha">
+          <section class="workspace-board">
+            <form id="workspace-board-filter-form" role="search">
+              <input name="query" type="search" aria-label="Найти объект" />
+            </form>
+            <div class="workspace-board__layout">
+              <aside class="workspace-board__sidebar">
+                <div class="workspace-board__sidebar-head"><p>Папки</p></div>
+                <div class="workspace-board__folders">
+                  <div class="workspace-board__folder-row is-selected" data-folder-id="inbox">
+                    <button class="workspace-board__folder-button" type="button" data-action="select-workspace-folder" data-folder-id="inbox" data-project-id="project-alpha">
+                      <span>▣</span><span>Входящие</span><small>2</small>
+                    </button>
+                  </div>
+                  <div class="workspace-board__folder-row" data-folder-id="review">
+                    <button class="workspace-board__folder-button" type="button" data-action="select-workspace-folder" data-folder-id="review" data-project-id="project-alpha">
+                      <span>◇</span><span>На проверке</span><small>1</small>
+                    </button>
+                  </div>
+                </div>
+              </aside>
+              <div class="workspace-board__content">
+                <nav class="workspace-board__breadcrumb"><ol><li><button type="button" aria-current="page">Входящие</button></li></ol></nav>
+                <div class="workspace-board__collection-head"><div><p>Текущая папка</p><h2>Входящие</h2></div></div>
+                <div class="workspace-board__grid" role="listbox" aria-label="Объекты папки" aria-multiselectable="true">
+                  <article class="workspace-board__item" data-workspace-item-key="media:alpha" data-entity-type="media" data-entity-id="alpha" data-entity-kind="video" data-artifact-class="source" data-folder-id="inbox" data-read-only="false" role="option" aria-selected="false">
+                    <button class="workspace-board__item-open" type="button" data-action="open-workspace-item" data-item-key="media:alpha" aria-expanded="false">
+                      <span class="workspace-board__item-preview">▶</span>
+                      <span class="workspace-board__item-copy"><small><span>Видео</span></small><strong>Alpha.mp4</strong><span>Исходник · 12 МБ</span></span>
+                      <span class="workspace-board__status">Готов</span>
+                    </button>
+                    <button class="workspace-board__select-item" type="button" data-ce-v4-select-item aria-pressed="false">✓</button>
+                    <button class="workspace-board__context-trigger workspace-board__context-trigger--item" type="button">⋯</button>
+                  </article>
+                  <article class="workspace-board__item" data-workspace-item-key="research:beta" data-entity-type="research" data-entity-id="beta" data-entity-kind="research" data-folder-id="inbox" data-read-only="true" role="option" aria-selected="false">
+                    <button class="workspace-board__item-open" type="button" data-action="open-workspace-item" data-item-key="research:beta" aria-expanded="false">
+                      <span class="workspace-board__item-preview">✦</span>
+                      <span class="workspace-board__item-copy"><small><span>Исследование</span></small><strong>Beta research</strong><span>3 подтверждённых вывода</span></span>
+                      <span class="workspace-board__status">Завершено</span>
+                    </button>
+                  </article>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>`;
+
+      let canonicalOpenCount = 0;
+      let lastOpenedKey = "";
+      document.addEventListener("click", (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        const close = target?.closest?.('[data-action="close-workspace-item"]');
+        if (close) {
+          document.querySelector("[data-workspace-item-drawer]")?.remove();
+          document.querySelectorAll('.workspace-board__item.is-selected').forEach((card) => card.classList.remove("is-selected"));
+          document.querySelectorAll('[data-action="open-workspace-item"]').forEach((button) => button.setAttribute("aria-expanded", "false"));
+          return;
+        }
+        const open = target?.closest?.('[data-action="open-workspace-item"]');
+        const card = open?.closest?.(".workspace-board__item");
+        if (!card) return;
+        canonicalOpenCount += 1;
+        lastOpenedKey = card.dataset.workspaceItemKey || "";
+        document.querySelectorAll('.workspace-board__item.is-selected').forEach((item) => item.classList.remove("is-selected"));
+        document.querySelectorAll('[data-action="open-workspace-item"]').forEach((button) => button.setAttribute("aria-expanded", "false"));
+        card.classList.add("is-selected");
+        open.setAttribute("aria-expanded", "true");
+        let drawer = document.querySelector("[data-workspace-item-drawer]");
+        if (!drawer) {
+          drawer = document.createElement("aside");
+          drawer.className = "workspace-board__drawer";
+          drawer.dataset.workspaceItemDrawer = "true";
+          document.querySelector(".workspace-board__layout").append(drawer);
+        }
+        drawer.innerHTML = `<button type="button" data-action="close-workspace-item">Закрыть</button><h2>${card.querySelector("strong")?.textContent || "Объект"}</h2><div class="workspace-board__drawer-preview">Preview</div><div class="workspace-board__drawer-head">Metadata</div>`;
+      });
+
+      await import("../../web/app/workspace-os-v4.js");
+      await import("../../web/app/workspace-os-v4-finder.js");
+      await window.ContentEngineDesktopV4.flush();
+
+      const alpha = document.querySelector('[data-workspace-item-key="media:alpha"]');
+      const alphaOpen = alpha.querySelector('[data-action="open-workspace-item"]');
+      const columns = document.querySelector('[data-ce-v4-finder-view="columns"]');
+      const legacyState = JSON.parse(localStorage.getItem("contentengine.desktop-v4.finder.v1") || "{}");
+      columns.click();
+
+      const scopedInboxKey = "contentengine.desktop-v4.finder-view.v2.project-alpha.inbox";
+      const canonicalCardsBefore = [...document.querySelectorAll(".workspace-board__item")];
+      alphaOpen.click();
+      const projectionAfterSingleClick = document.querySelector('[data-ce-v4-finder-column="preview"]')?.textContent || "";
+      const singleClickCount = canonicalOpenCount;
+      const cardIdentityAfterSelection = document.querySelector('[data-workspace-item-key="media:alpha"]') === alpha;
+
+      alphaOpen.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      alphaOpen.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      alphaOpen.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
+      const doubleClickDelta = canonicalOpenCount - singleClickCount;
+      document.querySelector('[data-action="close-workspace-item"]')?.click();
+
+      alphaOpen.focus({ preventScroll: true });
+      const beforeEnter = canonicalOpenCount;
+      alphaOpen.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      const enterDelta = canonicalOpenCount - beforeEnter;
+      document.querySelector('[data-action="close-workspace-item"]')?.click();
+
+      alphaOpen.focus({ preventScroll: true });
+      const hashBeforeSpace = location.hash;
+      const beforeSpace = canonicalOpenCount;
+      alphaOpen.dispatchEvent(new KeyboardEvent("keydown", { key: " ", code: "Space", bubbles: true, cancelable: true }));
+      for (let attempt = 0; attempt < 20 && !document.querySelector(".workspace-board.is-quicklook-inline"); attempt += 1) {
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      }
+      const quickLookOpened = Boolean(document.querySelector(".workspace-board.is-quicklook-inline"));
+      const spaceDelta = canonicalOpenCount - beforeSpace;
+      const quickLookRouteStable = location.hash === hashBeforeSpace;
+      window.ContentEngineFinderV4.closeQuickLook();
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const focusRestored = document.activeElement === alphaOpen;
+
+      history.pushState({}, "", "#/workspace/board?project_id=project-alpha&folder=review");
+      window.ContentEngineDesktopV4.requestMount();
+      await window.ContentEngineDesktopV4.flush();
+      const reviewStartsGrid = document.querySelector(".workspace-board").dataset.ceV4FinderView === "grid";
+      document.querySelector('[data-ce-v4-finder-view="list"]').click();
+      const scopedReviewKey = "contentengine.desktop-v4.finder-view.v2.project-alpha.review";
+
+      history.pushState({}, "", "#/workspace/board?project_id=project-alpha&folder=inbox");
+      window.ContentEngineDesktopV4.requestMount();
+      await window.ContentEngineDesktopV4.flush();
+      const inboxRestoresColumns = document.querySelector(".workspace-board").dataset.ceV4FinderView === "columns";
+
+      const scopedKeysBeforeEphemeral = Object.keys(localStorage).filter((key) => key.startsWith("contentengine.desktop-v4.finder-view.v2.")).sort();
+      history.pushState({}, "", "#/workspace/board?folder=inbox");
+      document.querySelector("[data-project-flow-root]").removeAttribute("data-project-id");
+      window.ContentEngineDesktopV4.requestMount();
+      await window.ContentEngineDesktopV4.flush();
+      document.querySelector('[data-ce-v4-finder-view="columns"]').click();
+      const scopedKeysAfterEphemeral = Object.keys(localStorage).filter((key) => key.startsWith("contentengine.desktop-v4.finder-view.v2.")).sort();
+
+      const grid = document.querySelector(".workspace-board__grid");
+      const workspace = document.querySelector("#workspace-content");
+      const projections = [...document.querySelectorAll("[data-ce-v4-finder-column]")];
+      const checks = {
+        threeViewControls: document.querySelectorAll(".ce-v4-finder-view[data-ce-v4-finder-view]").length === 3,
+        columnsActive: document.querySelector(".workspace-board").dataset.ceV4FinderView === "columns",
+        legacyGlobalViewRetired: !("view" in legacyState),
+        scopedInboxPreference: localStorage.getItem(scopedInboxKey) === "columns",
+        scopedReviewPreference: localStorage.getItem(scopedReviewKey) === "list",
+        reviewStartsGrid,
+        inboxRestoresColumns,
+        ephemeralDoesNotPersist: scopedKeysBeforeEphemeral.join("|") === scopedKeysAfterEphemeral.join("|"),
+        exactlyTwoReadOnlyProjections: projections.length === 2 && projections.every((node) => node.getAttribute("aria-hidden") === "true"),
+        noInteractiveProjectionClones: projections.every((node) => !node.querySelector("button, input, select, textarea, form, a[href]")),
+        canonicalCardsUnmoved: canonicalCardsBefore.every((card) => card.parentElement === grid),
+        cardIdentityAfterSelection,
+        selectionUpdatesPreview: projectionAfterSingleClick.includes("Alpha.mp4"),
+        singleClickDoesNotOpen: singleClickCount === 0,
+        doubleClickOpensOnce: doubleClickDelta === 1 && lastOpenedKey === "media:alpha",
+        enterOpensOnce: enterDelta === 1,
+        spaceOpensQuickLookOnce: quickLookOpened && spaceDelta === 1,
+        quickLookNoRouteMutation: quickLookRouteStable,
+        focusRestored,
+        internalHorizontalScroll: grid.scrollWidth > grid.clientWidth,
+        noWorkspaceHorizontalOverflow: workspace.scrollWidth <= workspace.clientWidth + 1,
+      };
+      const passed = Object.values(checks).every(Boolean);
+      result.dataset.passed = String(passed);
+      result.dataset.checks = JSON.stringify(checks);
+      result.textContent = passed ? "PASS" : "FAIL";
+      window.__workspaceFinderColumnsV48 = Object.freeze({ checks, canonicalOpenCount });
+    </script>
+  </body>
+</html>

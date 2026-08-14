@@ -561,7 +561,7 @@ def test_preflight_cache_reuses_only_fresh_results_and_never_duplicates_loading(
 
 
 def test_generation_form_wires_autopilot_with_visible_override_and_cache_busting() -> None:
-    assert 'from "./generation-autopilot.js?v=20260812.os4.38.bad-context.1"' in APP
+    assert 'from "./generation-autopilot.js?v=20260813.os4.39"' in APP
     assert "chooseInitialGenerationMedia(exactMedia" in APP
     assert (
         "generationMediaOptionMarkup(item, defaultIsReal, automaticMediaId)"
@@ -602,7 +602,7 @@ def test_generation_form_wires_autopilot_with_visible_override_and_cache_busting
     assert "if (!repairReady) applyContentGenerationHandoffToForm();" in APP
     assert "syncGenerationModeForm(generationForm);" in APP
     assert "syncGenerationFormReadiness(generationForm);" in APP
-    assert './app.js?v=20260812.os4.38' in INDEX
+    assert './app.js?v=20260813.os4.39' in INDEX
 
 
 def test_rejected_learning_policy_only_recommends_fallback_without_mutating_choice() -> None:
@@ -625,7 +625,7 @@ def test_rejected_learning_policy_only_recommends_fallback_without_mutating_choi
         "resolveGenerationLearningFallback({",
         "state.generationLearning",
         "learning.recovery = {",
-        "Ваш выбор не изменён; Runway и списания не было",
+        "Ваш выбор не изменён; вызова платного провайдера и списания не было",
     ):
         assert token in fallback
     for forbidden in (
@@ -643,7 +643,7 @@ def test_rejected_learning_policy_only_recommends_fallback_without_mutating_choi
     assert "?.generationAllowed === false" in loader
     assert "await prepareGenerationLearningFallback(" in loader
     assert "ИИ рекомендует другой режим" in APP
-    assert "Runway не вызывался, списания не было" in APP
+    assert "вызова платного провайдера и списания не было" in APP
 
 
 def test_learning_lookup_times_out_and_recovers_without_provider_contact() -> None:

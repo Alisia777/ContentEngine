@@ -164,7 +164,9 @@ def test_existing_edges_keep_user_auth_and_add_isolated_worker_auth() -> None:
 
     status_gate = generate.index("if (internalWorker) {", generate.index("const statusPayload"))
     start_parser = generate.index("const startPayload", status_gate)
-    provider_create = generate.index("`${RUNWAY_API_ORIGIN}/v1/image_to_video`")
+    provider_create = generate.index(
+        "createResponse = await fetchProviderJsonWithDeadline("
+    )
     assert status_gate < start_parser < provider_create
     assert "const signedUrl = internalWorker ? null" in generate
 

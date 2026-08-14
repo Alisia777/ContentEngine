@@ -1,0 +1,362 @@
+<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">
+<symbol id="ce-dock-ai" viewBox="0 0 64 64">
+<defs>
+  <linearGradient id="ce-ai-body" x1="8" y1="5" x2="55" y2="60" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#C6A8FF" stop-opacity=".44"/>
+    <stop offset=".34" stop-color="#976BFF" stop-opacity=".26"/>
+    <stop offset="1" stop-color="#0B111A" stop-opacity=".98"/>
+  </linearGradient>
+  <linearGradient id="ce-ai-rim" x1="12" y1="8" x2="50" y2="58" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#C6A8FF" stop-opacity=".78"/>
+    <stop offset=".45" stop-color="#976BFF" stop-opacity=".48"/>
+    <stop offset="1" stop-color="#5934A9" stop-opacity=".22"/>
+  </linearGradient>
+  <radialGradient id="ce-ai-shine" cx="0" cy="0" r="1" gradientTransform="translate(20 14) rotate(42) scale(42 30)" gradientUnits="userSpaceOnUse">
+    <stop stop-color="#fff" stop-opacity=".33"/>
+    <stop offset=".34" stop-color="#fff" stop-opacity=".08"/>
+    <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+  </radialGradient>
+  <filter id="ce-ai-shadow" x="-40%" y="-35%" width="180%" height="190%">
+    <feDropShadow dx="0" dy="7" stdDeviation="5" flood-color="#000" flood-opacity=".55"/>
+    <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#976BFF" flood-opacity=".18"/>
+  </filter>
+  <filter id="ce-ai-glyphGlow" x="-60%" y="-60%" width="220%" height="220%">
+    <feDropShadow dx="0" dy="0" stdDeviation="2.4" flood-color="#976BFF" flood-opacity=".70"/>
+  </filter>
+</defs>
+<g filter="url(#ce-ai-shadow)">
+  <rect x="6" y="5" width="52" height="52" rx="15" fill="#101722"/>
+  <rect x="7" y="6" width="50" height="50" rx="14" fill="url(#ce-ai-body)" stroke="url(#ce-ai-rim)" stroke-width="1.5"/>
+  <rect x="9" y="8" width="46" height="46" rx="12" fill="none" stroke="#fff" stroke-opacity=".07"/>
+  <path d="M14 10h32c5 0 9 4 9 9v3c-11-5-28-6-46 1v-4c0-5 2-9 5-9Z" fill="url(#ce-ai-shine)"/>
+  <path d="M12 52c11 2 27 2 40-1" fill="none" stroke="#000" stroke-opacity=".46" stroke-width="2.5" stroke-linecap="round"/>
+</g>
+<g color="#C6A8FF" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" filter="url(#ce-ai-glyphGlow)">
+<path d="M32 20 21 27v12l11 7 11-7V27Z" opacity=".4"/><path d="M32 20v26M21 27l22 12M43 27 21 39" opacity=".65"/><circle cx="32" cy="20" r="4" fill="currentColor" stroke="none"/><circle cx="21" cy="27" r="4" fill="currentColor" stroke="none"/><circle cx="43" cy="27" r="4" fill="currentColor" stroke="none"/><circle cx="21" cy="39" r="4" fill="currentColor" stroke="none"/><circle cx="43" cy="39" r="4" fill="currentColor" stroke="none"/><circle cx="32" cy="46" r="4" fill="currentColor" stroke="none"/><circle cx="32" cy="33" r="5" fill="none"/>
+</g>
+</symbol>
+<symbol id="ce-dock-create" viewBox="0 0 64 64">
+<defs>
+  <linearGradient id="ce-create-body" x1="8" y1="5" x2="55" y2="60" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#FFF1C9" stop-opacity=".44"/>
+    <stop offset=".34" stop-color="#D7AD59" stop-opacity=".26"/>
+    <stop offset="1" stop-color="#0B111A" stop-opacity=".98"/>
+  </linearGradient>
+  <linearGradient id="ce-create-rim" x1="12" y1="8" x2="50" y2="58" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#FFF1C9" stop-opacity=".78"/>
+    <stop offset=".45" stop-color="#D7AD59" stop-opacity=".48"/>
+    <stop offset="1" stop-color="#9A6C28" stop-opacity=".22"/>
+  </linearGradient>
+  <radialGradient id="ce-create-shine" cx="0" cy="0" r="1" gradientTransform="translate(20 14) rotate(42) scale(42 30)" gradientUnits="userSpaceOnUse">
+    <stop stop-color="#fff" stop-opacity=".33"/>
+    <stop offset=".34" stop-color="#fff" stop-opacity=".08"/>
+    <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+  </radialGradient>
+  <filter id="ce-create-shadow" x="-40%" y="-35%" width="180%" height="190%">
+    <feDropShadow dx="0" dy="7" stdDeviation="5" flood-color="#000" flood-opacity=".55"/>
+    <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#D7AD59" flood-opacity=".18"/>
+  </filter>
+  <filter id="ce-create-glyphGlow" x="-60%" y="-60%" width="220%" height="220%">
+    <feDropShadow dx="0" dy="0" stdDeviation="2.4" flood-color="#D7AD59" flood-opacity=".70"/>
+  </filter>
+</defs>
+<g filter="url(#ce-create-shadow)">
+  <rect x="6" y="5" width="52" height="52" rx="15" fill="#101722"/>
+  <rect x="7" y="6" width="50" height="50" rx="14" fill="url(#ce-create-body)" stroke="url(#ce-create-rim)" stroke-width="1.5"/>
+  <rect x="9" y="8" width="46" height="46" rx="12" fill="none" stroke="#fff" stroke-opacity=".07"/>
+  <path d="M14 10h32c5 0 9 4 9 9v3c-11-5-28-6-46 1v-4c0-5 2-9 5-9Z" fill="url(#ce-create-shine)"/>
+  <path d="M12 52c11 2 27 2 40-1" fill="none" stroke="#000" stroke-opacity=".46" stroke-width="2.5" stroke-linecap="round"/>
+</g>
+<g color="#FFF1C9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" filter="url(#ce-create-glyphGlow)">
+<circle cx="32" cy="32" r="17"/><path d="M32 22v20M22 32h20"/><path d="M20 17.5 17.5 20M44 17.5l2.5 2.5M20 46.5l-2.5-2.5M44 46.5l2.5-2.5" opacity=".45"/>
+</g>
+</symbol>
+<symbol id="ce-dock-finder" viewBox="0 0 64 64">
+<defs>
+  <linearGradient id="ce-finder-body" x1="8" y1="5" x2="55" y2="60" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#E7EDF5" stop-opacity=".44"/>
+    <stop offset=".34" stop-color="#98A9BD" stop-opacity=".26"/>
+    <stop offset="1" stop-color="#0B111A" stop-opacity=".98"/>
+  </linearGradient>
+  <linearGradient id="ce-finder-rim" x1="12" y1="8" x2="50" y2="58" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#E7EDF5" stop-opacity=".78"/>
+    <stop offset=".45" stop-color="#98A9BD" stop-opacity=".48"/>
+    <stop offset="1" stop-color="#46586E" stop-opacity=".22"/>
+  </linearGradient>
+  <radialGradient id="ce-finder-shine" cx="0" cy="0" r="1" gradientTransform="translate(20 14) rotate(42) scale(42 30)" gradientUnits="userSpaceOnUse">
+    <stop stop-color="#fff" stop-opacity=".33"/>
+    <stop offset=".34" stop-color="#fff" stop-opacity=".08"/>
+    <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+  </radialGradient>
+  <filter id="ce-finder-shadow" x="-40%" y="-35%" width="180%" height="190%">
+    <feDropShadow dx="0" dy="7" stdDeviation="5" flood-color="#000" flood-opacity=".55"/>
+    <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#A9B5C6" flood-opacity=".18"/>
+  </filter>
+  <filter id="ce-finder-glyphGlow" x="-60%" y="-60%" width="220%" height="220%">
+    <feDropShadow dx="0" dy="0" stdDeviation="2.4" flood-color="#A9B5C6" flood-opacity=".70"/>
+  </filter>
+</defs>
+<g filter="url(#ce-finder-shadow)">
+  <rect x="6" y="5" width="52" height="52" rx="15" fill="#101722"/>
+  <rect x="7" y="6" width="50" height="50" rx="14" fill="url(#ce-finder-body)" stroke="url(#ce-finder-rim)" stroke-width="1.5"/>
+  <rect x="9" y="8" width="46" height="46" rx="12" fill="none" stroke="#fff" stroke-opacity=".07"/>
+  <path d="M14 10h32c5 0 9 4 9 9v3c-11-5-28-6-46 1v-4c0-5 2-9 5-9Z" fill="url(#ce-finder-shine)"/>
+  <path d="M12 52c11 2 27 2 40-1" fill="none" stroke="#000" stroke-opacity=".46" stroke-width="2.5" stroke-linecap="round"/>
+</g>
+<g color="#E7EDF5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" filter="url(#ce-finder-glyphGlow)">
+<path d="M18 25.5h10.2l4.2 4H46a4 4 0 0 1 4 4v14.5a4 4 0 0 1-4 4H18a4 4 0 0 1-4-4V29.5a4 4 0 0 1 4-4Z"/><path d="M14.5 34h35" opacity=".55"/>
+</g>
+</symbol>
+<symbol id="ce-dock-processes" viewBox="0 0 64 64">
+<defs>
+  <linearGradient id="ce-processes-body" x1="8" y1="5" x2="55" y2="60" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#9DB3FF" stop-opacity=".44"/>
+    <stop offset=".34" stop-color="#5D82FF" stop-opacity=".26"/>
+    <stop offset="1" stop-color="#0B111A" stop-opacity=".98"/>
+  </linearGradient>
+  <linearGradient id="ce-processes-rim" x1="12" y1="8" x2="50" y2="58" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#9DB3FF" stop-opacity=".78"/>
+    <stop offset=".45" stop-color="#5D82FF" stop-opacity=".48"/>
+    <stop offset="1" stop-color="#3347A5" stop-opacity=".22"/>
+  </linearGradient>
+  <radialGradient id="ce-processes-shine" cx="0" cy="0" r="1" gradientTransform="translate(20 14) rotate(42) scale(42 30)" gradientUnits="userSpaceOnUse">
+    <stop stop-color="#fff" stop-opacity=".33"/>
+    <stop offset=".34" stop-color="#fff" stop-opacity=".08"/>
+    <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+  </radialGradient>
+  <filter id="ce-processes-shadow" x="-40%" y="-35%" width="180%" height="190%">
+    <feDropShadow dx="0" dy="7" stdDeviation="5" flood-color="#000" flood-opacity=".55"/>
+    <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#5D82FF" flood-opacity=".18"/>
+  </filter>
+  <filter id="ce-processes-glyphGlow" x="-60%" y="-60%" width="220%" height="220%">
+    <feDropShadow dx="0" dy="0" stdDeviation="2.4" flood-color="#5D82FF" flood-opacity=".70"/>
+  </filter>
+</defs>
+<g filter="url(#ce-processes-shadow)">
+  <rect x="6" y="5" width="52" height="52" rx="15" fill="#101722"/>
+  <rect x="7" y="6" width="50" height="50" rx="14" fill="url(#ce-processes-body)" stroke="url(#ce-processes-rim)" stroke-width="1.5"/>
+  <rect x="9" y="8" width="46" height="46" rx="12" fill="none" stroke="#fff" stroke-opacity=".07"/>
+  <path d="M14 10h32c5 0 9 4 9 9v3c-11-5-28-6-46 1v-4c0-5 2-9 5-9Z" fill="url(#ce-processes-shine)"/>
+  <path d="M12 52c11 2 27 2 40-1" fill="none" stroke="#000" stroke-opacity=".46" stroke-width="2.5" stroke-linecap="round"/>
+</g>
+<g color="#9DB3FF" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" filter="url(#ce-processes-glyphGlow)">
+<path d="M32 15v6M32 43v6M15 32h6M43 32h6M20 20l4 4M40 40l4 4M44 20l-4 4M24 40l-4 4"/><circle cx="32" cy="32" r="13"/><circle cx="32" cy="32" r="5"/><path d="M32 24v8l6 4" opacity=".45"/>
+</g>
+</symbol>
+<symbol id="ce-dock-publish" viewBox="0 0 64 64">
+<defs>
+  <linearGradient id="ce-publish-body" x1="8" y1="5" x2="55" y2="60" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#8BEFFF" stop-opacity=".44"/>
+    <stop offset=".34" stop-color="#38D2E8" stop-opacity=".26"/>
+    <stop offset="1" stop-color="#0B111A" stop-opacity=".98"/>
+  </linearGradient>
+  <linearGradient id="ce-publish-rim" x1="12" y1="8" x2="50" y2="58" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#8BEFFF" stop-opacity=".78"/>
+    <stop offset=".45" stop-color="#38D2E8" stop-opacity=".48"/>
+    <stop offset="1" stop-color="#147C8C" stop-opacity=".22"/>
+  </linearGradient>
+  <radialGradient id="ce-publish-shine" cx="0" cy="0" r="1" gradientTransform="translate(20 14) rotate(42) scale(42 30)" gradientUnits="userSpaceOnUse">
+    <stop stop-color="#fff" stop-opacity=".33"/>
+    <stop offset=".34" stop-color="#fff" stop-opacity=".08"/>
+    <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+  </radialGradient>
+  <filter id="ce-publish-shadow" x="-40%" y="-35%" width="180%" height="190%">
+    <feDropShadow dx="0" dy="7" stdDeviation="5" flood-color="#000" flood-opacity=".55"/>
+    <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#38D2E8" flood-opacity=".18"/>
+  </filter>
+  <filter id="ce-publish-glyphGlow" x="-60%" y="-60%" width="220%" height="220%">
+    <feDropShadow dx="0" dy="0" stdDeviation="2.4" flood-color="#38D2E8" flood-opacity=".70"/>
+  </filter>
+</defs>
+<g filter="url(#ce-publish-shadow)">
+  <rect x="6" y="5" width="52" height="52" rx="15" fill="#101722"/>
+  <rect x="7" y="6" width="50" height="50" rx="14" fill="url(#ce-publish-body)" stroke="url(#ce-publish-rim)" stroke-width="1.5"/>
+  <rect x="9" y="8" width="46" height="46" rx="12" fill="none" stroke="#fff" stroke-opacity=".07"/>
+  <path d="M14 10h32c5 0 9 4 9 9v3c-11-5-28-6-46 1v-4c0-5 2-9 5-9Z" fill="url(#ce-publish-shine)"/>
+  <path d="M12 52c11 2 27 2 40-1" fill="none" stroke="#000" stroke-opacity=".46" stroke-width="2.5" stroke-linecap="round"/>
+</g>
+<g color="#8BEFFF" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" filter="url(#ce-publish-glyphGlow)">
+<path d="m14 29 36-14-11 35-8-12-17-9Z"/><path d="m31 38 9-13" opacity=".55"/><path d="m31 38-3 11 11 1" opacity=".55"/>
+</g>
+</symbol>
+<symbol id="ce-dock-research" viewBox="0 0 64 64">
+<defs>
+  <linearGradient id="ce-research-body" x1="8" y1="5" x2="55" y2="60" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#8BC2FF" stop-opacity=".44"/>
+    <stop offset=".34" stop-color="#4A8FFF" stop-opacity=".26"/>
+    <stop offset="1" stop-color="#0B111A" stop-opacity=".98"/>
+  </linearGradient>
+  <linearGradient id="ce-research-rim" x1="12" y1="8" x2="50" y2="58" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#8BC2FF" stop-opacity=".78"/>
+    <stop offset=".45" stop-color="#4A8FFF" stop-opacity=".48"/>
+    <stop offset="1" stop-color="#2356A8" stop-opacity=".22"/>
+  </linearGradient>
+  <radialGradient id="ce-research-shine" cx="0" cy="0" r="1" gradientTransform="translate(20 14) rotate(42) scale(42 30)" gradientUnits="userSpaceOnUse">
+    <stop stop-color="#fff" stop-opacity=".33"/>
+    <stop offset=".34" stop-color="#fff" stop-opacity=".08"/>
+    <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+  </radialGradient>
+  <filter id="ce-research-shadow" x="-40%" y="-35%" width="180%" height="190%">
+    <feDropShadow dx="0" dy="7" stdDeviation="5" flood-color="#000" flood-opacity=".55"/>
+    <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#4A8FFF" flood-opacity=".18"/>
+  </filter>
+  <filter id="ce-research-glyphGlow" x="-60%" y="-60%" width="220%" height="220%">
+    <feDropShadow dx="0" dy="0" stdDeviation="2.4" flood-color="#4A8FFF" flood-opacity=".70"/>
+  </filter>
+</defs>
+<g filter="url(#ce-research-shadow)">
+  <rect x="6" y="5" width="52" height="52" rx="15" fill="#101722"/>
+  <rect x="7" y="6" width="50" height="50" rx="14" fill="url(#ce-research-body)" stroke="url(#ce-research-rim)" stroke-width="1.5"/>
+  <rect x="9" y="8" width="46" height="46" rx="12" fill="none" stroke="#fff" stroke-opacity=".07"/>
+  <path d="M14 10h32c5 0 9 4 9 9v3c-11-5-28-6-46 1v-4c0-5 2-9 5-9Z" fill="url(#ce-research-shine)"/>
+  <path d="M12 52c11 2 27 2 40-1" fill="none" stroke="#000" stroke-opacity=".46" stroke-width="2.5" stroke-linecap="round"/>
+</g>
+<g color="#8BC2FF" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" filter="url(#ce-research-glyphGlow)">
+<circle cx="29" cy="29" r="13"/><path d="m39 39 12 12"/><path d="M21 29h16" opacity=".45"/><path d="M29 21v16" opacity=".45"/>
+</g>
+</symbol>
+<symbol id="ce-dock-results" viewBox="0 0 64 64">
+<defs>
+  <linearGradient id="ce-results-body" x1="8" y1="5" x2="55" y2="60" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#79F0C0" stop-opacity=".44"/>
+    <stop offset=".34" stop-color="#39D99E" stop-opacity=".26"/>
+    <stop offset="1" stop-color="#0B111A" stop-opacity=".98"/>
+  </linearGradient>
+  <linearGradient id="ce-results-rim" x1="12" y1="8" x2="50" y2="58" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#79F0C0" stop-opacity=".78"/>
+    <stop offset=".45" stop-color="#39D99E" stop-opacity=".48"/>
+    <stop offset="1" stop-color="#16825E" stop-opacity=".22"/>
+  </linearGradient>
+  <radialGradient id="ce-results-shine" cx="0" cy="0" r="1" gradientTransform="translate(20 14) rotate(42) scale(42 30)" gradientUnits="userSpaceOnUse">
+    <stop stop-color="#fff" stop-opacity=".33"/>
+    <stop offset=".34" stop-color="#fff" stop-opacity=".08"/>
+    <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+  </radialGradient>
+  <filter id="ce-results-shadow" x="-40%" y="-35%" width="180%" height="190%">
+    <feDropShadow dx="0" dy="7" stdDeviation="5" flood-color="#000" flood-opacity=".55"/>
+    <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#39D99E" flood-opacity=".18"/>
+  </filter>
+  <filter id="ce-results-glyphGlow" x="-60%" y="-60%" width="220%" height="220%">
+    <feDropShadow dx="0" dy="0" stdDeviation="2.4" flood-color="#39D99E" flood-opacity=".70"/>
+  </filter>
+</defs>
+<g filter="url(#ce-results-shadow)">
+  <rect x="6" y="5" width="52" height="52" rx="15" fill="#101722"/>
+  <rect x="7" y="6" width="50" height="50" rx="14" fill="url(#ce-results-body)" stroke="url(#ce-results-rim)" stroke-width="1.5"/>
+  <rect x="9" y="8" width="46" height="46" rx="12" fill="none" stroke="#fff" stroke-opacity=".07"/>
+  <path d="M14 10h32c5 0 9 4 9 9v3c-11-5-28-6-46 1v-4c0-5 2-9 5-9Z" fill="url(#ce-results-shine)"/>
+  <path d="M12 52c11 2 27 2 40-1" fill="none" stroke="#000" stroke-opacity=".46" stroke-width="2.5" stroke-linecap="round"/>
+</g>
+<g color="#79F0C0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" filter="url(#ce-results-glyphGlow)">
+<path d="M18 47V35"/><path d="M28 47V23"/><path d="M38 47V30"/><path d="M48 47V17"/><path d="M15 50h36" opacity=".55"/><circle cx="18" cy="32" r="2.2" fill="currentColor" stroke="none"/><circle cx="28" cy="20" r="2.2" fill="currentColor" stroke="none"/><circle cx="38" cy="27" r="2.2" fill="currentColor" stroke="none"/><circle cx="48" cy="14" r="2.2" fill="currentColor" stroke="none"/>
+</g>
+</symbol>
+<symbol id="ce-dock-review" viewBox="0 0 64 64">
+<defs>
+  <linearGradient id="ce-review-body" x1="8" y1="5" x2="55" y2="60" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#FF98A5" stop-opacity=".44"/>
+    <stop offset=".34" stop-color="#C84C65" stop-opacity=".26"/>
+    <stop offset="1" stop-color="#0B111A" stop-opacity=".98"/>
+  </linearGradient>
+  <linearGradient id="ce-review-rim" x1="12" y1="8" x2="50" y2="58" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#FF98A5" stop-opacity=".78"/>
+    <stop offset=".45" stop-color="#C84C65" stop-opacity=".48"/>
+    <stop offset="1" stop-color="#76213A" stop-opacity=".22"/>
+  </linearGradient>
+  <radialGradient id="ce-review-shine" cx="0" cy="0" r="1" gradientTransform="translate(20 14) rotate(42) scale(42 30)" gradientUnits="userSpaceOnUse">
+    <stop stop-color="#fff" stop-opacity=".33"/>
+    <stop offset=".34" stop-color="#fff" stop-opacity=".08"/>
+    <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+  </radialGradient>
+  <filter id="ce-review-shadow" x="-40%" y="-35%" width="180%" height="190%">
+    <feDropShadow dx="0" dy="7" stdDeviation="5" flood-color="#000" flood-opacity=".55"/>
+    <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#C84C65" flood-opacity=".18"/>
+  </filter>
+  <filter id="ce-review-glyphGlow" x="-60%" y="-60%" width="220%" height="220%">
+    <feDropShadow dx="0" dy="0" stdDeviation="2.4" flood-color="#C84C65" flood-opacity=".70"/>
+  </filter>
+</defs>
+<g filter="url(#ce-review-shadow)">
+  <rect x="6" y="5" width="52" height="52" rx="15" fill="#101722"/>
+  <rect x="7" y="6" width="50" height="50" rx="14" fill="url(#ce-review-body)" stroke="url(#ce-review-rim)" stroke-width="1.5"/>
+  <rect x="9" y="8" width="46" height="46" rx="12" fill="none" stroke="#fff" stroke-opacity=".07"/>
+  <path d="M14 10h32c5 0 9 4 9 9v3c-11-5-28-6-46 1v-4c0-5 2-9 5-9Z" fill="url(#ce-review-shine)"/>
+  <path d="M12 52c11 2 27 2 40-1" fill="none" stroke="#000" stroke-opacity=".46" stroke-width="2.5" stroke-linecap="round"/>
+</g>
+<g color="#FF98A5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" filter="url(#ce-review-glyphGlow)">
+<circle cx="32" cy="32" r="17"/><path d="m23 32 6 6 13-14"/><path d="M18.5 20.5 21 23M45.5 20.5 43 23" opacity=".45"/>
+</g>
+</symbol>
+<symbol id="ce-dock-settings" viewBox="0 0 64 64">
+<defs>
+  <linearGradient id="ce-settings-body" x1="8" y1="5" x2="55" y2="60" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#DCE3EC" stop-opacity=".44"/>
+    <stop offset=".34" stop-color="#8894A3" stop-opacity=".26"/>
+    <stop offset="1" stop-color="#0B111A" stop-opacity=".98"/>
+  </linearGradient>
+  <linearGradient id="ce-settings-rim" x1="12" y1="8" x2="50" y2="58" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#DCE3EC" stop-opacity=".78"/>
+    <stop offset=".45" stop-color="#8894A3" stop-opacity=".48"/>
+    <stop offset="1" stop-color="#4D5968" stop-opacity=".22"/>
+  </linearGradient>
+  <radialGradient id="ce-settings-shine" cx="0" cy="0" r="1" gradientTransform="translate(20 14) rotate(42) scale(42 30)" gradientUnits="userSpaceOnUse">
+    <stop stop-color="#fff" stop-opacity=".33"/>
+    <stop offset=".34" stop-color="#fff" stop-opacity=".08"/>
+    <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+  </radialGradient>
+  <filter id="ce-settings-shadow" x="-40%" y="-35%" width="180%" height="190%">
+    <feDropShadow dx="0" dy="7" stdDeviation="5" flood-color="#000" flood-opacity=".55"/>
+    <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#8894A3" flood-opacity=".18"/>
+  </filter>
+  <filter id="ce-settings-glyphGlow" x="-60%" y="-60%" width="220%" height="220%">
+    <feDropShadow dx="0" dy="0" stdDeviation="2.4" flood-color="#8894A3" flood-opacity=".70"/>
+  </filter>
+</defs>
+<g filter="url(#ce-settings-shadow)">
+  <rect x="6" y="5" width="52" height="52" rx="15" fill="#101722"/>
+  <rect x="7" y="6" width="50" height="50" rx="14" fill="url(#ce-settings-body)" stroke="url(#ce-settings-rim)" stroke-width="1.5"/>
+  <rect x="9" y="8" width="46" height="46" rx="12" fill="none" stroke="#fff" stroke-opacity=".07"/>
+  <path d="M14 10h32c5 0 9 4 9 9v3c-11-5-28-6-46 1v-4c0-5 2-9 5-9Z" fill="url(#ce-settings-shine)"/>
+  <path d="M12 52c11 2 27 2 40-1" fill="none" stroke="#000" stroke-opacity=".46" stroke-width="2.5" stroke-linecap="round"/>
+</g>
+<g color="#DCE3EC" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" filter="url(#ce-settings-glyphGlow)">
+<path d="M18 22h28M18 32h28M18 42h28"/><circle cx="26" cy="22" r="4" fill="#101722"/><circle cx="39" cy="32" r="4" fill="#101722"/><circle cx="30" cy="42" r="4" fill="#101722"/>
+</g>
+</symbol>
+<symbol id="ce-dock-trash" viewBox="0 0 64 64">
+<defs>
+  <linearGradient id="ce-trash-body" x1="8" y1="5" x2="55" y2="60" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#E78A95" stop-opacity=".44"/>
+    <stop offset=".34" stop-color="#9B5360" stop-opacity=".26"/>
+    <stop offset="1" stop-color="#0B111A" stop-opacity=".98"/>
+  </linearGradient>
+  <linearGradient id="ce-trash-rim" x1="12" y1="8" x2="50" y2="58" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#E78A95" stop-opacity=".78"/>
+    <stop offset=".45" stop-color="#9B5360" stop-opacity=".48"/>
+    <stop offset="1" stop-color="#4B2B33" stop-opacity=".22"/>
+  </linearGradient>
+  <radialGradient id="ce-trash-shine" cx="0" cy="0" r="1" gradientTransform="translate(20 14) rotate(42) scale(42 30)" gradientUnits="userSpaceOnUse">
+    <stop stop-color="#fff" stop-opacity=".33"/>
+    <stop offset=".34" stop-color="#fff" stop-opacity=".08"/>
+    <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+  </radialGradient>
+  <filter id="ce-trash-shadow" x="-40%" y="-35%" width="180%" height="190%">
+    <feDropShadow dx="0" dy="7" stdDeviation="5" flood-color="#000" flood-opacity=".55"/>
+    <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#B14E5C" flood-opacity=".18"/>
+  </filter>
+  <filter id="ce-trash-glyphGlow" x="-60%" y="-60%" width="220%" height="220%">
+    <feDropShadow dx="0" dy="0" stdDeviation="2.4" flood-color="#B14E5C" flood-opacity=".70"/>
+  </filter>
+</defs>
+<g filter="url(#ce-trash-shadow)">
+  <rect x="6" y="5" width="52" height="52" rx="15" fill="#101722"/>
+  <rect x="7" y="6" width="50" height="50" rx="14" fill="url(#ce-trash-body)" stroke="url(#ce-trash-rim)" stroke-width="1.5"/>
+  <rect x="9" y="8" width="46" height="46" rx="12" fill="none" stroke="#fff" stroke-opacity=".07"/>
+  <path d="M14 10h32c5 0 9 4 9 9v3c-11-5-28-6-46 1v-4c0-5 2-9 5-9Z" fill="url(#ce-trash-shine)"/>
+  <path d="M12 52c11 2 27 2 40-1" fill="none" stroke="#000" stroke-opacity=".46" stroke-width="2.5" stroke-linecap="round"/>
+</g>
+<g color="#E78A95" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" filter="url(#ce-trash-glyphGlow)">
+<path d="M20 24h24l-2 27H22Z"/><path d="M17 24h30M26 18h12l2 6H24Z"/><path d="M28 31v13M36 31v13" opacity=".55"/>
+</g>
+</symbol>
+</svg>

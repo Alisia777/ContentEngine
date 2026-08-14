@@ -39,6 +39,8 @@ const sourceId = '11111111-1111-4111-8111-111111111111';
 const resultId = '22222222-2222-4222-8222-222222222222';
 const runId = '33333333-3333-4333-8333-333333333333';
 const receiptId = '44444444-4444-4444-8444-444444444444';
+const ownerId = '55555555-5555-4555-8555-555555555555';
+const employeeId = '66666666-6666-4666-8666-666666666666';
 const board = normalizeWorkspaceBoard({
   capabilities: {
     manage_folders: false,
@@ -53,6 +55,7 @@ const board = normalizeWorkspaceBoard({
     {
       id: sourceId, entity_type: 'media', title: 'Фото товара', status: 'ready',
       folder_id: 'sources', artifact_class: 'source', lifecycle_stage: 'sources',
+      owner_id: ownerId, owner_name: 'Мария',
       can_move: false,
     },
     {
@@ -66,6 +69,8 @@ const board = normalizeWorkspaceBoard({
       id: runId,
       entity_type: 'research',
       status: 'completed',
+      created_by: employeeId,
+      created_by_name: 'Иван',
       read_only: true,
       can_move: false,
       deep_link: `#/workspace/research?project_id=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa&run=${runId}`,
@@ -92,6 +97,20 @@ const sourceHtml = render('source');
 const researchHtml = render('research', 'all', `research:${runId}`);
 const generatedHtml = render('generated_output');
 const rootHtml = render('research', 'root');
+const landingHtml = workspaceBoardMarkup(board, {
+  landingOverview: true,
+  selectedFolderId: 'all',
+  entityType: 'all',
+  provenanceFilter: 'all',
+});
+const sourceDetailHtml = workspaceBoardMarkup(board, {
+  selectedFolderId: 'all',
+  selectedItemKey: `media:${sourceId}`,
+  entityType: 'all',
+  provenanceFilter: 'all',
+  viewerProfileId: ownerId,
+  viewerName: 'Мария',
+});
 
 process.stdout.write(JSON.stringify({
   capability: board.capabilities.researchArtifacts,
@@ -108,6 +127,20 @@ process.stdout.write(JSON.stringify({
   researchJournalCopy: researchHtml.includes('Отдельный журнал исследования'),
   exactResearchLink: researchHtml.includes(`href="#/workspace/research?project_id=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa&amp;run=${runId}"`),
   exactReceiptLink: researchHtml.includes(`href="#/workspace/ai?project_id=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa&amp;category=food&amp;receipt=${receiptId}"`),
+  neutralReceiptLabel: researchHtml.includes('Открыть квитанцию в ИИ-центре')
+    && !researchHtml.includes('Открыть свою квитанцию'),
+  creators: board.items.map(({ id, creatorId, creatorName }) => ({ id, creatorId, creatorName })),
+  ownSourceAttribution: sourceDetailHtml.includes('<dt>Загрузил</dt>')
+    && sourceDetailHtml.includes('Мария (вы)'),
+  projectResearchAttribution: researchHtml.includes('<dt>Создал</dt>')
+    && researchHtml.includes('Иван'),
+  landingOverview: landingHtml.includes('data-overview-kind="source"')
+    && landingHtml.includes('data-overview-kind="research"')
+    && landingHtml.includes('data-overview-kind="generated_output"')
+    && landingHtml.includes('Исследования')
+    && landingHtml.includes('не является папкой')
+    && !landingHtml.includes('class="workspace-board__grid"'),
+  honestAllCount: /<span>Все файлы<\/span>\s*<small>3<\/small>/.test(landingHtml),
   stalePagination: workspaceBoardPaginationState({
     has_more: true,
     next_cursor: { updated_at: '2026-08-12T12:00:00Z', id: sourceId },
@@ -172,6 +205,20 @@ def test_files_ui_honors_server_item_move_rights_and_exact_research_links() -> N
     assert result["researchHasNoMove"] is True
     assert result["exactResearchLink"] is True
     assert result["exactReceiptLink"] is True
+    assert result["neutralReceiptLabel"] is True
+    assert result["ownSourceAttribution"] is True
+    assert result["projectResearchAttribution"] is True
+    creators = {item["id"]: item for item in result["creators"]}
+    assert creators["11111111-1111-4111-8111-111111111111"] == {
+        "id": "11111111-1111-4111-8111-111111111111",
+        "creatorId": "55555555-5555-4555-8555-555555555555",
+        "creatorName": "Мария",
+    }
+    assert creators["33333333-3333-4333-8333-333333333333"] == {
+        "id": "33333333-3333-4333-8333-333333333333",
+        "creatorId": "66666666-6666-4666-8666-666666666666",
+        "creatorName": "Иван",
+    }
     assert result["stalePagination"] == {
         "hasMore": True,
         "nextCursor": {
@@ -186,6 +233,30 @@ def test_files_ui_styles_research_as_a_distinct_read_only_artifact() -> None:
     for css in (BOARD_CSS, FINDER_CSS):
         assert '.workspace-board__item[data-entity-type="research"]' in css
     assert ".workspace-board__research-links" in BOARD_CSS
+
+
+def test_files_ui_lands_on_semantic_overview_and_counts_the_visible_universe() -> None:
+    result = _run_contract()
+    click_owner = APP[
+        APP.index("async function handleClick(") : APP.index("async function handleSubmit(")
+    ]
+    paid_research_submit = APP[
+        APP.index("async function submitProductResearchStart(") : APP.index(
+            "async function submitProductResearchMarketCategory("
+        )
+    ]
+
+    assert result["landingOverview"] is True
+    assert result["honestAllCount"] is True
+    assert 'landingOverview: Boolean(' in APP
+    assert 'action === "select-workspace-provenance"' in click_owner
+    assert 'action === "select-workspace-provenance"' not in paid_research_submit
+    assert click_owner.index('action === "select-workspace-folder"') < click_owner.index(
+        'action === "select-workspace-provenance"'
+    ) < click_owner.index('action === "open-workspace-item"')
+    assert 'action: "select-workspace-provenance"' in VIEW
+    assert '.workspace-board__overview-grid' in BOARD_CSS
+    assert 'grid-template-columns: minmax(0, 1fr);' in BOARD_CSS
 
 
 def test_files_api_and_route_use_exact_server_media_identity() -> None:

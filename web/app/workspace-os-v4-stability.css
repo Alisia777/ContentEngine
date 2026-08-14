@@ -27,6 +27,16 @@ body.contentengine-desktop-v4[data-ce-v4-stable="true"] #main-content {
   height: 100% !important;
   min-height: 0 !important;
   overflow-x: hidden !important;
+  overflow-y: hidden !important;
+  overflow-anchor: none;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+body.contentengine-desktop-v4[data-ce-v4-stable="true"] [data-ce-v4-window-body] {
+  min-width: 0 !important;
+  min-height: 0 !important;
+  overflow-x: hidden !important;
   overflow-y: auto !important;
   overflow-anchor: none;
   overscroll-behavior: contain;
@@ -190,13 +200,13 @@ body.contentengine-desktop-v4[data-ce-v4-stable="true"] :is(
 body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar {
   background:
     linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.01)),
-    rgba(10,8,7,.98) !important;
+    rgba(5,8,13,.985) !important;
 }
 
 body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-dock__glass {
   background:
     linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.018)),
-    rgba(18,15,13,.975) !important;
+    rgba(16,23,33,.975) !important;
 }
 
 body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-dock__tooltip {
@@ -560,8 +570,8 @@ body.contentengine-desktop-v4[data-ce-v4-stable="true"] :is(
   }
 
   body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar {
-    grid-template-columns: minmax(0, 1fr) auto !important;
-    gap: 8px !important;
+    grid-template-columns: minmax(104px, auto) minmax(88px, 1fr) auto !important;
+    gap: 6px !important;
   }
 
   body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-menubar__identity > span:last-child small,
@@ -571,25 +581,21 @@ body.contentengine-desktop-v4[data-ce-v4-stable="true"] :is(
 
   body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-dock__glass {
     max-width: calc(100vw - 12px) !important;
-    min-height: 72px !important;
+    min-height: 62px !important;
     padding: 6px 8px 5px !important;
     border-radius: 18px !important;
     gap: 3px !important;
   }
 
   body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-dock__item {
-    width: 72px !important;
-    height: 61px !important;
-    flex-basis: 72px !important;
+    width: 50px !important;
+    height: 49px !important;
+    flex-basis: 50px !important;
   }
 
-  body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-dock__tile {
-    width: 36px !important;
-    height: 36px !important;
-  }
-
-  body.contentengine-desktop-v4[data-ce-v4-stable="true"] .ce-v4-dock__label {
-    font-size: var(--ce-v4-font-control) !important;
+  body.contentengine-desktop-v4[data-ce-v4-stable="true"] :is(.ce-v4-dock__tile, .ce-v4-dock-glyph) {
+    width: 44px !important;
+    height: 44px !important;
   }
 
   body.contentengine-desktop-v4[data-ce-v4-stable="true"] [data-ce-v4-contextbar="primary"] {

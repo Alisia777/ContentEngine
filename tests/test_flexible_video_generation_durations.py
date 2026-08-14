@@ -132,8 +132,8 @@ def test_portal_recalculates_price_confirmation_and_preflight_by_duration() -> N
         "generationPreflightKey(sku)",
     ):
         assert token in APP
-    assert "preflight.duration_seconds !== sku.durationSeconds" in APP
-    assert "preflight.duration_seconds !== payload.duration_seconds" in API
+    assert "expectedSelection: sku" in APP
+    assert "value.duration_seconds !== expected.duration_seconds" in API
 
 
 def test_edge_and_database_fail_closed_on_duration_price_drift() -> None:
@@ -144,9 +144,10 @@ def test_edge_and_database_fail_closed_on_duration_price_drift() -> None:
         "minimumDuration: 4",
         "maximumDuration: 15",
         "creditsPerSecond: 29",
-        "readRunwayGenerationSku(model, value.duration_seconds)",
+        "exactGenerationSku(",
+        "validateGenerationModelSelection(entry, selection, {",
         "duration_seconds: readiness.durationSeconds",
-        'generation-provider-readiness-receipt-v2',
+        'generation-provider-readiness-receipt-v3',
     ):
         assert token in EDGE
     for token in (
@@ -184,7 +185,33 @@ def test_duration_change_never_reuses_old_learning_or_provider_receipt() -> None
         "productCategory",
     ):
         assert token in learning_key
-    assert "`${sku.model}:${sku.durationSeconds}`" in APP
-    assert "counts.get(`${receipt.model}:${receipt.duration_seconds}`)" in (
+    selection_key = APP[
+        APP.index("function generationPreflightSelectionKey")
+        : APP.index("function generationPreflightKey")
+    ]
+    for token in (
+        "sku.provider",
+        "sku.model",
+        "Number(sku.durationSeconds",
+        "sku.format",
+        "sku.resolution",
+        "sku.audio === true",
+        "sku.lastFrame",
+    ):
+        assert token in selection_key
+    preflight_key = APP[
+        APP.index("function generationPreflightKey")
+        : APP.index("function captureGenerationRequestContext")
+    ]
+    for token in (
+        "generationPreflightSelectionKey(sku)",
+        "generationReadinessRequiresV4(sku)",
+        "sku.projectId",
+        "context.specId",
+        "context.specVersion",
+        "context.specHash",
+    ):
+        assert token in preflight_key
+    assert "counts.get(receiptScopeKey(receipt))" in (
         ROOT / "web/app/generation-provider-readiness.js"
     ).read_text(encoding="utf-8")

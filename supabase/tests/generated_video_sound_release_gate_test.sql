@@ -607,16 +607,24 @@ select ok(
   pg_get_functiondef(
     'content_factory_private.record_content_review_sound_assessment(uuid,uuid,uuid,uuid,jsonb,text,uuid)'
       ::regprocedure
-  ) like '%when ''seedance2_fast'' then true%'
+  ) like '%generation_runway_video_review_model_allowed%'
   and pg_get_functiondef(
     'content_factory_private.record_content_review_sound_assessment(uuid,uuid,uuid,uuid,jsonb,text,uuid)'
       ::regprocedure
-  ) like '%when ''gen4_turbo'' then false%'
+  ) like '%real_generation_sku_from_input%'
+  and pg_get_functiondef(
+    'content_factory_private.record_content_review_sound_assessment(uuid,uuid,uuid,uuid,jsonb,text,uuid)'
+      ::regprocedure
+  ) like '%generation_job_row.provider%'
+  and pg_get_functiondef(
+    'content_factory_private.record_content_review_sound_assessment(uuid,uuid,uuid,uuid,jsonb,text,uuid)'
+      ::regprocedure
+  ) like '%generation_job_row.input%'
   and pg_get_functiondef(
     'content_factory_private.record_content_review_sound_assessment(uuid,uuid,uuid,uuid,jsonb,text,uuid)'
       ::regprocedure
   ) like '%content_review_sound_audio_mismatch%',
-  'client audio is checked against immutable media and job model truth'
+  'client audio is checked against immutable job input and canonical SKU truth'
 );
 
 select ok(

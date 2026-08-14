@@ -21,6 +21,9 @@ API = (ROOT / "web/app/supabase-api.js").read_text(encoding="utf-8")
 EDGE = (ROOT / "supabase/functions/creator-generate/index.ts").read_text(
     encoding="utf-8"
 )
+PROVIDER_ADAPTER = (
+    ROOT / "supabase/functions/_shared/generation-provider-adapters.js"
+).read_text(encoding="utf-8")
 MIGRATION = (
     ROOT
     / "supabase/migrations/202608100014_generation_video_reference_lineage.sql"
@@ -398,16 +401,17 @@ def test_client_edge_and_archive_use_exact_context_without_provider_url() -> Non
     assert '"generation_reference_context"' in EDGE
     assert "readGenerationVideoReferenceContext" in EDGE
     provider_body = EDGE[
-        EDGE.index("const providerRequestBody =") : EDGE.index(
-            "const providerEndpoint ="
+        EDGE.index("function buildProviderRequest(") : EDGE.index(
+            "function readStatusJob("
         )
     ]
     assert "startPayload" not in provider_body
     assert "generation_reference" not in provider_body
     assert "canonical_url" not in provider_body
-    assert "promptText: startJob.promptText" in provider_body
+    assert "promptText: job.promptText" in provider_body
+    assert "promptText: exactPrompt(input, entry)" in PROVIDER_ADAPTER
     assert (
-        'from "./generation-video-reference.js?v=20260812.os4.38"'
+        'from "./generation-video-reference.js?v=20260813.os4.39"'
         in APP
     )
 

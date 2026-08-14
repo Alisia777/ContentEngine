@@ -94,8 +94,236 @@ function finiteNumber(...values) {
   return 0;
 }
 
+function optionalFiniteNumber(...values) {
+  for (const value of values) {
+    if (value === null || value === undefined || value === "") continue;
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function optionalBoolean(...values) {
+  for (const value of values) {
+    if (typeof value === "boolean") return value;
+  }
+  return null;
+}
+
 function safeText(value, maximumLength = 500) {
   return String(value ?? "").trim().slice(0, maximumLength);
+}
+
+function safeTextList(value, maximumItems = 12, maximumLength = 500) {
+  if (!Array.isArray(value)) return Object.freeze([]);
+  return Object.freeze(value
+    .map((item) => {
+      if (item && typeof item === "object" && !Array.isArray(item)) {
+        return safeText(
+          item.label ?? item.title ?? item.summary ?? item.text ?? item.conclusion,
+          maximumLength,
+        );
+      }
+      return safeText(item, maximumLength);
+    })
+    .filter(Boolean)
+    .slice(0, maximumItems));
+}
+
+function safeWorkspaceDeepLink(value) {
+  const candidate = safeText(value, 2_000);
+  return candidate.startsWith("#/workspace/") ? candidate : "";
+}
+
+function normalizedHistory(value) {
+  if (!Array.isArray(value)) return Object.freeze([]);
+  return Object.freeze(value
+    .map((entry) => {
+      if (typeof entry === "string") {
+        const label = safeText(entry, 300);
+        return label ? Object.freeze({ label, at: "" }) : null;
+      }
+      const record = asRecord(entry);
+      const label = safeText(
+        record.label ?? record.title ?? record.status_label ?? record.status ?? record.action,
+        300,
+      );
+      const at = safeText(
+        record.at ?? record.created_at ?? record.updated_at ?? record.reviewed_at ?? record.published_at,
+        80,
+      );
+      return label ? Object.freeze({ label, at }) : null;
+    })
+    .filter(Boolean)
+    .slice(0, 12));
+}
+
+function normalizedRelations(source) {
+  const result = [];
+  const seen = new Set();
+  const append = ({ type = "", id = "", label = "", status = "", deepLink = "" }) => {
+    const relationId = normalizedId(id);
+    const relationType = safeText(type, 60).toLowerCase();
+    const relationLabel = safeText(label, 180);
+    if (!relationId && !relationLabel) return;
+    const key = `${relationType}:${relationId}:${relationLabel}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push(Object.freeze({
+      type: relationType,
+      id: relationId,
+      label: relationLabel || relationId,
+      status: safeText(status, 80),
+      deepLink: safeWorkspaceDeepLink(deepLink),
+    }));
+  };
+  const explicit = Array.isArray(source.relations) ? source.relations : [];
+  explicit.slice(0, 12).forEach((value) => {
+    const relation = asRecord(value);
+    append({
+      type: relation.type ?? relation.entity_type ?? relation.kind,
+      id: relation.id ?? relation.entity_id,
+      label: relation.label ?? relation.title ?? relation.name,
+      status: relation.status,
+      deepLink: relation.deep_link ?? relation.deepLink,
+    });
+  });
+  const productId = normalizedId(source.product_id ?? source.productId);
+  if (productId) append({
+    type: "product",
+    id: productId,
+    label: safeText(source.product_name ?? source.productName ?? source.sku, 180) || "Товар",
+  });
+  const taskId = normalizedId(source.task_id ?? source.taskId);
+  if (taskId) append({ type: "task", id: taskId, label: "Задача" });
+  return Object.freeze(result);
+}
+
+function normalizeResearchQuickLook(source) {
+  const receipt = asRecord(source.ai_receipt ?? source.aiReceipt);
+  const disposition = asRecord(source.disposition);
+  const selection = asRecord(source.learning_selection ?? source.learningSelection);
+  const record = {
+    source: safeText(
+      source.research_source ?? source.researchSource ?? source.source_title ?? source.sourceTitle,
+      600,
+    ),
+    evidenceSummary: safeText(
+      source.evidence_summary ?? source.evidenceSummary,
+      2_000,
+    ),
+    selectedConclusions: safeTextList(
+      source.selected_conclusions ?? source.selectedConclusions,
+      12,
+      600,
+    ),
+    rejectedConclusions: safeTextList(
+      source.rejected_conclusions ?? source.rejectedConclusions,
+      12,
+      600,
+    ),
+    nextAction: safeText(source.next_action ?? source.nextAction, 600),
+    categoryBindingId: normalizedId(source.category_binding_id ?? source.categoryBindingId),
+    receipt: Object.freeze({
+      id: normalizedId(receipt.receipt_id ?? receipt.receiptId),
+      status: safeText(receipt.status, 80),
+      at: safeText(receipt.received_at ?? receipt.receivedAt, 80),
+    }),
+    disposition: Object.freeze({
+      id: normalizedId(disposition.disposition_id ?? disposition.dispositionId),
+      status: safeText(disposition.status ?? disposition.decision, 80),
+      at: safeText(disposition.decided_at ?? disposition.decidedAt, 80),
+    }),
+    selection: Object.freeze({
+      id: normalizedId(selection.selection_id ?? selection.selectionId),
+      status: safeText(selection.status ?? selection.decision, 80),
+      at: safeText(selection.selected_at ?? selection.selectedAt, 80),
+    }),
+  };
+  return Object.freeze(record);
+}
+
+function normalizeGenerationQuickLook(source) {
+  const parameters = asRecord(source.parameters);
+  const metadata = asRecord(source.metadata);
+  const snapshot = [
+    source.generation_selection_snapshot,
+    source.selection_snapshot,
+    parameters.generation_selection_snapshot,
+    parameters.selection_snapshot,
+    metadata.generation_selection_snapshot,
+    metadata.selection_snapshot,
+  ].map(asRecord).find((value) => Object.keys(value).length) || {};
+  const estimatedCostMinor = optionalFiniteNumber(
+    snapshot.estimated_cost_minor,
+    source.estimated_cost_minor,
+    parameters.estimated_cost_minor,
+  );
+  const actualCostMinor = optionalFiniteNumber(
+    source.actual_cost_minor,
+    parameters.actual_cost_minor,
+  );
+  const referenceCount = optionalFiniteNumber(
+    snapshot.reference_count,
+    source.reference_count,
+    parameters.reference_count,
+  );
+  const durationSeconds = optionalFiniteNumber(
+    snapshot.requested_duration_seconds,
+    source.duration_seconds,
+    parameters.duration_seconds,
+  );
+  const record = {
+    publicLabel: safeText(
+      snapshot.model_public_label
+        ?? source.model_public_label
+        ?? source.modelPublicLabel,
+      180,
+    ),
+    model: safeText(snapshot.model ?? source.model ?? parameters.model, 180),
+    provider: safeText(snapshot.provider ?? source.provider ?? parameters.provider, 80).toLowerCase(),
+    selectionSource: safeText(snapshot.selection_source ?? source.selection_source, 80).toLowerCase(),
+    qualityStatus: safeText(
+      snapshot.acceptance_status_at_launch ?? source.acceptance_status_at_launch,
+      80,
+    ).toLowerCase(),
+    estimatedCostMinor: estimatedCostMinor !== null && estimatedCostMinor >= 0
+      ? estimatedCostMinor
+      : null,
+    actualCostMinor: actualCostMinor !== null && actualCostMinor >= 0
+      ? actualCostMinor
+      : null,
+    currency: safeText(
+      snapshot.currency ?? source.currency ?? parameters.currency,
+      3,
+    ).toUpperCase(),
+    inputMode: safeText(snapshot.input_mode ?? source.input_mode ?? parameters.input_mode, 80).toLowerCase(),
+    referenceCount: referenceCount !== null && referenceCount >= 0
+      ? Math.trunc(referenceCount)
+      : null,
+    durationSeconds: durationSeconds !== null && durationSeconds >= 0
+      ? durationSeconds
+      : null,
+    audio: optionalBoolean(
+      snapshot.requested_audio,
+      source.audio,
+      parameters.audio,
+    ),
+    ratio: safeText(snapshot.requested_ratio ?? source.ratio ?? parameters.ratio, 40),
+    resolution: safeText(
+      snapshot.requested_resolution ?? source.resolution ?? parameters.resolution,
+      40,
+    ),
+    version: safeText(
+      source.content_version ?? source.version_label ?? source.generation_version,
+      100,
+    ),
+    reviewHistory: normalizedHistory(source.review_history ?? source.reviewHistory),
+    publicationHistory: normalizedHistory(
+      source.publication_history ?? source.publicationHistory,
+    ),
+  };
+  return Object.freeze(record);
 }
 
 function itemSources(source) {
@@ -220,11 +448,49 @@ function normalizeItem(item, index, fallbackType = "") {
     source.lifecycle_stage ?? source.lifecycleStage,
     40,
   ).toLowerCase();
-  const deepLinkCandidate = safeText(source.deep_link ?? source.deepLink, 2_000);
-  const deepLink = deepLinkCandidate.startsWith("#/workspace/") ? deepLinkCandidate : "";
+  const deepLink = safeWorkspaceDeepLink(source.deep_link ?? source.deepLink);
   const aiReceipt = asRecord(source.ai_receipt ?? source.aiReceipt);
-  const aiDeepLinkCandidate = safeText(aiReceipt.deep_link ?? aiReceipt.deepLink, 2_000);
-  const aiDeepLink = aiDeepLinkCandidate.startsWith("#/workspace/") ? aiDeepLinkCandidate : "";
+  const aiDeepLink = safeWorkspaceDeepLink(aiReceipt.deep_link ?? aiReceipt.deepLink);
+  const metadata = asRecord(source.metadata);
+  const durationSeconds = optionalFiniteNumber(
+    source.duration_seconds,
+    source.durationSeconds,
+    metadata.duration_seconds,
+    metadata.durationSeconds,
+  );
+  const width = optionalFiniteNumber(source.width, source.width_px, metadata.width, metadata.width_px);
+  const height = optionalFiniteNumber(source.height, source.height_px, metadata.height, metadata.height_px);
+  const explicitVersions = Array.isArray(source.versions) ? source.versions : null;
+  const versionCount = optionalFiniteNumber(
+    source.version_count,
+    source.versions_count,
+    source.versionCount,
+    explicitVersions?.length,
+  );
+  const sourceIdentity = [
+    source.source_identity,
+    source.sourceIdentity,
+    source.original_filename,
+    source.originalFilename,
+    source.object_key,
+    source.object_name,
+  ].map((value) => safeText(value, 500)).find(Boolean) || "";
+  const creatorId = normalizedId(
+    researchArtifact
+      ? source.created_by ?? source.createdBy
+      : source.owner_id ?? source.ownerId ?? source.created_by ?? source.createdBy,
+  );
+  const creatorName = safeText(
+    source.owner_display_name
+      ?? source.ownerDisplayName
+      ?? source.owner_name
+      ?? source.ownerName
+      ?? source.created_by_name
+      ?? source.createdByName
+      ?? source.creator_name
+      ?? source.creatorName,
+    180,
+  );
   return {
     key,
     id,
@@ -256,6 +522,30 @@ function normalizeItem(item, index, fallbackType = "") {
     aiReceiptId: normalizedId(aiReceipt.receipt_id ?? aiReceipt.receiptId),
     aiReceiptStatus: normalizedStatus(aiReceipt.status, ""),
     aiDeepLink,
+    creatorId,
+    creatorName,
+    projectId: normalizedId(source.project_id ?? source.projectId),
+    productId: normalizedId(source.product_id ?? source.productId),
+    productName: safeText(source.product_name ?? source.productName, 240),
+    sku: safeText(source.sku, 120),
+    wbArticle: safeText(source.wb_article ?? source.wbArticle, 120),
+    taskId: normalizedId(source.task_id ?? source.taskId),
+    originalFilename: safeText(
+      source.original_filename ?? source.originalFilename ?? metadata.original_filename,
+      300,
+    ),
+    objectName: safeText(source.object_key ?? source.object_name ?? source.objectName, 500),
+    sourceIdentity,
+    sha256: /^[0-9a-f]{64}$/iu.test(String(source.sha256 || "").trim())
+      ? String(source.sha256).trim().toLowerCase()
+      : "",
+    durationSeconds: durationSeconds !== null && durationSeconds >= 0 ? durationSeconds : null,
+    width: width !== null && width > 0 ? Math.trunc(width) : null,
+    height: height !== null && height > 0 ? Math.trunc(height) : null,
+    versionCount: versionCount !== null && versionCount > 0 ? Math.trunc(versionCount) : null,
+    relations: normalizedRelations(source),
+    researchQuickLook: normalizeResearchQuickLook(source),
+    generationQuickLook: normalizeGenerationQuickLook(source),
   };
 }
 
@@ -571,6 +861,30 @@ function filteredItems(board, folderId, query, entityType, provenanceFilter) {
   });
 }
 
+function compactObjectId(value) {
+  const normalized = safeText(value, ID_MAX_LENGTH);
+  if (!normalized) return "";
+  return normalized.length > 12
+    ? `${normalized.slice(0, 8)}…${normalized.slice(-4)}`
+    : normalized;
+}
+
+function itemCreatorAttribution(item, options) {
+  const creatorId = safeText(item?.creatorId, ID_MAX_LENGTH);
+  if (!creatorId) return null;
+  const viewerProfileId = safeText(options?.viewerProfileId, ID_MAX_LENGTH);
+  const viewerName = safeText(options?.viewerName, 180);
+  const ownArtifact = Boolean(viewerProfileId && creatorId === viewerProfileId);
+  const person = ownArtifact
+    ? viewerName ? `${viewerName} (вы)` : "Вы"
+    : item.creatorName || `Участник проекта · ${compactObjectId(creatorId)}`;
+  return {
+    label: item.entityType === "media" ? "Загрузил" : "Создал",
+    person,
+    creatorId,
+  };
+}
+
 function folderBreadcrumbs(board, selectedFolderId) {
   if (selectedFolderId === "all") return [{ id: "all", name: "Все файлы", projectId: "" }];
   if (selectedFolderId === "root") return [{ id: "root", name: "Без папки", projectId: "" }];
@@ -693,7 +1007,7 @@ function folderTreeMarkup(board, selectedFolderId, busy) {
                   ${busy ? "disabled" : ""}>
             <span class="workspace-board__folder-icon" aria-hidden="true">▦</span>
             <span>Все файлы</span>
-            <small>${boardLoadedCount(board, board.counts.files)}</small>
+            <small>${boardLoadedCount(board, board.counts.all)}</small>
           </button>
           <button class="workspace-board__context-trigger"
                   type="button"
@@ -888,6 +1202,129 @@ function filterMarkup(board, options, resultCount, busy) {
     </form>`;
 }
 
+function workspaceBoardOverviewMarkup(board, busy) {
+  const sourceFolder = board.folders.find((folder) => folder.systemRole === "sources") || null;
+  const workflowOrder = new Map([
+    ["drafts", 0],
+    ["review", 1],
+    ["ready", 2],
+    ["published", 3],
+  ]);
+  const workflowFolders = board.folders
+    .filter((folder) => workflowOrder.has(folder.systemRole))
+    .sort((left, right) => (
+      workflowOrder.get(left.systemRole) - workflowOrder.get(right.systemRole)
+      || String(left.id).localeCompare(String(right.id))
+    ));
+  const sourceCount = sourceFolder
+    ? board.counts[sourceFolder.id]
+    : board.items.filter((item) => (
+      item.entityType === "media" && item.artifactClass === "source"
+    )).length;
+  const researchCount = board.counts.research;
+  const generatedCount = board.items.filter((item) => (
+    item.entityType === "media" && item.artifactClass === "generated_output"
+  )).length;
+  const primaryCollections = [
+    {
+      key: "source",
+      icon: "↙",
+      eyebrow: "Входящие материалы",
+      title: "Источники",
+      copy: "Фото, видео и документы, которые загрузили люди и подключённые источники.",
+      count: boardLoadedCount(board, sourceCount, { authoritative: Boolean(sourceFolder) }),
+      action: sourceFolder ? "select-workspace-folder" : "select-workspace-provenance",
+      folderId: sourceFolder?.id || "all",
+      projectId: sourceFolder?.projectId || "",
+      provenance: sourceFolder ? "" : "source",
+    },
+    {
+      key: "research",
+      icon: "⌕",
+      eyebrow: "Read-only журнал",
+      title: "Исследования",
+      copy: "Отдельная проекция запусков и квитанций ИИ. Она не является папкой и не перемещается.",
+      count: boardLoadedCount(board, researchCount),
+      action: "select-workspace-provenance",
+      folderId: "all",
+      projectId: "",
+      provenance: "research",
+    },
+    {
+      key: "generated_output",
+      icon: "✦",
+      eyebrow: "Созданный контент",
+      title: "Результаты",
+      copy: "Изображения и видео, созданные в производственном цикле, независимо от текущего этапа.",
+      count: boardLoadedCount(board, generatedCount),
+      action: "select-workspace-provenance",
+      folderId: "all",
+      projectId: "",
+      provenance: "generated_output",
+    },
+  ];
+  return `
+    <section class="workspace-board__overview" aria-labelledby="workspace-board-overview-title">
+      <div class="workspace-board__overview-head">
+        <div>
+          <p>Обзор проекта</p>
+          <h2 id="workspace-board-overview-title">Файлы разделены по происхождению</h2>
+        </div>
+        <span>${boardLoadedCount(board, board.counts.all)} объектов доступно</span>
+      </div>
+      <div class="workspace-board__overview-grid">
+        ${primaryCollections.map((collection) => `
+          <button class="workspace-board__overview-card"
+                  type="button"
+                  data-action="${collection.action}"
+                  data-folder-id="${escapeHtml(collection.folderId)}"
+                  data-project-id="${escapeHtml(collection.projectId)}"
+                  ${collection.provenance
+                    ? `data-provenance-filter="${escapeHtml(collection.provenance)}"`
+                    : ""}
+                  data-overview-kind="${escapeHtml(collection.key)}"
+                  ${busy ? "disabled" : ""}>
+            <span class="workspace-board__overview-icon" aria-hidden="true">${collection.icon}</span>
+            <span class="workspace-board__overview-copy">
+              <small>${escapeHtml(collection.eyebrow)}</small>
+              <strong>${escapeHtml(collection.title)}</strong>
+              <span>${escapeHtml(collection.copy)}</span>
+            </span>
+            <span class="workspace-board__overview-count">${escapeHtml(collection.count)}</span>
+          </button>`).join("")}
+      </div>
+      ${workflowFolders.length ? `
+        <section class="workspace-board__workflow" aria-labelledby="workspace-board-workflow-title">
+          <div>
+            <p>Производственный путь</p>
+            <h3 id="workspace-board-workflow-title">Результаты по этапам</h3>
+          </div>
+          <div class="workspace-board__workflow-folders">
+            ${workflowFolders.map((folder) => `
+              <button type="button"
+                      data-action="select-workspace-folder"
+                      data-folder-id="${escapeHtml(folder.id)}"
+                      data-project-id="${escapeHtml(folder.projectId || "")}"
+                      data-system-role="${escapeHtml(folder.systemRole)}"
+                      ${busy ? "disabled" : ""}>
+                <span>${escapeHtml(folderDisplayName(folder))}</span>
+                <strong>${boardLoadedCount(board, board.counts[folder.id], { authoritative: true })}</strong>
+              </button>`).join("")}
+          </div>
+        </section>` : ""}
+      <div class="workspace-board__overview-all">
+        <div>
+          <strong>Нужен единый список?</strong>
+          <span>Смешанный режим остаётся доступен, но открывается только по явному выбору.</span>
+        </div>
+        <button type="button"
+                data-action="select-workspace-folder"
+                data-folder-id="all"
+                ${busy ? "disabled" : ""}>Показать все объекты · ${boardLoadedCount(board, board.counts.all)}</button>
+      </div>
+    </section>`;
+}
+
 function itemPreviewMarkup(item, detailed = false) {
   const previewUrl = safePreviewUrl(item.previewUrl);
   if (previewUrl && item.mimeType.startsWith("image/")) {
@@ -900,6 +1337,243 @@ function itemPreviewMarkup(item, detailed = false) {
     return `<span class="workspace-board__preview-symbol" aria-hidden="true">▶</span>`;
   }
   return `<span class="workspace-board__preview-symbol" aria-hidden="true">${escapeHtml(ENTITY_ICONS[item.entityType] || "◇")}</span>`;
+}
+
+function formatQuickLookDuration(value) {
+  if (value === null || value === undefined || value === "") return "";
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds < 0) return "";
+  const rounded = Math.round(seconds * 10) / 10;
+  if (rounded < 60) return `${rounded.toLocaleString("ru-RU")} сек.`;
+  const minutes = Math.floor(rounded / 60);
+  const remainder = Math.round((rounded - minutes * 60) * 10) / 10;
+  return remainder
+    ? `${minutes} мин. ${remainder.toLocaleString("ru-RU")} сек.`
+    : `${minutes} мин.`;
+}
+
+function formatQuickLookCost(minor, currency) {
+  if (minor === null || minor === undefined || minor === "") return "";
+  const amount = Number(minor);
+  if (!Number.isFinite(amount)) return "";
+  const normalizedCurrency = safeText(currency, 3).toUpperCase();
+  if (/^[A-Z]{3}$/u.test(normalizedCurrency)) {
+    try {
+      return new Intl.NumberFormat("ru-RU", {
+        style: "currency",
+        currency: normalizedCurrency,
+        minimumFractionDigits: 2,
+      }).format(amount / 100);
+    } catch {
+      // Preserve the exact minor-unit record when a browser does not know the currency code.
+    }
+  }
+  return `${Math.round(amount).toLocaleString("ru-RU")} мин. ед.`;
+}
+
+function quickLookFactMarkup(label, value, { code = false } = {}) {
+  const normalized = safeText(value, 1_000);
+  if (!normalized) return "";
+  return `<div><dt>${escapeHtml(label)}</dt><dd>${code
+    ? `<code>${escapeHtml(normalized)}</code>`
+    : escapeHtml(normalized)}</dd></div>`;
+}
+
+function quickLookListMarkup(title, items, tone = "") {
+  if (!items?.length) return "";
+  return `
+    <section class="workspace-board__quicklook-list ${tone ? `is-${escapeHtml(tone)}` : ""}">
+      <h4>${escapeHtml(title)}</h4>
+      <ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+    </section>`;
+}
+
+function quickLookHistoryMarkup(title, items) {
+  if (!items?.length) return "";
+  return `
+    <section class="workspace-board__quicklook-history">
+      <h4>${escapeHtml(title)}</h4>
+      <ol>${items.map((item) => `
+        <li>
+          <span>${escapeHtml(item.label)}</span>
+          ${formatDate(item.at) ? `<time datetime="${escapeHtml(item.at)}">${escapeHtml(formatDate(item.at))}</time>` : ""}
+        </li>`).join("")}</ol>
+    </section>`;
+}
+
+function quickLookRelationsMarkup(relations) {
+  if (!relations?.length) return "";
+  return `
+    <section class="workspace-board__quicklook-relations" aria-labelledby="workspace-board-quicklook-relations-title">
+      <h4 id="workspace-board-quicklook-relations-title">Связи</h4>
+      <ul>${relations.map((relation) => `
+        <li>
+          ${relation.deepLink
+            ? `<a href="${escapeHtml(relation.deepLink)}">${escapeHtml(relation.label)}</a>`
+            : `<span>${escapeHtml(relation.label)}</span>`}
+          ${relation.status ? `<small>${escapeHtml(relation.status)}</small>` : ""}
+          ${relation.id ? `<code>${escapeHtml(compactObjectId(relation.id))}</code>` : ""}
+        </li>`).join("")}</ul>
+    </section>`;
+}
+
+function quickLookProviderLabel(value) {
+  const provider = safeText(value, 80).toLowerCase();
+  const labels = {
+    runway: "Runway",
+    google: "Google",
+    bytedance: "ByteDance",
+    openai: "OpenAI",
+  };
+  return labels[provider] || provider;
+}
+
+function researchAuditStatusLabel(value) {
+  const status = safeText(value, 80).toLowerCase();
+  const labels = {
+    accepted: "Принято",
+    accepted_with_edits: "Принято с правками",
+    rejected: "Отклонено",
+    learned: "Учтено",
+    selected: "Выбрано",
+    excluded: "Исключено",
+    pending: "Ожидает решения",
+    ready: "Готово",
+  };
+  return labels[status] || status;
+}
+
+function generatedQuickLookMarkup(item) {
+  const record = item.generationQuickLook;
+  const inputLabels = { text: "Текст", image: "Изображение", video: "Видео" };
+  const selectionLabels = {
+    system_recommendation: "Рекомендация системы",
+    research_recommendation: "Рекомендация исследования",
+    performance_recommendation: "Рекомендация по результатам",
+    manual_choice: "Ручной выбор человека",
+    alternative_after_block: "Альтернатива после блокировки",
+  };
+  const qualityLabels = {
+    accepted: "Проверено",
+    needs_revalidation: "Нужна перепроверка",
+    unproven: "Экспериментально",
+  };
+  const recorded = Boolean(
+    record.publicLabel
+    || record.model
+    || record.provider
+    || record.estimatedCostMinor !== null
+    || record.actualCostMinor !== null
+    || record.inputMode
+    || record.version
+    || record.reviewHistory.length
+    || record.publicationHistory.length
+  );
+  const inputValue = record.inputMode
+    ? `${inputLabels[record.inputMode] || record.inputMode}${record.referenceCount !== null
+      ? ` · референсов: ${Math.max(0, Math.trunc(record.referenceCount))}`
+      : ""}`
+    : "";
+  return `
+    <section class="workspace-board__quicklook-section" data-quicklook-section="generated" aria-labelledby="workspace-board-quicklook-generated-title">
+      <div class="workspace-board__quicklook-section-head">
+        <p>Запись запуска</p>
+        <h3 id="workspace-board-quicklook-generated-title">Созданный объект</h3>
+      </div>
+      ${recorded ? `
+        <dl class="workspace-board__quicklook-facts">
+          ${quickLookFactMarkup("Модель", record.publicLabel || record.model)}
+          ${record.publicLabel && record.model ? quickLookFactMarkup("Код модели", record.model, { code: true }) : ""}
+          ${quickLookFactMarkup("Провайдер", quickLookProviderLabel(record.provider))}
+          ${quickLookFactMarkup("Источник выбора", selectionLabels[record.selectionSource] || record.selectionSource)}
+          ${quickLookFactMarkup("Статус качества", qualityLabels[record.qualityStatus] || record.qualityStatus)}
+          ${quickLookFactMarkup("Вход", inputValue)}
+          ${quickLookFactMarkup("Длительность", formatQuickLookDuration(record.durationSeconds))}
+          ${quickLookFactMarkup("Формат", [record.ratio, record.resolution].filter(Boolean).join(" · "))}
+          ${record.audio !== null ? quickLookFactMarkup("Звук", record.audio ? "Со звуком или речью" : "Без звука") : ""}
+          ${quickLookFactMarkup("Версия", record.version)}
+          ${quickLookFactMarkup("Оценка стоимости", formatQuickLookCost(record.estimatedCostMinor, record.currency))}
+          ${quickLookFactMarkup("Фактическая стоимость", formatQuickLookCost(record.actualCostMinor, record.currency))}
+        </dl>` : `
+        <p class="workspace-board__quicklook-unavailable">Модель, стоимость и входы не переданы в проекцию «Файлы». Quick Look не подставляет текущую модель вместо исторической записи.</p>`}
+      ${quickLookHistoryMarkup("История проверки", record.reviewHistory)}
+      ${quickLookHistoryMarkup("История публикации", record.publicationHistory)}
+      ${quickLookRelationsMarkup(item.relations)}
+    </section>`;
+}
+
+function researchQuickLookMarkup(item) {
+  const record = item.researchQuickLook;
+  const auditFacts = [
+    record.categoryBindingId
+      ? quickLookFactMarkup("Привязка категории", record.categoryBindingId, { code: true })
+      : "",
+    record.receipt.id
+      ? quickLookFactMarkup("Квитанция ИИ", `${researchAuditStatusLabel(record.receipt.status) || "Зафиксирована"} · ${compactObjectId(record.receipt.id)}`)
+      : "",
+    record.disposition.id
+      ? quickLookFactMarkup("Решение человека", `${researchAuditStatusLabel(record.disposition.status) || "Зафиксировано"} · ${compactObjectId(record.disposition.id)}`)
+      : "",
+    record.selection.id
+      ? quickLookFactMarkup("Выбор для обучения", `${researchAuditStatusLabel(record.selection.status) || "Зафиксирован"} · ${compactObjectId(record.selection.id)}`)
+      : "",
+  ].filter(Boolean);
+  const hasResearchContent = Boolean(
+    record.source
+    || record.evidenceSummary
+    || record.selectedConclusions.length
+    || record.rejectedConclusions.length
+    || record.nextAction
+  );
+  return `
+    <section class="workspace-board__quicklook-section" data-quicklook-section="research" aria-labelledby="workspace-board-quicklook-research-title">
+      <div class="workspace-board__quicklook-section-head">
+        <p>Read-only запись</p>
+        <h3 id="workspace-board-quicklook-research-title">Исследование</h3>
+      </div>
+      ${hasResearchContent ? `
+        <dl class="workspace-board__quicklook-facts">
+          ${quickLookFactMarkup("Источник", record.source)}
+          ${quickLookFactMarkup("Сводка доказательств", record.evidenceSummary)}
+          ${quickLookFactMarkup("Следующее действие", record.nextAction)}
+        </dl>
+        ${quickLookListMarkup("Принятые выводы", record.selectedConclusions, "accepted")}
+        ${quickLookListMarkup("Отклонённые выводы", record.rejectedConclusions, "rejected")}` : `
+        <p class="workspace-board__quicklook-unavailable">Доказательства и выводы не входят в безопасную проекцию «Файлы». Откройте точную запись исследования; Quick Look не пересказывает её по косвенным данным.</p>`}
+      ${auditFacts.length ? `<dl class="workspace-board__quicklook-facts workspace-board__quicklook-facts--audit">${auditFacts.join("")}</dl>` : ""}
+    </section>`;
+}
+
+function sourceMediaQuickLookMarkup(item) {
+  const isVideo = item.mimeType.startsWith("video/");
+  const isImage = item.mimeType.startsWith("image/");
+  if (!isVideo && !isImage) return quickLookRelationsMarkup(item.relations);
+  const dimensions = item.width && item.height ? `${item.width} × ${item.height} px` : "";
+  return `
+    <section class="workspace-board__quicklook-section" data-quicklook-section="${isVideo ? "video" : "image"}" aria-labelledby="workspace-board-quicklook-media-title">
+      <div class="workspace-board__quicklook-section-head">
+        <p>${isVideo ? "Видео" : "Изображение"}</p>
+        <h3 id="workspace-board-quicklook-media-title">Точная запись файла</h3>
+      </div>
+      <dl class="workspace-board__quicklook-facts">
+        ${quickLookFactMarkup("Источник", item.sourceIdentity || item.originalFilename)}
+        ${isVideo ? quickLookFactMarkup("Длительность", formatQuickLookDuration(item.durationSeconds)) : ""}
+        ${quickLookFactMarkup("Размер кадра", dimensions)}
+        ${item.versionCount !== null ? quickLookFactMarkup("Версий", String(item.versionCount)) : ""}
+        ${quickLookFactMarkup("Товар", item.productName)}
+        ${quickLookFactMarkup("SKU", item.sku)}
+        ${quickLookFactMarkup("Артикул WB", item.wbArticle)}
+      </dl>
+      ${quickLookRelationsMarkup(item.relations)}
+    </section>`;
+}
+
+function itemQuickLookMetadataMarkup(item) {
+  if (item.entityType === "research") return researchQuickLookMarkup(item);
+  if (item.entityType === "generation" || item.artifactClass === "generated_output") {
+    return generatedQuickLookMarkup(item);
+  }
+  return sourceMediaQuickLookMarkup(item);
 }
 
 function itemCardMarkup(item, selectedItemKey, busy) {
@@ -978,7 +1652,7 @@ function itemCardMarkup(item, selectedItemKey, busy) {
     </article>`;
 }
 
-function itemDrawerMarkup(board, selectedItem, busy) {
+function itemDrawerMarkup(board, selectedItem, busy, options) {
   if (!selectedItem) {
     return `
       <aside id="workspace-board-item-drawer"
@@ -1002,10 +1676,11 @@ function itemDrawerMarkup(board, selectedItem, busy) {
   ].filter((folder) => folder.id !== (selectedItem.folderId || "root"));
   const formattedSize = formatBytes(selectedItem.sizeBytes);
   const formattedDate = formatDate(selectedItem.createdAt);
+  const creator = itemCreatorAttribution(selectedItem, options);
   const researchLinks = selectedItem.entityType === "research"
     ? [
       selectedItem.deepLink ? { href: selectedItem.deepLink, label: "Открыть исследование" } : null,
-      selectedItem.aiDeepLink ? { href: selectedItem.aiDeepLink, label: "Открыть свою квитанцию в ИИ-центре" } : null,
+      selectedItem.aiDeepLink ? { href: selectedItem.aiDeepLink, label: "Открыть квитанцию в ИИ-центре" } : null,
     ].filter(Boolean)
     : [];
   return `
@@ -1013,7 +1688,9 @@ function itemDrawerMarkup(board, selectedItem, busy) {
            class="workspace-board__drawer"
            aria-labelledby="workspace-board-drawer-title"
            data-workspace-item-drawer
-           data-item-key="${escapeHtml(selectedItem.key)}">
+           data-item-key="${escapeHtml(selectedItem.key)}"
+           data-entity-type="${escapeHtml(selectedItem.entityType)}"
+           data-artifact-class="${escapeHtml(selectedItem.artifactClass)}">
       <div class="workspace-board__drawer-head">
         <div>
           <p>${escapeHtml(humanEntityType(selectedItem.entityType))}</p>
@@ -1026,15 +1703,18 @@ function itemDrawerMarkup(board, selectedItem, busy) {
       </div>
       <div class="workspace-board__drawer-preview">${itemPreviewMarkup(selectedItem, true)}</div>
       ${selectedItem.description ? `<p class="workspace-board__drawer-description">${escapeHtml(selectedItem.description)}</p>` : ""}
+      <div class="workspace-board__quicklook-sections">
+        ${itemQuickLookMetadataMarkup(selectedItem)}
+      </div>
       ${selectedItem.entityType === "media" && ["product_photo", "packshot"].includes(selectedItem.kind) ? `
-        <div class="workspace-board__drawer-actions">
+        <div class="workspace-board__drawer-actions" aria-label="Доступные действия">
           <button class="btn" type="button"
                   data-action="create-from-workspace-media"
                   data-entity-id="${escapeHtml(selectedItem.id)}"
                   ${busy ? "disabled" : ""}>Создать из этого файла</button>
         </div>` : ""}
       ${researchLinks.length ? `
-        <div class="workspace-board__research-links">
+        <div class="workspace-board__research-links" aria-label="Доступные действия">
           ${researchLinks.map((link) => `<a class="btn btn-secondary" href="${escapeHtml(link.href)}">${escapeHtml(link.label)}</a>`).join("")}
         </div>` : ""}
       <dl class="workspace-board__drawer-facts">
@@ -1049,10 +1729,21 @@ function itemDrawerMarkup(board, selectedItem, busy) {
         ${selectedItem.lifecycleStage ? `<div><dt>Этап</dt><dd><span class="workspace-board__lifecycle-badge"
           data-lifecycle-stage="${escapeHtml(selectedItem.lifecycleStage)}">${escapeHtml(lifecycleStageLabel(selectedItem.lifecycleStage))}</span></dd></div>` : ""}
         ${selectedItem.kind ? `<div><dt>Тип</dt><dd>${escapeHtml(selectedItem.kind)}</dd></div>` : ""}
+        ${creator ? `<div><dt>${escapeHtml(creator.label)}</dt><dd>
+          <span title="ID ${escapeHtml(creator.creatorId)}">${escapeHtml(creator.person)}</span>
+        </dd></div>` : ""}
         ${formattedSize ? `<div><dt>Размер</dt><dd>${escapeHtml(formattedSize)}</dd></div>` : ""}
         ${formattedDate ? `<div><dt>Добавлено</dt><dd>${escapeHtml(formattedDate)}</dd></div>` : ""}
         <div><dt>ID</dt><dd><code>${escapeHtml(selectedItem.id)}</code></dd></div>
       </dl>
+      ${selectedItem.objectName || selectedItem.sha256 ? `
+        <details class="workspace-board__quicklook-technical">
+          <summary>Техническая идентичность</summary>
+          <dl>
+            ${quickLookFactMarkup("Объект", selectedItem.objectName, { code: true })}
+            ${quickLookFactMarkup("SHA-256", selectedItem.sha256, { code: true })}
+          </dl>
+        </details>` : ""}
       ${selectedItem.movable ? `
         <section class="workspace-board__move-panel" aria-labelledby="workspace-board-move-title">
           <h3 id="workspace-board-move-title">Переместить в папку</h3>
@@ -1088,6 +1779,9 @@ export function workspaceBoardMarkup(board, options = {}) {
     error: safeText(options.error, 1_000),
     pendingArchiveFolderId: safeText(options.pendingArchiveFolderId, ID_MAX_LENGTH),
     visibleItemLimit: Math.min(300, Math.max(1, Number(options.visibleItemLimit) || 80)),
+    landingOverview: options.landingOverview === true,
+    viewerProfileId: normalizedId(options.viewerProfileId),
+    viewerName: safeText(options.viewerName, 180),
   };
   if (options.entityType === "all") normalizedOptions.entityType = "all";
   if (
@@ -1103,6 +1797,14 @@ export function workspaceBoardMarkup(board, options = {}) {
   );
   const visibleItems = items.slice(0, normalizedOptions.visibleItemLimit);
   const selectedItem = workspaceBoardItemByKey(normalizedBoard, normalizedOptions.selectedItemKey);
+  const showLandingOverview = Boolean(
+    normalizedOptions.landingOverview
+    && normalizedOptions.selectedFolderId === "all"
+    && !normalizedOptions.selectedItemKey
+    && !normalizedOptions.query
+    && normalizedOptions.entityType === "all"
+    && normalizedOptions.provenanceFilter === "all"
+  );
   const selectedFolderName = normalizedOptions.selectedFolderId === "all"
     ? "Все файлы"
     : normalizedOptions.selectedFolderId === "root"
@@ -1144,7 +1846,11 @@ export function workspaceBoardMarkup(board, options = {}) {
             <p>Проекты и папки</p>
             <small>Корневая папка — отдельный проект</small>
           </div>
-          ${folderTreeMarkup(normalizedBoard, normalizedOptions.selectedFolderId, normalizedOptions.busy)}
+          ${folderTreeMarkup(
+            normalizedBoard,
+            showLandingOverview ? "" : normalizedOptions.selectedFolderId,
+            normalizedOptions.busy,
+          )}
           ${folderManagementMarkup(
             normalizedBoard,
             normalizedOptions.selectedFolderId,
@@ -1153,47 +1859,50 @@ export function workspaceBoardMarkup(board, options = {}) {
           )}
         </aside>
         <section class="workspace-board__content" aria-labelledby="workspace-board-collection-title">
-          ${folderBreadcrumbMarkup(normalizedBoard, normalizedOptions.selectedFolderId, normalizedOptions.busy)}
-          ${filterMarkup(normalizedBoard, normalizedOptions, items.length, normalizedOptions.busy)}
-          <div class="workspace-board__collection-head">
-            <div>
-              <p>Открытая папка</p>
-              <h2 id="workspace-board-collection-title">${escapeHtml(selectedFolderName)}</h2>
-            </div>
-            <div class="workspace-board__collection-meta">
-              <small>${visibleItems.length}${visibleItems.length < items.length ? ` из ${items.length}` : ""} на экране</small>
-              <span class="workspace-board__context-hint">ПКМ или ⋯ — быстрые действия</span>
-            </div>
-          </div>
-          ${items.length ? `
-            <div class="workspace-board__grid"
-                 role="listbox"
-                 aria-label="Объекты папки"
-                 aria-multiselectable="true">
-              ${visibleItems.map((item) => itemCardMarkup(
-                item,
-                normalizedOptions.selectedItemKey,
-                normalizedOptions.busy,
-              )).join("")}
-            </div>
-            ${visibleItems.length < items.length ? `
-              <div class="workspace-board-pagination">
-                <button class="btn btn-secondary" type="button" data-action="show-more-workspace-items">
-                  Показать следующие ${Math.min(80, items.length - visibleItems.length)}
-                </button>
-                <span class="muted tiny">Число карточек на экране ограничено, чтобы браузер не зависал.</span>
-              </div>` : ""}` : `
-            <div class="workspace-board__empty">
-              <span aria-hidden="true">◇</span>
-              <h3>Здесь пока пусто</h3>
-              <p>${normalizedOptions.query || normalizedOptions.entityType !== "all" || normalizedOptions.provenanceFilter !== "all"
-                ? "Сбросьте фильтры или выберите другую папку."
-                : "Добавьте объект или переместите его сюда из другой папки."}</p>
-              ${normalizedOptions.query || normalizedOptions.entityType !== "all" || normalizedOptions.provenanceFilter !== "all" ? `
-                <button type="button" data-action="reset-workspace-filters">Сбросить фильтры</button>` : ""}
-            </div>`}
+          ${showLandingOverview
+            ? workspaceBoardOverviewMarkup(normalizedBoard, normalizedOptions.busy)
+            : `
+              ${folderBreadcrumbMarkup(normalizedBoard, normalizedOptions.selectedFolderId, normalizedOptions.busy)}
+              ${filterMarkup(normalizedBoard, normalizedOptions, items.length, normalizedOptions.busy)}
+              <div class="workspace-board__collection-head">
+                <div>
+                  <p>Открытая папка</p>
+                  <h2 id="workspace-board-collection-title">${escapeHtml(selectedFolderName)}</h2>
+                </div>
+                <div class="workspace-board__collection-meta">
+                  <small>${visibleItems.length}${visibleItems.length < items.length ? ` из ${items.length}` : ""} на экране</small>
+                  <span class="workspace-board__context-hint">ПКМ или ⋯ — быстрые действия</span>
+                </div>
+              </div>
+              ${items.length ? `
+                <div class="workspace-board__grid"
+                     role="listbox"
+                     aria-label="Объекты папки"
+                     aria-multiselectable="true">
+                  ${visibleItems.map((item) => itemCardMarkup(
+                    item,
+                    normalizedOptions.selectedItemKey,
+                    normalizedOptions.busy,
+                  )).join("")}
+                </div>
+                ${visibleItems.length < items.length ? `
+                  <div class="workspace-board-pagination">
+                    <button class="btn btn-secondary" type="button" data-action="show-more-workspace-items">
+                      Показать следующие ${Math.min(80, items.length - visibleItems.length)}
+                    </button>
+                    <span class="muted tiny">Число карточек на экране ограничено, чтобы браузер не зависал.</span>
+                  </div>` : ""}` : `
+                <div class="workspace-board__empty">
+                  <span aria-hidden="true">◇</span>
+                  <h3>Здесь пока пусто</h3>
+                  <p>${normalizedOptions.query || normalizedOptions.entityType !== "all" || normalizedOptions.provenanceFilter !== "all"
+                    ? "Сбросьте фильтры или выберите другую папку."
+                    : "Добавьте объект или переместите его сюда из другой папки."}</p>
+                  ${normalizedOptions.query || normalizedOptions.entityType !== "all" || normalizedOptions.provenanceFilter !== "all" ? `
+                    <button type="button" data-action="reset-workspace-filters">Сбросить фильтры</button>` : ""}
+                </div>`}`}
         </section>
-        ${itemDrawerMarkup(normalizedBoard, selectedItem, normalizedOptions.busy)}
+        ${itemDrawerMarkup(normalizedBoard, selectedItem, normalizedOptions.busy, normalizedOptions)}
       </div>
     </section>`;
 }

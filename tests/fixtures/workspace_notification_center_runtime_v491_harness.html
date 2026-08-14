@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="ru" data-ce-v4-notification-runtime-harness="true">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Notification Center production bridge v4.9.1</title>
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4.css?v=fixture-notification-runtime-v491-1" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-context-trash.css?v=fixture-notification-runtime-v491-1" />
+    <style>
+      html, body { margin: 0; min-height: 100%; font-family: Inter, system-ui, sans-serif; }
+      .runtime-fixture { display: grid; align-content: start; gap: 12px; color: #e6ebf0; }
+      .runtime-fixture h1 { margin: 0; max-width: 18ch; font-size: clamp(28px, 5vw, 50px); }
+      .runtime-fixture p { margin: 0; max-width: 62ch; color: #8794a2; line-height: 1.55; }
+      /* Browser QA exercises the same one-panel owner at 320, 390 and 1280px. */
+    </style>
+  </head>
+  <body>
+    <div id="app" class="app-root">
+      <div
+        class="workspace-shell workspace-shell-v4"
+        data-workspace-section="ai"
+        data-workspace-role="operator"
+        data-workspace-authorized-routes="/workspace/home /workspace/board /workspace/generation /workspace/review /workspace/placement /workspace/stats /workspace/research /workspace/ai /workspace/tasks /workspace/work"
+        data-project-id="11111111-1111-4111-8111-111111111111"
+        data-project-name="Bombbar · Август"
+      >
+        <main class="workspace-main">
+          <div id="main-content">
+            <div id="workspace-content">
+              <section class="page-wrap runtime-fixture">
+                <h1>Production bridge, один panel owner</h1>
+                <p>Harness имитирует только ответы существующего app transport bridge. Сам shell не получает URL, права или серверную мутацию.</p>
+              </section>
+            </div>
+          </div>
+        </main>
+        <script id="workspace-project-flow-snapshot" type="application/json">
+          {
+            "project_id": "11111111-1111-4111-8111-111111111111",
+            "project": { "id": "11111111-1111-4111-8111-111111111111", "name": "Bombbar · Август" },
+            "counts": { "notifications_unread": 0 }
+          }
+        </script>
+      </div>
+    </div>
+    <div id="toast-region" aria-live="polite"></div>
+    <script>
+      (() => {
+        const REQUEST = "contentengine:notification-center-request-v491";
+        const RESPONSE = "contentengine:notification-center-response-v491";
+        const VERSION = "4.9.1";
+        const organizationId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+        const userId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+        const projectId = "11111111-1111-4111-8111-111111111111";
+        const read = new Set();
+        const events = [
+          {
+            notification_id: "cccccccc-cccc-4ccc-8ccc-ccccccccccc1",
+            organization_id: organizationId,
+            recipient_user_id: userId,
+            recipient_role_ids: ["operator"],
+            contract_version: 491,
+            type: "action_required",
+            severity: "warning",
+            source_section: "ai",
+            title: "Нужно решение по рекомендации",
+            body: "ИИ предложил вариант; решение остаётся за человеком.",
+            created_at: "2026-08-13T12:00:00.000Z",
+            expires_at: "2026-08-20T12:00:00.000Z",
+            requires_action: true,
+            project_id: projectId,
+            action_key: "ai.open-decisions",
+            dedupe_key: "notification:ai:decision:1",
+            dedupe_version: 1,
+            read_state_version: 491,
+          },
+          {
+            notification_id: "cccccccc-cccc-4ccc-8ccc-ccccccccccc2",
+            organization_id: organizationId,
+            recipient_user_id: userId,
+            recipient_role_ids: ["operator"],
+            contract_version: 491,
+            type: "warning",
+            severity: "warning",
+            source_section: "review",
+            title: "Объект изменился",
+            body: "Сервер отклонит устаревшую цель и не отметит строку прочитанной.",
+            created_at: "2026-08-13T11:50:00.000Z",
+            expires_at: "2026-08-20T12:00:00.000Z",
+            requires_action: true,
+            project_id: projectId,
+            object_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+            action_key: "review.open-object",
+            dedupe_key: "notification:review:stale:1",
+            dedupe_version: 1,
+            read_state_version: 491,
+          },
+          {
+            notification_id: "cccccccc-cccc-4ccc-8ccc-ccccccccccc3",
+            organization_id: organizationId,
+            recipient_user_id: userId,
+            recipient_role_ids: ["operator"],
+            contract_version: 491,
+            type: "system_info",
+            severity: "neutral",
+            source_section: "system",
+            title: "Система готова",
+            body: "Информационное событие можно отметить прочитанным явно.",
+            created_at: "2026-08-13T11:40:00.000Z",
+            expires_at: "2026-08-20T12:00:00.000Z",
+            requires_action: false,
+            dedupe_key: "notification:system:ready:1",
+            dedupe_version: 1,
+            read_state_version: 491,
+          },
+        ];
+        window.fixtureNotificationRequests = [];
+
+        function matchesFilter(item, filter) {
+          if (filter === "unread") return !read.has(item.notification_id);
+          if (filter === "action_required") return item.requires_action === true && !item.resolved_at;
+          return true;
+        }
+
+        function projection(filter) {
+          const items = events
+            .filter((item) => matchesFilter(item, filter))
+            .map((item) => ({
+              ...item,
+              ...(read.has(item.notification_id)
+                ? { read_at: "2026-08-13T12:30:00.000Z" }
+                : {}),
+            }));
+          return {
+            organization_id: organizationId,
+            recipient_user_id: userId,
+            active_role_ids: ["operator"],
+            filter,
+            counts: {
+              all: events.length,
+              unread: events.filter((item) => !read.has(item.notification_id)).length,
+              action_required: events.filter((item) => item.requires_action).length,
+              mentions: 0,
+              processes: 0,
+              system: 1,
+            },
+            items,
+            next_cursor: null,
+            _meta: {
+              contract_version: "4.9.1",
+              read_state_version: "contentengine-notification-read-v4.9.1",
+              page_size: 100,
+              cap: 100,
+            },
+          };
+        }
+
+        function respond(request, payload) {
+          document.dispatchEvent(new CustomEvent(RESPONSE, {
+            detail: {
+              version: VERSION,
+              requestId: request.requestId,
+              kind: request.kind,
+              filter: request.filter,
+              notificationIds: [],
+              projection: null,
+              ...payload,
+            },
+          }));
+        }
+
+        document.addEventListener(REQUEST, (event) => {
+          const request = event.detail;
+          window.fixtureNotificationRequests.push(JSON.parse(JSON.stringify(request)));
+          window.setTimeout(() => {
+            if (request.kind === "refresh") {
+              respond(request, { ok: true, projection: projection(request.filter) });
+              return;
+            }
+            if (request.kind === "mark_read") {
+              request.notificationIds.forEach((id) => read.add(id));
+              respond(request, {
+                ok: true,
+                notificationIds: [...request.notificationIds],
+                projection: projection(request.filter),
+              });
+              return;
+            }
+            if (request.notification.notificationId.endsWith("2")) {
+              respond(request, { ok: false, reason: "stale_target" });
+              return;
+            }
+            read.add(request.notification.notificationId);
+            window.location.hash = `#/workspace/ai?view=decisions&project_id=${projectId}`;
+            respond(request, {
+              ok: true,
+              notificationIds: [request.notification.notificationId],
+              projection: projection(request.filter),
+            });
+          }, 12);
+        });
+      })();
+    </script>
+    <script type="module" src="../../web/app/workspace-os-v4.js?v=fixture-notification-runtime-v491-1"></script>
+    <script type="module">
+      await window.ContentEngineDesktopV4?.flush?.();
+      document.body.dataset.fixtureNotificationReady = "true";
+    </script>
+  </body>
+</html>

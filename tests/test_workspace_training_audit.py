@@ -16,6 +16,9 @@ TRAINING_VIEW = (ROOT / "web/app/training-interactive.js").read_text(encoding="u
 TRAINING_STYLES = (ROOT / "web/app/training-interactive.css").read_text(
     encoding="utf-8"
 )
+FILES_OVERVIEW_GEOMETRY_TEST = (
+    ROOT / "tests/test_workspace_files_overview_geometry_v48.py"
+).read_text(encoding="utf-8")
 WORKSPACE_SQL = (
     ROOT / "supabase/migrations/202607160001_workspace_folders.sql"
 ).read_text(encoding="utf-8")
@@ -227,8 +230,30 @@ def test_mobile_accessibility_and_browser_security_floor_is_explicit() -> None:
     assert "--ti-on-primary: var(--portal-action-ink, #ffffff)" in TRAINING_STYLES
     assert TRAINING_STYLES.count("color: var(--ti-on-primary)") >= 4
 
-    for breakpoint in ("1320px", "900px", "680px", "420px"):
-        assert breakpoint in WORKSPACE_STYLES
+    assert "container-name: workspace-board" in WORKSPACE_STYLES
+    assert "container-name: workspace-board-content" in WORKSPACE_STYLES
+    assert WORKSPACE_STYLES.count("container-type: inline-size") >= 2
+    for container_breakpoint in (
+        "@container workspace-board (max-width: 1180px)",
+        "@container workspace-board (max-width: 820px)",
+        "@container workspace-board (max-width: 680px)",
+        "@container workspace-board (max-width: 420px)",
+        "@container workspace-board-content (min-width: 560px) and (max-width: 819px)",
+        "@container workspace-board-content (min-width: 820px)",
+        "@container workspace-board-content (max-width: 559px)",
+        "@container workspace-board-content (max-width: 320px)",
+    ):
+        assert container_breakpoint in WORKSPACE_STYLES
+
+    # The browser geometry contract proves the narrow container behavior at both
+    # supported phone widths and rejects any horizontal document overflow.
+    for mobile_case in (
+        '(320, None, "one-column")',
+        '(390, None, "one-column")',
+    ):
+        assert mobile_case in FILES_OVERVIEW_GEOMETRY_TEST
+    assert 'data-fixture-no-horizontal-overflow="true"' in FILES_OVERVIEW_GEOMETRY_TEST
+    assert 'data-fixture-overflow-failures=""' in FILES_OVERVIEW_GEOMETRY_TEST
 
     assert 'aria-busy="' in WORKSPACE_VIEW
     assert 'role="alert"' in WORKSPACE_VIEW

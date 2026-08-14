@@ -141,12 +141,16 @@ def test_edge_persists_every_free_check_before_answering_the_browser() -> None:
     assert "creditBalance" not in recorder
     assert "maxDailyGenerations" not in recorder
     assert handler.count("await recordProviderReadiness(") == 2
-    assert "if (receipt === null)" in handler
+    assert "if (recordedUnavailable.receipt === null)" in handler
+    assert "if (recordedReadiness.receipt === null)" in handler
+    assert "const receipt = recordedReadiness.receipt;" in handler
+    assert "readProviderReadinessRpcErrorCode(error)" in recorder
     for token in (
         "receipt_id: receipt.receiptId",
         "receipt_hash: receipt.receiptHash",
         "duration_seconds: readiness.durationSeconds",
-        'receipt_version: "generation-provider-readiness-receipt-v2"',
+        'version: "generation-provider-readiness-receipt-v3"',
+        "spend_confirmation: readiness.spendConfirmation",
         "expires_at: receipt.expiresAt",
     ):
         assert token in handler
@@ -157,23 +161,37 @@ def test_browser_accepts_only_fresh_exact_receipts_and_rejects_duplicates() -> N
         """
 const nowMs = Date.parse("2026-07-28T12:05:00.000Z");
 const receipt = {
+  version: "generation-provider-readiness-receipt-v3",
+  receipt_id: "fa000000-0000-4000-8000-000000000001",
+  receipt_hash: "a".repeat(64),
+  organization_id: "fa000000-0000-4000-8000-000000000002",
+  checked_by: "fa000000-0000-4000-8000-000000000003",
   provider: "runway",
   model: "seedream5_lite",
+  input_mode: "image",
   duration_seconds: 0,
+  format: "1:1",
+  resolution: "2K",
+  audio: false,
+  last_frame: false,
   status: "ready",
-  reason_code: "provider_ready",
   ready: true,
   fresh: true,
+  estimated_cost_minor: 4,
   estimated_credits: 4,
+  credential_configured: true,
   balance_sufficient: true,
   model_available: true,
   daily_quota_available: true,
+  failure_code: null,
+  catalog_version: "2026-08-13.v1",
+  pricing_version: "runway-credits-2026-08-13.v1",
   learning_gate_version: "2026-07-29.v8",
   checked_at: "2026-07-28T12:00:00.000Z",
   expires_at: "2026-07-28T12:15:00.000Z",
-  receipt_id: "fa000000-0000-4000-8000-000000000001",
-  receipt_hash: "a".repeat(64),
-  receipt_version: "generation-provider-readiness-receipt-v2",
+  spend_confirmation: "RUNWAY_SEEDREAM5_LITE_2K_USD_0.04",
+  automatic_generation: false,
+  automatic_spend: false,
 };
 return {
   valid: subject.normalizeGenerationProviderPreflight(
@@ -234,8 +252,10 @@ def test_spend_overview_restores_fresh_receipt_without_authorizing_payment() -> 
     assert 'previous?.status === "loading"' in hydrator
     assert "previous.serverCheckedAt >= serverCheckedAt" in hydrator
     assert 'source: "server_receipt"' in hydrator
-    assert "force: true" in paid_start
-    assert "awaitRetry: true" in paid_start
+    assert 'existing?.status !== "ready"' in paid_start
+    assert "validateGenerationPreflight(" in paid_start
+    assert "preflight.spend_confirmation" in paid_start
+    assert "runGenerationPreflight(form" not in paid_start
 
 
 def test_api_boundary_revalidates_receipt_before_app_state() -> None:
@@ -245,8 +265,8 @@ def test_api_boundary_revalidates_receipt_before_app_state() -> None:
         "if (!data.job",
     )
     assert "normalizeApiGenerationProviderPreflight(" in preflight
-    assert "realGenerationSku(" in preflight
-    assert "payload.duration_seconds" in preflight
+    assert "data.preflight" in preflight
+    assert "payload" in preflight
     assert "return { ...data, preflight }" in preflight
     normalizer = _between(
         API,
@@ -259,10 +279,10 @@ def test_api_boundary_revalidates_receipt_before_app_state() -> None:
 
 
 def test_release_versions_include_the_readiness_module_and_gate() -> None:
-    assert "./app.js?v=20260812.os4.38" in INDEX
-    assert "./supabase-api.js?v=20260812.os4.38" in APP
+    assert "./app.js?v=20260813.os4.39" in INDEX
+    assert "./supabase-api.js?v=20260813.os4.39" in APP
     assert (
-        "./generation-provider-readiness.js?v=20260728.2"
+        "./generation-provider-readiness.js?v=20260813.os4.39"
         in APP
     )
     assert (
