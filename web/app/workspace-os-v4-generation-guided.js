@@ -1451,6 +1451,7 @@ async function loadGenerationStrategyAssets(form, { append = false } = {}) {
     runtime.strategyAssetError = "";
     append = false;
   }
+  if (runtime.strategyAssetStatus === "loading") return false;
   const cursor = append ? runtime.strategyAssetPage?._meta?.next_cursor : null;
   if (append && !cursor) return false;
   const request = ++runtime.strategyAssetRequest;
@@ -2586,6 +2587,7 @@ async function loadModelCatalog(form) {
     renderModelAdvisor(form);
     return;
   }
+  if (runtime.catalogStatus === "loading") return;
   const request = ++runtime.catalogRequest;
   runtime.catalogStatus = "loading";
   renderModelAdvisor(form);
@@ -2598,7 +2600,6 @@ async function loadModelCatalog(form) {
     const catalog = response?.catalog || response;
     if (
       request !== runtime.catalogRequest
-      || !form.isConnected
       || !catalog
       || typeof catalog.version !== "string"
       || !Array.isArray(catalog.models)
@@ -2608,15 +2609,22 @@ async function loadModelCatalog(form) {
     runtime.catalogStatus = "ready";
     runtime.recommendationState = null;
     window.ContentEngineWorkspaceRuntime?.setGenerationModelCatalog?.(catalog);
+    const targetForm = form.isConnected ? form : runtime.form;
+    if (!targetForm?.isConnected) return;
     const pending = runtime.pendingRepeatSettings;
     runtime.pendingRepeatSettings = null;
-    if (!pending || pending.form !== form || !applyRepeatedSettings(form, pending.detail)) {
-      renderModelAdvisor(form);
+    if (
+      !pending
+      || pending.form !== targetForm
+      || !applyRepeatedSettings(targetForm, pending.detail)
+    ) {
+      renderModelAdvisor(targetForm);
     }
   } catch {
-    if (request !== runtime.catalogRequest || !form.isConnected) return;
+    if (request !== runtime.catalogRequest) return;
     runtime.catalogStatus = "error";
-    renderModelAdvisor(form);
+    const targetForm = form.isConnected ? form : runtime.form;
+    if (targetForm?.isConnected) renderModelAdvisor(targetForm);
   }
 }
 
@@ -2630,6 +2638,7 @@ async function loadStrategyCatalog(form) {
     renderStrategyView(form);
     return;
   }
+  if (runtime.strategyCatalogStatus === "loading") return;
   const request = ++runtime.strategyCatalogRequest;
   runtime.strategyCatalogStatus = "loading";
   try {
@@ -2639,7 +2648,7 @@ async function loadStrategyCatalog(form) {
     }
     const response = await api.generationStrategyCatalog();
     const catalog = response?.catalog;
-    if (request !== runtime.strategyCatalogRequest || !form.isConnected) return;
+    if (request !== runtime.strategyCatalogRequest) return;
     const strategyState = createGenerationStrategyViewState(
       extractedStrategyCatalog(catalog),
     );
@@ -2649,16 +2658,19 @@ async function loadStrategyCatalog(form) {
     runtime.strategyCatalog = catalog;
     runtime.strategyCatalogStatus = "ready";
     runtime.strategyState = strategyState;
-    renderStrategyView(form);
+    const targetForm = form.isConnected ? form : runtime.form;
+    if (!targetForm?.isConnected) return;
+    renderStrategyView(targetForm);
     const pendingStrategy = runtime.pendingStrategyRestore;
-    if (pendingStrategy?.form === form) {
-      applyStrategyRestore(form, pendingStrategy.values);
+    if (pendingStrategy?.form === targetForm) {
+      applyStrategyRestore(targetForm, pendingStrategy.values);
     }
   } catch {
-    if (request !== runtime.strategyCatalogRequest || !form.isConnected) return;
+    if (request !== runtime.strategyCatalogRequest) return;
     runtime.strategyCatalogStatus = "error";
     runtime.strategyState = createGenerationStrategyViewState(null);
-    renderStrategyView(form);
+    const targetForm = form.isConnected ? form : runtime.form;
+    if (targetForm?.isConnected) renderStrategyView(targetForm);
   }
 }
 
@@ -3732,9 +3744,11 @@ function setupForm(form) {
   form.dataset.ceV4GenerationMaxVisited = String(restoredMax);
   setStep(form, restoredIndex);
   scheduleSync(form);
-  void loadStrategyCatalog(form);
-  void loadModelCatalog(form);
-  void loadGenerationStrategyAssets(form);
+  if (runtime.strategyCatalogStatus === "idle") void loadStrategyCatalog(form);
+  if (runtime.catalogStatus === "idle") void loadModelCatalog(form);
+  if (runtime.strategyAssetStatus === "idle") {
+    void loadGenerationStrategyAssets(form);
+  }
   return shell;
 }
 
@@ -3856,10 +3870,20 @@ window.ContentEngineGenerationGuidedV4 = Object.freeze({
 });
 
 window.addEventListener("contentengine:workspace-runtime-ready", () => {
-  if (runtime.form?.isConnected && !runtime.strategyCatalog) {
+  if (
+    runtime.form?.isConnected
+    && !runtime.strategyCatalog
+    && runtime.strategyCatalogStatus !== "loading"
+  ) {
     void loadStrategyCatalog(runtime.form);
   }
-  if (runtime.form?.isConnected && !runtime.catalog) void loadModelCatalog(runtime.form);
+  if (
+    runtime.form?.isConnected
+    && !runtime.catalog
+    && runtime.catalogStatus !== "loading"
+  ) {
+    void loadModelCatalog(runtime.form);
+  }
 });
 
 window.addEventListener("contentengine:generation-model-acceptance-updated", () => {

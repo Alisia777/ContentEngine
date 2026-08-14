@@ -31,7 +31,7 @@ def test_desktop_v4_6_is_the_only_eager_workspace_shell() -> None:
     assert '<link rel="stylesheet" href="./workspace-os-v4.css?v=20260814.os4.41" />' in INDEX
     assert (
         '<script type="module" '
-        'src="./workspace-os-v4-loader.js?v=20260814.os4.41.strategy-catalog-1">'
+        'src="./workspace-os-v4-loader.js?v=20260814.os4.41.strategy-catalog-2">'
         '</script>' in INDEX
     )
     assert INDEX.index('./workspace-os-v4-loader.js') < INDEX.index('./app.js')
@@ -43,8 +43,8 @@ def test_desktop_v4_6_is_the_only_eager_workspace_shell() -> None:
         flags=re.MULTILINE,
     )
     assert active_modules == [
-        './workspace-os-v4-loader.js?v=20260814.os4.41.strategy-catalog-1',
-        './app.js?v=20260814.os4.41.strategy-catalog-1',
+        './workspace-os-v4-loader.js?v=20260814.os4.41.strategy-catalog-2',
+        './app.js?v=20260814.os4.41.strategy-catalog-2',
         './workspace-build-guard.js?v=20260814.os4.41',
     ]
 
