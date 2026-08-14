@@ -9,7 +9,6 @@ import shutil
 import subprocess
 import tempfile
 import threading
-import urllib.request
 
 import pytest
 
@@ -82,22 +81,9 @@ def _dump_files_overview_harness(
                 browser_endpoint = match.group(1)
                 break
         assert browser_endpoint, "Chrome DevTools endpoint did not become ready"
-        port_match = re.search(r"ws://[^:/]+:(\d+)/", browser_endpoint)
-        assert port_match is not None
-        pages = json.load(
-            urllib.request.urlopen(
-                f"http://127.0.0.1:{int(port_match.group(1))}/json/list",
-                timeout=5,
-            )
-        )
-        page = next(
-            item
-            for item in pages
-            if item.get("type") == "page" and item.get("url") == "about:blank"
-        )
 
         with connect(
-            page["webSocketDebuggerUrl"],
+            browser_endpoint,
             origin="http://localhost",
             open_timeout=5,
         ) as websocket:
@@ -108,34 +94,60 @@ def _dump_files_overview_harness(
                 method: str,
                 params: dict[str, object] | None = None,
                 *,
+                session_id: str | None = None,
                 timeout: float = 30,
             ) -> dict[str, object]:
                 nonlocal request_id
                 request_id += 1
                 expected_id = request_id
-                websocket.send(json.dumps({
+                message: dict[str, object] = {
                     "id": expected_id,
                     "method": method,
                     "params": params or {},
-                }))
+                }
+                if session_id is not None:
+                    message["sessionId"] = session_id
+                websocket.send(json.dumps(message))
                 while True:
                     response = json.loads(websocket.recv(timeout=timeout))
                     if response.get("id") == expected_id:
                         return response
                     events.append(response)
 
-            def wait_for_event(method: str) -> dict[str, object]:
+            def wait_for_event(
+                method: str,
+                *,
+                session_id: str | None = None,
+            ) -> dict[str, object]:
                 for index, event in enumerate(events):
-                    if event.get("method") == method:
+                    if event.get("method") == method and (
+                        session_id is None or event.get("sessionId") == session_id
+                    ):
                         return events.pop(index)
                 while True:
                     event = json.loads(websocket.recv(timeout=30))
-                    if event.get("method") == method:
+                    if event.get("method") == method and (
+                        session_id is None or event.get("sessionId") == session_id
+                    ):
                         return event
                     events.append(event)
 
-            cdp("Page.enable")
-            cdp("Runtime.enable")
+            targets = cdp("Target.getTargets")
+            target_infos = targets.get("result", {}).get("targetInfos", [])
+            page = next(
+                item
+                for item in target_infos
+                if item.get("type") == "page" and item.get("url") == "about:blank"
+            )
+            attached = cdp(
+                "Target.attachToTarget",
+                {"targetId": page["targetId"], "flatten": True},
+            )
+            session_id = attached.get("result", {}).get("sessionId")
+            assert isinstance(session_id, str), attached
+
+            cdp("Page.enable", session_id=session_id)
+            cdp("Runtime.enable", session_id=session_id)
             cdp(
                 "Emulation.setDeviceMetricsOverride",
                 {
@@ -144,10 +156,15 @@ def _dump_files_overview_harness(
                     "deviceScaleFactor": 1,
                     "mobile": False,
                 },
+                session_id=session_id,
             )
-            navigation = cdp("Page.navigate", {"url": url})
+            navigation = cdp(
+                "Page.navigate",
+                {"url": url},
+                session_id=session_id,
+            )
             assert "error" not in navigation, navigation
-            wait_for_event("Page.loadEventFired")
+            wait_for_event("Page.loadEventFired", session_id=session_id)
             result = cdp(
                 "Runtime.evaluate",
                 {
@@ -179,6 +196,7 @@ def _dump_files_overview_harness(
                     "awaitPromise": True,
                     "returnByValue": True,
                 },
+                session_id=session_id,
             )
             assert "error" not in result, result
             value = result.get("result", {}).get("result", {}).get("value")
