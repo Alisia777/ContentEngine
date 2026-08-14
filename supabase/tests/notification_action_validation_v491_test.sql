@@ -294,12 +294,15 @@ select is(
   'false',
   'validator reports the exact current read state'
 );
+
+reset role;
 select ok(
   (select read_at is null
    from content_factory.user_notifications
    where id = 'ad130000-0000-4000-8000-000000000001'::uuid),
   'successful validation leaves the notification unread'
 );
+set local role authenticated;
 select is(
   public.creator_validate_notification_action(jsonb_build_object(
     'organization_id', 'ad110000-0000-4000-8000-000000000001'::uuid,

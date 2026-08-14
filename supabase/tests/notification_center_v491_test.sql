@@ -310,13 +310,13 @@ select 'read-operator-one',
   public.creator_mark_visible_notifications_read(jsonb_build_object(
     'organization_id', 'a9200000-0000-4000-8000-000000000001',
     'filter', 'all',
-    'notification_ids', jsonb_build_array(notification.id),
+    'notification_ids', jsonb_build_array((
+      select payload #>> '{items,0,id}'
+      from notification_v491_results
+      where name = 'operator-one-center'
+    )),
     'idempotency_key', 'notification-visible-operator-one-v1'
-  ))
-from content_factory.user_notifications notification
-where notification.organization_id = 'a9200000-0000-4000-8000-000000000001'
-  and notification.recipient_id = 'a9100000-0000-4000-8000-000000000002'
-  and notification.contract_version = 491;
+  ));
 select is(
   (select payload #>> '{scope}' from notification_v491_results
    where name = 'read-operator-one'),
@@ -483,10 +483,9 @@ select throws_ok(
       'organization_id', 'a9200000-0000-4000-8000-000000000001',
       'filter', 'system',
       'notification_ids', jsonb_build_array((
-        select id from content_factory.user_notifications
-        where organization_id = 'a9200000-0000-4000-8000-000000000001'
-          and recipient_id = 'a9100000-0000-4000-8000-000000000002'
-          and contract_version = 491
+        select payload #>> '{items,0,id}'
+        from notification_v491_results
+        where name = 'live-after-expired'
       )),
       'idempotency_key', 'wrong-visible-filter-v491'
     )::text

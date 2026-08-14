@@ -590,26 +590,31 @@ select ok(
 
 select ok(
   (
-    select public_model.value - array[
-      'provider','public_label','lifecycle','enabled_by_default','enabled',
-      'launch_enabled','disabled_reason_code','feature_flag',
-      'catalog_version','pricing_version','automatic_generation',
-      'automatic_spend'
-    ]::text[] = legacy_model.value
+    select count(*) = 3
+      and bool_and(
+        public_model.value - array[
+          'provider','public_label','lifecycle','enabled_by_default','enabled',
+          'launch_enabled','disabled_reason_code','feature_flag',
+          'catalog_version','pricing_version','automatic_generation',
+          'automatic_spend'
+        ]::text[] = legacy_model.value
+      )
     from jsonb_array_elements(
       (select payload -> 'models' from acceptance_v4_public_result)
     ) public_model(value)
     join jsonb_array_elements(
-      content_factory_private.generation_model_acceptance_freshness(
-        content_factory_private.generation_model_acceptance(
-          'd4100000-0000-4000-8000-000000000001'
-        ),
-        (select (payload ->> 'evaluated_at')::timestamptz
-         from acceptance_v4_public_result)
-      ) -> 'models'
+      content_factory_private
+        .creator_generation_model_acceptance_pre_multimodel_v49(
+          jsonb_build_object(
+            'organization_id',
+            'd4100000-0000-4000-8000-000000000001'
+          )
+        ) -> 'models'
     ) legacy_model(value)
       on legacy_model.value ->> 'model' = public_model.value ->> 'model'
-    where public_model.value ->> 'model' = 'seedream5_lite'
+    where public_model.value ->> 'model' in (
+      'seedream5_lite', 'gen4_turbo', 'seedance2_fast'
+    )
   ),
   'legacy model evidence and pending fields remain byte-equivalent'
 );
