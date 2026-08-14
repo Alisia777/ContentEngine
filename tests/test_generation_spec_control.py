@@ -152,11 +152,13 @@ process.stdout.write(JSON.stringify({{
     }
 
 
-def test_one_paid_click_prepares_current_server_spec_without_separate_approval() -> None:
+def test_paid_flow_prepares_then_requires_separate_human_approval() -> None:
     for token in (
-            'from "./generation-spec.js?v=20260813.os4.39"',
+            'from "./generation-spec.js?v=20260814.os4.41"',
+        "approvedGenerationSpecContext",
         "generationSpecCardMarkup",
         "currentGenerationSpecContext(form)",
+        "currentApprovedGenerationSpecContext(form)",
         "generationSpecApproved",
         '"prepare", "patch", "approve", "reject", "revert", "recompute"',
         "research_provenance: generationSpecResearchProvenance(identity)",
@@ -183,12 +185,24 @@ def test_one_paid_click_prepares_current_server_spec_without_separate_approval()
     assert 'runGenerationSpecControl(form, "approve")' not in helper
     assert "await refreshGenerationSpec(form, { force: true })" in helper
     submit = APP.index("async function submitRealGeneration")
+    approval_gate = APP.index(
+        "if (!currentApprovedGenerationSpecContext(form))", submit
+    )
     automatic_prepare = APP.index(
         "await ensurePreparedGenerationSpecForPaidStart(form)", submit
     )
+    explicit_review = APP.index(
+        "openGenerationSpecApprovalReview(form)", automatic_prepare
+    )
     preflight = APP.index("runGenerationPreflightForPaidStart", automatic_prepare)
     paid_start = APP.index("state.api.startRealGeneration(payload)", preflight)
-    assert submit < automatic_prepare < preflight < paid_start
+    assert submit < approval_gate < automatic_prepare < explicit_review < preflight < paid_start
+    guarded_flow = APP[approval_gate:preflight]
+    assert "if (!launchSpecPreparation.approvedContext)" in guarded_flow
+    assert "платный запуск не выполнялся" in guarded_flow
+    assert "return;" in guarded_flow
+    assert "generationSpecContext = prepared.approvedContext" in APP[explicit_review:preflight]
+    assert "generationSpecContext = prepared.context" not in APP[explicit_review:paid_start]
     assert APP[submit:paid_start].count("state.api.startRealGeneration(payload)") == 0
     assert "head_event_hash" not in APP
     assert "head_event_hash" not in API
@@ -425,11 +439,11 @@ def test_edge_accepts_only_atomic_terminal_stale_claim_as_non_retryable() -> Non
 
 
 def test_generation_spec_cache_versions_are_published_consistently() -> None:
-    assert './supabase-api.js?v=20260813.os4.39' in APP
-    assert './app.js?v=20260813.os4.39' in INDEX
+    assert './supabase-api.js?v=20260814.os4.41' in APP
+    assert './app.js?v=20260814.os4.41' in INDEX
     for name in (
         "workspace-os-v4-context-trash.js",
         "workspace-os-v4-trash-rpc-alias.js",
     ):
         source = (ROOT / "web/app" / name).read_text(encoding="utf-8")
-        assert './supabase-api.js?v=20260813.os4.39' in source
+        assert './supabase-api.js?v=20260814.os4.41' in source

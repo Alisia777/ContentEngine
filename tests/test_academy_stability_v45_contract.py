@@ -136,4 +136,4 @@ def test_academy_stability_does_not_change_start_policy_or_asset_generation() ->
     assert 'navigate("/learn", true)' in render
     assert 'if (path === "/learn" || path.startsWith("/learn/"))' in render
     assert "navigate(authenticatedStartPath(), true)" in render
-    assert './workspace-dom-patch.js?v=20260813.os4.39' in APP
+    assert './workspace-dom-patch.js?v=20260814.os4.41' in APP

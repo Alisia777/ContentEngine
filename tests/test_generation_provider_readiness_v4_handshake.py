@@ -369,7 +369,11 @@ def test_new4_submit_is_an_explicit_two_action_flow() -> None:
     assert "readinessV4NeedsReceipt ||" not in readiness
     assert "form?.elements?.real_spend_confirmation?.checked === true" in readiness
     sync = _top_level_function(APP, "syncGenerationFormReadiness")
-    assert 'submit.dataset.launchPhase = readinessV4NeedsReceipt ? "preflight" : "paid";' in sync
+    assert 'submit.dataset.launchPhase = !modeSelected' in sync
+    assert '? "select"' in sync
+    assert '? "preflight"' in sync
+    assert '? "dry-run"' in sync
+    assert ': "paid";' in sync
     assert "Подготовить ТЗ и проверить цену бесплатно" in sync
     preflight_copy = sync[
         sync.index("readinessV4NeedsReceipt") :
@@ -378,7 +382,7 @@ def test_new4_submit_is_an_explicit_two_action_flow() -> None:
     assert "estimatedUsd" not in preflight_copy
 
 
-def test_new4_runtime_first_action_is_free_and_second_explicit_action_starts_once() -> None:
+def test_new4_runtime_requires_spec_approval_then_free_check_then_one_paid_start() -> None:
     # This exercises the dormant path after an authoritative future policy
     # opt-in. Current SQL keeps new4 visible and launch-disabled; this test does
     # not widen or assert that policy.
@@ -453,9 +457,10 @@ const form = {
   },
 };
 let activeProjectId = baseSku.projectId;
-let preflightTransport = 0;
-let startTransport = 0;
-let resetCount = 0;
+    let preflightTransport = 0;
+    let startTransport = 0;
+    let resetCount = 0;
+    let approvalReviewOpened = 0;
 const toasts = [];
 const state = {
   dataEpoch: 9,
@@ -465,8 +470,9 @@ const state = {
   realGenerationStartRequestId: 0,
   realGenerationStartNotice: "",
   generationPreflight: { entries: new Map(), requestId: 0 },
-  generationSpec: {
-    dirty: false,
+      generationSpec: {
+        dirty: false,
+        approved: false,
     error: "",
     aiResearchBinding: null,
     videoReferenceBinding: null,
@@ -520,7 +526,17 @@ function generationSkuForForm() {
     providerReadinessReceiptHash: exactReceipt?.receipt_hash || "",
   };
 }
-function generationReadinessRequiresV4() { return true; }
+    function generationReadinessRequiresV4() { return true; }
+    function currentApprovedGenerationSpecContext() {
+      return state.generationSpec.approved && !state.generationSpec.dirty
+        ? { ...baseSku.generationSpecContext }
+        : null;
+    }
+    function openGenerationSpecApprovalReview() {
+      approvalReviewOpened += 1;
+      return true;
+    }
+    function syncGenerationFormReadiness() {}
 function setFormBusy(target, busy) { target.dataset.busy = busy ? "true" : "false"; }
 async function ensureGenerationV4ReadinessContext() { return generationSkuForForm(form); }
 async function runGenerationPreflight() {
@@ -549,10 +565,11 @@ function generationPromptInspection() { return { ready: true }; }
 function generationLearningContext() { return { source: "baseline" }; }
 function generationLearningOptOut() { return false; }
 function canManageTeam() { return false; }
-async function ensurePreparedGenerationSpecForPaidStart() {
-  return {
-    context: { ...baseSku.generationSpecContext },
-    spec: { compiled_prompt: "Exact server compiled prompt" },
+    async function ensurePreparedGenerationSpecForPaidStart() {
+      return {
+        context: { ...baseSku.generationSpecContext },
+        approvedContext: currentApprovedGenerationSpecContext(),
+        spec: { compiled_prompt: "Exact server compiled prompt" },
     generationReferenceContext: null,
   };
 }
@@ -580,17 +597,26 @@ function actionErrorMessage(error) { return String(error?.message || error); }
 function clearGenerationPreflightRetry() {}
 function syncGenerationSpecUi() {}
 
-await submitRealGeneration(form, new FormData(form), "real_gen4");
-assert.equal(preflightTransport, 1, "first explicit action performs one free preflight");
-assert.equal(startTransport, 0, "first explicit action never starts a paid job");
-assert.equal(form.elements.real_spend_confirmation.disabled, false);
-assert.equal(form.elements.real_spend_confirmation.checked, false);
-assert.ok(toasts.at(-1).includes("отдельно подтвердите"));
+    await submitRealGeneration(form, new FormData(form), "real_gen4");
+    assert.equal(preflightTransport, 0, "first explicit action only prepares the spec");
+    assert.equal(startTransport, 0, "spec preparation never starts a paid job");
+    assert.equal(approvalReviewOpened, 1, "draft opens exact human approval review");
+    assert.equal(form.elements.real_spend_confirmation.checked, false);
+    assert.ok(toasts.at(-1).includes("отдельно одобрите"));
 
-form.elements.real_spend_confirmation.checked = true;
-await submitRealGeneration(form, new FormData(form), "real_gen4");
-assert.equal(preflightTransport, 1, "confirmed launch reuses the exact receipt");
-assert.equal(startTransport, 1, "second explicit matching action starts exactly once");
+    state.generationSpec.approved = true;
+    state.generationSpec.dirty = false;
+    await submitRealGeneration(form, new FormData(form), "real_gen4");
+    assert.equal(preflightTransport, 1, "approved spec gets one free exact preflight");
+    assert.equal(startTransport, 0, "free preflight never starts a paid job");
+    assert.equal(form.elements.real_spend_confirmation.disabled, false);
+    assert.equal(form.elements.real_spend_confirmation.checked, false);
+    assert.ok(toasts.at(-1).includes("отдельно подтвердите"));
+
+    form.elements.real_spend_confirmation.checked = true;
+    await submitRealGeneration(form, new FormData(form), "real_gen4");
+    assert.equal(preflightTransport, 1, "confirmed launch reuses the exact receipt");
+    assert.equal(startTransport, 1, "third explicit matching action starts exactly once");
 assert.equal(form.elements.real_spend_confirmation.checked, false);
 assert.equal(resetCount, 1);
 
@@ -624,7 +650,7 @@ process.stdout.write(JSON.stringify({
         ]
     )
     result = _run_node(script)
-    assert result["preflightTransport"] == 5
+    assert result["preflightTransport"] == 1
     assert result["startTransport"] == 1
     assert result["consentChecked"] is False
 

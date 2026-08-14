@@ -22,6 +22,8 @@ const DISPATCH_TIMEOUT_MS = 135_000;
 const RESPONSE_BODY_LIMIT = 65_536;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
+const RUNWAY_TASK_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
 const IMAGE_MIME_TYPES = new Set([
   "image/jpeg",
   "image/png",
@@ -99,6 +101,17 @@ type Database = {
           requested_by: string;
           provider_next_poll_at: string | null;
           updated_at: string;
+        };
+        Insert: Record<string, never>;
+        Update: Record<string, never>;
+        Relationships: [];
+      };
+      generation_strategy_start_claims: {
+        Row: {
+          organization_id: string;
+          project_id: string;
+          actor_id: string;
+          generation_job_id: string;
         };
         Insert: Record<string, never>;
         Update: Record<string, never>;
@@ -192,6 +205,7 @@ type DispatchTarget = {
   organizationId: string;
   recipientId: string;
   entityId: string;
+  strategy?: boolean;
 };
 
 type DispatchOutcome = {
@@ -203,6 +217,25 @@ type DispatchOutcome = {
   organizationId: string;
   recipientId: string;
   entityId: string;
+  strategy: boolean;
+};
+
+type GenerationStrategyWorkerCandidate = {
+  organizationId: string;
+  projectId: string;
+  actorId: string;
+  startClaimId: string;
+  claimHash: string;
+  generationJobId: string;
+  phase: "pre_dispatch" | "dispatch_unknown" | "provider_poll";
+  jobStatus: string;
+  dispatchAttemptId: string | null;
+  attemptHash: string | null;
+  dispatchToken: string | null;
+  providerTaskId: string | null;
+  leaseId: string;
+  leaseToken: string;
+  leaseHash: string;
 };
 
 type WorkerRunLease = {
@@ -526,6 +559,7 @@ async function dispatch(
     organizationId: target.organizationId,
     recipientId: target.recipientId,
     entityId: target.entityId,
+    strategy: target.strategy === true,
   };
   try {
     const response = await fetchWithTimeout(
@@ -891,6 +925,195 @@ function readWorkerBegin(value: unknown): WorkerBeginResult | null {
   };
 }
 
+function hasExactKeys(value: unknown, keys: readonly string[]): boolean {
+  if (!isRecord(value)) return false;
+  const allowed = new Set(keys);
+  return Object.keys(value).length === allowed.size &&
+    Object.keys(value).every((key) => allowed.has(key));
+}
+
+function readGenerationStrategyWorkerCandidates(
+  value: unknown,
+  workerId: string,
+  pageSize: number,
+): GenerationStrategyWorkerCandidate[] | null {
+  if (
+    !hasExactKeys(value, [
+      "ok",
+      "version",
+      "replay",
+      "request",
+      "candidates",
+      "contract",
+    ]) || !isRecord(value) || value.ok !== true ||
+    value.version !== "generation-strategy-worker-candidates-response-v1" ||
+    typeof value.replay !== "boolean" || !hasExactKeys(value.request, [
+      "id",
+      "request_record_hash",
+      "organization_id",
+      "worker_id",
+      "phase",
+      "page_size",
+      "lease_seconds",
+      "requested_at",
+      "leased_until",
+    ]) || !isRecord(value.request) || !isUuid(value.request.id) ||
+    typeof value.request.request_record_hash !== "string" ||
+    !SHA256_PATTERN.test(value.request.request_record_hash) ||
+    value.request.organization_id !== null ||
+    value.request.worker_id !== workerId || value.request.phase !== "all" ||
+    value.request.page_size !== pageSize ||
+    value.request.lease_seconds !== WORKER_LEASE_SECONDS ||
+    typeof value.request.requested_at !== "string" ||
+    !Number.isFinite(Date.parse(value.request.requested_at)) ||
+    typeof value.request.leased_until !== "string" ||
+    !Number.isFinite(Date.parse(value.request.leased_until)) ||
+    !Array.isArray(value.candidates) || value.candidates.length > pageSize ||
+    !hasExactKeys(value.contract, [
+      "service_only",
+      "exact_strategy_claims_only",
+      "generic_generation_jobs_returned",
+      "lease_authorizes_provider_post",
+      "unique_dispatch_attempt_still_required",
+      "dispatch_unknown_never_reposts",
+      "phase_actions",
+      "signed_urls_returned",
+      "provider_prompt_returned",
+    ]) || !isRecord(value.contract) || value.contract.service_only !== true ||
+    value.contract.exact_strategy_claims_only !== true ||
+    value.contract.generic_generation_jobs_returned !== false ||
+    value.contract.lease_authorizes_provider_post !== false ||
+    value.contract.unique_dispatch_attempt_still_required !== true ||
+    value.contract.dispatch_unknown_never_reposts !== true ||
+    value.contract.signed_urls_returned !== false ||
+    value.contract.provider_prompt_returned !== false ||
+    !hasExactKeys(value.contract.phase_actions, [
+      "pre_dispatch",
+      "dispatch_unknown",
+      "provider_poll",
+    ]) || !isRecord(value.contract.phase_actions) ||
+    value.contract.phase_actions.pre_dispatch !== "call_dispatch_attempt" ||
+    value.contract.phase_actions.dispatch_unknown !==
+      "record_ambiguous_without_post" ||
+    value.contract.phase_actions.provider_poll !==
+      "poll_existing_provider_task"
+  ) return null;
+  const output: GenerationStrategyWorkerCandidate[] = [];
+  for (const candidate of value.candidates) {
+    if (
+      !hasExactKeys(candidate, [
+        "organization_id",
+        "project_id",
+        "actor_id",
+        "start_claim_id",
+        "claim_hash",
+        "generation_job_id",
+        "phase",
+        "job_status",
+        "dispatch_attempt_id",
+        "attempt_hash",
+        "dispatch_token",
+        "provider_task_id",
+        "lease_id",
+        "lease_token",
+        "lease_hash",
+        "leased_at",
+        "leased_until",
+      ]) || !isRecord(candidate) || !isUuid(candidate.organization_id) ||
+      !isUuid(candidate.project_id) || !isUuid(candidate.actor_id) ||
+      !isUuid(candidate.start_claim_id) ||
+      typeof candidate.claim_hash !== "string" ||
+      !SHA256_PATTERN.test(candidate.claim_hash) ||
+      !isUuid(candidate.generation_job_id) ||
+      !new Set(["pre_dispatch", "dispatch_unknown", "provider_poll"]).has(
+        String(candidate.phase),
+      ) || typeof candidate.job_status !== "string" ||
+      !isUuid(candidate.lease_id) || !isUuid(candidate.lease_token) ||
+      typeof candidate.lease_hash !== "string" ||
+      !SHA256_PATTERN.test(candidate.lease_hash) ||
+      typeof candidate.leased_at !== "string" ||
+      !Number.isFinite(Date.parse(candidate.leased_at)) ||
+      typeof candidate.leased_until !== "string" ||
+      !Number.isFinite(Date.parse(candidate.leased_until))
+    ) return null;
+    const phase = candidate.phase as GenerationStrategyWorkerCandidate["phase"];
+    const preDispatch = phase === "pre_dispatch";
+    const dispatchUnknown = phase === "dispatch_unknown";
+    const providerPoll = phase === "provider_poll";
+    if (
+      (preDispatch && (
+        candidate.dispatch_attempt_id !== null ||
+        candidate.attempt_hash !== null || candidate.dispatch_token !== null ||
+        candidate.provider_task_id !== null
+      )) ||
+      (dispatchUnknown && (
+        !isUuid(candidate.dispatch_attempt_id) ||
+        typeof candidate.attempt_hash !== "string" ||
+        !SHA256_PATTERN.test(candidate.attempt_hash) ||
+        !isUuid(candidate.dispatch_token) || candidate.provider_task_id !== null
+      )) ||
+      (providerPoll && (
+        candidate.dispatch_attempt_id !== null ||
+        candidate.attempt_hash !== null || candidate.dispatch_token !== null ||
+        typeof candidate.provider_task_id !== "string" ||
+        !RUNWAY_TASK_ID_PATTERN.test(candidate.provider_task_id)
+      ))
+    ) return null;
+    output.push({
+      organizationId: candidate.organization_id,
+      projectId: candidate.project_id,
+      actorId: candidate.actor_id,
+      startClaimId: candidate.start_claim_id,
+      claimHash: candidate.claim_hash,
+      generationJobId: candidate.generation_job_id,
+      phase,
+      jobStatus: candidate.job_status,
+      dispatchAttemptId: candidate.dispatch_attempt_id as string | null,
+      attemptHash: candidate.attempt_hash as string | null,
+      dispatchToken: candidate.dispatch_token as string | null,
+      providerTaskId: candidate.provider_task_id as string | null,
+      leaseId: candidate.lease_id,
+      leaseToken: candidate.lease_token,
+      leaseHash: candidate.lease_hash,
+    });
+  }
+  return output;
+}
+
+async function claimGenerationStrategyWorkerCandidates(
+  supabaseAdmin: {
+    rpc: (
+      name: string,
+      args: { p_payload: Json },
+    ) => PromiseLike<{ data: unknown; error: unknown }>;
+  },
+  run: WorkerRunLease,
+  pageSize: number,
+): Promise<GenerationStrategyWorkerCandidate[] | null> {
+  if (pageSize === 0) return [];
+  try {
+    const { data, error } = await supabaseAdmin.rpc(
+      "system_claim_generation_strategy_worker_candidates",
+      {
+        p_payload: {
+          version: "generation-strategy-worker-candidates-request-v1",
+          organization_id: null,
+          worker_id: run.id,
+          phase: "all",
+          page_size: pageSize,
+          lease_seconds: WORKER_LEASE_SECONDS,
+          idempotency_key: `strategy-worker-candidates:${run.id}`,
+        },
+      },
+    );
+    return error === null
+      ? readGenerationStrategyWorkerCandidates(data, run.id, pageSize)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 async function beginBackgroundWorker(
   supabaseAdmin: {
     rpc: (
@@ -990,7 +1213,7 @@ async function recordGenerationPollOutcomes(
   let recorded = 0;
   let failed = 0;
   for (const outcome of outcomes) {
-    if (outcome.kind !== "generation") continue;
+    if (outcome.kind !== "generation" || outcome.strategy) continue;
     const state = outcome.ok
       ? outcome.terminal ? "success_terminal" : "success_pending"
       : "failed";
@@ -1573,6 +1796,12 @@ const creatorBackgroundWorker = withSupabase<Database>({
     const watchlistRefresh = await proposeDueResearchRefreshes(supabaseAdmin);
 
     const queueNow = new Date().toISOString();
+    const strategyWorkerCandidatesPromise =
+      claimGenerationStrategyWorkerCandidates(
+        supabaseAdmin,
+        workerRun,
+        payload.generation_limit,
+      );
     const generationQuery = supabaseAdmin
       .schema("content_factory")
       .from("generation_jobs")
@@ -1626,18 +1855,21 @@ const creatorBackgroundWorker = withSupabase<Database>({
       .limit(reviewCandidateLimit);
 
     const [
+      strategyWorkerCandidates,
       generationResult,
       researchResult,
       researchProcessingResult,
       reviewResult,
     ] = await Promise.all([
+      strategyWorkerCandidatesPromise,
       generationQuery,
       researchQuery,
       researchProcessingQuery,
       reviewQuery,
     ]);
     if (
-      generationResult.error || researchResult.error ||
+      strategyWorkerCandidates === null || generationResult.error ||
+      researchResult.error ||
       researchProcessingResult.error || reviewResult.error ||
       !Array.isArray(generationResult.data) ||
       !Array.isArray(researchResult.data) ||
@@ -1661,10 +1893,41 @@ const creatorBackgroundWorker = withSupabase<Database>({
       ...row,
       recipient_id: row.requested_by,
     }));
-    const staleStartingRows = generationCandidates.filter((row) =>
+    const strategyClaimJobIds = new Set(
+      strategyWorkerCandidates.map((candidate) => candidate.generationJobId),
+    );
+    if (generationCandidates.length > 0) {
+      const exactClaimRows = await supabaseAdmin.schema("content_factory")
+        .from("generation_strategy_start_claims")
+        .select("generation_job_id")
+        .in("generation_job_id", generationCandidates.map((row) => row.id));
+      if (
+        exactClaimRows.error !== null || !Array.isArray(exactClaimRows.data)
+      ) {
+        await finishBackgroundWorker(
+          supabaseAdmin,
+          workerRun,
+          "failed",
+          { stage: "strategy_claim_discriminator" },
+          "queue_read_failed",
+        );
+        return json({ ok: false, code: "queue_read_failed" }, 503);
+      }
+      for (const row of exactClaimRows.data) {
+        if (isRecord(row) && isUuid(row.generation_job_id)) {
+          strategyClaimJobIds.add(row.generation_job_id);
+        }
+      }
+    }
+    // Strategy jobs are owned exclusively by the exact claim-ledger RPC above.
+    // They must never reach the legacy status or stale-starting watchdog paths.
+    const legacyGenerationCandidates = generationCandidates.filter((row) =>
+      !strategyClaimJobIds.has(row.id)
+    );
+    const staleStartingRows = legacyGenerationCandidates.filter((row) =>
       row.status === "starting"
     );
-    const generationRows = generationCandidates.filter((row) =>
+    const generationRows = legacyGenerationCandidates.filter((row) =>
       row.status === "submitted" || row.status === "processing"
     );
     // A stale starting row represents an ambiguous provider POST. The durable
@@ -1792,11 +2055,16 @@ const creatorBackgroundWorker = withSupabase<Database>({
 
     // Preserve the global eight-dispatch ceiling. Trim only unclaimed work,
     // never a YouTube ingestion already claimed by the database workflow.
-    const dispatchGenerationRows = [...generationRows];
+    const dispatchStrategyRows = [...strategyWorkerCandidates];
+    const dispatchGenerationRows = generationRows.slice(
+      0,
+      Math.max(0, payload.generation_limit - dispatchStrategyRows.length),
+    );
     const dispatchResearchRows = [...researchRows];
     const dispatchReviewRows = [...autonomousReviews];
     const dispatchCount = () =>
-      dispatchGenerationRows.length + dispatchResearchRows.length +
+      dispatchStrategyRows.length + dispatchGenerationRows.length +
+      dispatchResearchRows.length +
       dispatchReviewRows.length + youtubeCollection.ingestions.length;
     while (dispatchCount() > MAX_TOTAL_DISPATCHES) {
       if (dispatchGenerationRows.length > 1) {
@@ -1817,6 +2085,34 @@ const creatorBackgroundWorker = withSupabase<Database>({
     }
 
     const targets: DispatchTarget[] = [
+      ...dispatchStrategyRows.map((row): DispatchTarget => ({
+        kind: "generation",
+        functionName: "creator-generate",
+        body: {
+          action: "strategy_status",
+          organization_id: row.organizationId,
+          project_id: row.projectId,
+          generation_job_id: row.generationJobId,
+          worker_context: {
+            version: "generation-strategy-worker-dispatch-v1",
+            actor_id: row.actorId,
+            start_claim_id: row.startClaimId,
+            claim_hash: row.claimHash,
+            phase: row.phase,
+            dispatch_attempt_id: row.dispatchAttemptId,
+            attempt_hash: row.attemptHash,
+            dispatch_token: row.dispatchToken,
+            provider_task_id: row.providerTaskId,
+            lease_id: row.leaseId,
+            lease_token: row.leaseToken,
+            lease_hash: row.leaseHash,
+          },
+        },
+        organizationId: row.organizationId,
+        recipientId: row.actorId,
+        entityId: row.generationJobId,
+        strategy: true,
+      })),
       ...dispatchGenerationRows.map((row): DispatchTarget => ({
         kind: "generation",
         functionName: "creator-generate",

@@ -2,8 +2,27 @@ import {
   GENERATION_MODEL_RECOMMENDATION_ACTIONS,
   createGenerationModelRecommendationState,
   generationModelRecommendationReducer,
-} from "./generation-model-recommendation.js?v=20260813.os4.39";
-import { normalizeGenerationModelAcceptance } from "./generation-model-acceptance-view.js?v=20260813.os4.39";
+} from "./generation-model-recommendation.js?v=20260814.os4.41";
+import { normalizeGenerationModelAcceptance } from "./generation-model-acceptance-view.js?v=20260814.os4.41";
+import {
+  GENERATION_STRATEGY_SELECT_ACTION,
+  createGenerationStrategyViewState,
+  generationStrategyViewMarkup,
+  reduceGenerationStrategyViewState,
+  selectedGenerationStrategySummary,
+  validateSelectedGenerationStrategyDraft,
+} from "./generation-strategy-view.js?v=20260814.os4.41";
+import {
+  generationStrategyAssetEligibility,
+  mergeGenerationStrategyAssetPages,
+  normalizeGenerationStrategyAssetCandidates,
+} from "./generation-strategy-assets.js?v=20260814.os4.41";
+import {
+  GENERATION_STRATEGY_SOURCE_PICKER_ACTIONS,
+  createGenerationStrategySourcePicker,
+  generationStrategySourcePickerProjection,
+  reduceGenerationStrategySourcePicker,
+} from "./generation-strategy-source-picker.js?v=20260814.os4.41";
 
 /*
  * ContentEngine Desktop v4 · guided generation.
@@ -22,8 +41,8 @@ const SESSION_ATTRIBUTE = "data-ce-v4-generation-session";
 const STEPS = Object.freeze([
   {
     key: "mode",
-    label: "Режим и бюджет",
-    hint: "Выберите, что создать, и проверьте стоимость до любых списаний.",
+    label: "Способ создания",
+    hint: "Сравните три сценария и выберите один вручную. Исходники, сохранение сцены и цена различаются.",
   },
   {
     key: "product",
@@ -43,7 +62,7 @@ const STEPS = Object.freeze([
   {
     key: "media",
     label: "Исходники",
-    hint: "Выберите точные фото этого товара и отметьте главное изображение.",
+    hint: "Выберите исходный MP4, аватара или исходный товар — только те роли, которые нужны выбранной стратегии.",
   },
   {
     key: "launch",
@@ -64,6 +83,15 @@ const runtime = {
   externalSelectionActive: false,
   repeatSettings: null,
   pendingRepeatSettings: null,
+  strategyState: null,
+  pendingStrategyRestore: null,
+  strategyAssetPage: null,
+  strategyAssetProjectId: "",
+  strategyAssetStatus: "idle",
+  strategyAssetError: "",
+  strategyAssetRequest: 0,
+  strategySourcePicker: null,
+  strategyMechanicsDrafts: new Map(),
 };
 
 const LEGACY_MODEL_BY_MODE = Object.freeze({
@@ -257,8 +285,10 @@ function modelCanUseExistingLaunch(form, model) {
 }
 
 function modelContentKind(form) {
-  const mode = String(form?.elements?.generation_mode?.value || "mock");
-  return mode === "real_photo" ? "photo" : mode === "mock" ? null : "video";
+  const mode = String(form?.elements?.generation_mode?.value || "");
+  if (mode === "real_photo") return "photo";
+  if (["real_seedance", "real_gen4"].includes(mode)) return "video";
+  return null;
 }
 
 function selectedModelForForm(form) {
@@ -322,7 +352,7 @@ function preflightSignal(form, identity) {
 }
 
 function modelContext(form) {
-  const mode = String(form?.elements?.generation_mode?.value || "mock");
+  const mode = String(form?.elements?.generation_mode?.value || "");
   const repeated = runtime.repeatSettings;
   const repeatedModel = repeated
     ? runtime.catalog?.models?.find((entry) => modelKey(entry) === modelKey(repeated))
@@ -992,20 +1022,1006 @@ function ensureModelAdvisor(form) {
   return advisor;
 }
 
+function extractedStrategyCatalog(catalog) {
+  return {
+    version: catalog?.strategyCatalogVersion,
+    recipe_version: catalog?.strategyRecipeVersion,
+    pricing_version: catalog?.strategyPricingVersion,
+    strategies: catalog?.strategies,
+  };
+}
+
+function selectedStrategyRow() {
+  const strategyId = runtime.strategyState?.selected_strategy_id;
+  if (!strategyId) return null;
+  return runtime.strategyState?.catalog?.strategies?.find(
+    (entry) => entry.strategy_id === strategyId,
+  ) || null;
+}
+
+const STRATEGY_ASSET_CONTROL_BY_ROLE = Object.freeze({
+  source_video: "generation_strategy_source_video_id",
+  avatar_image: "generation_strategy_avatar_media_id",
+  original_product_image: "generation_strategy_original_product_media_id",
+});
+
+const STRATEGY_ASSET_EMPTY_COPY = Object.freeze({
+  source_video: "Выберите сохранённый MP4 с подтверждёнными правами",
+  avatar_image: "Выберите creator reference с согласием на внешность",
+  original_product_image: "Выберите creator reference исходного товара",
+});
+
+const STRATEGY_ASSET_BLOCKER_COPY = Object.freeze({
+  server_duration_probe_required: "нужна бесплатная серверная проверка длительности MP4",
+  target_product_identity_required: "нет проверенной привязки к товару",
+  strategy_role_not_eligible: "файл не подходит для этой роли",
+  asset_contract_invalid: "сервер не подтвердил пригодность файла",
+});
+
+const STRATEGY_MECHANICS_FIELDS = Object.freeze([
+  Object.freeze({
+    key: "hook",
+    label: "Хук в первые секунды",
+    hint: "20–160 знаков: что сразу останавливает внимание.",
+    min: 20,
+    max: 160,
+  }),
+  Object.freeze({
+    key: "beat_sequence",
+    label: "Последовательность битов",
+    hint: "2–6 разных шагов, один шаг в строке (12–120 знаков).",
+    min: 25,
+    max: 725,
+    multiline: true,
+  }),
+  Object.freeze({
+    key: "pacing",
+    label: "Темп и ритм",
+    hint: "8–100 знаков.",
+    min: 8,
+    max: 100,
+  }),
+  Object.freeze({
+    key: "camera_language",
+    label: "Камера и движение",
+    hint: "8–100 знаков.",
+    min: 8,
+    max: 100,
+  }),
+  Object.freeze({
+    key: "composition",
+    label: "Композиция и место товара",
+    hint: "8–100 знаков.",
+    min: 8,
+    max: 100,
+  }),
+  Object.freeze({
+    key: "audio_pattern",
+    label: "Рисунок звука",
+    hint: "8–100 знаков: тишина, речь, акценты, ритм.",
+    min: 8,
+    max: 100,
+  }),
+  Object.freeze({
+    key: "cta_pattern",
+    label: "Финал и CTA",
+    hint: "8–100 знаков.",
+    min: 8,
+    max: 100,
+  }),
+]);
+
+function strategyMechanicsDraft(sourceMediaId) {
+  const existing = runtime.strategyMechanicsDrafts.get(sourceMediaId);
+  if (existing) return existing;
+  return Object.fromEntries(STRATEGY_MECHANICS_FIELDS.map(({ key }) => [key, ""]));
+}
+
+function strategySourceCandidates() {
+  return Array.isArray(runtime.strategyAssetPage?.assets)
+    ? runtime.strategyAssetPage.assets
+    : [];
+}
+
+function syncStrategySourcePickerState(strategyId, { reset = false } = {}) {
+  const candidates = strategySourceCandidates();
+  if (
+    reset
+    || !runtime.strategySourcePicker
+    || runtime.strategySourcePicker.strategy_id !== strategyId
+  ) {
+    runtime.strategySourcePicker = createGenerationStrategySourcePicker(
+      strategyId,
+      candidates,
+    );
+    runtime.strategyMechanicsDrafts.clear();
+    return runtime.strategySourcePicker;
+  }
+  runtime.strategySourcePicker = reduceGenerationStrategySourcePicker(
+    runtime.strategySourcePicker,
+    {
+      type: GENERATION_STRATEGY_SOURCE_PICKER_ACTIONS.replaceCandidates,
+      strategy_id: strategyId,
+      candidates,
+    },
+  );
+  const retained = new Set(
+    runtime.strategySourcePicker?.selected_source_ids || [],
+  );
+  for (const mediaId of runtime.strategyMechanicsDrafts.keys()) {
+    if (!retained.has(mediaId)) runtime.strategyMechanicsDrafts.delete(mediaId);
+  }
+  return runtime.strategySourcePicker;
+}
+
+function strategyMechanicsEditor(source, strategyId, position) {
+  const article = element("article", "generation-strategy-source-review");
+  article.dataset.generationStrategySourceReview = source.source_media_id;
+  const details = document.createElement("details");
+  details.open = position === 1;
+  const summary = document.createElement("summary");
+  summary.textContent = `${position}. ${source.filename}`;
+  details.append(summary);
+  const copy = element(
+    "p",
+    "muted tiny",
+    strategyId === "viral_product_swap"
+      ? "Этот MP4 передаётся в recipe как исходная сцена. Движение, кадр и тайминг сохраняются в пределах возможностей сервиса; текстовый пересказ не подменяет видео."
+      : "Этот MP4 остаётся референсом механики: мы создадим новый ролик с вашими ассетами, а не копию кадр в кадр.",
+  );
+  details.append(copy);
+  if (strategyId !== "viral_product_swap") {
+    const draft = strategyMechanicsDraft(source.source_media_id);
+    const fields = element("div", "generation-strategy-mechanics-grid");
+    STRATEGY_MECHANICS_FIELDS.forEach((field) => {
+      const label = element("label", "field");
+      label.append(element("span", "", field.label));
+      const control = document.createElement("textarea");
+      control.rows = field.multiline ? 4 : 2;
+      control.required = true;
+      control.minLength = field.min;
+      control.maxLength = field.max;
+      control.value = String(draft[field.key] || "");
+      control.dataset.generationStrategyMechanicsField = field.key;
+      control.dataset.generationStrategySourceMediaId = source.source_media_id;
+      control.name = `generation_strategy_mechanics_${position}_${field.key}`;
+      control.setAttribute(
+        "aria-label",
+        `${field.label} · ролик ${position} из 10 · ${source.filename}`,
+      );
+      label.append(control, element("small", "field-hint", field.hint));
+      fields.append(label);
+    });
+    details.append(fields);
+  }
+  article.append(details);
+  return article;
+}
+
+function renderStrategySourcePicker(form, { reset = false } = {}) {
+  const root = q("[data-generation-strategy-source-picker]", form);
+  const reviews = q("[data-generation-strategy-source-reviews]", form);
+  const row = selectedStrategyRow();
+  if (!root || !row) return null;
+  const picker = syncStrategySourcePickerState(row.strategy_id, { reset });
+  const projection = generationStrategySourcePickerProjection(picker);
+  root.replaceChildren();
+  if (!projection) return null;
+
+  const header = element("div", "generation-strategy-source-picker__header");
+  header.append(
+    element("strong", "", `Выбрано ${projection.selected_count} из 10`),
+    element(
+      "span",
+      "muted tiny",
+      "Порядок станет порядком десяти независимых роликов.",
+    ),
+  );
+  const options = element("div", "generation-strategy-source-picker__options");
+  const selectedIds = new Set(projection.selected.map((item) => item.source_media_id));
+  picker.candidates.forEach((candidate) => {
+    const label = element("label", "option generation-strategy-source-picker__option");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.name = "generation_strategy_source_selection";
+    input.value = candidate.id;
+    input.checked = selectedIds.has(candidate.id);
+    input.disabled = !input.checked && projection.selected_count >= 10;
+    input.dataset.generationStrategySourceToggle = candidate.id;
+    input.setAttribute("aria-label", `Выбрать ${candidate.filename}`);
+    const position = projection.selected.find(
+      (item) => item.source_media_id === candidate.id,
+    )?.position;
+    const text = element("span", "");
+    text.append(
+      element("strong", "", position ? `${position}. ${candidate.filename}` : candidate.filename),
+      element(
+        "small",
+        "muted",
+        candidate.probe_required
+          ? "Нужна бесплатная проверка MP4"
+          : `${candidate.duration_seconds ?? "—"} с · сервером проверен`,
+      ),
+    );
+    label.append(input, text);
+    options.append(label);
+  });
+  root.append(header, options);
+  if (!picker.candidates.length) {
+    root.append(element(
+      "p",
+      "muted tiny",
+      "Нет доступных MP4 с привязкой к точному YouTube-источнику и подтверждёнными правами.",
+    ));
+  }
+
+  if (reviews) {
+    reviews.replaceChildren(...projection.selected.map((source) => (
+      strategyMechanicsEditor(source, row.strategy_id, source.position)
+    )));
+  }
+  form.dataset.generationStrategySourceCount = String(projection.selected_count);
+  form.dataset.generationStrategySourcesReady = projection.all_selected_ready
+    ? "true"
+    : "false";
+  return projection;
+}
+
+function generationStrategyProjectId() {
+  const runtimeContext = window.ContentEngineWorkspaceRuntime
+    ?.getGenerationContext?.();
+  const fromRuntime = String(runtimeContext?.project_id || "")
+    .trim().toLowerCase();
+  if (fromRuntime) return fromRuntime;
+  const raw = String(window.location.hash || "").replace(/^#/, "");
+  const query = raw.includes("?") ? raw.slice(raw.indexOf("?") + 1) : "";
+  return String(new URLSearchParams(query).get("project_id") || "")
+    .trim().toLowerCase();
+}
+
+function strategyAssetDescription(asset, blockers = []) {
+  const product = asset.product_identity
+    ? `${asset.product_identity.sku} · ${asset.product_identity.product_name}`
+    : "";
+  const duration = Number.isFinite(asset.duration_seconds)
+    ? `${asset.duration_seconds} с · длительность проверена сервером`
+    : "";
+  const blockerCopy = blockers
+    .map((code) => STRATEGY_ASSET_BLOCKER_COPY[code] || code)
+    .join(", ");
+  return [asset.filename, product, duration, blockerCopy]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function strategyAssetProbeOnly(blockers, role) {
+  return role === "source_video"
+    && blockers.length === 1
+    && blockers[0] === "server_duration_probe_required";
+}
+
+function replaceStrategyAssetCandidates(form, strategyId, role, { reset = false } = {}) {
+  const controlName = STRATEGY_ASSET_CONTROL_BY_ROLE[role];
+  const control = form.elements?.[controlName];
+  if (!(control instanceof HTMLSelectElement)) return;
+  const previous = reset ? "" : String(control.value || "");
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = STRATEGY_ASSET_EMPTY_COPY[role] || "Выберите исходник";
+  const options = (runtime.strategyAssetPage?.assets || [])
+    .map((asset) => {
+      const eligibility = generationStrategyAssetEligibility(
+        asset,
+        strategyId,
+        role,
+      );
+      const probeOnly = strategyAssetProbeOnly(eligibility.blockers, role);
+      const roleKnown = asset.eligible_strategy_roles?.some((entry) => (
+        entry.strategy_id === strategyId && entry.role === role
+      ));
+      if (!eligibility.eligible && !probeOnly && !roleKnown) return null;
+      const option = document.createElement("option");
+      option.value = asset.id;
+      option.textContent = strategyAssetDescription(asset, eligibility.blockers);
+      option.disabled = !eligibility.eligible && !probeOnly;
+      option.dataset.mediaKind = asset.kind;
+      option.dataset.durationSeconds = Number.isFinite(asset.duration_seconds)
+        ? String(asset.duration_seconds)
+        : "";
+      option.dataset.serverDurationVerified = Number.isFinite(asset.duration_seconds)
+        ? "true"
+        : "false";
+      option.dataset.probeRequired = probeOnly ? "true" : "false";
+      option.dataset.strategyRoleEligible = eligibility.eligible ? "true" : "false";
+      option.dataset.blockingCodes = eligibility.blockers.join(",");
+      return option;
+    })
+    .filter(Boolean);
+  control.replaceChildren(placeholder, ...options);
+  const reusable = options.find((option) => (
+    option.value === previous && !option.disabled
+  ));
+  control.value = reusable?.value || "";
+}
+
+function syncStrategyAssetCandidates(form, { reset = false } = {}) {
+  const row = selectedStrategyRow();
+  const status = q("[data-generation-strategy-assets-status]", form);
+  const more = q("[data-generation-strategy-assets-load-more]", form);
+  const refresh = q("[data-generation-strategy-assets-refresh]", form);
+  const probe = q('[data-action="probe-generation-strategy-media"]', form);
+  if (more instanceof HTMLButtonElement) {
+    more.hidden = runtime.strategyAssetPage?._meta?.has_more !== true;
+    more.disabled = runtime.strategyAssetStatus === "loading";
+  }
+  if (refresh instanceof HTMLButtonElement) {
+    refresh.disabled = runtime.strategyAssetStatus === "loading";
+  }
+  if (probe instanceof HTMLButtonElement) {
+    probe.hidden = true;
+    probe.disabled = true;
+    delete probe.dataset.mediaId;
+    delete probe.dataset.mediaIds;
+  }
+  if (!row) return;
+  for (const role of row.asset_roles) {
+    if (
+      role.role !== "source_video"
+      && STRATEGY_ASSET_CONTROL_BY_ROLE[role.role]
+    ) {
+      replaceStrategyAssetCandidates(form, row.strategy_id, role.role, { reset });
+    }
+  }
+  const sourceProjection = renderStrategySourcePicker(form, { reset });
+  if (!status) return;
+  if (runtime.strategyAssetStatus === "loading") {
+    status.dataset.state = "loading";
+    status.textContent = "Проверяем доступные исходники проекта. Файлы никуда не отправляются.";
+    return;
+  }
+  if (runtime.strategyAssetStatus === "error") {
+    status.dataset.state = "warning";
+    status.textContent = "Не удалось получить серверный список исходников. Платный запуск заблокирован; обновите список.";
+    return;
+  }
+  if (!runtime.strategyAssetPage) {
+    status.dataset.state = "pending";
+    status.textContent = "Загрузите серверный список исходников. Браузер не подставляет локальные файлы как платную авторизацию.";
+    return;
+  }
+  const requiredOwnedRoles = row.asset_roles
+    .filter((role) => (
+      role.role !== "source_video"
+      && STRATEGY_ASSET_CONTROL_BY_ROLE[role.role]
+    ));
+  const missing = requiredOwnedRoles.filter((role) => {
+    const control = form.elements?.[STRATEGY_ASSET_CONTROL_BY_ROLE[role.role]];
+    return !(control instanceof HTMLSelectElement)
+      || ![...control.options].some((option) => !option.disabled && option.value);
+  });
+  if (probe instanceof HTMLButtonElement) {
+    const probeIds = sourceProjection?.probe_required_source_ids || [];
+    const probeRequired = probeIds.length > 0;
+    probe.hidden = !probeRequired;
+    probe.disabled = !probeRequired || runtime.strategyAssetStatus === "loading";
+    probe.textContent = probeIds.length > 1
+      ? `Проверить ${probeIds.length} MP4 бесплатно`
+      : "Проверить длительность MP4 бесплатно";
+    probe.dataset.mediaIds = probeIds.join(",");
+    if (probeIds.length) probe.dataset.mediaId = probeIds[0];
+  }
+  if (sourceProjection?.probe_required_source_ids?.length) {
+    status.dataset.state = "warning";
+    status.textContent = `Для ${sourceProjection.probe_required_source_ids.length} выбранных MP4 нужна бесплатная серверная проверка длительности. До неё подготовка и платный запуск недоступны.`;
+    return;
+  }
+  const sourceCount = sourceProjection?.selected_count || 0;
+  const incompleteSources = sourceCount !== 10;
+  status.dataset.state = missing.length || incompleteSources ? "warning" : "ready";
+  status.textContent = missing.length
+    ? "Для одной из обязательных ролей нет подходящего серверно подтверждённого файла. Добавьте исходник в Материалы или загрузите следующую страницу."
+    : incompleteSources
+      ? `Выберите ровно 10 исходных хитов: сейчас ${sourceCount} из 10. Порядок выбора будет сохранён в очереди.`
+      : "Ровно 10 MP4 выбраны и проверены сервером. Каждый станет отдельным роликом; выбор ещё не запускает провайдера и не списывает средств.";
+}
+
+async function loadGenerationStrategyAssets(form, { append = false } = {}) {
+  const projectId = generationStrategyProjectId();
+  if (!projectId || !form?.isConnected) return false;
+  if (form.dataset.generationStrategyPaidLocked === "true") return false;
+  const selectedAuthorityBefore = JSON.stringify(
+    generationStrategySourcePickerProjection(runtime.strategySourcePicker)
+      ?.selected || [],
+  );
+  const api = window.ContentEngineWorkspaceRuntime?.getApi?.();
+  if (!api || typeof api.generationStrategyAssetCandidates !== "function") {
+    runtime.strategyAssetStatus = "error";
+    runtime.strategyAssetError = "generation_strategy_asset_candidates_unavailable";
+    syncStrategyAssetCandidates(form);
+    return false;
+  }
+  if (runtime.strategyAssetProjectId !== projectId) {
+    runtime.strategyAssetRequest += 1;
+    runtime.strategyAssetProjectId = projectId;
+    runtime.strategyAssetPage = null;
+    runtime.strategyAssetStatus = "idle";
+    runtime.strategyAssetError = "";
+    append = false;
+  }
+  const cursor = append ? runtime.strategyAssetPage?._meta?.next_cursor : null;
+  if (append && !cursor) return false;
+  const request = ++runtime.strategyAssetRequest;
+  runtime.strategyAssetStatus = "loading";
+  runtime.strategyAssetError = "";
+  syncStrategyAssetCandidates(form);
+  try {
+    const response = await api.generationStrategyAssetCandidates({
+      projectId,
+      kind: "all",
+      pageSize: 100,
+      ...(cursor ? { cursor } : {}),
+    });
+    const normalized = normalizeGenerationStrategyAssetCandidates(
+      response?.data ?? response,
+      { projectId, kind: "all", productId: null },
+    );
+    if (
+      request !== runtime.strategyAssetRequest
+      || runtime.strategyAssetProjectId !== projectId
+      || !form.isConnected
+    ) return false;
+    if (!normalized.ok) {
+      throw new Error(`generation_strategy_assets_${normalized.error.code}`);
+    }
+    runtime.strategyAssetPage = append
+      ? mergeGenerationStrategyAssetPages(
+          runtime.strategyAssetPage,
+          normalized.page,
+        )
+      : normalized.page;
+    runtime.strategyAssetStatus = "ready";
+    runtime.strategyAssetError = "";
+    syncStrategyAssetCandidates(form);
+    const nextSourceProjection = generationStrategySourcePickerProjection(
+      runtime.strategySourcePicker,
+    );
+    if (JSON.stringify(nextSourceProjection?.selected || []) !== selectedAuthorityBefore) {
+      form.dispatchEvent(new CustomEvent(
+        "contentengine:generation-strategy-sources-changed",
+        { bubbles: true, detail: nextSourceProjection },
+      ));
+    }
+    const pendingRestore = runtime.pendingStrategyRestore;
+    if (pendingRestore?.form === form) {
+      window.queueMicrotask(() => {
+        if (form.isConnected && runtime.pendingStrategyRestore === pendingRestore) {
+          applyStrategyRestore(form, pendingRestore.values);
+        }
+      });
+    }
+    scheduleSync(form);
+    return true;
+  } catch (error) {
+    if (request !== runtime.strategyAssetRequest || !form.isConnected) return false;
+    runtime.strategyAssetStatus = "error";
+    runtime.strategyAssetError = String(error?.code || error?.message || "error");
+    syncStrategyAssetCandidates(form);
+    scheduleSync(form);
+    return false;
+  }
+}
+
+function replaceStrategyOptions(control, values, selectedValue, emptyLabel) {
+  if (!(control instanceof HTMLSelectElement)) return "";
+  const normalized = [...new Set((Array.isArray(values) ? values : [])
+    .map((value) => String(value || "").trim())
+    .filter(Boolean))];
+  const current = normalized.includes(String(selectedValue || ""))
+    ? String(selectedValue)
+    : normalized[0] || "";
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = emptyLabel;
+  empty.selected = !current;
+  control.replaceChildren(empty, ...normalized.map((value) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value;
+    option.selected = value === current;
+    return option;
+  }));
+  return current;
+}
+
+function resetStrategyForm(form) {
+  const fieldset = q("#generation-strategy-assets", form);
+  if (fieldset instanceof HTMLFieldSetElement) {
+    fieldset.hidden = true;
+    fieldset.disabled = true;
+  }
+  [
+    "generation_strategy_id",
+    "generation_strategy_version",
+    "generation_strategy_recipe_version",
+    "generation_strategy_source_basis",
+    "generation_strategy_duration_seconds",
+    "generation_strategy_ratio",
+    "generation_strategy_resolution",
+    "generation_strategy_audio",
+    "generation_strategy_source_video_id",
+    "generation_strategy_avatar_media_id",
+    "generation_strategy_original_product_media_id",
+  ].forEach((name) => {
+    const control = form.elements?.[name];
+    if (control instanceof HTMLInputElement || control instanceof HTMLSelectElement) {
+      control.value = "";
+    }
+  });
+  q("[data-generation-strategy-attestations]", form)?.replaceChildren();
+  q("[data-generation-strategy-source-picker]", form)?.replaceChildren();
+  q("[data-generation-strategy-source-reviews]", form)?.replaceChildren();
+  runtime.strategySourcePicker = null;
+  runtime.strategyMechanicsDrafts.clear();
+  delete form.dataset.generationStrategySourceCount;
+  delete form.dataset.generationStrategySourcesReady;
+}
+
+function syncLegacyModelVisibility(form, strategySelected) {
+  const targets = [
+    q("[data-ce-v4-model-kind]", form),
+    q("[data-ce-v4-model-exact-settings]", form),
+    q("[data-ce-v4-model-budget-marker]", form),
+    form.elements?.generation_mode?.closest?.("label, .field"),
+    q("#generation-duration-field", form),
+    q("#generation-video-reference", form),
+    q("#generation-spec-card", form),
+    form.elements?.format?.closest?.("label, .field"),
+  ];
+  targets.forEach((target) => {
+    if (target instanceof HTMLElement) target.hidden = strategySelected;
+  });
+  const modeControl = form.elements?.generation_mode;
+  if (modeControl instanceof HTMLSelectElement) {
+    modeControl.disabled = strategySelected;
+    modeControl.required = !strategySelected;
+  }
+  [
+    form.elements?.duration_seconds,
+    form.elements?.generation_reference_url,
+    form.elements?.generation_reference_mechanics,
+    form.elements?.generation_reference_source_access_confirmed,
+    form.elements?.generation_reference_transformative_use_confirmed,
+    form.elements?.format,
+  ].forEach((control) => {
+    if (
+      control instanceof HTMLInputElement
+      || control instanceof HTMLSelectElement
+      || control instanceof HTMLTextAreaElement
+    ) {
+      control.disabled = strategySelected;
+    }
+  });
+  if (strategySelected) {
+    const campaignField = q("#generation-campaign-field", form);
+    const campaign = form.elements?.campaign_id;
+    const confirmationPanel = q("#real-generation-confirmation", form);
+    const confirmation = form.elements?.real_spend_confirmation;
+    const count = form.elements?.count;
+    if (campaignField instanceof HTMLElement) campaignField.hidden = false;
+    if (campaign instanceof HTMLSelectElement) {
+      campaign.disabled = false;
+      campaign.required = true;
+    }
+    if (confirmationPanel instanceof HTMLElement) confirmationPanel.hidden = false;
+    if (confirmation instanceof HTMLInputElement) {
+      const confirmationReady =
+        form.dataset.generationStrategyConfirmationReady === "true";
+      confirmation.disabled = !confirmationReady;
+      confirmation.required = confirmationReady;
+      if (!confirmationReady) confirmation.checked = false;
+    }
+    if (count instanceof HTMLInputElement) {
+      count.value = "1";
+      count.max = "1";
+      count.readOnly = true;
+    }
+  }
+  const brief = form.elements?.brief;
+  if (brief instanceof HTMLTextAreaElement) {
+    brief.required = strategySelected || modeIsReal(form);
+    brief.maxLength = strategySelected ? 800 : 1_200;
+  }
+  const advisor = q("[data-ce-v4-model-advisor]", form);
+  if (advisor instanceof HTMLElement) {
+    advisor.hidden = false;
+    advisor.dataset.strategyAdvisoryOnly = strategySelected ? "true" : "false";
+  }
+}
+
+function syncStrategyForm(form, { reset = false } = {}) {
+  const row = selectedStrategyRow();
+  const summary = selectedGenerationStrategySummary(runtime.strategyState);
+  if (!row || !summary.ok) {
+    resetStrategyForm(form);
+    syncLegacyModelVisibility(form, false);
+    return false;
+  }
+
+  const fieldset = q("#generation-strategy-assets", form);
+  if (!(fieldset instanceof HTMLFieldSetElement)) return false;
+  fieldset.hidden = false;
+  fieldset.disabled = false;
+  syncLegacyModelVisibility(form, true);
+
+  const setValue = (name, value) => {
+    const control = form.elements?.[name];
+    if (control instanceof HTMLInputElement || control instanceof HTMLSelectElement) {
+      control.value = String(value ?? "");
+    }
+  };
+  setValue("generation_strategy_id", row.strategy_id);
+  setValue("generation_strategy_version", runtime.strategyState.catalog.version);
+  setValue("generation_strategy_recipe_version", row.recipe_version);
+  setValue("generation_strategy_source_basis", "exact_source_video");
+
+  const output = q("[data-generation-strategy-output]", fieldset);
+  if (output instanceof HTMLElement) output.hidden = false;
+  const duration = form.elements?.generation_strategy_duration_seconds;
+  if (duration instanceof HTMLInputElement) {
+    duration.disabled = false;
+    duration.required = true;
+    duration.min = String(row.output_rules.duration.min_seconds);
+    duration.max = String(row.output_rules.duration.max_seconds);
+    const current = Number(duration.value);
+    if (
+      reset
+      || !Number.isSafeInteger(current)
+      || current < row.output_rules.duration.min_seconds
+      || current > row.output_rules.duration.max_seconds
+    ) {
+      duration.value = String(row.output_rules.duration.default_seconds);
+    }
+  }
+  const ratioField = q('[data-generation-strategy-dimension="ratio"]', fieldset);
+  const resolutionField = q('[data-generation-strategy-dimension="resolution"]', fieldset);
+  const ratio = form.elements?.generation_strategy_ratio;
+  const resolution = form.elements?.generation_strategy_resolution;
+  const ratioMode = row.output_rules.dimension_field === "ratio";
+  if (ratioField instanceof HTMLElement) ratioField.hidden = !ratioMode;
+  if (resolutionField instanceof HTMLElement) resolutionField.hidden = ratioMode;
+  if (ratio instanceof HTMLSelectElement) {
+    ratio.disabled = !ratioMode;
+    ratio.required = ratioMode;
+    replaceStrategyOptions(
+      ratio,
+      row.output_rules.ratios,
+      reset ? "" : ratio.value,
+      "Выберите формат",
+    );
+  }
+  if (resolution instanceof HTMLSelectElement) {
+    resolution.disabled = ratioMode;
+    resolution.required = !ratioMode;
+    replaceStrategyOptions(
+      resolution,
+      row.output_rules.resolutions,
+      reset ? "" : resolution.value,
+      "Выберите разрешение",
+    );
+  }
+  const audio = form.elements?.generation_strategy_audio;
+  if (audio instanceof HTMLSelectElement) {
+    audio.disabled = false;
+    audio.required = true;
+    if (reset) audio.value = "";
+  }
+
+  const roleIds = new Set(row.asset_roles.map((role) => role.role));
+  qa("[data-generation-strategy-role]", fieldset).forEach((node) => {
+    const active = roleIds.has(node.dataset.generationStrategyRole);
+    node.hidden = node.hasAttribute("data-generation-strategy-legacy-source")
+      ? true
+      : !active;
+    qa("input, select", node).forEach((control) => {
+      const legacySourceControl = control.name === "generation_strategy_source_video_id";
+      control.disabled = legacySourceControl || !active;
+      if ("required" in control) control.required = legacySourceControl ? false : active;
+      if (!active && reset) {
+        if (control instanceof HTMLInputElement && ["checkbox", "radio"].includes(control.type)) {
+          control.checked = false;
+        } else {
+          control.value = "";
+        }
+      }
+    });
+  });
+
+  const attestationRoot = q("[data-generation-strategy-attestations]", fieldset);
+  if (attestationRoot) {
+    attestationRoot.replaceChildren(...row.required_attestations.map((attestation) => {
+      const label = element("label", "option generation-strategy-attestation");
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.name = `generation_strategy_attestation_${attestation.id}`;
+      input.value = "true";
+      input.required = true;
+      input.dataset.generationStrategyAttestation = attestation.id;
+      const copy = element("span", "", attestation.public_label);
+      label.append(input, copy);
+      return label;
+    }));
+  }
+  const copy = q("[data-generation-strategy-assets-copy]", fieldset);
+  if (copy) {
+    copy.textContent = `${row.public_label}. Выберите ровно 10 хитов в нужном порядке, общие ассеты товара и права. Каждый исходник получит своё ТЗ, цену и задачу; до общего явного подтверждения списания не будет.`;
+  }
+  syncStrategyAssetCandidates(form, { reset });
+  return true;
+}
+
+function strategyAssetsForForm(form, row) {
+  const assets = [];
+  const addSelected = (role, control, { duration = false } = {}) => {
+    if (!(control instanceof HTMLSelectElement) || !control.value) return;
+    const asset = { role, media_id: String(control.value).toLowerCase() };
+    if (duration) {
+      const seconds = Number(control.selectedOptions?.[0]?.dataset?.durationSeconds);
+      if (Number.isFinite(seconds) && seconds > 0) asset.duration_seconds = seconds;
+    }
+    assets.push(asset);
+  };
+  const roleIds = new Set(row.asset_roles.map((role) => role.role));
+  if (roleIds.has("avatar_image")) {
+    addSelected("avatar_image", form.elements?.generation_strategy_avatar_media_id);
+  }
+  if (roleIds.has("original_product_image")) {
+    addSelected(
+      "original_product_image",
+      form.elements?.generation_strategy_original_product_media_id,
+    );
+  }
+  const productRole = roleIds.has("new_product_image")
+    ? "new_product_image"
+    : roleIds.has("product_image")
+      ? "product_image"
+      : "";
+  if (productRole) {
+    qa('input[name="media_id"]:checked:not(:disabled)', form).forEach((input) => {
+      assets.push({ role: productRole, media_id: String(input.value).toLowerCase() });
+    });
+  }
+  return assets;
+}
+
+function generationStrategyAttestations(form, row) {
+  return Object.fromEntries(row.required_attestations.map((item) => [
+    item.id,
+    q(`#generation-strategy-assets input[data-generation-strategy-attestation="${CSS.escape(item.id)}"]`, form)?.checked === true,
+  ]));
+}
+
+function generationStrategyMechanicsSummary(sourceMediaId, strategyId) {
+  if (strategyId === "viral_product_swap") return null;
+  const draft = strategyMechanicsDraft(sourceMediaId);
+  return Object.freeze({
+    version: "generation-strategy-mechanics-summary-v1",
+    hook: String(draft.hook || "").trim(),
+    beat_sequence: Object.freeze(String(draft.beat_sequence || "")
+      .split(/\r?\n/u)
+      .map((item) => item.trim())
+      .filter(Boolean)),
+    pacing: String(draft.pacing || "").trim(),
+    camera_language: String(draft.camera_language || "").trim(),
+    composition: String(draft.composition || "").trim(),
+    audio_pattern: String(draft.audio_pattern || "").trim(),
+    cta_pattern: String(draft.cta_pattern || "").trim(),
+  });
+}
+
+function generationStrategySelections(form) {
+  const row = selectedStrategyRow();
+  const selected = selectedGenerationStrategySummary(runtime.strategyState);
+  if (!row || !selected.ok) return null;
+  const sourceProjection = generationStrategySourcePickerProjection(
+    runtime.strategySourcePicker,
+  );
+  if (!sourceProjection?.all_selected_ready) return null;
+  const sharedAssets = strategyAssetsForForm(form, row);
+  const attestations = generationStrategyAttestations(form, row);
+  const duration = Number(form.elements?.generation_strategy_duration_seconds?.value);
+  const audioValue = String(form.elements?.generation_strategy_audio?.value || "");
+  const sourceRole = row.asset_roles.find((role) => role.role === "source_video");
+  const results = [];
+  for (const source of sourceProjection.selected) {
+    if (
+      sourceRole?.duration_required === true
+      && (!source.ready || !Number.isFinite(Number(source.duration_seconds)))
+    ) return null;
+    const sourceAsset = {
+      role: "source_video",
+      media_id: source.source_media_id,
+      ...(sourceRole?.duration_required === true
+        ? { duration_seconds: Number(source.duration_seconds) }
+        : {}),
+    };
+    const assets = [sourceAsset, ...sharedAssets];
+    const assetCounts = Object.fromEntries(
+      row.asset_roles.map((role) => [
+        role.role,
+        assets.filter((asset) => asset.role === role.role).length,
+      ]),
+    );
+    const draft = {
+      duration_seconds: duration,
+      audio: audioValue === "true" ? true : audioValue === "false" ? false : null,
+      asset_counts: assetCounts,
+      attestations,
+      ...(row.output_rules.dimension_field === "ratio"
+        ? { ratio: String(form.elements?.generation_strategy_ratio?.value || "") }
+        : { resolution: String(form.elements?.generation_strategy_resolution?.value || "") }),
+    };
+    const validation = validateSelectedGenerationStrategyDraft(
+      runtime.strategyState,
+      draft,
+    );
+    if (!validation.ok) return null;
+    results.push(Object.freeze({
+      source_media_id: source.source_media_id,
+      position: source.position,
+      filename: source.filename,
+      selection: Object.freeze({
+        version: runtime.strategyState.catalog.version,
+        strategy_id: row.strategy_id,
+        recipe_version: row.recipe_version,
+        duration_seconds: validation.normalized.duration_seconds,
+        ...(row.output_rules.dimension_field === "ratio"
+          ? { ratio: validation.normalized.ratio }
+          : { resolution: validation.normalized.resolution }),
+        audio: validation.normalized.audio,
+        assets: Object.freeze(assets.map((asset) => Object.freeze({ ...asset }))),
+        attestations: Object.freeze({ ...attestations }),
+      }),
+      mechanics_summary: generationStrategyMechanicsSummary(
+        source.source_media_id,
+        row.strategy_id,
+      ),
+    }));
+  }
+  return results.length === 10 ? Object.freeze(results) : null;
+}
+
+function generationStrategySelection(form) {
+  return generationStrategySelections(form)?.[0]?.selection || null;
+}
+
+function renderStrategyView(form) {
+  const root = q("[data-ce-v4-generation-strategies]", form);
+  if (!root) return;
+  root.innerHTML = generationStrategyViewMarkup(runtime.strategyState);
+  syncStrategyForm(form);
+}
+
+function applyStrategyRestore(form, values) {
+  const strategyId = String(values?.generation_strategy_id || "").trim();
+  if (!strategyId) return false;
+  if (runtime.strategyState?.catalog_status !== "ready") {
+    runtime.pendingStrategyRestore = { form, values: { ...values } };
+    return false;
+  }
+  const strategyChanged = runtime.strategyState?.selected_strategy_id !== strategyId;
+  runtime.strategyState = reduceGenerationStrategyViewState(
+    runtime.strategyState,
+    { type: GENERATION_STRATEGY_SELECT_ACTION, strategy_id: strategyId },
+  );
+  if (runtime.strategyState?.selected_strategy_id !== strategyId) return false;
+  const root = q("[data-ce-v4-generation-strategies]", form);
+  if (root) root.innerHTML = generationStrategyViewMarkup(runtime.strategyState);
+  syncStrategyForm(form, { reset: strategyChanged });
+  const unresolvedAssetControls = [];
+  const setValue = (name, value) => {
+    const control = form.elements?.[name];
+    if (!control || value === null || value === undefined || value === "") return true;
+    if (control instanceof HTMLSelectElement) {
+      const option = [...control.options].find(
+        (candidate) => candidate.value === String(value) && !candidate.disabled,
+      );
+      if (!option) return false;
+    }
+    control.value = String(value);
+    return true;
+  };
+  [
+    "generation_strategy_duration_seconds",
+    "generation_strategy_ratio",
+    "generation_strategy_resolution",
+    "generation_strategy_audio",
+    "generation_strategy_source_video_id",
+    "generation_strategy_avatar_media_id",
+    "generation_strategy_original_product_media_id",
+  ].forEach((name) => {
+    if (!setValue(name, values[name]) && values[name]) {
+      unresolvedAssetControls.push(name);
+    }
+  });
+  const requestedProductMedia = Array.isArray(
+    values.generation_strategy_product_media_ids,
+  )
+    ? [...new Set(values.generation_strategy_product_media_ids.map(
+        (value) => String(value || "").trim().toLowerCase(),
+      ).filter(Boolean))]
+    : [];
+  const availableProductMedia = new Set(
+    qa('input[name="media_id"]:not(:disabled)', form).map((input) => (
+      String(input.value || "").trim().toLowerCase()
+    )),
+  );
+  const productMediaAvailable = requestedProductMedia.every((mediaId) => (
+    availableProductMedia.has(mediaId)
+  ));
+  if (requestedProductMedia.length && productMediaAvailable) {
+    const selected = new Set(requestedProductMedia);
+    qa('input[name="media_id"]', form).forEach((input) => {
+      input.checked = selected.has(String(input.value || "").trim().toLowerCase())
+        && !input.disabled;
+    });
+    qa('input[name="primary_media_id"]', form).forEach((input) => {
+      input.checked = String(input.value || "").trim().toLowerCase()
+        === requestedProductMedia[0] && !input.disabled;
+    });
+  }
+  if (
+    unresolvedAssetControls.length
+    && runtime.strategyAssetStatus !== "ready"
+  ) {
+    runtime.pendingStrategyRestore = { form, values: { ...values } };
+    if (runtime.strategyAssetStatus !== "loading") {
+      void loadGenerationStrategyAssets(form);
+    }
+    return false;
+  }
+  // Draft restore intentionally never restores rights or likeness consent.
+  // These confirmations belong to one exact launch and must be given again.
+  qa("#generation-strategy-assets input[data-generation-strategy-attestation]", form)
+    .forEach((input) => {
+      input.checked = false;
+    });
+  runtime.pendingStrategyRestore = null;
+  if (unresolvedAssetControls.length || !productMediaAvailable) {
+    scheduleSync(form);
+    return false;
+  }
+  scheduleSync(form);
+  return true;
+}
+
+function ensureStrategyView(form) {
+  let root = q("[data-ce-v4-generation-strategies]", form);
+  if (!root) {
+    root = element("div", "ce-v4-generation-strategies");
+    root.dataset.ceV4GenerationStrategies = "";
+    contentFor(form, "mode")?.prepend(root);
+  }
+  renderStrategyView(form);
+  return root;
+}
+
 function modelCard(form, model, state) {
   const key = modelKey(model);
   const recommendationKey = modelKey(state?.recommendation?.recommended);
   const selectedKey = modeIsReal(form) || runtime.externalSelectionActive
     ? modelKey(state?.selection)
     : "";
-  const executable = modelCanUseExistingLaunch(form, model);
+  const strategyAdvisoryOnly = Boolean(selectedStrategyRow());
+  const executable = !strategyAdvisoryOnly && modelCanUseExistingLaunch(form, model);
   const recommended = key === recommendationKey;
   const selected = key === selectedKey;
   const candidate = modelCandidate(state, model);
   const unavailableCodes = modelUnavailableCodes(state, model);
   const disabledReasons = translatedList(unavailableCodes);
   const policyDisabledReason = MODEL_COPY[String(model.disabledReasonCode || "")] || "";
-  const primaryDisabledReason = policyDisabledReason || disabledReasons[0] || "Недоступно";
+  const primaryDisabledReason = strategyAdvisoryOnly
+    ? "Для выбранного сценария эта карточка — рекомендация, а не платный маршрут. Запуск использует только серверно подтверждённый recipe."
+    : policyDisabledReason || disabledReasons[0] || "Недоступно";
   const costPresentation = modelCostPresentation(form, model, state);
   const readiness = modelReadinessPresentation(form, model, state, executable);
   const qualityText = modelQualityState(model, executable, state);
@@ -1019,6 +2035,7 @@ function modelCard(form, model, state) {
   card.dataset.quality = String(model.qualityTier || "");
   card.dataset.readiness = readiness.state;
   card.dataset.disabledReasonCode = String(model.disabledReasonCode || "");
+  card.dataset.strategyAdvisoryOnly = strategyAdvisoryOnly ? "true" : "false";
   card.classList.toggle("is-selected", selected);
   if (!executable) {
     card.tabIndex = 0;
@@ -1098,7 +2115,9 @@ function modelCard(form, model, state) {
         ? "experimental"
         : "recheck";
 
-  const copy = executable
+  const copy = strategyAdvisoryOnly
+    ? "Альтернативная нейросеть остаётся видимой для сравнения. Платный запуск этого сценария станет доступен через неё только после отдельного серверного подтверждения совместимости."
+    : executable
     ? recommended
       ? recommendationReason(candidate?.reasonCodes || state?.recommendation?.reasonCodes)
       : "Можно выбрать и затем отдельно подтвердить запуск"
@@ -1266,7 +2285,8 @@ function renderRecommendationPanel(form, recommendation, state, suggestedModel, 
     recommendedCandidate?.warningCodes || state.recommendation?.warningCodes,
     MODEL_WARNING_COPY,
   );
-  const executable = modelCanUseExistingLaunch(form, suggestedModel);
+  const strategyAdvisoryOnly = Boolean(selectedStrategyRow());
+  const executable = !strategyAdvisoryOnly && modelCanUseExistingLaunch(form, suggestedModel);
   const cost = modelCostPresentation(form, suggestedModel, state);
   const readiness = modelReadinessPresentation(form, suggestedModel, state, executable);
   const sameSelection = modelKey(state.selection) === modelKey(suggestedModel)
@@ -1316,6 +2336,13 @@ function renderRecommendationPanel(form, recommendation, state, suggestedModel, 
     detailBody.append(element("p", "", "Критических предупреждений для текущей сцены нет."));
   }
   details.append(detailBody);
+  if (strategyAdvisoryOnly) {
+    detailBody.append(element(
+      "p",
+      "ce-v4-model-recommendation__strategy-note",
+      "Для выбранного сценария модели показаны как совет и сравнение. Фактический запуск использует только recipe, разрешённый сервером для этой стратегии.",
+    ));
+  }
 
   const actions = element("div", "ce-v4-model-recommendation__actions");
   const apply = element(
@@ -1343,7 +2370,9 @@ function renderRecommendationPanel(form, recommendation, state, suggestedModel, 
 
   recommendation.append(hero, reasons, compromise, details, actions);
   recommendation.hidden = false;
-  recommendation.dataset.state = executable ? "ready" : "blocked";
+  recommendation.dataset.state = strategyAdvisoryOnly
+    ? "advisory"
+    : executable ? "ready" : "blocked";
 }
 
 function selectedInputText(state) {
@@ -1532,9 +2561,16 @@ function renderModelAdvisor(form) {
   renderRecommendationPanel(form, recommendation, state, suggestedModel, selectedModel);
   renderSelectionSummary(form, state, selectedModel);
   const selectionActive = modeIsReal(form) || runtime.externalSelectionActive;
+  const explicitDryRun = String(form.elements?.generation_mode?.value || "") === "mock";
   status.dataset.state = !selectionActive ? "advisory" : state.manualLock ? "manual" : "advisory";
-  status.textContent = !selectionActive
-    ? "Сейчас выбран dry-run. Совет ИИ не применён и ничего платного не запустит."
+  const strategyAdvisoryOnly = Boolean(selectedStrategyRow());
+  status.dataset.strategyAdvisoryOnly = strategyAdvisoryOnly ? "true" : "false";
+  status.textContent = strategyAdvisoryOnly
+    ? "ИИ предлагает несколько моделей для сравнения. Для этого сценария карточки носят рекомендательный характер; платно запускается только серверно подтверждённый recipe."
+    : !selectionActive
+    ? explicitDryRun
+      ? "Вы явно выбрали dry-run. Он создаст только задачи без медиафайла и списания."
+      : "Способ создания ещё не выбран. Ни dry-run, ни платная генерация не включатся автоматически."
     : selectedModel
       ? state.manualLock
         ? `Ваш выбор: ${selectedModel.publicLabel || selectedModel.model}. Он зафиксирован: новые советы ИИ не заменят его без вашей команды.`
@@ -1544,6 +2580,12 @@ function renderModelAdvisor(form) {
 
 async function loadModelCatalog(form) {
   if (runtime.catalog) {
+    if (!runtime.strategyState) {
+      runtime.strategyState = createGenerationStrategyViewState(
+        extractedStrategyCatalog(runtime.catalog),
+      );
+    }
+    renderStrategyView(form);
     renderModelAdvisor(form);
     return;
   }
@@ -1568,15 +2610,25 @@ async function loadModelCatalog(form) {
     runtime.catalogSignals = response?.signals || response?.recommendation_context || null;
     runtime.catalogStatus = "ready";
     runtime.recommendationState = null;
+    runtime.strategyState = createGenerationStrategyViewState(
+      extractedStrategyCatalog(catalog),
+    );
     window.ContentEngineWorkspaceRuntime?.setGenerationModelCatalog?.(catalog);
     const pending = runtime.pendingRepeatSettings;
     runtime.pendingRepeatSettings = null;
     if (!pending || pending.form !== form || !applyRepeatedSettings(form, pending.detail)) {
       renderModelAdvisor(form);
     }
+    renderStrategyView(form);
+    const pendingStrategy = runtime.pendingStrategyRestore;
+    if (pendingStrategy?.form === form) {
+      applyStrategyRestore(form, pendingStrategy.values);
+    }
   } catch {
     if (request !== runtime.catalogRequest || !form.isConnected) return;
     runtime.catalogStatus = "error";
+    runtime.strategyState = createGenerationStrategyViewState(null);
+    renderStrategyView(form);
     renderModelAdvisor(form);
   }
 }
@@ -1666,7 +2718,8 @@ function classifyNode(node, fallback = "mode") {
     || contains(node, '[name="brief"], #generation-brief-assist, #generation-learning-status, #generation-repair-status')
   ) return "brief";
   if (
-    contains(node, '[name="media_id"], [name="primary_media_id"]')
+    node.id === "generation-strategy-assets"
+    || contains(node, '[name="media_id"], [name="primary_media_id"]')
     || contains(node, 'a[href*="/workspace/media"]')
   ) return "media";
   return fallback;
@@ -1729,9 +2782,9 @@ function createShell(form) {
   const intro = element("header", "ce-v4-generation-guided__intro");
   const introCopy = element("div", "ce-v4-generation-guided__intro-copy");
   introCopy.append(
-    element("p", "ce-v4-generation-guided__eyebrow", "НОВЫЙ ЗАПУСК"),
-    element("h2", "", "Один экран — одно решение"),
-    element("p", "", "Заполните текущий шаг и нажмите «Далее». Остальные настройки пока не отвлекают."),
+    element("p", "ce-v4-generation-guided__eyebrow", "ТРИ СТРАТЕГИИ ГЕНЕРАЦИИ"),
+    element("h2", "", "Сначала решите, как использовать референс"),
+    element("p", "", "Новый UGC с аватаром, замена товара в исходном ролике или новая реклама по его механике. Ничего не выбирается и не оплачивается автоматически."),
   );
   const position = element("span", "ce-v4-generation-guided__position", `Шаг 1 из ${STEPS.length}`);
   position.dataset.ceV4GenerationPosition = "";
@@ -1841,7 +2894,9 @@ function panelControls(panel) {
 }
 
 function modeIsReal(form) {
-  return String(form.elements?.generation_mode?.value || "mock") !== "mock";
+  return ["real_photo", "real_seedance", "real_gen4"].includes(
+    String(form.elements?.generation_mode?.value || ""),
+  );
 }
 
 function firstInvalidControl(panel) {
@@ -1933,6 +2988,19 @@ function panelValidity(form, index) {
       message: "Выберите хотя бы один точный исходник товара. Без него нельзя создать ни dry-run задачу, ни платный результат.",
     };
   }
+  if (
+    step.key === "media"
+    && runtime.strategyState?.selected_strategy_id
+    && !generationStrategySelection(form)
+  ) {
+    const fieldset = q("#generation-strategy-assets", panel);
+    return {
+      valid: false,
+      panel,
+      control: firstInvalidControl(fieldset) || fieldset,
+      message: "Для выбранной стратегии укажите все обязательные исходники, параметры результата и подтверждения прав.",
+    };
+  }
   return { valid: true, panel, control: null, message: "" };
 }
 
@@ -1957,6 +3025,7 @@ function selectLabel(control) {
 
 function summaryValues(form) {
   const mode = form.elements?.generation_mode;
+  const strategy = selectedStrategyRow();
   const selectedModel = runtime.catalog?.models?.find(
     (model) => modelKey(model) === modelKey(runtime.recommendationState?.selection),
   );
@@ -1966,9 +3035,12 @@ function summaryValues(form) {
   const destination = compact(form.elements?.destination_ref?.value, 54);
   const brief = compact(form.elements?.brief?.value, 110);
   const mediaCount = qa('input[name="media_id"]:checked:not(:disabled)', form).length;
+  const strategyAssets = strategy ? strategyAssetsForForm(form, strategy) : [];
   return {
     mode: compact(
-      [selectLabel(mode), selectedModel?.publicLabel].filter(Boolean).join(" · "),
+      strategy
+        ? strategy.public_label
+        : [selectLabel(mode), selectedModel?.publicLabel].filter(Boolean).join(" · "),
       110,
     ),
     product: productName === "Не заполнено" && sku === "Не заполнено"
@@ -1976,7 +3048,13 @@ function summaryValues(form) {
       : [productName, sku].filter((value) => value !== "Не заполнено").join(" · "),
     destination: [platform, destination].filter((value) => value && value !== "Не заполнено").join(" · ") || "Не заполнено",
     brief,
-    media: mediaCount ? `${mediaCount} ${mediaCount === 1 ? "исходник" : "исходника"}` : "Не выбраны",
+    media: strategy
+      ? strategyAssets.length
+        ? `${strategyAssets.length} точных файлов для стратегии`
+        : "Не выбраны"
+      : mediaCount
+        ? `${mediaCount} ${mediaCount === 1 ? "исходник" : "исходника"}`
+        : "Не выбраны",
   };
 }
 
@@ -2263,6 +3341,10 @@ function clearRepeatPaymentAndPreflight(form) {
     confirmation.checked = false;
     confirmation.dispatchEvent(new Event("input", { bubbles: true }));
   }
+  qa("#generation-strategy-assets input[data-generation-strategy-attestation]", form)
+    .forEach((input) => {
+      input.checked = false;
+    });
   delete form.dataset.autoGenerationPreflightKey;
 }
 
@@ -2345,9 +3427,102 @@ function handleExactScope(event) {
   renderModelAdvisor(form);
 }
 
+function handleStrategyRestore(event) {
+  const form = event.currentTarget;
+  const values = event?.detail && typeof event.detail === "object"
+    ? event.detail
+    : null;
+  if (!values) return;
+  event.preventDefault?.();
+  applyStrategyRestore(form, values);
+}
+
 function handleFormClick(event) {
   if (!(event.target instanceof Element)) return;
   const form = event.currentTarget;
+  const sourceToggle = event.target.closest(
+    "[data-generation-strategy-source-toggle], [data-action=\"toggle-generation-strategy-source\"]",
+  );
+  if (sourceToggle) {
+    event.preventDefault();
+    if (form.dataset.generationStrategyPaidLocked === "true") return;
+    const sourceMediaId = String(
+      sourceToggle.dataset.generationStrategySourceToggle
+        || sourceToggle.dataset.sourceMediaId
+        || "",
+    ).trim().toLowerCase();
+    const previous = generationStrategySourcePickerProjection(
+      runtime.strategySourcePicker,
+    );
+    runtime.strategySourcePicker = reduceGenerationStrategySourcePicker(
+      runtime.strategySourcePicker,
+      {
+        type: GENERATION_STRATEGY_SOURCE_PICKER_ACTIONS.toggle,
+        source_media_id: sourceMediaId,
+      },
+    );
+    const next = renderStrategySourcePicker(form);
+    if (
+      previous?.selected.some((item) => item.source_media_id === sourceMediaId)
+      && !next?.selected.some((item) => item.source_media_id === sourceMediaId)
+    ) {
+      runtime.strategyMechanicsDrafts.delete(sourceMediaId);
+    }
+    syncStrategyAssetCandidates(form);
+    form.dispatchEvent(new CustomEvent(
+      "contentengine:generation-strategy-sources-changed",
+      { bubbles: true, detail: next },
+    ));
+    scheduleSync(form);
+    return;
+  }
+  const strategyButton = event.target.closest(
+    '[data-generation-strategy-action="SELECT"]',
+  );
+  if (strategyButton) {
+    event.preventDefault();
+    if (form.dataset.generationStrategyPaidLocked === "true") return;
+    const previous = runtime.strategyState?.selected_strategy_id || "";
+    runtime.strategyState = reduceGenerationStrategyViewState(
+      runtime.strategyState,
+      {
+        type: GENERATION_STRATEGY_SELECT_ACTION,
+        strategy_id: strategyButton.dataset.strategyId,
+      },
+    );
+    const changed = previous !== runtime.strategyState?.selected_strategy_id;
+    const strategyRoot = q("[data-ce-v4-generation-strategies]", form);
+    if (strategyRoot) {
+      strategyRoot.innerHTML = generationStrategyViewMarkup(runtime.strategyState);
+    }
+    if (changed) {
+      syncStrategyForm(form, { reset: true });
+      form.elements?.generation_strategy_id?.dispatchEvent(
+        new Event("change", { bubbles: true }),
+      );
+      scheduleSync(form);
+    } else {
+      syncStrategyForm(form);
+    }
+    renderModelAdvisor(form);
+    return;
+  }
+  const refreshStrategyAssets = event.target.closest(
+    "[data-generation-strategy-assets-refresh]",
+  );
+  if (refreshStrategyAssets) {
+    event.preventDefault();
+    void loadGenerationStrategyAssets(form);
+    return;
+  }
+  const loadMoreStrategyAssets = event.target.closest(
+    "[data-generation-strategy-assets-load-more]",
+  );
+  if (loadMoreStrategyAssets) {
+    event.preventDefault();
+    void loadGenerationStrategyAssets(form, { append: true });
+    return;
+  }
   const contentKind = event.target.closest("[data-ce-v4-content-kind]");
   if (contentKind) {
     event.preventDefault();
@@ -2393,12 +3568,43 @@ function handleFormEdit(event) {
   const control = event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement
     ? event.target
     : null;
+  const mechanicsControl = event.target instanceof HTMLTextAreaElement
+    ? event.target
+    : null;
+  if (mechanicsControl?.dataset?.generationStrategyMechanicsField) {
+    const sourceMediaId = String(
+      mechanicsControl.dataset.generationStrategySourceMediaId || "",
+    ).trim().toLowerCase();
+    const field = String(
+      mechanicsControl.dataset.generationStrategyMechanicsField || "",
+    );
+    if (
+      runtime.strategyMechanicsDrafts.has(sourceMediaId)
+      || runtime.strategySourcePicker?.selected_source_ids?.includes(sourceMediaId)
+    ) {
+      runtime.strategyMechanicsDrafts.set(sourceMediaId, {
+        ...strategyMechanicsDraft(sourceMediaId),
+        [field]: mechanicsControl.value,
+      });
+    }
+  }
   if (control?.matches?.('[data-ce-v4-generation-model]')) {
     const selected = runtime.catalog?.models?.find((model) => modelKey(model) === control.value);
     applyModelIdentity(form, selected);
     return;
   }
   refreshRepeatedSetting(form, control);
+  if (
+    control?.name?.startsWith?.("generation_strategy_")
+  ) {
+    delete form.dataset.autoGenerationPreflightKey;
+    const confirmation = form.elements?.real_spend_confirmation;
+    if (confirmation instanceof HTMLInputElement) {
+      confirmation.checked = false;
+      confirmation.value = "";
+    }
+    syncStrategyAssetCandidates(form);
+  }
   if ([
     "generation_model_id",
     "generation_input_mode",
@@ -2461,6 +3667,7 @@ function bindForm(form) {
   form.addEventListener("change", handleFormEdit);
   form.addEventListener("contentengine:generation-repeat-settings", handleRepeatSettings);
   form.addEventListener("contentengine:generation-apply-exact-scope", handleExactScope);
+  form.addEventListener("contentengine:generation-restore-strategy", handleStrategyRestore);
 }
 
 function setupForm(form) {
@@ -2477,6 +3684,7 @@ function setupForm(form) {
     adoptDirectChildren(form, shell);
   }
 
+  ensureStrategyView(form);
   ensureModelAdvisor(form);
   exposeProviderReadinessControl(form);
   bindForm(form);
@@ -2496,6 +3704,7 @@ function setupForm(form) {
   setStep(form, restoredIndex);
   scheduleSync(form);
   void loadModelCatalog(form);
+  void loadGenerationStrategyAssets(form);
   return shell;
 }
 
@@ -2504,6 +3713,11 @@ function mount() {
     document.body.classList.remove("ce-v4-generation-guided-route");
     runtime.form = null;
     runtime.pendingRepeatSettings = null;
+    runtime.strategyAssetRequest += 1;
+    runtime.strategyAssetStatus = "idle";
+    runtime.strategyAssetError = "";
+    runtime.strategySourcePicker = null;
+    runtime.strategyMechanicsDrafts.clear();
     return;
   }
   const form = q("#mock-batch-form");
@@ -2514,6 +3728,13 @@ function mount() {
     runtime.externalSelectionActive = false;
     runtime.repeatSettings = null;
     runtime.pendingRepeatSettings = null;
+    runtime.strategyAssetRequest += 1;
+    runtime.strategyAssetPage = null;
+    runtime.strategyAssetProjectId = "";
+    runtime.strategyAssetStatus = "idle";
+    runtime.strategyAssetError = "";
+    runtime.strategySourcePicker = null;
+    runtime.strategyMechanicsDrafts.clear();
   }
   runtime.form = form;
   document.body.classList.add("ce-v4-generation-guided-route");
@@ -2525,6 +3746,23 @@ window.ContentEngineDesktopV4.registerAdapter("generation-guided", mount, { prio
 window.ContentEngineGenerationGuidedV4 = Object.freeze({
   mount,
   steps: STEPS,
+  getStrategySelection(form = runtime.form) {
+    return form?.isConnected ? generationStrategySelection(form) : null;
+  },
+  getStrategySelections(form = runtime.form) {
+    return form?.isConnected ? generationStrategySelections(form) : null;
+  },
+  getStrategySourcePickerProjection(form = runtime.form) {
+    if (!form?.isConnected) return null;
+    return generationStrategySourcePickerProjection(runtime.strategySourcePicker);
+  },
+  getStrategySummary() {
+    return selectedGenerationStrategySummary(runtime.strategyState);
+  },
+  refreshStrategyAssets(form = runtime.form) {
+    if (!form?.isConnected) return Promise.resolve(false);
+    return loadGenerationStrategyAssets(form);
+  },
   getSelectionSnapshotMetadata(form = runtime.form) {
     const identity = selectedModelForForm(form);
     const model = runtime.catalog?.models?.find(
@@ -2554,12 +3792,20 @@ window.ContentEngineGenerationGuidedV4 = Object.freeze({
     runtime.catalog = catalog;
     runtime.catalogStatus = "ready";
     runtime.recommendationState = null;
+    runtime.strategyState = createGenerationStrategyViewState(
+      extractedStrategyCatalog(catalog),
+    );
     window.ContentEngineWorkspaceRuntime?.setGenerationModelCatalog?.(catalog);
     if (runtime.form?.isConnected) {
       const pending = runtime.pendingRepeatSettings;
       runtime.pendingRepeatSettings = null;
       if (!pending || pending.form !== runtime.form || !applyRepeatedSettings(runtime.form, pending.detail)) {
         renderModelAdvisor(runtime.form);
+      }
+      renderStrategyView(runtime.form);
+      const pendingStrategy = runtime.pendingStrategyRestore;
+      if (pendingStrategy?.form === runtime.form) {
+        applyStrategyRestore(runtime.form, pendingStrategy.values);
       }
     }
     return true;

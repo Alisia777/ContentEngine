@@ -3,12 +3,12 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260813.os4.39";
+} from "./supabase-api.js?v=20260814.os4.41";
 import {
   adminPeopleMarkup,
   normalizeAdminSnapshot,
   normalizeAdminView,
-} from "./admin-people-view.js?v=20260813.os4.39";
+} from "./admin-people-view.js?v=20260814.os4.41";
 import {
   clearExactYoutubeMediaHandoff,
   exactYoutubeRegisteredMediaId,
@@ -23,6 +23,7 @@ import {
   resolveExactYoutubeResearchCaptureMedia,
 } from "./exact-youtube-research-capture.js?v=20260810.exact-video-capture.2";
 import {
+  approvedGenerationSpecContext,
   generationSpecApprovalReviewDecision,
   generationSpecApprovalReviewMatches,
   generationSpecApprovalReviewState,
@@ -32,13 +33,13 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
-} from "./generation-spec.js?v=20260813.os4.39";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260813.os4.39";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260813.os4.39";
+} from "./generation-spec.js?v=20260814.os4.41";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260814.os4.41";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260814.os4.41";
 import {
   normalizeWorkspaceInternalTarget,
   resolveWorkspaceCommand,
-} from "./workspace-command-registry.js?v=20260813.os4.39";
+} from "./workspace-command-registry.js?v=20260814.os4.41";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
@@ -70,15 +71,15 @@ import {
   generationSpendSnapshotMarkup,
   managerGenerationSpendMarkup,
   normalizeGenerationSpendOverview,
-} from "./generation-spend-view.js?v=20260813.os4.39";
+} from "./generation-spend-view.js?v=20260814.os4.41";
 import {
   generationProviderReadinessPreflights,
   normalizeGenerationProviderPreflight,
-} from "./generation-provider-readiness.js?v=20260813.os4.39";
+} from "./generation-provider-readiness.js?v=20260814.os4.41";
 import {
   generationModelAcceptanceMarkup,
   normalizeGenerationModelAcceptance,
-} from "./generation-model-acceptance-view.js?v=20260813.os4.39";
+} from "./generation-model-acceptance-view.js?v=20260814.os4.41";
 import {
   accessCenterMarkup,
   ensureAccessCenterStyles,
@@ -106,7 +107,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260813.os4.39";
+} from "./product-research-view.js?v=20260814.os4.41";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -117,7 +118,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260813.os4.39";
+} from "./ai-learning-control-room.js?v=20260814.os4.41";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -133,7 +134,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260813.os4.39";
+} from "./content-generation-handoff.js?v=20260814.os4.41";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -143,21 +144,53 @@ import {
   generationReadinessMarkup,
 } from "./generation-form-readiness.js?v=20260805.1";
 import {
+  GENERATION_STRATEGY_RUNTIME_ACTIONS,
+  createGenerationStrategyRuntimeState,
+  generationStrategyRuntimeBindRequest,
+  generationStrategyRuntimePreflightRequest,
+  generationStrategyRuntimeProbeRequest,
+  generationStrategyRuntimeSafeProjection,
+  generationStrategyRuntimeStartRequest,
+  generationStrategyRuntimeStatusRequest,
+  invalidateGenerationStrategyRuntimeState,
+  normalizeGenerationStrategyProbeResponse,
+  reduceGenerationStrategyRuntimeState,
+} from "./generation-strategy-runtime.js?v=20260814.os4.41";
+import {
+  createGenerationStrategyQueue,
+  generationStrategyQueueAggregateReview,
+  generationStrategyQueueSafeProjection,
+  invalidateGenerationStrategyQueueRow,
+  planGenerationStrategyQueueFreeWork,
+  planGenerationStrategyQueueSequentialStarts,
+  updateGenerationStrategyQueueRow,
+} from "./generation-strategy-queue.js?v=20260814.os4.41";
+import {
+  renderGenerationStrategyQueueView,
+} from "./generation-strategy-queue-view.js?v=20260814.os4.41";
+import {
+  buildGenerationStrategySpecApprovalRequest,
+  buildGenerationStrategySpecPrepareRequest,
+  generationStrategySpecSafeProjection,
+  normalizeGenerationStrategySpecControlResponse,
+  normalizeGenerationStrategySpecPrepareResponse,
+} from "./generation-strategy-spec.js?v=20260814.os4.41";
+import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
   normalizeGenerationVideoReferenceContext,
-} from "./generation-video-reference.js?v=20260813.os4.39";
+} from "./generation-video-reference.js?v=20260814.os4.41";
 import {
   buildGenerationFormDraft,
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260813.os4.39";
+} from "./generation-form-draft.js?v=20260814.os4.41";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
   resolveGenerationExpectedProductMatch,
-} from "./generation-ai-research-working-draft.js?v=20260813.os4.39";
+} from "./generation-ai-research-working-draft.js?v=20260814.os4.41";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -169,7 +202,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260813.os4.39";
+} from "./generation-autopilot.js?v=20260814.os4.41";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -191,7 +224,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260813.os4.39";
+} from "./content-review-view.js?v=20260814.os4.41";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -213,7 +246,7 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260813.os4.39";
+} from "./portal-experience.js?v=20260814.os4.41";
 import {
   isWorkspaceSmartFolderId,
   normalizeWorkspaceBoard,
@@ -221,7 +254,7 @@ import {
   workspaceBoardItemKey,
   workspaceBoardPaginationState,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260813.os4.39";
+} from "./workspace-board-view.js?v=20260814.os4.41";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -250,7 +283,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260813.os4.39";
+} from "./training-journey.js?v=20260814.os4.41";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -269,7 +302,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260813.os4.39";
+} from "./training-practical-review.js?v=20260814.os4.41";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -288,7 +321,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260813.os4.39";
+} from "./my-work-view.js?v=20260814.os4.41";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -1134,6 +1167,19 @@ const state = {
   realGenerationPollCursor: 0,
   realGenerationStatusRequests: new Map(),
   realGenerationResults: new Map(),
+  generationStrategyRuntimes: new Map(),
+  generationStrategyRequestKeys: new Map(),
+  generationStrategyActiveSourceMediaId: "",
+  generationStrategyStartInFlight: false,
+  generationStrategyRequestId: 0,
+  generationStrategyPollTimer: null,
+  generationStrategyPollInFlight: false,
+  generationStrategyQueue: null,
+  generationStrategyQueueReview: null,
+  generationStrategyQueueSourceRevision: null,
+  generationStrategySpecs: new Map(),
+  generationStrategySpecRequestKeys: new Map(),
+  generationStrategyQueueBusy: false,
   generationVideoReferenceLineage: new Map(),
   realGenerationDrafts: new Map(),
   generatedVideoQa: {
@@ -1832,7 +1878,7 @@ function generationFormDraftContext({ manual = false } = {}) {
 function generationFormDraftValues(form) {
   if (!form) return null;
   return {
-    generation_mode: String(form.elements.generation_mode?.value || "mock"),
+    generation_mode: String(form.elements.generation_mode?.value || ""),
     generation_provider: String(form.elements.generation_provider?.value || ""),
     generation_model_id: String(form.elements.generation_model_id?.value || ""),
     generation_input_mode: String(form.elements.generation_input_mode?.value || ""),
@@ -1867,6 +1913,47 @@ function generationFormDraftValues(form) {
     generation_reference_transformative_use_confirmed:
       form.elements.generation_reference_transformative_use_confirmed?.checked
         === true,
+    generation_strategy_id: String(
+      form.elements.generation_strategy_id?.value || "",
+    ),
+    generation_strategy_version: String(
+      form.elements.generation_strategy_version?.value || "",
+    ),
+    generation_strategy_recipe_version: String(
+      form.elements.generation_strategy_recipe_version?.value || "",
+    ),
+    generation_strategy_source_basis: String(
+      form.elements.generation_strategy_source_basis?.value || "",
+    ),
+    generation_strategy_duration_seconds: String(
+      form.elements.generation_strategy_duration_seconds?.value || "",
+    ),
+    generation_strategy_ratio: String(
+      form.elements.generation_strategy_ratio?.value || "",
+    ),
+    generation_strategy_resolution: String(
+      form.elements.generation_strategy_resolution?.value || "",
+    ),
+    generation_strategy_audio: String(
+      form.elements.generation_strategy_audio?.value || "",
+    ),
+    generation_strategy_source_video_id: String(
+      form.elements.generation_strategy_source_video_id?.value || "",
+    ),
+    generation_strategy_avatar_media_id: String(
+      form.elements.generation_strategy_avatar_media_id?.value || "",
+    ),
+    generation_strategy_original_product_media_id: String(
+      form.elements.generation_strategy_original_product_media_id?.value || "",
+    ),
+    generation_strategy_attestations: Object.fromEntries(
+      Array.from(form.querySelectorAll("[data-generation-strategy-attestation]"))
+        .map((input) => [
+          String(input.dataset.generationStrategyAttestation || ""),
+          input.checked === true,
+        ])
+        .filter(([key]) => key),
+    ),
     media_ids: Array.from(
       form.querySelectorAll('input[name="media_id"]:checked:not(:disabled)'),
     ).map((input) => String(input.value || "")).filter(Boolean),
@@ -1974,6 +2061,16 @@ function restoreGenerationLaunchSnapshot(form, snapshot) {
       && selectedMedia.has(input.value)
       && !input.disabled;
   });
+  if (values.generation_strategy_id) {
+    form.dispatchEvent(new CustomEvent(
+      "contentengine:generation-restore-strategy",
+      {
+        bubbles: false,
+        cancelable: true,
+        detail: values,
+      },
+    ));
+  }
   const selection = syncGenerationMediaSelection(form, { notify: false });
   const identity = syncGenerationProductIdentity(form);
   if (!identity || !selection?.valid) return false;
@@ -2407,6 +2504,16 @@ function restoreLocalGenerationFormDraft(form, { operationalOnly = false } = {})
   });
   if (restoredMediaCount) {
     form.dataset.generationMediaSelectionTouched = "true";
+  }
+  if (!operationalOnly && values.generation_strategy_id) {
+    form.dispatchEvent(new CustomEvent(
+      "contentengine:generation-restore-strategy",
+      {
+        bubbles: false,
+        cancelable: true,
+        detail: values,
+      },
+    ));
   }
   syncGenerationModeForm(form);
 
@@ -3408,6 +3515,13 @@ async function initialize() {
         : null;
       return entry?.status === "ready" ? entry.preflight : null;
     },
+    getGenerationContext: () => Object.freeze({
+      organization_id: String(
+        state.api?.organizationId || state.bootstrap?.organization?.id || "",
+      ).trim().toLowerCase(),
+      user_id: String(state.user?.id || "").trim().toLowerCase(),
+      project_id: currentWorkspaceProjectId(),
+    }),
     getExactYoutubeHandoffContext: () => Object.freeze({
       organization_id: String(
         state.api?.organizationId || state.bootstrap?.organization?.id || "",
@@ -4091,6 +4205,10 @@ function bindGlobalEvents() {
   document.addEventListener(
     "contentengine:generation-research-preset-opt-out",
     handleGenerationResearchPresetOptOut,
+  );
+  document.addEventListener(
+    "contentengine:generation-strategy-sources-changed",
+    handleGenerationStrategySourcesChanged,
   );
   document.addEventListener("dragstart", handleDragStart);
   document.addEventListener("dragover", handleDragOver);
@@ -10988,6 +11106,7 @@ async function loadSection(section, options = {}) {
           status: initialGenerationFilters.status,
           provider: initialGenerationFilters.provider,
           model: initialGenerationFilters.model,
+          strategyId: initialGenerationFilters.strategyId,
           contentKind: initialGenerationFilters.contentKind,
           selectionSource: initialGenerationFilters.selectionSource,
           qualityStatus: initialGenerationFilters.qualityStatus,
@@ -12899,6 +13018,10 @@ function isRealGenerationMode(mode) {
 }
 
 function generationOutcomeCopy(mode, sku = realGenerationSku(mode)) {
+  const selectedMode = String(mode || "").trim();
+  if (!selectedMode) {
+    return "Сначала выберите один из трёх способов генерации. Dry-run доступен отдельно и никогда не включается автоматически.";
+  }
   if (!isRealGenerationMode(mode) || !sku) {
     return `До ${MAX_MOCK_BATCH_SIZE} задач для проверки процесса. Изображение и видео в dry-run не создаются. Для готового файла выберите платный режим.`;
   }
@@ -12987,7 +13110,7 @@ function syncContentGenerationHandoff(form) {
   const handoff = state.contentGenerationHandoff;
   const panel = form?.querySelector("#generation-handoff-panel");
   if (!handoff || !form || !panel) return null;
-  const mode = String(form.elements.generation_mode?.value || "mock");
+  const mode = String(form.elements.generation_mode?.value || "").trim();
   const compiled = compileContentGenerationPrompt(
     handoff,
     mode,
@@ -13075,7 +13198,7 @@ function syncGenerationVideoReferenceStatus(form) {
 }
 
 function generationFormReadiness(form) {
-  const mode = String(form?.elements?.generation_mode?.value || "mock");
+  const mode = String(form?.elements?.generation_mode?.value || "");
   const sku = generationSkuForForm(form);
   const videoReference = generationVideoReferenceForForm(form);
   const mediaCount = form
@@ -13113,7 +13236,7 @@ function generationFormReadiness(form) {
 }
 
 function generationPromptInspection(form) {
-  const mode = String(form?.elements?.generation_mode?.value || "mock");
+  const mode = String(form?.elements?.generation_mode?.value || "");
   if (!form || !isRealGenerationMode(mode)) return null;
   const identity = selectedGenerationProductIdentity(form);
   const handoff = state.contentGenerationHandoff;
@@ -13175,7 +13298,7 @@ function generationPaidSafetyState(form) {
     learningStateMatches && state.generationLearning.status === "loading",
   );
   const learningContextBound = Boolean(generationLearningContext(form));
-  const generationSpecContext = currentGenerationSpecContext(form);
+  const generationSpecContext = currentApprovedGenerationSpecContext(form);
   const generationSpecApproved = Boolean(generationSpecContext);
   const promptInspection = generationPromptInspection(form);
   const promptReady = promptInspection?.ready === true;
@@ -13225,6 +13348,9 @@ function generationPaidSafetyState(form) {
 
 function syncGenerationFormReadiness(form) {
   if (!form) return null;
+  if (String(form.elements?.generation_strategy_id?.value || "").trim()) {
+    return syncGenerationStrategyFormReadiness(form);
+  }
   const readiness = generationFormReadiness(form);
   const current = form.querySelector("#generation-readiness");
   if (current && current.dataset.signature !== readiness.signature) {
@@ -13232,7 +13358,9 @@ function syncGenerationFormReadiness(form) {
     wrapper.innerHTML = generationReadinessMarkup(readiness).trim();
     if (wrapper.firstElementChild) current.replaceWith(wrapper.firstElementChild);
   }
-  const mode = String(form.elements.generation_mode?.value || "mock");
+  const mode = String(form.elements.generation_mode?.value || "");
+  const modeSelected = Boolean(mode);
+  const mock = mode === "mock";
   const sku = generationSkuForForm(form);
   const safety = generationPaidSafetyState(form);
   const { learningGenerationAllowed } = safety;
@@ -13265,11 +13393,19 @@ function syncGenerationFormReadiness(form) {
         : promptBlocker;
     submit.disabled = busy || Boolean(blocker);
     submit.dataset.launchBlocker = blocker;
-    submit.dataset.launchPhase = readinessV4NeedsReceipt ? "preflight" : "paid";
+    submit.dataset.launchPhase = !modeSelected
+      ? "select"
+      : readinessV4NeedsReceipt
+        ? "preflight"
+        : mock
+          ? "dry-run"
+          : "paid";
     submit.textContent = busy
       ? sku
         ? "Готовим ТЗ и проверяем запуск — не повторяйте"
-        : "Создаём dry-run задачи…"
+        : mock
+          ? "Создаём dry-run задачи…"
+          : "Проверяем выбранный способ…"
       : readinessV4NeedsReceipt
         ? "Подготовить ТЗ и проверить цену бесплатно"
       : sku && !spendAllowed
@@ -13278,7 +13414,9 @@ function syncGenerationFormReadiness(form) {
           ? "Заполните обязательные шаги"
         : sku
           ? `Создать одно платное ${sku.contentKind === "photo" ? "фото" : "видео"} · около $${sku.estimatedUsd}`
-          : "Создать dry-run задач";
+          : mock
+            ? "Создать dry-run задач"
+            : "Выберите способ создания";
   }
   return readiness;
 }
@@ -13302,7 +13440,7 @@ function applyContentGenerationHandoffToForm() {
     setValue("product_name", handoff.productName);
     setValue("platform", handoff.scenario.platform);
     const handoffMode = String(
-      form.elements.generation_mode?.value || "mock",
+      form.elements.generation_mode?.value || "",
     );
     setValue("format", realGenerationSku(handoffMode)?.format || "9:16");
     const compiled = compileContentGenerationPrompt(
@@ -13475,15 +13613,7 @@ function renderGenerationSection(sectionState) {
     ? repairMode
     : handoff
     ? handoffModeResolution.value
-    : MOCK_GENERATION_ENABLED
-      ? "mock"
-      : photoSpendAllowed
-        ? REAL_PHOTO_MODE
-        : seedanceSpendAllowed
-          ? REAL_SEEDANCE_MODE
-          : gen4SpendAllowed
-            ? REAL_GEN4_MODE
-            : REAL_PHOTO_MODE;
+    : "";
   const defaultCampaignId = defaultMode === REAL_SEEDANCE_MODE
     ? seedanceCampaign?.id || ""
     : defaultMode === REAL_GEN4_MODE
@@ -13652,17 +13782,17 @@ function renderGenerationSection(sectionState) {
     <div class="page-wrap" data-generation-view="${escapeHtml(generationView)}">
       ${pageHeader(
         "Создание контента",
-        "Проверьте процесс без рендера либо создайте готовое видео или товарное фото по точному исходнику.",
+        "Выберите один из трёх способов: новый UGC с аватаром, замена товара в исходном ролике или новая реклама по его механике.",
         REAL_GENERATION_ENABLED && (seedanceSpendAllowed || gen4SpendAllowed || photoSpendAllowed)
-          ? `<span class="badge badge-info">DRY-RUN + ПЛАТНЫЙ</span>`
+          ? `<span class="badge badge-info">3 СТРАТЕГИИ · ПЛАТНЫЙ ЗАПУСК ОТДЕЛЬНО</span>`
           : `<span class="badge badge-mock">DRY-RUN · БЕЗ ФАЙЛОВ</span>`,
       )}
       ${generationActionSwitch(generationView, canManageAliases || aliases.length > 0)}
       <div class="split-grid generation-workspace-layout">
         <section class="card card-pad generation-launch-card">
           <p class="eyebrow">Новый запуск</p>
-          <h2 style="font:600 1.55rem/1.15 Georgia,serif; margin:0 0 8px">Выберите режим запуска</h2>
-          <p class="muted tiny">Dry-run создаёт задачи и места публикации, но не рендерит фото или видео. Платные режимы создают ровно один медиафайл: квадратное фото 2K, анимацию товара на 2–10 секунд или UGC-ролик с голосом на 4–15 секунд.</p>
+          <h2 style="font:600 1.55rem/1.15 Georgia,serif; margin:0 0 8px">Выберите способ создания</h2>
+          <p class="muted tiny">Три стратегии используют разные роли исходников и разные Runway Recipes. Интерфейс сначала фиксирует человеческий выбор, затем бесплатно готовит точное ТЗ и цену; платный запуск выполняется только отдельным подтверждением.</p>
           ${contentGenerationHandoffMarkup(
             handoff,
             handoffEvaluation,
@@ -13688,6 +13818,7 @@ function renderGenerationSection(sectionState) {
             <label class="field">
               <span>Режим генерации *</span>
               <select id="generation-mode" name="generation_mode" required>
+                <option value="" ${defaultMode ? "" : "selected"} disabled>Сначала выберите способ создания</option>
                 ${MOCK_GENERATION_ENABLED ? `<option value="mock" ${defaultMode === "mock" ? "selected" : ""}>Dry-run задач · без файлов и списаний</option>` : ""}
                 ${REAL_GENERATION_ENABLED ? `
                   <option value="${REAL_PHOTO_MODE}" ${defaultMode === REAL_PHOTO_MODE ? "selected" : ""}>${generationModeChoiceLabel(REAL_PHOTO_MODE)}</option>
@@ -13820,6 +13951,75 @@ function renderGenerationSection(sectionState) {
                 <span>Переносим только механику: без чужого бренда, музыки, голоса, текста, водяных знаков и точных кадров.</span>
               </label>
               <p class="muted tiny" data-generation-video-reference-status role="status">Референс не задан.</p>
+            </fieldset>
+            <fieldset id="generation-strategy-assets" class="card card-pad form-stack generation-strategy-assets" hidden disabled>
+              <legend class="field-label">Точные исходники выбранной стратегии</legend>
+              <input type="hidden" name="generation_strategy_id" value="" />
+              <input type="hidden" name="generation_strategy_version" value="" />
+              <input type="hidden" name="generation_strategy_recipe_version" value="" />
+              <input type="hidden" name="generation_strategy_source_basis" value="" />
+              <p class="muted tiny" data-generation-strategy-assets-copy>Сначала вручную выберите один из трёх способов создания.</p>
+              <div class="field-grid generation-strategy-assets__output" data-generation-strategy-output hidden>
+                <label class="field">
+                  <span>Длительность результата *</span>
+                  <input name="generation_strategy_duration_seconds" type="number" min="4" max="15" step="1" value="" disabled />
+                </label>
+                <label class="field" data-generation-strategy-dimension="ratio" hidden>
+                  <span>Формат результата *</span>
+                  <select name="generation_strategy_ratio" disabled>
+                    <option value="">Выберите формат</option>
+                  </select>
+                </label>
+                <label class="field" data-generation-strategy-dimension="resolution" hidden>
+                  <span>Разрешение результата *</span>
+                  <select name="generation_strategy_resolution" disabled>
+                    <option value="">Выберите разрешение</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Звук результата *</span>
+                  <select name="generation_strategy_audio" disabled>
+                    <option value="">Выберите явно</option>
+                    <option value="true">Со звуком</option>
+                    <option value="false">Без сгенерированного звука</option>
+                  </select>
+                </label>
+              </div>
+              <label class="field" data-generation-strategy-role="source_video" data-generation-strategy-legacy-source hidden>
+                <span>Внутренняя совместимость источника</span>
+                <select name="generation_strategy_source_video_id" disabled aria-hidden="true" tabindex="-1">
+                  <option value="">Выберите сохранённый MP4 с подтверждёнными правами</option>
+                </select>
+              </label>
+              <section class="generation-strategy-source-picker" aria-labelledby="generation-strategy-source-picker-title">
+                <div class="generation-strategy-source-picker__title">
+                  <span class="field-label" id="generation-strategy-source-picker-title">10 исходных хитов *</span>
+                  <p class="muted tiny">Выберите ровно десять MP4. Для UGC и пересборки мы берём их механику; для замены товара сервер передаёт сам подтверждённый MP4.</p>
+                </div>
+                <div data-generation-strategy-source-picker role="group" aria-labelledby="generation-strategy-source-picker-title"></div>
+              </section>
+              <label class="field" data-generation-strategy-role="avatar_image" hidden>
+                <span>Фото аватара *</span>
+                <select name="generation_strategy_avatar_media_id" disabled>
+                  <option value="">Выберите creator reference с согласием на внешность</option>
+                </select>
+              </label>
+              <label class="field" data-generation-strategy-role="original_product_image" hidden>
+                <span>Фото товара из исходного ролика *</span>
+                <select name="generation_strategy_original_product_media_id" disabled>
+                  <option value="">Выберите creator reference исходного товара</option>
+                </select>
+              </label>
+              <div class="option-list generation-strategy-assets__attestations" data-generation-strategy-attestations></div>
+              <section class="generation-strategy-source-reviews" data-generation-strategy-source-reviews aria-label="Разбор десяти исходных роликов"></section>
+              <section class="generation-strategy-spec-review" data-generation-strategy-spec-review aria-live="polite"></section>
+              <section class="generation-strategy-queue-mount" data-generation-strategy-queue-mount aria-live="polite"></section>
+              <p class="muted tiny" data-generation-strategy-assets-status role="status">Ни один источник не отправлен и платный запуск не выполнялся.</p>
+              <div class="inline-actions generation-strategy-assets__actions">
+                <button class="btn btn-secondary btn-small" type="button" data-action="probe-generation-strategy-media" hidden disabled>Проверить длительность MP4 бесплатно</button>
+                <button class="btn btn-ghost btn-small" type="button" data-generation-strategy-assets-refresh>Обновить список исходников</button>
+                <button class="btn btn-ghost btn-small" type="button" data-generation-strategy-assets-load-more hidden>Показать ещё</button>
+              </div>
             </fieldset>
             <div id="generation-brief-assist" class="generation-brief-assist" ${defaultIsReal ? "" : "hidden"}>
               <small id="generation-auto-brief-status" class="field-hint" role="status">Портал сам подготовит техническое ТЗ при запуске. Ваш текст останется замыслом и не будет заменён служебными инструкциями.</small>
@@ -13960,6 +14160,15 @@ function generationArchiveMarkup(batches, filteredBatches, visibleBatches, filte
           <input name="model" maxlength="80" value="${escapeHtml(filters.model === "all" ? "" : filters.model)}" placeholder="Например, gen4_turbo" autocomplete="off" />
         </label>
         <label class="field">
+          <span>Стратегия</span>
+          <select name="strategy_id">
+            <option value="all" ${filters.strategyId === "all" ? "selected" : ""}>Все стратегии</option>
+            <option value="viral_avatar_ugc" ${filters.strategyId === "viral_avatar_ugc" ? "selected" : ""}>UGC с аватаром и товаром</option>
+            <option value="viral_product_swap" ${filters.strategyId === "viral_product_swap" ? "selected" : ""}>Замена товара в ролике</option>
+            <option value="viral_rebuild" ${filters.strategyId === "viral_rebuild" ? "selected" : ""}>Новый ролик по механике</option>
+          </select>
+        </label>
+        <label class="field">
           <span>Результат</span>
           <select name="content_kind">
             <option value="all" ${filters.contentKind === "all" ? "selected" : ""}>Фото и видео</option>
@@ -14008,7 +14217,7 @@ function generationArchiveMarkup(batches, filteredBatches, visibleBatches, filte
         ${filteredBatches.length > visibleBatches.length && filters.visible >= GENERATION_VISIBLE_CAP ? `<span class="muted tiny">Уточните период или поиск, чтобы не выводить больше ${GENERATION_VISIBLE_CAP} строк сразу</span>` : ""}
         ${!archive.exhausted ? `<button class="btn btn-secondary btn-small" type="button" data-action="load-more-generation" ${archive.loading || archive.loadingMore ? "disabled" : ""}>${archive.loadingMore ? "Загружаем…" : archive.error ? "Повторить загрузку истории" : `Загрузить ещё ${GENERATION_ARCHIVE_PAGE_SIZE} старых`}</button>` : `<span class="muted tiny">Загружена вся доступная история по выбранным фильтрам</span>`}
       </div>`}
-      <p class="generation-archive-note">${interactive ? "Показана только запись из точной ссылки; фильтры общей истории к ней не применяются." : "Период, статус и поиск применяются на сервере ко всему архиву. Провайдер, модель, тип результата, источник выбора и качество фильтруются там же. Кнопка «Загрузить ещё» добавляет следующую страницу без повторов."} <span class="generation-mobile-hint">На телефоне таблицу можно листать по горизонтали.</span></p>
+      <p class="generation-archive-note">${interactive ? "Показана только запись из точной ссылки; фильтры общей истории к ней не применяются." : "Период, статус и поиск применяются на сервере ко всему архиву. Стратегия, провайдер, модель, тип результата, источник выбора и качество фильтруются там же. Кнопка «Загрузить ещё» добавляет следующую страницу без повторов."} <span class="generation-mobile-hint">На телефоне таблицу можно листать по горизонтали.</span></p>
     </div>
   `;
 }
@@ -14021,6 +14230,7 @@ async function submitGenerationArchiveFilters(form) {
     status: values.get("status"),
     provider: values.get("provider"),
     model: values.get("model") || "all",
+    strategyId: values.get("strategy_id"),
     contentKind: values.get("content_kind"),
     selectionSource: values.get("selection_source"),
     qualityStatus: values.get("quality_status"),
@@ -14058,6 +14268,7 @@ async function reloadGenerationArchive() {
         status: filters.status,
         provider: filters.provider,
         model: filters.model,
+        strategyId: filters.strategyId,
         contentKind: filters.contentKind,
         selectionSource: filters.selectionSource,
         qualityStatus: filters.qualityStatus,
@@ -14125,6 +14336,7 @@ async function loadMoreGenerationArchive() {
           status: filters.status,
           provider: filters.provider,
           model: filters.model,
+          strategyId: filters.strategyId,
           contentKind: filters.contentKind,
           selectionSource: filters.selectionSource,
           qualityStatus: filters.qualityStatus,
@@ -14188,6 +14400,9 @@ function generationTable(items, interactive = false) {
           ? `<tr class="generation-week-heading"><th colspan="5" scope="rowgroup">Неделя ${escapeHtml(weekLabel)}</th></tr>`
           : "";
         const details = generationBatchDetails(item);
+        const strategyMarkup = details.strategy
+          ? generationStrategyArchiveMarkup(details)
+          : "";
         const selectionMarkup = details.selectionSnapshot
           ? generationSelectionArchiveMarkup(details)
           : `<div class="generation-model-record is-legacy"><strong>Модель не зафиксирована · старый запуск</strong><span>Система не подставляет сегодняшнюю модель вместо исторических данных.</span></div>`;
@@ -14198,7 +14413,7 @@ function generationTable(items, interactive = false) {
         if (!details.real) {
           return `${weekHeading}
             <tr>
-              <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">Dry-run задач · медиафайлы не создавались</small>${selectionMarkup}<br />${archiveAction}</td>
+              <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">Dry-run задач · медиафайлы не создавались</small>${strategyMarkup}${selectionMarkup}<br />${archiveAction}</td>
               <td>${escapeHtml(item.sku || details.parameters.sku || "—")}</td>
               <td>${statusBadge(details.status)}<br /><small class="muted">Готово ${formatNumber(item.total_accepted ?? item.completed ?? 0)} из ${formatNumber(item.total_requested ?? item.count ?? 0)}</small></td>
               <td>0 ₽</td>
@@ -14236,7 +14451,7 @@ function generationTable(items, interactive = false) {
           : "";
         return `${weekHeading}
           <tr data-generation-job-id="${escapeHtml(details.jobId)}" tabindex="-1">
-            <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">${details.photo ? "Платное фото" : `Платный ролик · ${details.duration} секунд${details.audio ? " · с озвучкой" : " · без голоса"}`}</small>${selectionMarkup}${archiveAction ? `<br />${archiveAction}` : ""}</td>
+            <td><strong>${escapeHtml(item.name || item.public_id || `#${item.id}`)}</strong><br /><small class="muted">${details.photo ? "Платное фото" : `Платный ролик · ${details.duration} секунд${details.audio ? " · с озвучкой" : " · без голоса"}`}</small>${strategyMarkup}${selectionMarkup}${archiveAction ? `<br />${archiveAction}` : ""}</td>
             <td>${escapeHtml(item.sku || details.parameters.sku || "—")}</td>
             <td>
               ${generationStageMarkup(details.status)}
@@ -14255,6 +14470,137 @@ function generationTable(items, interactive = false) {
       }).join("")}</tbody>
     </table></div>
   `;
+}
+
+function generationStrategyArchiveMarkup(details) {
+  const strategy = details?.strategy;
+  if (!strategy) return "";
+  const execution = details.strategyExecution;
+  const labels = {
+    viral_avatar_ugc: "UGC с аватаром и товаром",
+    viral_product_swap: "Замена товара в исходном ролике",
+    viral_rebuild: "Новый ролик по механике референса",
+  };
+  const basisLabels = {
+    exact_source_video: "Точный исходный MP4 зафиксирован",
+    operator_summary_only: "Только подтверждённое описание механики",
+    ai_research_recommendation: "Подтверждённая рекомендация исследования",
+  };
+  const roleLabels = {
+    product_primary: "главный товар",
+    product_reference: "ракурсы товара",
+    creator_avatar: "аватар",
+    source_video: "исходный ролик",
+    original_product: "исходный товар",
+    style_reference: "стилевые референсы",
+  };
+  const roles = Object.entries(strategy.roleCounts)
+    .filter(([, count]) => count > 0)
+    .map(([role, count]) => `${roleLabels[role] || role}: ${count}`);
+  const recipeLabels = {
+    product_ugc: "Runway Product UGC",
+    product_swap: "Runway Product Swap",
+    product_ad: "Runway Product Ad",
+  };
+  const executionSummary = execution
+    ? [
+        `${execution.durationSeconds} сек.`,
+        execution.ratio || execution.resolution,
+        execution.audio ? "со звуком" : "без сгенерированного звука",
+      ].filter(Boolean).join(" · ")
+    : "";
+  return `
+    <section class="generation-model-record generation-strategy-record" data-generation-strategy-id="${escapeHtml(strategy.strategyId)}" aria-label="Стратегия запуска">
+      <div class="generation-model-record__head generation-strategy-record__head">
+        <span class="badge badge-info">Стратегия</span>
+        <strong>${escapeHtml(labels[strategy.strategyId] || strategy.strategyId)}</strong>
+      </div>
+      <p>${escapeHtml(basisLabels[strategy.sourceBasis] || strategy.sourceBasis)} · статус ${escapeHtml(humanGenerationStatus(strategy.status || details.status))}</p>
+      ${execution ? `<p><strong>${escapeHtml(recipeLabels[execution.recipe] || execution.recipe)}</strong> · ${escapeHtml(executionSummary)}</p>` : ""}
+      ${execution ? `<p class="generation-model-record__cost">Серверная оценка ${escapeHtml(formatGenerationUsd(execution.estimatedCostMinor))} · тариф ${escapeHtml(execution.pricingVersion)}</p>` : ""}
+      ${roles.length ? `<p>${escapeHtml(roles.join(" · "))}</p>` : ""}
+      <details>
+        <summary>Неизменяемая запись</summary>
+        <dl>
+          <div><dt>Версия</dt><dd><code>${escapeHtml(strategy.snapshotVersion)}</code></dd></div>
+          <div><dt>Hash</dt><dd><code>${escapeHtml(strategy.snapshotHash)}</code></dd></div>
+        </dl>
+      </details>
+      ${details.jobId ? `<button class="btn btn-secondary btn-small" type="button" data-action="repeat-generation-strategy" data-job-id="${escapeHtml(details.jobId)}">Повторить стратегию</button>` : ""}
+      <small>Исходники будут проверены заново; права, цена и платное подтверждение не переносятся.</small>
+    </section>
+  `;
+}
+
+function generationStrategyExecutionArchiveDetails(item, strategy) {
+  if (!item || !strategy) return null;
+  const hasSelection = Object.prototype.hasOwnProperty.call(
+    item,
+    "generation_strategy_execution_selection",
+  );
+  const hasPrice = Object.prototype.hasOwnProperty.call(
+    item,
+    "generation_strategy_price_reference",
+  );
+  const selection = hasSelection
+    && item.generation_strategy_execution_selection
+    && typeof item.generation_strategy_execution_selection === "object"
+    && !Array.isArray(item.generation_strategy_execution_selection)
+    ? item.generation_strategy_execution_selection
+    : null;
+  const price = hasPrice
+    && item.generation_strategy_price_reference
+    && typeof item.generation_strategy_price_reference === "object"
+    && !Array.isArray(item.generation_strategy_price_reference)
+    ? item.generation_strategy_price_reference
+    : null;
+  const expectedRecipes = {
+    viral_avatar_ugc: "product_ugc",
+    viral_product_swap: "product_swap",
+    viral_rebuild: "product_ad",
+  };
+  const recipe = String(price?.recipe || "").trim().toLowerCase();
+  const durationSeconds = Number(selection?.duration_seconds);
+  const ratio = String(selection?.ratio || "").trim();
+  const resolution = String(selection?.resolution || "").trim();
+  const estimatedCostMinor = Number(price?.estimated_cost_minor);
+  const estimatedCredits = Number(price?.estimated_credits);
+  const dimensionMatches = strategy.strategyId === "viral_product_swap"
+    ? ["720p", "1080p"].includes(resolution) && ratio === ""
+    : ["720:1280", "1080:1920"].includes(ratio) && resolution === "";
+  if (
+    selection?.version !== "2026-08-14.v1"
+    || selection.strategy_id !== strategy.strategyId
+    || selection.recipe_version !== "2026-06"
+    || price?.version !== "generation-strategy-price-snapshot-v1"
+    || price.strategy_id !== strategy.strategyId
+    || price.provider !== "runway"
+    || recipe !== expectedRecipes[strategy.strategyId]
+    || price.catalog_version !== selection.version
+    || price.recipe_version !== selection.recipe_version
+    || price.pricing_version !== "runway-recipe-credits-2026-08-14.v1"
+    || price.display_only !== true
+    || price.requires_fresh_server_price !== true
+    || price.price_hash !== null
+    || price.spend_confirmation !== null
+    || !Number.isSafeInteger(durationSeconds)
+    || durationSeconds < 4
+    || durationSeconds > 15
+    || typeof selection.audio !== "boolean"
+    || !dimensionMatches
+    || !Number.isSafeInteger(estimatedCostMinor)
+    || estimatedCostMinor < 1
+    || estimatedCostMinor !== estimatedCredits
+  ) return null;
+  return Object.freeze({
+    recipe,
+    durationSeconds,
+    ratio,
+    resolution,
+    audio: selection.audio,
+    estimatedCostMinor,
+    pricingVersion: price.pricing_version,
+  });
 }
 
 function generationSelectionArchiveMarkup(details) {
@@ -14396,15 +14742,103 @@ function generationBatchDetails(item) {
       provider_readiness_receipt_id: String(rawSelectionSnapshot.provider_readiness_receipt_id || "").trim(),
     }
     : null;
+  // Strategy history is authoritative only from the top-level archive
+  // projection. Presence with `null` is terminal for legacy rows; never infer
+  // a strategy from model, prompt or historical batch input.
+  const hasAuthoritativeStrategy = Boolean(item)
+    && Object.prototype.hasOwnProperty.call(item, "generation_strategy_snapshot");
+  const rawStrategySnapshot = hasAuthoritativeStrategy
+    && item.generation_strategy_snapshot
+    && typeof item.generation_strategy_snapshot === "object"
+    && !Array.isArray(item.generation_strategy_snapshot)
+    ? item.generation_strategy_snapshot
+    : null;
+  const rawStrategy = rawStrategySnapshot?.strategy;
+  const strategyId = String(item?.strategy_id || "").trim().toLowerCase();
+  const snapshotStrategyId = String(rawStrategy?.strategy_id || "")
+    .trim().toLowerCase();
+  const snapshotStrategyJobId = String(
+    rawStrategySnapshot?.generation_job_id || "",
+  ).trim().toLowerCase();
+  const hasTopLevelStrategyJobId = Boolean(item)
+    && Object.prototype.hasOwnProperty.call(item, "generation_job_id");
+  const topLevelStrategyJobId = String(
+    item?.generation_job_id || "",
+  ).trim().toLowerCase();
+  const authoritativeStrategyJobId = (
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u
+      .test(snapshotStrategyJobId)
+    && (
+      !hasTopLevelStrategyJobId
+      || topLevelStrategyJobId === snapshotStrategyJobId
+    )
+  ) ? snapshotStrategyJobId : "";
+  const roleAssets = Array.isArray(rawStrategy?.role_assets)
+    ? rawStrategy.role_assets
+    : [];
+  const strategy = (
+    hasAuthoritativeStrategy
+    && rawStrategySnapshot?.version === "generation-job-strategy-snapshot-v1"
+    && ["viral_avatar_ugc", "viral_product_swap", "viral_rebuild"]
+      .includes(strategyId)
+    && snapshotStrategyId === strategyId
+    && /^[0-9a-f]{64}$/u.test(
+      String(item?.generation_strategy_snapshot_hash || ""),
+    )
+    && [
+      "ai_research_recommendation",
+      "operator_summary_only",
+      "exact_source_video",
+    ].includes(String(rawStrategy?.source_basis || ""))
+  ) ? {
+      strategyId,
+      sourceBasis: String(rawStrategy.source_basis),
+      status: String(item?.strategy_status || "").trim().toLowerCase(),
+      snapshotVersion: String(
+        item?.generation_strategy_snapshot_version
+          || rawStrategySnapshot.version,
+      ),
+      snapshotHash: String(item.generation_strategy_snapshot_hash),
+      generationJobId: authoritativeStrategyJobId,
+      roleCounts: Object.freeze(roleAssets.reduce((counts, asset) => {
+        const role = String(asset?.role || "").trim().toLowerCase();
+        if ([
+          "product_primary",
+          "product_reference",
+          "creator_avatar",
+          "source_video",
+          "original_product",
+          "style_reference",
+        ].includes(role)) counts[role] = (counts[role] || 0) + 1;
+        return counts;
+      }, {})),
+    }
+    : null;
+  const strategyExecution = generationStrategyExecutionArchiveDetails(
+    item,
+    strategy,
+  );
   const real = String(item?.mode || parameters.mode || "mock").toLowerCase() === "real";
-  const jobId = real ? String(parameters.job_id || "") : "";
+  const jobId = real
+    ? strategy
+      ? strategy.generationJobId
+      : String(parameters.job_id || "")
+    : "";
   const cached = jobId ? state.realGenerationResults.get(jobId) : null;
   const job = cached?.job && typeof cached.job === "object" ? cached.job : {};
   const billing = parameters.billing && typeof parameters.billing === "object" ? parameters.billing : {};
   const provider = String(
-    selectionSnapshot?.provider || job.provider || item?.provider || parameters.provider || "runway",
+    hasAuthoritativeSnapshot
+      ? selectionSnapshot?.provider || item?.provider || ""
+      : selectionSnapshot?.provider || job.provider || item?.provider
+        || parameters.provider || "runway",
   ).trim().toLowerCase();
-  const model = String(selectionSnapshot?.model || job.model || item?.model || parameters.model || "");
+  const model = String(
+    hasAuthoritativeSnapshot
+      ? selectionSnapshot?.model || item?.model || ""
+      : selectionSnapshot?.model || job.model || item?.model
+        || parameters.model || "",
+  );
   const photo = model === "seedream5_lite";
   const status = String(job.status || item?.status || parameters.job_status || "queued").toLowerCase();
   const estimatedMinor = firstFiniteNumber(selectionSnapshot?.estimated_cost_minor, job.estimated_cost_minor, item?.estimated_cost_minor, billing.estimated_cost_minor);
@@ -14419,6 +14853,8 @@ function generationBatchDetails(item) {
     model,
     photo,
     selectionSnapshot,
+    strategy,
+    strategyExecution,
     outputMediaId: String(job.output_media_id || parameters.output_media_id || ""),
     duration: firstFiniteNumber(
       job.duration_seconds,
@@ -16079,6 +16515,242 @@ function repeatGenerationSettingsFromArchive(batchId) {
     toast("Настройки перенесены в новый черновик. Стоимость, доступ и исходники нужно проверить заново.", "success");
   };
   window.requestAnimationFrame(applyToCurrentForm);
+}
+
+function normalizeGenerationStrategyRepeatEnvelope(raw, expectedJobId) {
+  const source = raw?.data && typeof raw.data === "object" && !Array.isArray(raw.data)
+    ? raw.data
+    : raw;
+  const jobId = String(expectedJobId || "").trim().toLowerCase();
+  if (
+    !source
+    || typeof source !== "object"
+    || Array.isArray(source)
+    || source.ok !== true
+    || source.version !== "generation-strategy-repeat-response-v1"
+    || String(source.generation_job_id || "").trim().toLowerCase() !== jobId
+    || source.legacy_strategy_absent !== false
+    || !source.repeat_data
+    || typeof source.repeat_data !== "object"
+    || Array.isArray(source.repeat_data)
+  ) return null;
+  const repeat = source.repeat_data;
+  const selection = repeat.selection_template;
+  const price = repeat.price_reference;
+  const contract = source.contract;
+  const strategyId = String(repeat.strategy_id || "").trim().toLowerCase();
+  const durationSeconds = Number(selection?.duration_seconds);
+  const allowedRoles = {
+    viral_avatar_ugc: new Set(["source_video", "avatar_image", "product_image"]),
+    viral_product_swap: new Set(["source_video", "original_product_image", "new_product_image"]),
+    viral_rebuild: new Set(["source_video", "product_image", "style_image"]),
+  };
+  const assets = Array.isArray(selection?.assets) ? selection.assets : [];
+  const attestations = selection?.attestations;
+  const assetIds = assets.map((asset) => String(asset?.media_id || "").trim().toLowerCase());
+  const roleCount = (role) => assets.filter((asset) => asset?.role === role).length;
+  const roleShapeValid = strategyId === "viral_avatar_ugc"
+    ? assets.length === 3
+      && roleCount("source_video") === 1
+      && roleCount("avatar_image") === 1
+      && roleCount("product_image") === 1
+    : strategyId === "viral_product_swap"
+      ? assets.length >= 3
+        && assets.length <= 12
+        && roleCount("source_video") === 1
+        && roleCount("original_product_image") === 1
+        && roleCount("new_product_image") >= 1
+        && roleCount("new_product_image") <= 10
+      : strategyId === "viral_rebuild"
+        ? assets.length >= 2
+          && assets.length <= 15
+          && roleCount("source_video") === 1
+          && roleCount("product_image") >= 1
+          && roleCount("product_image") <= 10
+          && roleCount("style_image") <= 4
+        : false;
+  const expectedAttestationKeys = strategyId === "viral_avatar_ugc"
+    ? [
+      "avatar_likeness_consent_confirmed",
+      "depicted_people_consent_confirmed",
+      "product_assets_rights_confirmed",
+      "source_media_rights_confirmed",
+      "transformative_use_confirmed",
+    ]
+    : [
+      "depicted_people_consent_confirmed",
+      "product_assets_rights_confirmed",
+      "source_media_rights_confirmed",
+      "transformative_use_confirmed",
+    ];
+  const selectionShapeValid = Boolean(
+    selection
+    && typeof selection === "object"
+    && !Array.isArray(selection)
+    && selection.version === "2026-08-14.v1"
+    && selection.strategy_id === strategyId
+    && selection.recipe_version === "2026-06"
+    && Number.isSafeInteger(durationSeconds)
+    && durationSeconds >= 4
+    && durationSeconds <= 15
+    && typeof selection.audio === "boolean"
+    && assets.length >= 2
+    && assets.length <= 16
+    && roleShapeValid
+    && new Set(assetIds).size === assetIds.length
+    && assets.every((asset) => (
+      asset
+      && typeof asset === "object"
+      && !Array.isArray(asset)
+      && allowedRoles[strategyId]?.has(String(asset.role || ""))
+      && contentReviewUuid(asset.media_id)
+    ))
+    && attestations
+    && typeof attestations === "object"
+    && !Array.isArray(attestations)
+    && JSON.stringify(Object.keys(attestations).sort())
+      === JSON.stringify(expectedAttestationKeys)
+    && Object.values(attestations).every((value) => value === false)
+  );
+  const resetContractValid = Boolean(
+    repeat.version === "generation-strategy-repeat-data-v2"
+    && String(repeat.generation_job_id || "").trim().toLowerCase() === jobId
+    && contentReviewUuid(repeat.spec_id)
+    && Number.isSafeInteger(Number(repeat.spec_version))
+    && /^[0-9a-f]{64}$/u.test(String(repeat.spec_hash || ""))
+    && contentReviewUuid(repeat.product_id)
+    && typeof repeat.live_assets_current === "boolean"
+    && repeat.binding_id === null
+    && repeat.binding_hash === null
+    && repeat.readiness_receipt_id === null
+    && repeat.readiness_receipt_hash === null
+    && repeat.confirmation === false
+    && repeat.requires_fresh_binding === true
+    && repeat.requires_fresh_human_confirmation === true
+    && repeat.requires_fresh_provider_readiness_receipt === true
+    && repeat.requires_fresh_price_confirmation === true
+    && price
+    && typeof price === "object"
+    && !Array.isArray(price)
+    && price.display_only === true
+    && price.requires_fresh_server_price === true
+    && price.price_hash === null
+    && price.spend_confirmation === null
+    && contract?.selection_authority_reused === false
+    && contract?.media_hash_authority_reused === false
+    && contract?.attestations_reset === true
+    && contract?.price_confirmation_reset === true
+    && contract?.confirmation_reused === false
+    && contract?.readiness_receipt_reused === false
+    && contract?.provider_call_started === false
+    && contract?.mutation_started === false
+  );
+  if (!allowedRoles[strategyId] || !selectionShapeValid || !resetContractValid) {
+    return null;
+  }
+  const ratio = String(selection.ratio || "").trim();
+  const resolution = String(selection.resolution || "").trim();
+  const dimensionValid = strategyId === "viral_product_swap"
+    ? ["720p", "1080p"].includes(resolution) && ratio === ""
+    : ["720:1280", "1080:1920"].includes(ratio) && resolution === "";
+  if (!dimensionValid) return null;
+  const firstAssetId = (role) => String(
+    assets.find((asset) => asset.role === role)?.media_id || "",
+  ).trim().toLowerCase();
+  return Object.freeze({
+    strategyId,
+    liveAssetsCurrent: repeat.live_assets_current,
+    values: Object.freeze({
+      generation_strategy_id: strategyId,
+      generation_strategy_duration_seconds: durationSeconds,
+      generation_strategy_ratio: ratio,
+      generation_strategy_resolution: resolution,
+      generation_strategy_audio: String(selection.audio),
+      generation_strategy_source_video_id: firstAssetId("source_video"),
+      generation_strategy_avatar_media_id: firstAssetId("avatar_image"),
+      generation_strategy_original_product_media_id:
+        firstAssetId("original_product_image"),
+      generation_strategy_product_media_ids: Object.freeze(assets
+        .filter((asset) => ["product_image", "new_product_image"].includes(asset.role))
+        .map((asset) => String(asset.media_id).trim().toLowerCase())),
+    }),
+  });
+}
+
+async function repeatGenerationStrategyFromArchive(jobId, control = null) {
+  const normalizedJobId = String(jobId || "").trim().toLowerCase();
+  const projectId = currentWorkspaceProjectId();
+  if (!contentReviewUuid(normalizedJobId) || !projectId || !state.api) {
+    toast("Не удалось определить точный запуск стратегии. Обновите архив.", "error");
+    return;
+  }
+  const previousLabel = control?.textContent || "Повторить стратегию";
+  if (control) {
+    control.disabled = true;
+    control.textContent = "Проверяем исходники…";
+  }
+  try {
+    const raw = await state.api.generationStrategyRepeatData(normalizedJobId, {
+      projectId,
+    });
+    const repeat = normalizeGenerationStrategyRepeatEnvelope(
+      raw,
+      normalizedJobId,
+    );
+    if (!repeat) {
+      throw new CreatorApiError(
+        "Сервер не вернул безопасный шаблон повтора. Заполните новый запуск вручную.",
+        { code: "generation_strategy_repeat_response_invalid" },
+      );
+    }
+    navigate(workspaceProjectHref("/workspace/generation?view=create", projectId));
+    let attempts = 0;
+    const applyToCurrentForm = () => {
+      const form = document.querySelector("#mock-batch-form");
+      if ((!form || !form.isConnected) && attempts < 12) {
+        attempts += 1;
+        window.requestAnimationFrame(applyToCurrentForm);
+        return;
+      }
+      if (!form || !form.isConnected) {
+        toast("Не удалось открыть новый черновик стратегии. Повторите действие из архива.", "error");
+        return;
+      }
+      clearAllGenerationPreflightRetries();
+      state.generationPreflight.requestId += 1;
+      state.generationPreflight.entries.clear();
+      resetGenerationSpecState();
+      if (form.elements.real_spend_confirmation) {
+        form.elements.real_spend_confirmation.checked = false;
+        form.elements.real_spend_confirmation.value = "";
+      }
+      form.querySelectorAll(
+        '#generation-strategy-assets input[data-generation-strategy-attestation]',
+      ).forEach((input) => {
+        input.checked = false;
+      });
+      form.dispatchEvent(new CustomEvent(
+        "contentengine:generation-restore-strategy",
+        { bubbles: true, detail: repeat.values },
+      ));
+      form.dataset.dirty = "true";
+      scheduleGenerationFormDraftSave(form);
+      toast(
+        repeat.liveAssetsCurrent
+          ? "Стратегия перенесена в новый черновик. Исходники, права, цена и платное подтверждение будут проверены заново."
+          : "Стратегия перенесена, но один из исходников изменился. Выберите актуальные файлы; права, цена и платное подтверждение не перенесены.",
+        repeat.liveAssetsCurrent ? "success" : "warning",
+      );
+    };
+    window.requestAnimationFrame(applyToCurrentForm);
+  } catch (error) {
+    toast(actionErrorMessage(error), "error");
+  } finally {
+    if (control?.isConnected) {
+      control.disabled = false;
+      control.textContent = previousLabel;
+    }
+  }
 }
 
 function productResearchPaidStartContext() {
@@ -21900,6 +22572,58 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "probe-generation-strategy-media") {
+    const form = control.closest("#mock-batch-form");
+    if (form instanceof HTMLFormElement) {
+      const ids = String(
+        control.dataset.mediaIds
+          || control.dataset.mediaId
+          || control.dataset.sourceMediaId
+          || "",
+      ).split(",").map((item) => item.trim()).filter(Boolean);
+      if (ids.length > 1) {
+        await probeGenerationStrategyMediaBatch(form, ids, control);
+      } else {
+        await probeSelectedGenerationStrategyMedia(
+          form,
+          ids[0],
+          control,
+        );
+      }
+    }
+    return;
+  }
+
+  if (
+    action === "prepare-generation-strategy-queue-free"
+    || action === "start-generation-strategy-sequentially"
+  ) {
+    const form = control.closest("#mock-batch-form");
+    const submit = form?.querySelector("#generation-submit");
+    if (
+      form instanceof HTMLFormElement
+      && submit instanceof HTMLButtonElement
+      && !submit.disabled
+      && form.dataset.busy !== "true"
+    ) {
+      form.requestSubmit(submit);
+    }
+    return;
+  }
+
+  if (action === "review-generation-strategy-exact-ten") {
+    const form = control.closest("#mock-batch-form");
+    const target = form?.querySelector(
+      "[data-generation-strategy-spec-review], #real-generation-confirmation",
+    );
+    if (target instanceof HTMLElement) {
+      scrollElementIntoView(target, "center");
+      target.querySelector("summary, input:not(:disabled), button:not(:disabled)")
+        ?.focus({ preventScroll: true });
+    }
+    return;
+  }
+
   if (action === "repeat-real-generation") {
     restoreRealGenerationDraft(control.dataset.jobId);
     return;
@@ -21907,6 +22631,11 @@ async function handleClick(event) {
 
   if (action === "repeat-generation-settings") {
     repeatGenerationSettingsFromArchive(control.dataset.batchId);
+    return;
+  }
+
+  if (action === "repeat-generation-strategy") {
+    await repeatGenerationStrategyFromArchive(control.dataset.jobId, control);
     return;
   }
 
@@ -22470,6 +23199,17 @@ function handleChange(event) {
   }
 
   const generationForm = event.target.closest("#mock-batch-form");
+  if (
+    generationForm
+    && String(event.target.name || "").startsWith("generation_strategy_")
+  ) {
+    invalidateGenerationSpec(
+      generationForm,
+      "Стратегия, её исходники или параметры результата изменились после последней серверной версии.",
+    );
+    syncGenerationFormReadiness(generationForm);
+    scheduleGenerationFormDraftSave(generationForm);
+  }
   if (generationForm && [
     "generation_reference_url",
     "generation_reference_mechanics",
@@ -22628,6 +23368,76 @@ function handleFormActivity(event) {
       markGenerationFormEdited(form);
       const priceConfirmationChanged =
         event.target.name === "real_spend_confirmation";
+      const strategySpecApprovalChanged = event.target.matches?.(
+        "[data-generation-strategy-spec-approval-source]",
+      ) === true;
+      const strategyId = String(
+        form.elements?.generation_strategy_id?.value || "",
+      ).trim();
+      if (strategyId && strategySpecApprovalChanged) {
+        syncGenerationStrategyFormReadiness(form);
+        return;
+      }
+      const strategyContextChanged = Boolean(
+        strategyId
+        && !priceConfirmationChanged
+        && (
+          String(event.target.name || "").startsWith("generation_strategy_")
+          || [
+            "media_id",
+            "primary_media_id",
+            "brief",
+            "sku",
+            "product_name",
+            "product_category",
+            "platform",
+            "destination_ref",
+          ].includes(event.target.name)
+        )
+      );
+      if (strategyContextChanged) {
+        if (generationStrategyQueueHasPaidAuthority()) {
+          toast(
+            "После подтверждения первой строки исходники и ТЗ этой очереди заблокированы. Статусы десяти задач сохранены.",
+            "info",
+          );
+          syncGenerationStrategyFormReadiness(form);
+          return;
+        }
+        const sourceRevision = generationStrategySourceProjectionForForm(form)?.revision
+          ?? null;
+        const rowSourceMediaId = String(
+          event.target.dataset?.generationStrategySourceMediaId || "",
+        ).trim().toLowerCase();
+        const rowMechanicsChanged = Boolean(
+          contentReviewUuid(rowSourceMediaId)
+          && String(event.target.name || "")
+            .startsWith("generation_strategy_mechanics_"),
+        );
+        if (rowMechanicsChanged) {
+          invalidateGenerationStrategyQueueSource(
+            rowSourceMediaId,
+            "generation_strategy_row_mechanics_changed",
+          );
+        } else {
+          resetGenerationStrategyQueueState();
+        }
+        state.generationStrategyQueueSourceRevision = sourceRevision;
+        form.dataset.generationStrategyConfirmationReady = "false";
+        if (form.elements.real_spend_confirmation) {
+          form.elements.real_spend_confirmation.checked = false;
+          form.elements.real_spend_confirmation.value = "";
+        }
+      }
+      if (event.target.name === "generation_strategy_id") {
+        syncGenerationModeForm(form);
+      }
+      if (strategyId && event.target.name === "campaign_id") {
+        if (form.elements.real_spend_confirmation) {
+          form.elements.real_spend_confirmation.checked = false;
+          form.elements.real_spend_confirmation.value = "";
+        }
+      }
       const exactGenerationSettingChanged = new Set([
         "generation_provider",
         "generation_model_id",
@@ -23810,7 +24620,7 @@ function activeGenerationAiResearchPromptBinding(form) {
 
 function automaticGenerationBriefCandidate(form, identity) {
   if (!form || !identity) return null;
-  const mode = String(form.elements.generation_mode?.value || "mock");
+  const mode = String(form.elements.generation_mode?.value || "");
   if (!isRealGenerationMode(mode)) return null;
   const exactSku = generationSkuForForm(form);
   const generationSelection = exactSku?.canonical === true
@@ -24779,6 +25589,50 @@ function generationSpendConsentFingerprint(form) {
       form.elements?.generation_reference_source_access_confirmed?.checked === true,
     reference_transform_confirmed:
       form.elements?.generation_reference_transformative_use_confirmed?.checked === true,
+    generation_strategy_id: String(
+      form.elements?.generation_strategy_id?.value || "",
+    ).trim(),
+    generation_strategy_version: String(
+      form.elements?.generation_strategy_version?.value || "",
+    ).trim(),
+    generation_strategy_recipe_version: String(
+      form.elements?.generation_strategy_recipe_version?.value || "",
+    ).trim(),
+    generation_strategy_source_basis: String(
+      form.elements?.generation_strategy_source_basis?.value || "",
+    ).trim(),
+    generation_strategy_duration_seconds: String(
+      form.elements?.generation_strategy_duration_seconds?.value || "",
+    ).trim(),
+    generation_strategy_ratio: String(
+      form.elements?.generation_strategy_ratio?.value || "",
+    ).trim(),
+    generation_strategy_resolution: String(
+      form.elements?.generation_strategy_resolution?.value || "",
+    ).trim(),
+    generation_strategy_audio: String(
+      form.elements?.generation_strategy_audio?.value || "",
+    ).trim(),
+    generation_strategy_source_video_id: String(
+      form.elements?.generation_strategy_source_video_id?.value || "",
+    ).trim().toLowerCase(),
+    generation_strategy_avatar_media_id: String(
+      form.elements?.generation_strategy_avatar_media_id?.value || "",
+    ).trim().toLowerCase(),
+    generation_strategy_original_product_media_id: String(
+      form.elements?.generation_strategy_original_product_media_id?.value || "",
+    ).trim().toLowerCase(),
+    generation_strategy_attestations: Object.fromEntries(
+      Array.from(form.querySelectorAll?.(
+        "[data-generation-strategy-attestation]",
+      ) || [])
+        .map((input) => [
+          String(input?.dataset?.generationStrategyAttestation || ""),
+          input.checked === true,
+        ])
+        .filter(([key]) => key)
+        .sort(([left], [right]) => left.localeCompare(right)),
+    ),
     spec_id: String(spec.spec_id || "").trim().toLowerCase(),
     spec_version: Number(spec.spec_version || 0),
     spec_hash: String(spec.spec_hash || "").trim().toLowerCase(),
@@ -24902,6 +25756,25 @@ function currentGenerationSpecContext(form) {
     spec_version: spec.spec_version,
     spec_hash: spec.spec_hash,
   });
+}
+
+function currentApprovedGenerationSpecContext(form) {
+  const payload = generationSpecPreparePayload(form);
+  const current = currentGenerationSpecContext(form);
+  if (!payload || !current) return null;
+  const dirty = state.generationSpec.dirty === true
+    || generationSpecPayloadKey(payload) !== state.generationSpec.key;
+  const approved = approvedGenerationSpecContext(state.generationSpec.data, {
+    expectedScope: payload.exact_scope,
+    dirty,
+  });
+  if (
+    !approved
+    || approved.spec_id !== current.spec_id
+    || approved.spec_version !== current.spec_version
+    || approved.spec_hash !== current.spec_hash
+  ) return null;
+  return approved;
 }
 
 function clearGenerationSpecApprovalReview(form, {
@@ -25537,7 +26410,13 @@ async function ensurePreparedGenerationSpecForPaidStart(form) {
   }
   const generationReferenceContext =
     await bindGenerationSpecVideoReference(preparedSpec, form);
-  return { context, spec: preparedSpec, generationReferenceContext };
+  const approvedContext = currentApprovedGenerationSpecContext(form);
+  return {
+    context,
+    approvedContext,
+    spec: preparedSpec,
+    generationReferenceContext,
+  };
 }
 
 function generationLearningOptOut(form) {
@@ -25547,7 +26426,7 @@ function generationLearningOptOut(form) {
 
 function syncAutomaticGenerationBrief(form, { force = false, identity = null } = {}) {
   if (!form) return null;
-  const mode = String(form.elements.generation_mode?.value || "mock");
+  const mode = String(form.elements.generation_mode?.value || "");
   const real = isRealGenerationMode(mode);
   const assist = form.querySelector("#generation-brief-assist");
   const status = form.querySelector("#generation-auto-brief-status");
@@ -25780,7 +26659,52 @@ function syncGenerationSpendSnapshotUi(form) {
 }
 
 function syncGenerationModeForm(form) {
-  const mode = String(form.elements.generation_mode?.value || "mock");
+  const strategySelected = Boolean(
+    String(form.elements?.generation_strategy_id?.value || "").trim(),
+  );
+  if (strategySelected) {
+    const modeControl = form.elements?.generation_mode;
+    const count = form.elements?.count;
+    const brief = form.elements?.brief;
+    const campaignField = form.querySelector("#generation-campaign-field");
+    const campaign = form.elements?.campaign_id;
+    const confirmationPanel = form.querySelector("#real-generation-confirmation");
+    if (modeControl instanceof HTMLSelectElement) {
+      modeControl.disabled = true;
+      modeControl.required = false;
+    }
+    if (count instanceof HTMLInputElement) {
+      count.disabled = false;
+      count.value = "1";
+      count.max = "1";
+      count.readOnly = true;
+    }
+    if (brief instanceof HTMLTextAreaElement) {
+      brief.disabled = false;
+      brief.required = true;
+      brief.maxLength = 800;
+    }
+    if (campaignField instanceof HTMLElement) campaignField.hidden = false;
+    if (campaign instanceof HTMLSelectElement) {
+      campaign.disabled = false;
+      campaign.required = true;
+    }
+    if (confirmationPanel instanceof HTMLElement) confirmationPanel.hidden = false;
+    form.querySelectorAll('input[name="media_id"]').forEach((input) => {
+      const paidReady = input.dataset.mediaIdentityVerified === "true"
+        && input.dataset.mediaRightsConfirmed === "true";
+      input.disabled = !paidReady;
+      if (input.disabled) input.checked = false;
+    });
+    syncGenerationMediaSelection(form, { notify: false });
+    syncGenerationProductIdentity(form);
+    syncGenerationDestination(form);
+    syncGenerationStrategyFormReadiness(form);
+    syncGenerationSpecUi(form);
+    return;
+  }
+  const mode = String(form.elements.generation_mode?.value || "").trim();
+  const mock = mode === "mock";
   const canonicalControlsPresent = Boolean(
     form.elements.generation_provider
     || form.elements.generation_model_id
@@ -25891,14 +26815,19 @@ function syncGenerationModeForm(form) {
 
   if (count) {
     if (real) {
+      count.disabled = false;
       if (!count.readOnly) count.dataset.mockCount = count.value;
       count.value = "1";
       count.max = "1";
       count.readOnly = true;
-    } else {
+    } else if (mock) {
+      count.disabled = false;
       count.max = String(MAX_MOCK_BATCH_SIZE);
       count.readOnly = false;
       count.value = count.dataset.mockCount || count.value || "5";
+    } else {
+      count.disabled = true;
+      count.readOnly = true;
     }
   }
   if (brief) {
@@ -25973,10 +26902,16 @@ function syncGenerationModeForm(form) {
   if (countHint) {
     countHint.textContent = real
       ? `Платный режим всегда создаёт ровно одно ${photo ? "фото" : "видео"}.`
-      : `Dry-run создаст от 1 до ${MAX_MOCK_BATCH_SIZE} задач без фото или видео.`;
+      : mock
+        ? `Dry-run создаст от 1 до ${MAX_MOCK_BATCH_SIZE} задач без фото или видео.`
+        : "Сначала выберите способ создания; количество не определяется автоматически.";
   }
   if (countLabel) {
-    countLabel.textContent = real ? "Количество результатов" : "Количество dry-run задач";
+    countLabel.textContent = real
+      ? "Количество результатов"
+      : mock
+        ? "Количество dry-run задач"
+        : "Количество";
   }
   if (mediaHint) {
     mediaHint.textContent = real
@@ -25989,7 +26924,9 @@ function syncGenerationModeForm(form) {
           : canonical
             ? "Выберите ровно одно главное фото товара для первого кадра."
             : `Выберите от 1 до ${MAX_REAL_GENERATION_REFERENCES} ракурсов одного товара и отметьте главное фото.`
-      : "Для dry-run можно выбрать один или несколько исходников.";
+      : mock
+        ? "Для dry-run можно выбрать один или несколько исходников."
+        : "Выберите способ создания, затем укажите точные исходники для него.";
   }
   if (price && sku) {
     price.textContent = Number.isSafeInteger(sku.estimatedMinor)
@@ -26022,7 +26959,9 @@ function syncGenerationModeForm(form) {
         ? "Опишите желаемый кадр обычным языком. Портал сохранит композицию и добавит ограничения этикетки, геометрии и точного товара."
         : real
           ? `Опишите движение камеры обычным языком. Портал сохранит замысел и добавит ограничения модели для ${sku.durationSeconds}-секундного ролика.`
-          : "Необязательно: добавьте инструкцию исполнителю. Этот текст не запускает рендер.";
+          : mock
+            ? "Необязательно: добавьте инструкцию исполнителю. Этот текст не запускает рендер."
+            : "Сначала выберите способ создания. Затем опишите замысел результата.";
   }
   if (briefLabel) {
     briefLabel.textContent = real
@@ -26031,7 +26970,9 @@ function syncGenerationModeForm(form) {
         : seedance
           ? "Ваш замысел ролика"
           : "Ваш замысел анимации"
-      : "Заметка для dry-run задачи";
+      : mock
+        ? "Заметка для dry-run задачи"
+        : "Замысел результата";
   }
   syncGenerationSpendSnapshotUi(form);
   if (submit) {
@@ -26401,10 +27342,2020 @@ async function submitExam(form) {
   }
 }
 
+function generationStrategySourceMediaId(selection) {
+  if (!selection || !Array.isArray(selection.assets)) return "";
+  const source = selection.assets.find((asset) => asset?.role === "source_video");
+  const mediaId = String(source?.media_id || "").trim().toLowerCase();
+  return contentReviewUuid(mediaId) ? mediaId : "";
+}
+
+function generationStrategySelectionsForForm(form) {
+  const value = globalThis.ContentEngineGenerationGuidedV4
+    ?.getStrategySelections?.(form);
+  return Array.isArray(value) && value.length === 10 ? value : null;
+}
+
+function generationStrategySourceProjectionForForm(form) {
+  return globalThis.ContentEngineGenerationGuidedV4
+    ?.getStrategySourcePickerProjection?.(form) || null;
+}
+
+function generationStrategyQueueHasPaidAuthority(queue = state.generationStrategyQueue) {
+  if (!(queue?.rows instanceof Map)) return false;
+  return [...queue.rows.values()].some((row) => [
+    "human_confirmed",
+    "start_once",
+    "status",
+  ].includes(row?.runtime_state?.phase));
+}
+
+function generationStrategyReceiptIsFresh(runtimeState, minimumRemainingMs = 0) {
+  const expiresAt = Date.parse(
+    runtimeState?.preflight?.receipt?.expires_at || "",
+  );
+  return Number.isFinite(expiresAt)
+    && expiresAt > Date.now() + Math.max(0, minimumRemainingMs);
+}
+
+function generationStrategyReceiptWindowMs(rowCount = 10) {
+  // SQL receipts live for ten minutes. Reserve one bounded Edge dispatch window
+  // per remaining row plus a final clock/network margin before asking for consent.
+  return Math.max(1, Number(rowCount) || 0) * 30_000 + 30_000;
+}
+
+function generationStrategyQueueReceiptsAreFresh(minimumRemainingMs = 0) {
+  if (!(state.generationStrategyQueue?.rows instanceof Map)) return false;
+  return state.generationStrategyQueue.source_order.every((sourceMediaId) => (
+    generationStrategyReceiptIsFresh(
+      generationStrategyQueueRuntime(sourceMediaId),
+      minimumRemainingMs,
+    )
+  ));
+}
+
+function generationStrategyQueuePreflightRefreshTargets() {
+  const queue = state.generationStrategyQueue;
+  if (!(queue?.rows instanceof Map)) return [];
+  let remaining = queue.source_order.reduce((count, sourceMediaId) => (
+    queue.rows.get(sourceMediaId)?.runtime_state?.phase === "human_confirmed"
+      ? count + 1
+      : count
+  ), 0);
+  const targets = [];
+  for (const sourceMediaId of queue.source_order) {
+    const runtimeState = queue.rows.get(sourceMediaId)?.runtime_state;
+    if (runtimeState?.phase !== "human_confirmed") continue;
+    const minimumRemainingMs = generationStrategyReceiptWindowMs(remaining);
+    if (!generationStrategyReceiptIsFresh(runtimeState, minimumRemainingMs)) {
+      targets.push({ sourceMediaId, minimumRemainingMs });
+    }
+    remaining -= 1;
+  }
+  return targets;
+}
+
+function generationStrategyQueuePaidReceiptsNeedRefresh() {
+  return generationStrategyQueuePreflightRefreshTargets().length > 0;
+}
+
+function resetGenerationStrategyQueueState({
+  clearSpecs = true,
+  allowPaidAuthority = false,
+} = {}) {
+  if (!allowPaidAuthority && generationStrategyQueueHasPaidAuthority()) {
+    return false;
+  }
+  state.generationStrategyQueue = null;
+  state.generationStrategyQueueReview = null;
+  state.generationStrategyQueueSourceRevision = null;
+  state.generationStrategyRuntimes.clear();
+  state.generationStrategyRequestKeys.clear();
+  state.generationStrategyActiveSourceMediaId = "";
+  state.generationStrategyQueueBusy = false;
+  if (clearSpecs) {
+    state.generationStrategySpecs.clear();
+    state.generationStrategySpecRequestKeys.clear();
+  }
+  return true;
+}
+
+function generationStrategyQueueProjection() {
+  return state.generationStrategyQueue
+    ? generationStrategyQueueSafeProjection(state.generationStrategyQueue)
+    : null;
+}
+
+function generationStrategyQueueRuntime(sourceMediaId) {
+  return state.generationStrategyQueue?.rows?.get(sourceMediaId)?.runtime_state
+    || null;
+}
+
+function applyGenerationStrategyQueueRow(sourceMediaId, action) {
+  if (!state.generationStrategyQueue) return null;
+  const result = updateGenerationStrategyQueueRow(
+    state.generationStrategyQueue,
+    sourceMediaId,
+    action,
+  );
+  if (!result.ok || !result.queue) return null;
+  state.generationStrategyQueue = result.queue;
+  const runtimeState = generationStrategyQueueRuntime(sourceMediaId);
+  if (runtimeState) state.generationStrategyRuntimes.set(sourceMediaId, runtimeState);
+  return runtimeState;
+}
+
+function invalidateGenerationStrategyQueueSource(
+  sourceMediaId,
+  reason = "generation_strategy_row_mechanics_changed",
+) {
+  if (!contentReviewUuid(sourceMediaId)) return false;
+  state.generationStrategySpecs.delete(sourceMediaId);
+  state.generationStrategySpecRequestKeys.delete(sourceMediaId);
+  state.generationStrategyQueueReview = null;
+  if (!state.generationStrategyQueue) return true;
+  const invalidated = invalidateGenerationStrategyQueueRow(
+    state.generationStrategyQueue,
+    sourceMediaId,
+    reason,
+  );
+  if (!invalidated.ok || !invalidated.queue) return false;
+  state.generationStrategyQueue = invalidated.queue;
+  const runtimeState = generationStrategyQueueRuntime(sourceMediaId);
+  if (runtimeState) state.generationStrategyRuntimes.set(sourceMediaId, runtimeState);
+  return true;
+}
+
+function generationStrategyQueueEntries(sourceIds) {
+  return sourceIds.map((sourceMediaId) => ({
+    source_media_id: sourceMediaId,
+    idempotency_keys: {
+      probe: crypto.randomUUID(),
+      bind: crypto.randomUUID(),
+      preflight: crypto.randomUUID(),
+      start: crypto.randomUUID(),
+    },
+  }));
+}
+
+function generationStrategyRuntimeContextForApprovedSpec(
+  selection,
+  projectId,
+  approvedContext,
+) {
+  const organizationId = String(
+    state.api?.organizationId || state.bootstrap?.organization?.id || "",
+  ).trim().toLowerCase();
+  if (
+    !selection
+    || !contentReviewUuid(organizationId)
+    || !contentReviewUuid(projectId)
+    || !approvedContext
+  ) return null;
+  return {
+    organization_id: organizationId,
+    project_id: String(projectId).toLowerCase(),
+    spec_id: approvedContext.spec_id,
+    spec_version: approvedContext.spec_version,
+    spec_hash: approvedContext.spec_hash,
+    generation_strategy: selection,
+  };
+}
+
+function ensureGenerationStrategyQueue(form, selections, projectId) {
+  const sourceProjection = generationStrategySourceProjectionForForm(form);
+  if (
+    !sourceProjection?.all_selected_ready
+    || !Array.isArray(selections)
+    || selections.length !== 10
+  ) return null;
+  const sourceIds = selections.map((entry) => entry.source_media_id);
+  const contexts = selections.map((entry) => {
+    const specRecord = state.generationStrategySpecs.get(entry.source_media_id);
+    return generationStrategyRuntimeContextForApprovedSpec(
+      entry.selection,
+      projectId,
+      specRecord?.approvedContext || null,
+    );
+  });
+  if (contexts.some((context) => !context)) return null;
+  const existingOrder = state.generationStrategyQueue?.source_order || [];
+  if (
+    state.generationStrategyQueue
+    && state.generationStrategyQueueSourceRevision === sourceProjection.revision
+    && JSON.stringify(existingOrder) === JSON.stringify(sourceIds)
+  ) {
+    for (let index = 0; index < sourceIds.length; index += 1) {
+      const sourceMediaId = sourceIds[index];
+      const runtimeState = generationStrategyQueueRuntime(sourceMediaId);
+      if (runtimeState?.phase !== "invalid") continue;
+      const reset = applyGenerationStrategyQueueRow(sourceMediaId, {
+        type: GENERATION_STRATEGY_RUNTIME_ACTIONS.reset,
+      });
+      const selected = reset?.phase === "idle"
+        ? applyGenerationStrategyQueueRow(sourceMediaId, {
+            type: GENERATION_STRATEGY_RUNTIME_ACTIONS.select,
+            context: contexts[index],
+          })
+        : null;
+      if (selected?.phase !== "selected") return null;
+    }
+    return state.generationStrategyQueue;
+  }
+  const created = createGenerationStrategyQueue(
+    generationStrategyQueueEntries(sourceIds),
+  );
+  if (!created.ok) return null;
+  state.generationStrategyQueue = created.queue;
+  state.generationStrategyQueueSourceRevision = sourceProjection.revision;
+  state.generationStrategyQueueReview = null;
+  state.generationStrategyRuntimes.clear();
+  for (let index = 0; index < sourceIds.length; index += 1) {
+    const sourceMediaId = sourceIds[index];
+    const runtimeState = applyGenerationStrategyQueueRow(sourceMediaId, {
+      type: GENERATION_STRATEGY_RUNTIME_ACTIONS.select,
+      context: contexts[index],
+    });
+    if (!runtimeState || runtimeState.phase !== "selected") {
+      resetGenerationStrategyQueueState({ clearSpecs: false });
+      return null;
+    }
+  }
+  return state.generationStrategyQueue;
+}
+
+function syncGenerationStrategyQueueUi(form) {
+  if (!form) return null;
+  const mount = form.querySelector("[data-generation-strategy-queue-mount]");
+  const sourceProjection = generationStrategySourceProjectionForForm(form);
+  if (!mount || !sourceProjection) {
+    if (mount) mount.replaceChildren();
+    return null;
+  }
+  const queueProjection = generationStrategyQueueProjection();
+  const review = state.generationStrategyQueueReview;
+  mount.innerHTML = renderGenerationStrategyQueueView(
+    sourceProjection,
+    queueProjection,
+    review,
+  );
+  return { sourceProjection, queueProjection, review };
+}
+
+function generationStrategySpecRequestKey(sourceMediaId) {
+  let value = state.generationStrategySpecRequestKeys.get(sourceMediaId);
+  if (!value) {
+    value = crypto.randomUUID();
+    state.generationStrategySpecRequestKeys.set(sourceMediaId, value);
+  }
+  return value;
+}
+
+function generationStrategySpecMechanicsMarkup(spec, entry) {
+  const scope = spec?.exact_scope;
+  const selection = scope?.selection;
+  if (!scope || !selection) return "";
+  const dimension = selection.ratio || selection.resolution || "—";
+  const output = `${selection.duration_seconds} сек. · ${dimension} · ${selection.audio ? "со звуком" : "без сгенерированного звука"}`;
+  const mechanics = scope.mechanics?.summary || null;
+  const mechanicsMarkup = mechanics
+    ? `<dl class="generation-strategy-spec-review__mechanics">
+        <div><dt>Хук</dt><dd>${escapeHtml(mechanics.hook)}</dd></div>
+        <div><dt>Последовательность</dt><dd>${escapeHtml(mechanics.beat_sequence.join(" → "))}</dd></div>
+        <div><dt>Темп</dt><dd>${escapeHtml(mechanics.pacing)}</dd></div>
+        <div><dt>Камера</dt><dd>${escapeHtml(mechanics.camera_language)}</dd></div>
+        <div><dt>Композиция</dt><dd>${escapeHtml(mechanics.composition)}</dd></div>
+        <div><dt>Звук</dt><dd>${escapeHtml(mechanics.audio_pattern)}</dd></div>
+        <div><dt>CTA</dt><dd>${escapeHtml(mechanics.cta_pattern)}</dd></div>
+      </dl>`
+    : '<p class="alert alert-info"><strong>Product Swap:</strong> подтверждённый MP4 передаётся в recipe как исходная сцена; текстовый пересказ не подменяет видео.</p>';
+  const roleLabels = {
+    source_video: "исходный MP4",
+    avatar_image: "аватар",
+    product_image: "товар",
+    original_product_image: "исходный товар",
+    new_product_image: "новый товар",
+    style_image: "стиль",
+  };
+  const assetsMarkup = selection.assets.map((asset) => (
+    `<li><strong>${escapeHtml(roleLabels[asset.role] || asset.role)}:</strong> <code>${escapeHtml(asset.media_id)}</code>${asset.view ? ` · ${escapeHtml(asset.view)}` : ""}</li>`
+  )).join("");
+  const attestationLabels = {
+    source_media_rights_confirmed: "Права на исходный ролик подтверждены",
+    transformative_use_confirmed: "Трансформативное использование подтверждено",
+    product_assets_rights_confirmed: "Права на ассеты товара подтверждены",
+    depicted_people_consent_confirmed: "Согласия изображённых людей подтверждены",
+    avatar_likeness_consent_confirmed: "Согласие на внешность аватара подтверждено",
+  };
+  const attestationsMarkup = Object.entries(selection.attestations).map(([key]) => (
+    `<li>${escapeHtml(attestationLabels[key] || key)}</li>`
+  )).join("");
+  const assetFactsMarkup = scope.asset_snapshot.map((asset) => (
+    `<li><strong>${escapeHtml(roleLabels[asset.selection_role] || asset.selection_role)}:</strong> ${escapeHtml(asset.kind)} · ${escapeHtml(asset.mime_type)} · права подтверждены${asset.product_id ? ` · товар <code>${escapeHtml(asset.product_id)}</code>` : ""}</li>`
+  )).join("");
+  const sourceFacts = scope.source;
+  return `<section class="generation-strategy-spec-review__scope" aria-label="Точная механика и результат">
+      <p><strong>Исходник:</strong> ${escapeHtml(entry.filename)} · <code>${escapeHtml(entry.source_media_id)}</code></p>
+      <p><strong>Результат:</strong> ${escapeHtml(output)}</p>
+      <p><strong>Публикация:</strong> ${escapeHtml(scope.platform)} · категория ${escapeHtml(scope.product_category)}</p>
+      <dl class="generation-strategy-spec-review__contract">
+        <div><dt>Стратегия</dt><dd>${escapeHtml(scope.strategy_id)}</dd></div>
+        <div><dt>Исполнение</dt><dd>${escapeHtml(scope.provider)} · ${escapeHtml(scope.recipe)} · ${escapeHtml(scope.input_mode)}</dd></div>
+        <div><dt>Формат</dt><dd>${escapeHtml(scope.format)} · ratio ${escapeHtml(scope.ratio)} · ${escapeHtml(scope.resolution)}</dd></div>
+        <div><dt>Референсы</dt><dd>${scope.reference_count} · видео ${scope.reference_video ? "передаётся" : "не передаётся"}</dd></div>
+        <div><dt>Кадры и речь</dt><dd>first frame ${scope.first_frame ? "да" : "нет"} · last frame ${scope.last_frame ? "да" : "нет"} · spoken dialogue ${scope.spoken_dialogue ? "да" : "нет"}</dd></div>
+      </dl>
+      <details>
+        <summary>Все ассеты этой версии</summary>
+        <ul>${assetsMarkup}</ul>
+      </details>
+      <details>
+        <summary>Серверная проверка ассетов</summary>
+        <ul>${assetFactsMarkup}</ul>
+        <p>Исходник связан с attachment <code>${escapeHtml(sourceFacts.attachment_id)}</code> и source <code>${escapeHtml(sourceFacts.source_id)}</code>; ${sourceFacts.size_bytes} байт${sourceFacts.duration_seconds === null ? "" : ` · ${escapeHtml(String(sourceFacts.duration_seconds))} сек.`}.</p>
+      </details>
+      <details>
+        <summary>Подтверждения этой версии</summary>
+        <ul>${attestationsMarkup}</ul>
+      </details>
+      ${mechanicsMarkup}
+    </section>`;
+}
+
+function generationStrategySpecReviewMarkup(form, selections) {
+  if (!Array.isArray(selections) || selections.length !== 10) return "";
+  const rows = selections.map((entry) => {
+    const record = state.generationStrategySpecs.get(entry.source_media_id);
+    if (!record?.draft) {
+      return `<article class="generation-strategy-spec-review__row" data-source-media-id="${escapeHtml(entry.source_media_id)}">
+        <p class="eyebrow">Ролик ${entry.position} из 10</p>
+        <h4>${escapeHtml(entry.filename)}</h4>
+        <p class="muted tiny">Точное ТЗ ещё не подготовлено. Провайдер не запускался.</p>
+      </article>`;
+    }
+    const projection = generationStrategySpecSafeProjection(
+      record.approved || record.draft,
+    );
+    const spec = record.draft.generationSpec;
+    const approved = Boolean(record.approvedContext);
+    const titleId = `generation-strategy-spec-review-title-${entry.position}`;
+    const confirmationId = `generation-strategy-spec-review-confirmation-${entry.position}`;
+    return `<article class="generation-strategy-spec-review__row" data-source-media-id="${escapeHtml(entry.source_media_id)}" data-status="${approved ? "approved" : "draft"}" aria-labelledby="${titleId}">
+      <p class="eyebrow">Ролик ${entry.position} из 10 · ${approved ? "ТЗ одобрено" : "нужно одобрение"}</p>
+      <h4 id="${titleId}">${escapeHtml(entry.filename)}</h4>
+      <dl class="generation-strategy-spec-review__meta">
+        <div><dt>Recipe</dt><dd>${escapeHtml(projection?.identity?.recipe || "—")}</dd></div>
+        <div><dt>Spec</dt><dd>${escapeHtml(String(projection?.identity?.spec_version || "—"))}</dd></div>
+        <div><dt>Исходник</dt><dd><code>${escapeHtml(entry.source_media_id.slice(0, 8))}…</code></dd></div>
+      </dl>
+      <details class="generation-strategy-spec-review__prompt" ${approved ? "" : "open"}>
+        <summary>Прочитать точный prompt для ролика ${entry.position} из 10 — ${escapeHtml(entry.filename)}</summary>
+        <pre>${escapeHtml(spec.compiled_prompt)}</pre>
+      </details>
+      ${generationStrategySpecMechanicsMarkup(spec, entry)}
+      ${approved
+        ? '<p class="badge badge-info">Одобрено человеком · автозапуск запрещён</p>'
+        : `<label class="option generation-strategy-spec-review__confirmation">
+            <input type="checkbox" name="generation_strategy_spec_approval" data-generation-strategy-spec-approval-source="${escapeHtml(entry.source_media_id)}" aria-labelledby="${titleId} ${confirmationId}" />
+            <span id="${confirmationId}">Я прочитал(а) версию ролика ${entry.position} из 10 и одобряю именно её.</span>
+          </label>`}
+    </article>`;
+  }).join("");
+  return `<header class="generation-strategy-spec-review__header">
+      <p class="eyebrow">Бесплатная проверка</p>
+      <h3>10 отдельных ТЗ</h3>
+      <p class="muted tiny">Каждый хит имеет свою механику, immutable selection и отдельное одобрение. Ни один платный запрос на этом шаге не выполняется.</p>
+    </header>${rows}`;
+}
+
+function syncGenerationStrategySpecReviewUi(form, selections = null) {
+  const root = form?.querySelector("[data-generation-strategy-spec-review]");
+  if (!root) return;
+  const reviewedSourceIds = new Set(Array.from(root.querySelectorAll(
+    "[data-generation-strategy-spec-approval-source]:checked",
+  )).map((control) => String(
+    control.dataset.generationStrategySpecApprovalSource || "",
+  ).trim().toLowerCase()).filter(contentReviewUuid));
+  const exactSelections = selections || generationStrategySelectionsForForm(form);
+  root.innerHTML = generationStrategySpecReviewMarkup(form, exactSelections);
+  reviewedSourceIds.forEach((sourceMediaId) => {
+    const control = root.querySelector(
+      `[data-generation-strategy-spec-approval-source="${CSS.escape(sourceMediaId)}"]`,
+    );
+    if (control instanceof HTMLInputElement) control.checked = true;
+  });
+}
+
+async function prepareGenerationStrategySpecs(form, selections, projectId) {
+  const organizationId = String(
+    state.api?.organizationId || state.bootstrap?.organization?.id || "",
+  ).trim().toLowerCase();
+  const platform = String(form.elements?.platform?.value || "").trim();
+  const productCategory = String(
+    form.elements?.product_category?.value || "",
+  ).trim();
+  const editableIntent = String(form.elements?.brief?.value || "").trim();
+  const plans = [];
+  for (const entry of selections) {
+    if (state.generationStrategySpecs.get(entry.source_media_id)?.draft) continue;
+    const plan = buildGenerationStrategySpecPrepareRequest({
+      organization_id: organizationId,
+      project_id: projectId,
+      platform,
+      product_category: productCategory,
+      selection: entry.selection,
+      editable_intent: editableIntent,
+      proposed_prompt: editableIntent,
+      mechanics_summary: entry.mechanics_summary,
+      confirmation: true,
+      reason: `Пользователь подготовил отдельное ТЗ для исходника ${entry.position} из 10.`,
+      idempotency_key: generationStrategySpecRequestKey(entry.source_media_id),
+    });
+    if (!plan.ok) {
+      throw new CreatorApiError(
+        "Проверьте замысел и разбор механики для каждого из 10 роликов.",
+        { code: plan.error?.code || "generation_strategy_spec_prepare_invalid" },
+      );
+    }
+    plans.push({ entry, plan });
+  }
+  for (let index = 0; index < plans.length; index += 3) {
+    const chunk = plans.slice(index, index + 3);
+    const results = await Promise.all(chunk.map(async ({ entry, plan }) => {
+      const raw = await state.api.prepareGenerationStrategySpec(plan.request);
+      const normalized = normalizeGenerationStrategySpecPrepareResponse(raw, plan);
+      if (!normalized.ok) {
+        throw new CreatorApiError(
+          `Сервер не подтвердил ТЗ для ролика ${entry.position}.`,
+          { code: normalized.error?.code || "generation_strategy_spec_response_invalid" },
+        );
+      }
+      return { entry, plan, draft: normalized.value };
+    }));
+    results.forEach(({ entry, plan, draft }) => {
+      state.generationStrategySpecs.set(entry.source_media_id, {
+        sourceMediaId: entry.source_media_id,
+        position: entry.position,
+        filename: entry.filename,
+        draft,
+        approved: null,
+        approvedContext: null,
+      });
+    });
+    syncGenerationStrategySpecReviewUi(form, selections);
+  }
+  return selections.every((entry) => (
+    state.generationStrategySpecs.get(entry.source_media_id)?.draft
+  ));
+}
+
+function generationStrategyAllDraftsReviewed(form, selections) {
+  return selections.every((entry) => {
+    const record = state.generationStrategySpecs.get(entry.source_media_id);
+    if (record?.approvedContext) return true;
+    return form.querySelector(
+      `[data-generation-strategy-spec-approval-source="${CSS.escape(entry.source_media_id)}"]`,
+    )?.checked === true;
+  });
+}
+
+async function approveGenerationStrategySpecs(form, selections, projectId) {
+  if (!generationStrategyAllDraftsReviewed(form, selections)) {
+    throw new CreatorApiError(
+      "Прочитайте и отдельно отметьте все 10 точных ТЗ.",
+      { code: "generation_strategy_spec_human_review_required" },
+    );
+  }
+  const plans = selections.flatMap((entry) => {
+    const record = state.generationStrategySpecs.get(entry.source_media_id);
+    if (!record?.draft || record.approvedContext) return [];
+    const plan = buildGenerationStrategySpecApprovalRequest({
+      project_id: projectId,
+      draft: record.draft,
+      human_confirmation: true,
+      reason: `Пользователь прочитал и явно одобрил ТЗ для ролика ${entry.position} из 10.`,
+    });
+    if (!plan.ok) {
+      throw new CreatorApiError(
+        "Одобряемая версия ТЗ изменилась.",
+        { code: plan.error?.code || "generation_strategy_spec_approval_invalid" },
+      );
+    }
+    return [{ entry, record, plan }];
+  });
+  for (let index = 0; index < plans.length; index += 3) {
+    const chunk = plans.slice(index, index + 3);
+    const settled = await Promise.allSettled(chunk.map(async ({ entry, record, plan }) => {
+      const raw = await state.api.controlGenerationSpec(plan.request);
+      const normalized = normalizeGenerationStrategySpecControlResponse(
+        raw,
+        record.draft,
+      );
+      if (!normalized.ok) {
+        throw new CreatorApiError(
+          `Сервер не подтвердил одобрение ролика ${entry.position}.`,
+          { code: normalized.error?.code || "generation_strategy_spec_approval_response_invalid" },
+        );
+      }
+      return { entry, record, approved: normalized.value };
+    }));
+    settled.filter((result) => result.status === "fulfilled").forEach((result) => {
+      const { entry, record, approved } = result.value;
+      state.generationStrategySpecs.set(entry.source_media_id, {
+        ...record,
+        approved,
+        approvedContext: approved.approvedContext,
+      });
+    });
+    syncGenerationStrategySpecReviewUi(form, selections);
+    const rejected = settled.find((result) => result.status === "rejected");
+    if (rejected) throw rejected.reason;
+  }
+  return selections.every((entry) => (
+    state.generationStrategySpecs.get(entry.source_media_id)?.approvedContext
+  ));
+}
+
+async function prepareGenerationStrategyQueueFree(form, selections, projectId) {
+  const queue = ensureGenerationStrategyQueue(form, selections, projectId);
+  if (!queue) {
+    throw new CreatorApiError(
+      "Не удалось собрать 10 независимых одобренных контекстов.",
+      { code: "generation_strategy_queue_context_invalid" },
+    );
+  }
+  const selectionBySource = new Map(
+    selections.map((entry) => [entry.source_media_id, entry]),
+  );
+  let safety = 0;
+  while (safety < 12) {
+    safety += 1;
+    const planned = planGenerationStrategyQueueFreeWork(
+      state.generationStrategyQueue,
+      [],
+      3,
+    );
+    if (!planned.ok) {
+      throw new CreatorApiError(
+        "Бесплатный план очереди изменился.",
+        { code: planned.error?.code || "generation_strategy_queue_plan_invalid" },
+      );
+    }
+    if (!planned.plan.items.length) break;
+    const operations = planned.plan.items.map((item) => {
+      const entry = selectionBySource.get(item.source_media_id);
+      const runtimeState = generationStrategyQueueRuntime(item.source_media_id);
+      if (!entry || !runtimeState) {
+        throw new CreatorApiError(
+          "Строка очереди потеряла свой контекст.",
+          { code: "generation_strategy_queue_row_invalid" },
+        );
+      }
+      if (item.work === "bind") {
+        const specRecord = state.generationStrategySpecs.get(item.source_media_id);
+        const context = generationStrategyRuntimeContextForApprovedSpec(
+          entry.selection,
+          projectId,
+          specRecord?.approvedContext || null,
+        );
+        const plan = generationStrategyRuntimeBindRequest(
+          context,
+          item.idempotency_key,
+        );
+        if (!plan.ok || plan.fingerprint !== item.runtime_fingerprint) {
+          throw new CreatorApiError(
+            "Привязка исходников изменилась.",
+            { code: plan.error?.code || "generation_strategy_bind_plan_invalid" },
+          );
+        }
+        return {
+          item,
+          action: async () => ({
+            type: GENERATION_STRATEGY_RUNTIME_ACTIONS.bindResolved,
+            fingerprint: plan.fingerprint,
+            context,
+            response: await state.api.bindGenerationStrategy(plan.request),
+          }),
+        };
+      }
+      const plan = generationStrategyRuntimePreflightRequest(
+        runtimeState,
+        item.idempotency_key,
+      );
+      if (!plan.ok) {
+        throw new CreatorApiError(
+          "Серверная проверка не собралась.",
+          { code: plan.error?.code || "generation_strategy_preflight_plan_invalid" },
+        );
+      }
+      return {
+        item,
+        action: async () => ({
+          type: GENERATION_STRATEGY_RUNTIME_ACTIONS.preflightResolved,
+          fingerprint: runtimeState.fingerprint,
+          response: await state.api.preflightGenerationStrategy(plan.request),
+        }),
+      };
+    });
+    const actions = await Promise.all(operations.map((operation) => operation.action()));
+    for (let index = 0; index < operations.length; index += 1) {
+      const item = operations[index].item;
+      const next = applyGenerationStrategyQueueRow(
+        item.source_media_id,
+        actions[index],
+      );
+      if (!next || next.phase === "invalid") {
+        throw new CreatorApiError(
+          `Бесплатная проверка ролика ${selectionBySource.get(item.source_media_id)?.position || ""} не подтверждена.`,
+          { code: next?.error?.code || "generation_strategy_queue_free_invalid" },
+        );
+      }
+    }
+    syncGenerationStrategyQueueUi(form);
+  }
+  const reviewed = generationStrategyQueueAggregateReview(
+    state.generationStrategyQueue,
+    state.generationStrategyQueueReview,
+  );
+  if (!reviewed.ok || !reviewed.review?.ready) {
+    throw new CreatorApiError(
+      "Не все 10 строк получили свежую точную цену.",
+      { code: reviewed.error?.code || "generation_strategy_queue_review_not_ready" },
+    );
+  }
+  state.generationStrategyQueueReview = reviewed.review;
+  syncGenerationStrategyQueueUi(form);
+  return reviewed.review;
+}
+
+async function refreshGenerationStrategyQueuePreflights(form, projectId) {
+  const targets = generationStrategyQueuePreflightRefreshTargets();
+  if (!targets.length) return 0;
+  const requestContext = captureGenerationRequestContext(form, projectId);
+  const requestApi = state.api;
+  const sourceRevision = state.generationStrategyQueueSourceRevision;
+  if (!generationRequestContextIsCurrent(requestContext) || !requestApi) {
+    throw new CreatorApiError("Контекст страницы изменился до бесплатного обновления проверок.", {
+      code: "generation_strategy_preflight_refresh_context_stale",
+    });
+  }
+
+  let refreshed = 0;
+  for (let index = 0; index < targets.length; index += 3) {
+    const chunk = targets.slice(index, index + 3);
+    const operations = chunk.map(({ sourceMediaId }) => {
+      const runtimeState = generationStrategyQueueRuntime(sourceMediaId);
+      const oldReceipt = runtimeState?.preflight?.receipt;
+      if (
+        runtimeState?.phase !== "human_confirmed"
+        || !contentReviewUuid(oldReceipt?.id)
+        || !String(oldReceipt?.receipt_hash || "").trim()
+      ) {
+        throw new CreatorApiError("Оставшаяся строка потеряла серверную квитанцию.", {
+          code: "generation_strategy_preflight_refresh_state_invalid",
+        });
+      }
+      const idempotency = generationStrategyRequestIdempotencyKey(
+        sourceMediaId,
+        "preflight_refresh",
+        oldReceipt.receipt_hash,
+      );
+      const plan = generationStrategyRuntimePreflightRequest(
+        runtimeState,
+        idempotency.value,
+      );
+      if (
+        !plan.ok
+        || plan.fingerprint !== runtimeState.fingerprint
+        || plan.start_context_fingerprint !== runtimeState.start_context_fingerprint
+      ) {
+        throw new CreatorApiError("Не удалось собрать точное бесплатное обновление строки.", {
+          code: plan.error?.code || "generation_strategy_preflight_refresh_plan_invalid",
+        });
+      }
+      return {
+        sourceMediaId,
+        runtimeState,
+        oldReceipt,
+        idempotency,
+        plan,
+      };
+    });
+    const results = await Promise.allSettled(operations.map((operation) => (
+      requestApi.preflightGenerationStrategy(operation.plan.request)
+    )));
+    let firstFailure = null;
+    for (let operationIndex = 0; operationIndex < operations.length; operationIndex += 1) {
+      const operation = operations[operationIndex];
+      const result = results[operationIndex];
+      if (result.status === "rejected") {
+        firstFailure ||= result.reason;
+        continue;
+      }
+      const live = generationStrategyQueueRuntime(operation.sourceMediaId);
+      if (
+        !generationRequestContextIsCurrent(requestContext)
+        || state.api !== requestApi
+        || state.generationStrategyQueueSourceRevision !== sourceRevision
+        || live?.phase !== "human_confirmed"
+        || live.fingerprint !== operation.runtimeState.fingerprint
+        || live.start_context_fingerprint
+          !== operation.runtimeState.start_context_fingerprint
+        || live.campaign_id !== operation.runtimeState.campaign_id
+        || live.preflight?.receipt?.id !== operation.oldReceipt.id
+        || live.preflight?.receipt?.receipt_hash !== operation.oldReceipt.receipt_hash
+      ) {
+        firstFailure ||= new CreatorApiError(
+          "Контекст строки изменился во время бесплатного обновления.",
+          { code: "generation_strategy_preflight_refresh_context_stale" },
+        );
+        continue;
+      }
+      const resolvedAction = {
+        type: GENERATION_STRATEGY_RUNTIME_ACTIONS.preflightResolved,
+        fingerprint: live.fingerprint,
+        response: result.value,
+      };
+      const verified = reduceGenerationStrategyRuntimeState(live, resolvedAction);
+      if (
+        !verified
+        || verified.phase !== "human_confirmed"
+        || verified.fingerprint !== live.fingerprint
+        || verified.campaign_id !== live.campaign_id
+        || verified.start_context_fingerprint === live.start_context_fingerprint
+        || verified.preflight?.receipt?.id === operation.oldReceipt.id
+        || verified.preflight?.receipt?.receipt_hash === operation.oldReceipt.receipt_hash
+      ) {
+        firstFailure ||= new CreatorApiError(
+          "Сервер не вернул новую неизменившуюся квитанцию строки.",
+          {
+            code: verified?.error?.code
+              || "generation_strategy_preflight_refresh_response_invalid",
+          },
+        );
+        continue;
+      }
+      const committed = applyGenerationStrategyQueueRow(
+        operation.sourceMediaId,
+        resolvedAction,
+      );
+      if (
+        !committed
+        || committed.phase !== "human_confirmed"
+        || committed.start_context_fingerprint !== verified.start_context_fingerprint
+        || committed.campaign_id !== live.campaign_id
+      ) {
+        firstFailure ||= new CreatorApiError(
+          "Новая квитанция не закрепилась в точной строке очереди.",
+          { code: "generation_strategy_preflight_refresh_commit_invalid" },
+        );
+        continue;
+      }
+      clearGenerationStrategyRequestIdempotencyKey(operation.idempotency.key);
+      refreshed += 1;
+    }
+    syncGenerationStrategyQueueUi(form);
+    if (firstFailure) throw firstFailure;
+  }
+  return refreshed;
+}
+
+function confirmGenerationStrategyQueueForPaidStart(form, campaignId) {
+  if (
+    !REAL_GENERATION_ENABLED
+    || !state.generationStrategyQueue
+    || !state.generationStrategyQueueReview
+  ) {
+    return false;
+  }
+  const currentReview = generationStrategyQueueAggregateReview(
+    state.generationStrategyQueue,
+    state.generationStrategyQueueReview,
+  );
+  if (
+    !currentReview.ok
+    || !currentReview.review?.ready
+    || currentReview.review.prior_review_current !== true
+    || !generationStrategyQueueReceiptsAreFresh(generationStrategyReceiptWindowMs(
+      state.generationStrategyQueue.source_order.length,
+    ))
+  ) return false;
+  let confirmedQueue = state.generationStrategyQueue;
+  for (const sourceMediaId of confirmedQueue.source_order) {
+    const runtimeState = confirmedQueue.rows.get(sourceMediaId)?.runtime_state;
+    const projection = generationStrategyRuntimeSafeProjection(runtimeState);
+    if (
+      runtimeState?.phase !== "preflight_ready"
+      || !projection?.price?.spend_confirmation
+    ) return false;
+    const updated = updateGenerationStrategyQueueRow(confirmedQueue, sourceMediaId, {
+      type: GENERATION_STRATEGY_RUNTIME_ACTIONS.humanConfirmed,
+      fingerprint: runtimeState.fingerprint,
+      campaign_id: campaignId,
+      spend_confirmation: projection.price.spend_confirmation,
+      confirmation: true,
+    });
+    const next = updated.ok
+      ? updated.queue?.rows?.get(sourceMediaId)?.runtime_state
+      : null;
+    if (!next || next.phase !== "human_confirmed") return false;
+    confirmedQueue = updated.queue;
+  }
+  state.generationStrategyQueue = confirmedQueue;
+  for (const sourceMediaId of confirmedQueue.source_order) {
+    const runtimeState = confirmedQueue.rows.get(sourceMediaId)?.runtime_state;
+    if (runtimeState) {
+      state.generationStrategyRuntimes.set(sourceMediaId, runtimeState);
+    }
+  }
+  return true;
+}
+
+async function startGenerationStrategyQueueSequentially(
+  form,
+  selections,
+  projectId,
+) {
+  if (!REAL_GENERATION_ENABLED) {
+    throw new CreatorApiError("Платная генерация отключена в конфигурации.", {
+      code: "real_generation_disabled",
+    });
+  }
+  const requestContext = captureGenerationRequestContext(form, projectId);
+  const requestApi = state.api;
+  if (!generationRequestContextIsCurrent(requestContext) || !requestApi) {
+    throw new CreatorApiError("Контекст страницы генерации изменился до старта.", {
+      code: "generation_strategy_queue_request_context_stale",
+    });
+  }
+  const selectionBySource = new Map(
+    selections.map((entry) => [entry.source_media_id, entry]),
+  );
+  let started = 0;
+  while (started < 10) {
+    const planned = planGenerationStrategyQueueSequentialStarts(
+      state.generationStrategyQueue,
+    );
+    if (!planned.ok) {
+      throw new CreatorApiError(
+        "Порядок платных стартов изменился.",
+        { code: planned.error?.code || "generation_strategy_queue_start_plan_invalid" },
+      );
+    }
+    if (planned.plan.state === "complete") break;
+    if (planned.plan.state !== "ready" || !planned.plan.next) {
+      const blocker = planned.plan.blocker;
+      const message = blocker === "reconciliation_required"
+        ? "Один запрос имеет неопределённый исход. Новые платные старты остановлены до ручной сверки."
+        : "Предыдущий платный старт ещё не зафиксирован сервером.";
+      throw new CreatorApiError(message, {
+        code: `generation_strategy_queue_${blocker || "blocked"}`,
+      });
+    }
+    const nextPlan = planned.plan.next;
+    const sourceMediaId = nextPlan.source_media_id;
+    const runtimeState = generationStrategyQueueRuntime(sourceMediaId);
+    const entry = selectionBySource.get(sourceMediaId);
+    if (!runtimeState || !entry) {
+      throw new CreatorApiError("Строка очереди изменилась.", {
+        code: "generation_strategy_queue_start_row_invalid",
+      });
+    }
+    const humanConfirmedRemaining = [...state.generationStrategyQueue.rows.values()]
+      .filter((row) => row.runtime_state?.phase === "human_confirmed").length;
+    if (!generationStrategyReceiptIsFresh(
+      runtimeState,
+      generationStrategyReceiptWindowMs(humanConfirmedRemaining),
+    )) {
+      throw new CreatorApiError(
+        "Серверная проверка цены этой строки истекла до резервирования старта.",
+        { code: "generation_strategy_queue_receipt_expired_before_start" },
+      );
+    }
+    if (
+      !generationRequestContextIsCurrent(requestContext)
+      || state.api !== requestApi
+    ) {
+      throw new CreatorApiError("Проект, пользователь или страница изменились до старта.", {
+        code: "generation_strategy_queue_request_context_stale",
+      });
+    }
+    const startPlan = generationStrategyRuntimeStartRequest(
+      runtimeState,
+      nextPlan.campaign_id,
+      nextPlan.idempotency_key,
+    );
+    if (
+      !startPlan.ok
+      || startPlan.fingerprint !== nextPlan.runtime_fingerprint
+      || startPlan.start_context_fingerprint !== nextPlan.start_context_fingerprint
+    ) {
+      throw new CreatorApiError("Подтверждённый контекст строки изменился.", {
+        code: "generation_strategy_queue_start_context_invalid",
+      });
+    }
+    const reserved = applyGenerationStrategyQueueRow(sourceMediaId, {
+      type: GENERATION_STRATEGY_RUNTIME_ACTIONS.startRequested,
+      fingerprint: runtimeState.fingerprint,
+      start_context_fingerprint: runtimeState.start_context_fingerprint,
+      campaign_id: runtimeState.campaign_id,
+      idempotency_key: nextPlan.idempotency_key,
+    });
+    if (!reserved || reserved.phase !== "start_once") {
+      throw new CreatorApiError("Повторный старт строки заблокирован.", {
+        code: "generation_strategy_queue_start_reserved",
+      });
+    }
+    syncGenerationStrategyQueueUi(form);
+    const actorId = String(state.user?.id || "").trim().toLowerCase();
+    const sourceRevision = state.generationStrategyQueueSourceRevision;
+    const expectedFingerprint = reserved.fingerprint;
+    requestApi.bindRealGenerationClientContext(startPlan.request, {
+      expectedActorId: actorId,
+      isContextCurrent: () => {
+        const currentSelection = generationStrategySelectionsForForm(form)
+          ?.find((item) => item.source_media_id === sourceMediaId);
+        const specRecord = state.generationStrategySpecs.get(sourceMediaId);
+        const currentContext = generationStrategyRuntimeContextForApprovedSpec(
+          currentSelection?.selection,
+          projectId,
+          specRecord?.approvedContext || null,
+        );
+        const currentPlan = currentContext
+          ? generationStrategyRuntimeBindRequest(
+              currentContext,
+              state.generationStrategyQueue.rows.get(sourceMediaId)
+                ?.idempotency_keys?.bind || "",
+            )
+          : null;
+        const currentRuntime = generationStrategyQueueRuntime(sourceMediaId);
+        return generationRequestContextIsCurrent(requestContext)
+          && state.api === requestApi
+          && String(state.user?.id || "").trim().toLowerCase() === actorId
+          && state.generationStrategyQueueSourceRevision === sourceRevision
+          && currentPlan?.fingerprint === expectedFingerprint
+          && currentRuntime?.phase === "start_once"
+          && currentRuntime.fingerprint === reserved.fingerprint
+          && currentRuntime.start_context_fingerprint === reserved.start_context_fingerprint
+          && currentRuntime.campaign_id === reserved.campaign_id;
+      },
+    });
+    const raw = await requestApi.startGenerationStrategy(startPlan.request);
+    const resolvedAction = {
+      type: GENERATION_STRATEGY_RUNTIME_ACTIONS.startResolved,
+      fingerprint: reserved.fingerprint,
+      start_context_fingerprint: reserved.start_context_fingerprint,
+      idempotency_key: nextPlan.idempotency_key,
+      response: raw,
+    };
+    const verified = reduceGenerationStrategyRuntimeState(
+      reserved,
+      resolvedAction,
+    );
+    if (!verified || verified.phase !== "status") {
+      throw new CreatorApiError(
+        "Сервер не вернул безопасный статус. Резерв старта сохранён, новые старты остановлены.",
+        {
+          code: verified?.error?.code
+            || "generation_strategy_queue_start_response_invalid",
+        },
+      );
+    }
+    const next = applyGenerationStrategyQueueRow(sourceMediaId, resolvedAction);
+    if (!next || next.phase !== "status") {
+      throw new CreatorApiError(
+        "Сервер не подтвердил итог стартовой транзакции. Новые старты остановлены.",
+        { code: next.error?.code || "generation_strategy_queue_start_response_invalid" },
+      );
+    }
+    scheduleGenerationStrategyPolling(1_000);
+    started += 1;
+    state.lastRealGenerationJobId = generationStrategyRuntimeSafeProjection(next)?.job?.id
+      || state.lastRealGenerationJobId;
+    syncGenerationStrategyQueueUi(form);
+  }
+  scheduleGenerationStrategyPolling(1_000);
+  return started;
+}
+
+function handleGenerationStrategySourcesChanged(event) {
+  const form = event?.target?.closest?.("#mock-batch-form");
+  if (!form) return;
+  const projection = generationStrategySourceProjectionForForm(form);
+  if (generationStrategyQueueHasPaidAuthority()) {
+    toast(
+      "Состав очереди уже подтверждён. Нельзя заменить исходник, пока сохраняются статусы созданных задач.",
+      "info",
+    );
+    syncGenerationStrategyQueueUi(form);
+    syncGenerationStrategyFormReadiness(form);
+    return;
+  }
+  const hasBoundAuthority = Boolean(
+    state.generationStrategyQueue
+    || state.generationStrategySpecs.size
+    || state.generationStrategySpecRequestKeys.size
+  );
+  if (hasBoundAuthority && (
+    state.generationStrategyQueueSourceRevision === null
+    || state.generationStrategyQueueSourceRevision !== projection?.revision
+  )) {
+    resetGenerationStrategyQueueState();
+    if (form.elements?.real_spend_confirmation) {
+      form.elements.real_spend_confirmation.checked = false;
+      form.elements.real_spend_confirmation.value = "";
+    }
+  }
+  state.generationStrategyQueueSourceRevision = projection?.revision ?? null;
+  syncGenerationStrategyQueueUi(form);
+  syncGenerationStrategyFormReadiness(form);
+}
+
+function selectedGenerationStrategySourceMediaId(form) {
+  const selected = form?.elements?.generation_strategy_source_video_id;
+  const mediaId = String(selected?.value || "").trim().toLowerCase();
+  return contentReviewUuid(mediaId) ? mediaId : "";
+}
+
+function generationStrategyRuntimeContext(form, selection, projectId) {
+  const spec = currentApprovedGenerationSpecContext(form);
+  const organizationId = String(
+    state.api?.organizationId || state.bootstrap?.organization?.id || "",
+  ).trim().toLowerCase();
+  if (
+    !selection
+    || !contentReviewUuid(organizationId)
+    || !contentReviewUuid(projectId)
+    || !spec
+  ) return null;
+  return {
+    organization_id: organizationId,
+    project_id: String(projectId).toLowerCase(),
+    spec_id: spec.spec_id,
+    spec_version: spec.spec_version,
+    spec_hash: spec.spec_hash,
+    generation_strategy: selection,
+  };
+}
+
+function generationStrategyRuntimeForSource(sourceMediaId) {
+  const existing = state.generationStrategyRuntimes.get(sourceMediaId);
+  return existing || createGenerationStrategyRuntimeState();
+}
+
+function setGenerationStrategyRuntime(sourceMediaId, runtimeState) {
+  if (!contentReviewUuid(sourceMediaId) || !runtimeState) return false;
+  state.generationStrategyRuntimes.set(sourceMediaId, runtimeState);
+  state.generationStrategyActiveSourceMediaId = sourceMediaId;
+  return true;
+}
+
+function generationStrategyRequestIdempotencyKey(
+  sourceMediaId,
+  phase,
+  fingerprint = "",
+) {
+  const key = [sourceMediaId, phase, fingerprint].join(":");
+  let value = state.generationStrategyRequestKeys.get(key);
+  if (!value) {
+    value = crypto.randomUUID();
+    state.generationStrategyRequestKeys.set(key, value);
+  }
+  return { key, value };
+}
+
+function clearGenerationStrategyRequestIdempotencyKey(key) {
+  if (key) state.generationStrategyRequestKeys.delete(key);
+}
+
+function invalidateGenerationStrategyRuntimeForSource(
+  sourceMediaId,
+  reason = "generation_strategy_context_changed",
+) {
+  if (!contentReviewUuid(sourceMediaId)) return false;
+  const current = state.generationStrategyRuntimes.get(sourceMediaId);
+  if (current) {
+    state.generationStrategyRuntimes.set(
+      sourceMediaId,
+      invalidateGenerationStrategyRuntimeState(current, reason),
+    );
+  }
+  for (const key of [...state.generationStrategyRequestKeys.keys()]) {
+    if (key.startsWith(`${sourceMediaId}:`)) {
+      state.generationStrategyRequestKeys.delete(key);
+    }
+  }
+  return Boolean(current);
+}
+
+function generationStrategyRuntimeProjection(form) {
+  const sourceMediaId = selectedGenerationStrategySourceMediaId(form);
+  if (!sourceMediaId) return null;
+  return generationStrategyRuntimeSafeProjection(
+    generationStrategyRuntimeForSource(sourceMediaId),
+  );
+}
+
+function syncGenerationStrategyPaidControlLock(form) {
+  const locked = generationStrategyQueueHasPaidAuthority();
+  if (!locked) {
+    delete form.dataset.generationStrategyPaidLocked;
+    return false;
+  }
+  form.dataset.generationStrategyPaidLocked = "true";
+  form.querySelectorAll([
+    '[data-generation-strategy-action="SELECT"]',
+    '[data-action="toggle-generation-strategy-source"]',
+    "[data-generation-strategy-source-toggle]",
+    "[data-generation-strategy-assets-refresh]",
+    "[data-generation-strategy-assets-load-more]",
+    '[data-action="probe-generation-strategy-media"]',
+    "#generation-strategy-assets input",
+    "#generation-strategy-assets select",
+    "#generation-strategy-assets textarea",
+    'input[name="media_id"]',
+    'input[name="primary_media_id"]',
+    '[name="brief"]',
+    '[name="sku"]',
+    '[name="product_name"]',
+    '[name="product_category"]',
+    '[name="platform"]',
+    '[name="destination_ref"]',
+    '[name="campaign_id"]',
+    '[name="real_spend_confirmation"]',
+  ].join(",")).forEach((control) => {
+    if ("disabled" in control) control.disabled = true;
+  });
+  return true;
+}
+
+function syncGenerationStrategyFormReadiness(form) {
+  if (!form) return null;
+  const strategyId = String(
+    form.elements?.generation_strategy_id?.value || "",
+  ).trim();
+  if (!strategyId) return null;
+  const sourceProjection = generationStrategySourceProjectionForForm(form);
+  const selections = generationStrategySelectionsForForm(form);
+  const selectedSources = sourceProjection?.selected || [];
+  const preparedCount = selectedSources.filter((entry) => (
+    state.generationStrategySpecs.get(entry.source_media_id)?.draft
+  )).length;
+  const approvedCount = selectedSources.filter((entry) => (
+    state.generationStrategySpecs.get(entry.source_media_id)?.approvedContext
+  )).length;
+  const queueProjection = generationStrategyQueueProjection();
+  const reviewResult = state.generationStrategyQueue
+    ? generationStrategyQueueAggregateReview(
+        state.generationStrategyQueue,
+        state.generationStrategyQueueReview,
+      )
+    : null;
+  const review = reviewResult?.ok ? reviewResult.review : null;
+  const receiptWindowReady = generationStrategyQueueReceiptsAreFresh(
+    generationStrategyReceiptWindowMs(selectedSources.length || 10),
+  );
+  const serverReviewReady = Boolean(
+    review?.ready
+    && review.prior_review_current === true
+    && approvedCount === 10
+  );
+  const confirmationReady = Boolean(
+    serverReviewReady
+    && receiptWindowReady
+    && REAL_GENERATION_ENABLED
+    && !generationStrategyQueueHasPaidAuthority()
+  );
+  form.dataset.generationStrategyConfirmationReady = confirmationReady
+    ? "true"
+    : "false";
+
+  const campaignField = form.querySelector("#generation-campaign-field");
+  const campaign = form.elements?.campaign_id;
+  if (campaignField instanceof HTMLElement) campaignField.hidden = false;
+  if (campaign instanceof HTMLSelectElement) {
+    campaign.disabled = !confirmationReady;
+    campaign.required = confirmationReady;
+  }
+  const confirmationPanel = form.querySelector("#real-generation-confirmation");
+  const confirmation = form.elements?.real_spend_confirmation;
+  if (confirmationPanel instanceof HTMLElement) confirmationPanel.hidden = false;
+  if (confirmation instanceof HTMLInputElement) {
+    confirmation.disabled = !confirmationReady;
+    confirmation.required = confirmationReady;
+    confirmation.value = confirmationReady && state.generationStrategyQueue
+      ? `GENERATION_STRATEGY_EXACT_10_${state.generationStrategyQueue.revision}`
+      : "";
+    if (!confirmationReady) confirmation.checked = false;
+  }
+  const paidAuthorityActive = syncGenerationStrategyPaidControlLock(form);
+
+  const price = form.querySelector("#real-generation-price");
+  const confirmationTitle = form.querySelector(
+    "#real-generation-confirmation-title",
+  );
+  const confirmationCopy = form.querySelector(
+    "#real-generation-confirmation-copy",
+  );
+  if (confirmationReady && Number.isSafeInteger(review?.total_estimated_cost_minor)) {
+    const priceCopy = `$${(review.total_estimated_cost_minor / 100).toFixed(2)}`;
+    if (price) {
+      price.textContent = `Точная серверная сумма 10 отдельных запусков — ${priceCopy}.`;
+    }
+    if (confirmationTitle) {
+      confirmationTitle.textContent = "Подтверждаю 10 отдельных платных запусков";
+    }
+    if (confirmationCopy) {
+      confirmationCopy.textContent = `${priceCopy} за всю очередь · каждая строка имеет свою цену, receipt, spec и job · старты только последовательно`;
+    }
+  } else if (price) {
+    price.textContent = "Сначала бесплатно проверим 10 MP4, десять ТЗ, ассеты и точные цены. Провайдер не запускается.";
+  }
+
+  const submit = form.querySelector("#generation-submit");
+  if (!(submit instanceof HTMLButtonElement)) {
+    return { sourceProjection, queueProjection, review };
+  }
+  const busy = state.generationStrategyStartInFlight
+    || state.generationStrategyQueueBusy
+    || form.dataset.busy === "true";
+  const campaignReady = contentReviewUuid(String(campaign?.value || ""));
+  const confirmationMatches = confirmationReady
+    && confirmation?.checked === true
+    && confirmation.value === `GENERATION_STRATEGY_EXACT_10_${state.generationStrategyQueue?.revision}`;
+  const probeRequired = Boolean(
+    sourceProjection?.probe_required_source_ids?.length,
+  );
+  const queueRows = queueProjection?.rows || [];
+  const paidPlan = paidAuthorityActive && state.generationStrategyQueue
+    ? planGenerationStrategyQueueSequentialStarts(state.generationStrategyQueue)
+    : null;
+  const paidReceiptsNeedRefresh = paidAuthorityActive
+    && generationStrategyQueuePaidReceiptsNeedRefresh();
+  const draftsReviewed = selections
+    ? generationStrategyAllDraftsReviewed(form, selections)
+    : false;
+  let blocker = "";
+  let label = "Подготовить 10 роликов бесплатно";
+  if (paidAuthorityActive) {
+    const paidState = paidPlan?.ok ? paidPlan.plan?.state : "invalid";
+    const paidBlocker = paidPlan?.ok ? paidPlan.plan?.blocker : "plan_invalid";
+    if (!REAL_GENERATION_ENABLED) {
+      blocker = "Платная генерация отключена в конфигурации. Созданные статусы сохранены.";
+      label = "Платные старты отключены";
+    } else if (paidState === "ready" && paidReceiptsNeedRefresh) {
+      label = "Обновить проверки оставшихся роликов бесплатно";
+    } else if (paidState === "ready") {
+      label = "Продолжить оставшиеся старты по одному";
+    } else if (paidState === "complete") {
+      blocker = "10 отдельных задач уже созданы или безопасно остановлены.";
+      label = "Очередь из 10 роликов создана";
+    } else if (paidBlocker === "reconciliation_required") {
+      blocker = "Один старт требует ручной сверки; остальные платные старты остановлены.";
+      label = "Нужна сверка неопределённого старта";
+    } else if (paidBlocker === "start_once_in_flight") {
+      blocker = "Сервер ещё фиксирует предыдущий старт; повторный POST запрещён.";
+      label = "Ожидаем фиксацию предыдущего старта";
+    } else {
+      blocker = "Платная очередь остановлена в безопасном состоянии.";
+      label = "Проверьте состояние очереди";
+    }
+  } else if (!sourceProjection?.exactly_ten_selected) {
+    blocker = `Выберите ровно 10 хитов: сейчас ${sourceProjection?.selected_count || 0} из 10.`;
+    label = `Выбрано ${sourceProjection?.selected_count || 0} из 10 роликов`;
+  } else if (probeRequired) {
+    blocker = "Сначала бесплатно проверьте длительность выбранных MP4.";
+    label = `Проверить ${sourceProjection.probe_required_source_ids.length} MP4 бесплатно`;
+  } else if (!selections) {
+    blocker = probeRequired
+      ? "Сначала проверьте MP4."
+      : "Заполните общие ассеты, параметры и механику каждого хита.";
+    label = "Заполните механику и ассеты";
+  } else if (preparedCount < 10) {
+    label = `Подготовить ${10 - preparedCount} ТЗ бесплатно`;
+  } else if (approvedCount < 10) {
+    if (!draftsReviewed) {
+      blocker = "Прочитайте точный prompt и отметьте каждое из 10 ТЗ.";
+      label = `Одобрено ${approvedCount} из 10 ТЗ`;
+    } else {
+      label = `Одобрить ${10 - approvedCount} ТЗ бесплатно`;
+    }
+  } else if (serverReviewReady && !REAL_GENERATION_ENABLED) {
+    blocker = "Платная генерация отключена в конфигурации.";
+    label = "Платные старты отключены";
+  } else if (serverReviewReady && !receiptWindowReady) {
+    label = "Обновить 10 точных цен и проверок бесплатно";
+  } else if (!confirmationReady) {
+    label = "Проверить 10 ассетов и цен бесплатно";
+  } else {
+    const priceCopy = `$${(review.total_estimated_cost_minor / 100).toFixed(2)}`;
+    label = `Запустить 10 роликов последовательно · ${priceCopy}`;
+    if (!campaignReady) blocker = "Выберите активную кампанию.";
+    else if (!confirmationMatches) blocker = "Проверьте общую точную сумму и явно подтвердите 10 отдельных платных стартов.";
+  }
+  submit.disabled = busy || Boolean(blocker);
+  submit.dataset.launchBlocker = blocker;
+  submit.dataset.launchPhase = paidAuthorityActive
+    ? "strategy_exact_10_paid_resume"
+    : confirmationReady
+      ? "strategy_exact_10_paid_review"
+    : approvedCount === 10
+      ? "strategy_exact_10_free_preflight"
+      : preparedCount === 10
+        ? "strategy_exact_10_spec_review"
+        : "strategy_exact_10_prepare";
+  submit.textContent = busy ? "Проверяем стратегию — не повторяйте" : label;
+  syncGenerationStrategySpecReviewUi(form, selections);
+  syncGenerationStrategyQueueUi(form);
+  return { sourceProjection, queueProjection, review };
+}
+
+async function probeSelectedGenerationStrategyMedia(
+  form,
+  mediaId,
+  control,
+  { refresh = true, silent = false } = {},
+) {
+  const normalizedMediaId = String(mediaId || "").trim().toLowerCase();
+  const projectId = requireWorkspaceProjectId();
+  const organizationId = String(
+    state.api?.organizationId || state.bootstrap?.organization?.id || "",
+  ).trim().toLowerCase();
+  if (
+    !form?.isConnected
+    || !contentReviewUuid(normalizedMediaId)
+    || !contentReviewUuid(projectId)
+    || !contentReviewUuid(organizationId)
+  ) {
+    toast("Не удалось определить точный MP4 проекта для бесплатной проверки.", "error");
+    return false;
+  }
+  const idempotency = generationStrategyRequestIdempotencyKey(
+    normalizedMediaId,
+    "probe",
+    projectId,
+  );
+  const plan = generationStrategyRuntimeProbeRequest({
+    organization_id: organizationId,
+    project_id: projectId,
+    media_id: normalizedMediaId,
+  }, idempotency.value);
+  if (!plan.ok) {
+    toast("Серверный контракт бесплатной проверки MP4 не совпал.", "error");
+    return false;
+  }
+  if (control instanceof HTMLButtonElement) control.disabled = true;
+  try {
+    const raw = await state.api.probeGenerationStrategyMedia(plan.request);
+    const normalized = normalizeGenerationStrategyProbeResponse(
+      raw,
+      normalizedMediaId,
+    );
+    if (!normalized.ok) {
+      throw new CreatorApiError(
+        "Сервер не подтвердил длительность выбранного MP4.",
+        { code: normalized.error?.code || "generation_strategy_probe_invalid" },
+      );
+    }
+    clearGenerationStrategyRequestIdempotencyKey(idempotency.key);
+    invalidateGenerationStrategyRuntimeForSource(
+      normalizedMediaId,
+      "generation_strategy_media_verified",
+    );
+    if (refresh) {
+      await globalThis.ContentEngineGenerationGuidedV4
+        ?.refreshStrategyAssets?.(form);
+      syncGenerationStrategyFormReadiness(form);
+    }
+    if (!silent) {
+      toast(
+        `MP4 проверен бесплатно: ${normalized.value.duration_seconds} с. Теперь можно зафиксировать стратегию.`,
+        "success",
+      );
+    }
+    return true;
+  } catch (error) {
+    if (!silent) {
+      toast(`Проверка MP4 не завершена: ${actionErrorMessage(error)}`, "error");
+    }
+    return false;
+  } finally {
+    if (control instanceof HTMLButtonElement && control.isConnected) {
+      control.disabled = false;
+    }
+  }
+}
+
+async function probeGenerationStrategyMediaBatch(form, mediaIds, control) {
+  const ids = [...new Set((Array.isArray(mediaIds) ? mediaIds : [])
+    .map((item) => String(item || "").trim().toLowerCase())
+    .filter(contentReviewUuid))];
+  if (!ids.length) return false;
+  if (control instanceof HTMLButtonElement) control.disabled = true;
+  let completed = 0;
+  try {
+    for (let index = 0; index < ids.length; index += 3) {
+      const chunk = ids.slice(index, index + 3);
+      const results = await Promise.all(chunk.map((mediaId) => (
+        probeSelectedGenerationStrategyMedia(
+          form,
+          mediaId,
+          null,
+          { refresh: false, silent: true },
+        )
+      )));
+      completed += results.filter(Boolean).length;
+      if (results.some((result) => !result)) break;
+    }
+    await globalThis.ContentEngineGenerationGuidedV4
+      ?.refreshStrategyAssets?.(form);
+    syncGenerationStrategyFormReadiness(form);
+    if (completed !== ids.length) {
+      toast(
+        `Проверено ${completed} из ${ids.length} MP4. Остальные не дошли до запуска провайдера; повторите бесплатную проверку.`,
+        "error",
+      );
+      return false;
+    }
+    toast(`Все ${completed} MP4 проверены бесплатно.`, "success");
+    return true;
+  } finally {
+    if (control instanceof HTMLButtonElement && control.isConnected) {
+      control.disabled = false;
+    }
+  }
+}
+
+async function submitGenerationStrategyExactTen(
+  form,
+  values,
+  selections,
+  projectId,
+) {
+  if (
+    state.generationStrategyQueueBusy
+    || state.generationStrategyStartInFlight
+    || state.realGenerationStartInFlight
+  ) {
+    toast("Проверка или платный старт уже идёт. Не повторяйте запрос.", "info");
+    return;
+  }
+  const sourceProjection = generationStrategySourceProjectionForForm(form);
+  if (!sourceProjection?.all_selected_ready || selections?.length !== 10) {
+    toast("Выберите и проверьте ровно 10 MP4, затем заполните ассеты и механику.", "error");
+    return;
+  }
+  const selectionOrder = selections.map((entry) => entry.source_media_id);
+  const sourceOrder = sourceProjection.selected.map((entry) => entry.source_media_id);
+  if (
+    new Set(selectionOrder).size !== 10
+    || JSON.stringify(selectionOrder) !== JSON.stringify(sourceOrder)
+  ) {
+    toast("Порядок десяти исходников изменился. Пересоберите бесплатную проверку.", "error");
+    return;
+  }
+  if (
+    (state.generationStrategyQueue || state.generationStrategySpecs.size)
+    && state.generationStrategyQueueSourceRevision !== sourceProjection.revision
+  ) {
+    if (!resetGenerationStrategyQueueState()) {
+      toast("Очередь уже имеет платную историю; её контекст нельзя заменить.", "error");
+      return;
+    }
+  }
+  state.generationStrategyQueueSourceRevision = sourceProjection.revision;
+  state.generationStrategyQueueBusy = true;
+  try {
+    const preparedCount = selections.filter((entry) => (
+      state.generationStrategySpecs.get(entry.source_media_id)?.draft
+    )).length;
+    if (preparedCount < 10) {
+      setFormBusy(form, true, `Готовим ${10 - preparedCount} ТЗ без списания…`);
+      await prepareGenerationStrategySpecs(form, selections, projectId);
+      toast(
+        "10 отдельных ТЗ подготовлены бесплатно. Прочитайте каждый prompt и отметьте его отдельно.",
+        "success",
+      );
+      globalThis.ContentEngineGenerationGuidedV4?.goToStep?.("media");
+      const review = form.querySelector("[data-generation-strategy-spec-review]");
+      scrollElementIntoView(review, "start");
+      review?.querySelector("[data-generation-strategy-spec-approval-source]")
+        ?.focus({ preventScroll: true });
+      return;
+    }
+    const approvedCount = selections.filter((entry) => (
+      state.generationStrategySpecs.get(entry.source_media_id)?.approvedContext
+    )).length;
+    if (approvedCount < 10) {
+      setFormBusy(form, true, `Одобряем ${10 - approvedCount} просмотренных ТЗ…`);
+      await approveGenerationStrategySpecs(form, selections, projectId);
+      toast(
+        "Все 10 версий одобрены человеком. Теперь бесплатно проверим ассеты, сервис и точные цены.",
+        "success",
+      );
+      globalThis.ContentEngineGenerationGuidedV4?.goToStep?.("launch");
+      return;
+    }
+    if (generationStrategyQueueHasPaidAuthority()) {
+      const paidPlan = planGenerationStrategyQueueSequentialStarts(
+        state.generationStrategyQueue,
+      );
+      scheduleGenerationStrategyPolling(1_000);
+      if (!paidPlan.ok) {
+        throw new CreatorApiError("Не удалось проверить порядок оставшихся стартов.", {
+          code: paidPlan.error?.code || "generation_strategy_queue_start_plan_invalid",
+        });
+      }
+      if (paidPlan.plan.state === "complete") {
+        toast(
+          "Все 10 независимых задач уже созданы или безопасно остановлены; статусы продолжают обновляться.",
+          "info",
+        );
+        return;
+      }
+      if (paidPlan.plan.state !== "ready") {
+        const blocker = paidPlan.plan.blocker;
+        throw new CreatorApiError(
+          blocker === "reconciliation_required"
+            ? "Один старт требует ручной сверки. Остальные платные старты пока остановлены."
+            : "Предыдущий старт ещё не зафиксирован сервером. Повторный POST запрещён.",
+          { code: `generation_strategy_queue_${blocker || "blocked"}` },
+        );
+      }
+      if (generationStrategyQueuePaidReceiptsNeedRefresh()) {
+        setFormBusy(
+          form,
+          true,
+          "Обновляем проверки оставшихся роликов без списания…",
+        );
+        const refreshed = await refreshGenerationStrategyQueuePreflights(
+          form,
+          projectId,
+        );
+        toast(
+          `Обновлены ${refreshed} серверных квитанций. ТЗ, ассеты, кампания и уже созданные job-ID сохранены; провайдер не запускался.`,
+          "info",
+        );
+        return;
+      }
+      state.generationStrategyStartInFlight = true;
+      setFormBusy(form, true, "Продолжаем оставшиеся старты строго по одному…");
+      const resumed = await startGenerationStrategyQueueSequentially(
+        form,
+        selections,
+        projectId,
+      );
+      toast(
+        `Сервер добавил ещё ${resumed} независимых задач. Уже созданные job-ID и их статусы сохранены.`,
+        "success",
+      );
+      return;
+    }
+    const currentReview = state.generationStrategyQueue
+      ? generationStrategyQueueAggregateReview(
+          state.generationStrategyQueue,
+          state.generationStrategyQueueReview,
+        )
+      : null;
+    if (
+      currentReview?.ok
+      && currentReview.review?.prior_review_current
+      && !generationStrategyQueueReceiptsAreFresh(
+        generationStrategyReceiptWindowMs(selections.length),
+      )
+    ) {
+      resetGenerationStrategyQueueState({ clearSpecs: false });
+      state.generationStrategyQueueSourceRevision = sourceProjection.revision;
+      if (form.elements?.real_spend_confirmation) {
+        form.elements.real_spend_confirmation.checked = false;
+        form.elements.real_spend_confirmation.value = "";
+      }
+      setFormBusy(form, true, "Обновляем 10 точных цен и проверок без списания…");
+      await prepareGenerationStrategyQueueFree(form, selections, projectId);
+      toast(
+        "Серверные проверки и цены обновлены. Снова сверьте сумму и подтвердите десять запусков.",
+        "info",
+      );
+      return;
+    }
+    if (!currentReview?.ok || !currentReview.review?.prior_review_current) {
+      setFormBusy(form, true, "Проверяем 10 ассетов и цен без списания…");
+      await prepareGenerationStrategyQueueFree(form, selections, projectId);
+      toast(
+        "Бесплатная проверка готова для всех 10 роликов. Сверьте общую сумму, кампанию и отдельно подтвердите десять запусков.",
+        "success",
+      );
+      return;
+    }
+    const campaignId = String(values.get("campaign_id") || "")
+      .trim().toLowerCase();
+    const confirmation = form.elements?.real_spend_confirmation;
+    if (!REAL_GENERATION_ENABLED) {
+      throw new CreatorApiError("Платная генерация отключена в конфигурации.", {
+        code: "real_generation_disabled",
+      });
+    }
+    if (!contentReviewUuid(campaignId)) {
+      throw new CreatorApiError("Выберите активную кампанию для всех 10 роликов.", {
+        code: "generation_strategy_queue_campaign_required",
+      });
+    }
+    if (
+      !(confirmation instanceof HTMLInputElement)
+      || confirmation.checked !== true
+      || confirmation.value !== `GENERATION_STRATEGY_EXACT_10_${state.generationStrategyQueue.revision}`
+    ) {
+      throw new CreatorApiError(
+        "Сверьте точную сумму и явно подтвердите 10 отдельных платных стартов.",
+        { code: "generation_strategy_queue_human_confirmation_required" },
+      );
+    }
+    if (!confirmGenerationStrategyQueueForPaidStart(form, campaignId)) {
+      throw new CreatorApiError(
+        "Состав очереди или одна из цен изменились. Платный запуск не выполнен.",
+        { code: "generation_strategy_queue_confirmation_stale" },
+      );
+    }
+    state.generationStrategyStartInFlight = true;
+    setFormBusy(form, true, "Запускаем 10 роликов строго по одному…");
+    const started = await startGenerationStrategyQueueSequentially(
+      form,
+      selections,
+      projectId,
+    );
+    confirmation.checked = false;
+    toast(
+      `Сервер создал ${started} из 10 независимых задач. Статусы обновляются отдельно; повторный provider POST запрещён.`,
+      "success",
+    );
+  } catch (error) {
+    toast(`Очередь не продвинулась: ${actionErrorMessage(error)}`, "error");
+  } finally {
+    state.generationStrategyQueueBusy = false;
+    state.generationStrategyStartInFlight = false;
+    if (form.isConnected) {
+      setFormBusy(form, false);
+      syncGenerationStrategySpecReviewUi(form, selections);
+      syncGenerationStrategyQueueUi(form);
+      syncGenerationStrategyFormReadiness(form);
+    }
+  }
+}
+
+async function submitGenerationStrategy(form, values, selection, projectId) {
+  const sourceMediaId = generationStrategySourceMediaId(selection);
+  const confirmation = form.elements?.real_spend_confirmation;
+  if (!sourceMediaId) {
+    toast("Выберите один точный исходный MP4 для этой стратегии.", "error");
+    return;
+  }
+  if (state.generationStrategyStartInFlight || state.realGenerationStartInFlight) {
+    toast("Платный запуск уже проверяется. Не повторяйте запрос.", "info");
+    return;
+  }
+
+  let spec = currentApprovedGenerationSpecContext(form);
+  if (!spec) {
+    setFormBusy(form, true, "Готовим точное ТЗ без списания…");
+    try {
+      const prepared = await ensurePreparedGenerationSpecForPaidStart(form);
+      spec = prepared?.approvedContext || null;
+      if (!spec) {
+        setFormBusy(form, false);
+        syncGenerationStrategyFormReadiness(form);
+        openGenerationSpecApprovalReview(form);
+        toast(
+          "Точное ТЗ подготовлено без списания. Прочитайте и отдельно одобрите его; после этого портал зафиксирует исходники и цену стратегии.",
+          "info",
+        );
+        return;
+      }
+    } catch (error) {
+      setFormBusy(form, false);
+      syncGenerationStrategyFormReadiness(form);
+      toast(`Стратегия не подготовлена: ${actionErrorMessage(error)}`, "error");
+      return;
+    }
+  }
+
+  const context = generationStrategyRuntimeContext(
+    form,
+    selection,
+    projectId,
+  );
+  if (!context) {
+    toast("Одобренное ТЗ или точный контекст стратегии изменились.", "error");
+    return;
+  }
+  const bindKey = generationStrategyRequestIdempotencyKey(
+    sourceMediaId,
+    "bind",
+    context.spec_hash,
+  );
+  const bindPlan = generationStrategyRuntimeBindRequest(context, bindKey.value);
+  if (!bindPlan.ok) {
+    toast("Точный набор исходников стратегии не прошёл локальную проверку.", "error");
+    return;
+  }
+  let runtimeState = generationStrategyRuntimeForSource(sourceMediaId);
+  if (runtimeState.fingerprint !== bindPlan.fingerprint) {
+    runtimeState = reduceGenerationStrategyRuntimeState(runtimeState, {
+      type: GENERATION_STRATEGY_RUNTIME_ACTIONS.select,
+      context,
+    });
+    setGenerationStrategyRuntime(sourceMediaId, runtimeState);
+  }
+  if (runtimeState.phase === "invalid") {
+    toast("Контекст стратегии изменился. Проверьте строку заново.", "error");
+    return;
+  }
+
+  try {
+    if (runtimeState.phase === "selected") {
+      setFormBusy(form, true, "Фиксируем исходники без запуска провайдера…");
+      const rawBind = await state.api.bindGenerationStrategy(bindPlan.request);
+      runtimeState = reduceGenerationStrategyRuntimeState(runtimeState, {
+        type: GENERATION_STRATEGY_RUNTIME_ACTIONS.bindResolved,
+        fingerprint: bindPlan.fingerprint,
+        context,
+        response: rawBind,
+      });
+      setGenerationStrategyRuntime(sourceMediaId, runtimeState);
+      if (runtimeState.phase !== "bound") {
+        throw new CreatorApiError("Сервер не подтвердил точную привязку исходников.", {
+          code: runtimeState.error?.code || "generation_strategy_bind_invalid",
+        });
+      }
+      clearGenerationStrategyRequestIdempotencyKey(bindKey.key);
+    }
+
+    if (runtimeState.phase === "bound") {
+      const preflightKey = generationStrategyRequestIdempotencyKey(
+        sourceMediaId,
+        "preflight",
+        runtimeState.fingerprint,
+      );
+      const preflightPlan = generationStrategyRuntimePreflightRequest(
+        runtimeState,
+        preflightKey.value,
+      );
+      if (!preflightPlan.ok) {
+        throw new CreatorApiError("Не удалось собрать бесплатную проверку стратегии.", {
+          code: preflightPlan.error?.code || "generation_strategy_preflight_invalid",
+        });
+      }
+      setFormBusy(form, true, "Проверяем сервис и точную цену без списания…");
+      const rawPreflight = await state.api.preflightGenerationStrategy(
+        preflightPlan.request,
+      );
+      runtimeState = reduceGenerationStrategyRuntimeState(runtimeState, {
+        type: GENERATION_STRATEGY_RUNTIME_ACTIONS.preflightResolved,
+        fingerprint: runtimeState.fingerprint,
+        response: rawPreflight,
+      });
+      setGenerationStrategyRuntime(sourceMediaId, runtimeState);
+      if (runtimeState.phase !== "preflight_ready") {
+        throw new CreatorApiError("Сервер не подтвердил готовность стратегии.", {
+          code: runtimeState.error?.code || "generation_strategy_preflight_invalid",
+        });
+      }
+      clearGenerationStrategyRequestIdempotencyKey(preflightKey.key);
+      setFormBusy(form, false);
+      syncGenerationStrategyFormReadiness(form);
+      toast(
+        "Исходники и точная цена подтверждены без списания. Выберите кампанию, проверьте цену и отдельно подтвердите один платный запуск.",
+        "success",
+      );
+      return;
+    }
+
+    if (runtimeState.phase === "preflight_ready") {
+      const projection = generationStrategyRuntimeSafeProjection(runtimeState);
+      if (
+        !Number.isFinite(Date.parse(projection?.readiness?.expires_at || ""))
+        || Date.parse(projection.readiness.expires_at) <= Date.now()
+      ) {
+        invalidateGenerationStrategyRuntimeForSource(
+          sourceMediaId,
+          "generation_strategy_receipt_expired",
+        );
+        syncGenerationStrategyFormReadiness(form);
+        toast("Срок бесплатной квитанции истёк. Получите свежую цену; списания не было.", "info");
+        return;
+      }
+      const campaignId = String(values.get("campaign_id") || "")
+        .trim().toLowerCase();
+      if (!contentReviewUuid(campaignId)) {
+        toast("Выберите активную кампанию для этого ролика.", "error");
+        return;
+      }
+      if (
+        !(confirmation instanceof HTMLInputElement)
+        || confirmation.checked !== true
+        || confirmation.value !== projection?.price?.spend_confirmation
+      ) {
+        toast("Проверьте точную цену и отдельно подтвердите один платный запуск.", "error");
+        return;
+      }
+      runtimeState = reduceGenerationStrategyRuntimeState(runtimeState, {
+        type: GENERATION_STRATEGY_RUNTIME_ACTIONS.humanConfirmed,
+        fingerprint: runtimeState.fingerprint,
+        campaign_id: campaignId,
+        spend_confirmation: projection.price.spend_confirmation,
+        confirmation: true,
+      });
+      setGenerationStrategyRuntime(sourceMediaId, runtimeState);
+    }
+
+    if (runtimeState.phase === "human_confirmed") {
+      const startKey = generationStrategyRequestIdempotencyKey(
+        sourceMediaId,
+        "start",
+        runtimeState.start_context_fingerprint,
+      );
+      const startPlan = generationStrategyRuntimeStartRequest(
+        runtimeState,
+        runtimeState.campaign_id,
+        startKey.value,
+      );
+      if (!startPlan.ok) {
+        throw new CreatorApiError("Подтверждённый контекст запуска изменился.", {
+          code: startPlan.error?.code || "generation_strategy_start_invalid",
+        });
+      }
+      runtimeState = reduceGenerationStrategyRuntimeState(runtimeState, {
+        type: GENERATION_STRATEGY_RUNTIME_ACTIONS.startRequested,
+        fingerprint: runtimeState.fingerprint,
+        start_context_fingerprint: runtimeState.start_context_fingerprint,
+        campaign_id: runtimeState.campaign_id,
+        idempotency_key: startKey.value,
+      });
+      setGenerationStrategyRuntime(sourceMediaId, runtimeState);
+      if (runtimeState.phase !== "start_once") {
+        throw new CreatorApiError("Повторный платный запуск заблокирован.", {
+          code: runtimeState.error?.code || "generation_strategy_start_reserved",
+        });
+      }
+      const actorId = String(state.user?.id || "").trim().toLowerCase();
+      const expectedFingerprint = runtimeState.fingerprint;
+      state.api.bindRealGenerationClientContext(startPlan.request, {
+        expectedActorId: actorId,
+        isContextCurrent: () => {
+          const currentSelection = globalThis.ContentEngineGenerationGuidedV4
+            ?.getStrategySelection?.(form) || null;
+          const currentContext = generationStrategyRuntimeContext(
+            form,
+            currentSelection,
+            projectId,
+          );
+          const currentPlan = currentContext
+            ? generationStrategyRuntimeBindRequest(currentContext, bindKey.value)
+            : null;
+          return form.isConnected
+            && state.user?.id === actorId
+            && currentPlan?.fingerprint === expectedFingerprint;
+        },
+      });
+      state.generationStrategyStartInFlight = true;
+      state.generationStrategyRequestId += 1;
+      setFormBusy(form, true, "Отправляем один подтверждённый запуск…");
+      const rawStart = await state.api.startGenerationStrategy(startPlan.request);
+      runtimeState = reduceGenerationStrategyRuntimeState(runtimeState, {
+        type: GENERATION_STRATEGY_RUNTIME_ACTIONS.startResolved,
+        fingerprint: runtimeState.fingerprint,
+        start_context_fingerprint: runtimeState.start_context_fingerprint,
+        idempotency_key: startKey.value,
+        response: rawStart,
+      });
+      setGenerationStrategyRuntime(sourceMediaId, runtimeState);
+      if (runtimeState.phase !== "status") {
+        throw new CreatorApiError("Сервер не вернул безопасный статус задачи.", {
+          code: runtimeState.error?.code || "generation_strategy_status_invalid",
+        });
+      }
+      clearGenerationStrategyRequestIdempotencyKey(startKey.key);
+      const projection = generationStrategyRuntimeSafeProjection(runtimeState);
+      state.lastRealGenerationJobId = projection.job.id;
+      if (confirmation instanceof HTMLInputElement) confirmation.checked = false;
+      toast("Ролик поставлен в отдельную очередь. Повторный provider POST запрещён сервером.", "success");
+      scheduleGenerationStrategyPolling(1_000);
+    } else if (runtimeState.phase === "start_once") {
+      toast("Запуск уже зарезервирован. Дождитесь серверной сверки; не повторяйте оплату.", "info");
+    } else if (runtimeState.phase === "status") {
+      scheduleGenerationStrategyPolling(0);
+      toast("Этот ролик уже имеет отдельную задачу; обновляем её статус.", "info");
+    }
+  } catch (error) {
+    toast(`Стратегия не запущена: ${actionErrorMessage(error)}`, "error");
+  } finally {
+    state.generationStrategyStartInFlight = false;
+    if (form.isConnected) {
+      setFormBusy(form, false);
+      syncGenerationStrategyFormReadiness(form);
+    }
+  }
+}
+
+async function pollGenerationStrategyStatuses() {
+  if (state.generationStrategyPollInFlight) return;
+  state.generationStrategyPollInFlight = true;
+  let shouldContinue = false;
+  try {
+    const runtimeEntries = state.generationStrategyQueue
+      ? state.generationStrategyQueue.source_order.map((sourceMediaId) => [
+          sourceMediaId,
+          generationStrategyQueueRuntime(sourceMediaId),
+        ])
+      : [...state.generationStrategyRuntimes.entries()];
+    for (const [sourceMediaId, current] of runtimeEntries) {
+      const projection = generationStrategyRuntimeSafeProjection(current);
+      if (current.phase !== "status" || !projection?.can_poll) continue;
+      shouldContinue = true;
+      const plan = generationStrategyRuntimeStatusRequest(current);
+      if (!plan.ok) continue;
+      try {
+        const raw = await state.api.generationStrategyStatus(plan.request);
+        const action = {
+          type: GENERATION_STRATEGY_RUNTIME_ACTIONS.statusResolved,
+          fingerprint: current.fingerprint,
+          start_context_fingerprint: current.start_context_fingerprint,
+          generation_job_id: current.status.job.id,
+          response: raw,
+        };
+        const next = state.generationStrategyQueue
+          ? applyGenerationStrategyQueueRow(sourceMediaId, action)
+          : reduceGenerationStrategyRuntimeState(current, action);
+        if (!state.generationStrategyQueue) {
+          setGenerationStrategyRuntime(sourceMediaId, next);
+        }
+        const nextProjection = generationStrategyRuntimeSafeProjection(next);
+        if (nextProjection?.can_poll) shouldContinue = true;
+      } catch {
+        shouldContinue = true;
+      }
+    }
+  } finally {
+    state.generationStrategyPollInFlight = false;
+    const form = document.querySelector("#mock-batch-form");
+    if (form) {
+      syncGenerationStrategyQueueUi(form);
+      syncGenerationStrategyFormReadiness(form);
+    }
+    if (shouldContinue) scheduleGenerationStrategyPolling(5_000);
+  }
+}
+
+function scheduleGenerationStrategyPolling(delay = 5_000) {
+  if (state.generationStrategyPollTimer !== null) {
+    window.clearTimeout(state.generationStrategyPollTimer);
+  }
+  state.generationStrategyPollTimer = window.setTimeout(() => {
+    state.generationStrategyPollTimer = null;
+    void pollGenerationStrategyStatuses();
+  }, Math.max(0, delay));
+}
+
 async function submitGenerationBatch(form) {
   if (!requireWorkspaceProjectId()) return;
   const values = new FormData(form);
-  const mode = String(values.get("generation_mode") || "mock");
+  const strategyControl = form.elements.generation_strategy_id;
+  const strategyId = String(strategyControl?.value || "").trim();
+  if (strategyId) {
+    const strategySelections = generationStrategySelectionsForForm(form);
+    const sourceProjection = generationStrategySourceProjectionForForm(form);
+    if (!strategySelections || !sourceProjection?.all_selected_ready) {
+      toast(
+        "Выберите и бесплатно проверьте ровно 10 MP4, затем заполните общие ассеты, параметры и механику каждого ролика.",
+        "error",
+      );
+      window.ContentEngineGenerationGuidedV4?.goToStep?.("media");
+      return;
+    }
+    await submitGenerationStrategyExactTen(
+      form,
+      values,
+      strategySelections,
+      requireWorkspaceProjectId(),
+    );
+    return;
+  }
+  const mode = String(values.get("generation_mode") || "").trim();
+  if (!mode) {
+    toast(
+      "Сначала выберите способ создания. Dry-run и платная генерация никогда не выбираются скрыто.",
+      "error",
+    );
+    form.elements.generation_mode?.focus({ preventScroll: true });
+    return;
+  }
+  if (isRealGenerationMode(mode) && strategyControl && !strategyId) {
+    toast(
+      "Выберите один из трёх способов создания. Модель и платный режим сами по себе не определяют, что делать с референсом.",
+      "error",
+    );
+    form.querySelector("[data-generation-strategy-card]:not([aria-disabled='true'])")
+      ?.focus({ preventScroll: true });
+    return;
+  }
   if (isRealGenerationMode(mode)) {
     await submitRealGeneration(form, values, mode);
     return;
@@ -27112,6 +30063,46 @@ async function submitRealGeneration(form, values, mode) {
     toast("Выберите точный платный режим генерации.", "error");
     return;
   }
+  let launchSpecPreparation = null;
+  if (!currentApprovedGenerationSpecContext(form)) {
+    setFormBusy(
+      form,
+      true,
+      "Готовим точное ТЗ для отдельного человеческого одобрения…",
+    );
+    try {
+      launchSpecPreparation = await ensurePreparedGenerationSpecForPaidStart(form);
+      if (!paidLaunchIsCurrent()) return;
+      if (!launchSpecPreparation.approvedContext) {
+        if (form.elements.real_spend_confirmation) {
+          form.elements.real_spend_confirmation.checked = false;
+        }
+        setFormBusy(form, false);
+        syncGenerationModeForm(form);
+        const reviewOpened = openGenerationSpecApprovalReview(form);
+        toast(
+          reviewOpened
+            ? "Точное ТЗ подготовлено без списания. Прочитайте его, подтвердите проверку и отдельно одобрите эту версию."
+            : "Точное ТЗ ещё не одобрено. Откройте карточку ТЗ, проверьте текущую версию и отдельно одобрите её; платный запуск не выполнялся.",
+          "info",
+        );
+        return;
+      }
+    } catch (error) {
+      if (paidLaunchIsCurrent()) {
+        setFormBusy(form, false);
+        if (form.elements.real_spend_confirmation) {
+          form.elements.real_spend_confirmation.checked = false;
+        }
+        syncGenerationFormReadiness(form);
+        toast(
+          `Платный запуск не создан: ${actionErrorMessage(error)}`,
+          "error",
+        );
+      }
+      return;
+    }
+  }
   if (
     generationReadinessRequiresV4(generationSku)
     && generationSku.preflight?.version !==
@@ -27265,9 +30256,16 @@ async function submitRealGeneration(form, values, mode) {
   let preparedSpec;
   let generationReferenceContext;
   try {
-    const prepared = await ensurePreparedGenerationSpecForPaidStart(form);
+    const prepared = launchSpecPreparation
+      || await ensurePreparedGenerationSpecForPaidStart(form);
     if (!paidLaunchIsCurrent()) return;
-    generationSpecContext = prepared.context;
+    if (!prepared.approvedContext) {
+      throw new CreatorApiError(
+        "Точная версия ТЗ не одобрена. Платный запуск не выполнен — проверьте и отдельно одобрите текущую версию.",
+        { code: "generation_spec_approval_required" },
+      );
+    }
+    generationSpecContext = prepared.approvedContext;
     preparedSpec = prepared.spec;
     generationReferenceContext = prepared.generationReferenceContext;
   } catch (error) {
@@ -32495,6 +35493,16 @@ function clearAuthenticatedState() {
   state.realGenerationPollCursor = 0;
   state.realGenerationStatusRequests.clear();
   state.realGenerationResults.clear();
+  if (state.generationStrategyPollTimer !== null) {
+    window.clearTimeout(state.generationStrategyPollTimer);
+  }
+  state.generationStrategyPollTimer = null;
+  state.generationStrategyPollInFlight = false;
+  state.generationStrategyStartInFlight = false;
+  state.generationStrategyRequestId += 1;
+  state.generationStrategyRuntimes.clear();
+  state.generationStrategyRequestKeys.clear();
+  state.generationStrategyActiveSourceMediaId = "";
   state.generationVideoReferenceLineage.clear();
   state.realGenerationDrafts.clear();
   state.generatedVideoQa.entries.clear();

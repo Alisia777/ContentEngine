@@ -170,7 +170,7 @@ def _run_fixture(width: int, height: int = 900) -> dict[str, object]:
 
 
 def test_picker_reuses_one_form_and_keeps_recommendation_advisory() -> None:
-    assert 'from "./generation-model-recommendation.js?v=20260813.os4.39"' in SUBJECT
+    assert 'from "./generation-model-recommendation.js?v=20260814.os4.41"' in SUBJECT
     assert SUBJECT.count("function createModelAdvisor()") == 1
     assert SUBJECT.count('name = "generation_model"') == 1
     assert "modelCanUseExistingLaunch" in SUBJECT

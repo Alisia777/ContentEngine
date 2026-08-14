@@ -7,16 +7,16 @@
  * without starting any provider or paid operation.
  */
 
-import { productResearchInputMarkup } from "./product-research-view.js?v=20260813.os4.39";
+import { productResearchInputMarkup } from "./product-research-view.js?v=20260814.os4.41";
 import {
   readExactYoutubeMediaHandoff,
   writeExactYoutubeMediaHandoff,
-} from "./exact-youtube-media-handoff.js?v=20260813.os4.39";
+} from "./exact-youtube-media-handoff.js?v=20260814.os4.41";
 import {
   clearExactYoutubeResearchDraft,
   exactYoutubeResearchHydration,
   readExactYoutubeResearchDraft,
-} from "./exact-youtube-research-draft.js?v=20260813.os4.39";
+} from "./exact-youtube-research-draft.js?v=20260814.os4.41";
 
 const RESEARCH_ROUTE = "/workspace/research";
 const MEDIA_ROUTE = "/workspace/media";

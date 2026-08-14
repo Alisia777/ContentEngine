@@ -1,0 +1,255 @@
+import {
+  generationStrategyAssetEligibility,
+} from "./generation-strategy-assets.js?v=20260814.os4.41";
+
+/*
+ * Pure ordered source-video picker for a ten-output strategy run.
+ *
+ * The picker receives only the already-normalized public asset projection.
+ * It never stores object names, URLs, hashes, prompts, attestations, prices,
+ * receipts, provider identities, or launch authority. Selecting a video is
+ * therefore an editing action only; it cannot start a free or paid request.
+ */
+
+export const GENERATION_STRATEGY_SOURCE_PICKER_VERSION =
+  "generation-strategy-source-picker-v1";
+
+export const GENERATION_STRATEGY_SOURCE_COUNT = 10;
+
+export const GENERATION_STRATEGY_SOURCE_PICKER_ACTIONS = Object.freeze({
+  replaceCandidates: "REPLACE_CANDIDATES",
+  toggle: "TOGGLE",
+  reset: "RESET",
+});
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const STRATEGY_IDS = Object.freeze(new Set([
+  "viral_avatar_ugc",
+  "viral_product_swap",
+  "viral_rebuild",
+]));
+
+function deepFreeze(value) {
+  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
+  Object.values(value).forEach(deepFreeze);
+  return Object.freeze(value);
+}
+
+function cleanUuid(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return UUID_PATTERN.test(normalized) ? normalized : "";
+}
+
+function cleanStrategyId(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return STRATEGY_IDS.has(normalized) ? normalized : "";
+}
+
+function safeFilename(value) {
+  const normalized = String(value || "").trim();
+  if (
+    !normalized
+    || normalized.length > 255
+    || /[\u0000-\u001f\u007f]/u.test(normalized)
+  ) return "";
+  return normalized;
+}
+
+function probeOnly(blockers) {
+  return blockers.length === 1
+    && blockers[0] === "server_duration_probe_required";
+}
+
+function normalizeCandidate(asset, strategyId) {
+  const id = cleanUuid(asset?.id);
+  const filename = safeFilename(asset?.filename);
+  if (
+    !id
+    || !filename
+    || asset?.kind !== "source_video"
+    || asset?.mime_type !== "video/mp4"
+    || asset?.status !== "ready"
+    || asset?.rights_confirmed !== true
+    || asset?.exact_youtube_attached !== true
+  ) return null;
+  const eligibility = generationStrategyAssetEligibility(
+    asset,
+    strategyId,
+    "source_video",
+  );
+  const blockers = [...eligibility.blockers];
+  const needsProbe = !eligibility.eligible && probeOnly(blockers);
+  if (!eligibility.eligible && !needsProbe) return null;
+  const duration = asset.duration_seconds === null
+    ? null
+    : Number(asset.duration_seconds);
+  if (
+    duration !== null
+    && (!Number.isFinite(duration) || duration <= 0 || duration > 3_600)
+  ) return null;
+  return deepFreeze({
+    id,
+    filename,
+    duration_seconds: duration,
+    ready: eligibility.eligible,
+    probe_required: needsProbe,
+    blocking_codes: Object.freeze(blockers),
+  });
+}
+
+function normalizeCandidates(candidates, strategyId) {
+  if (!Array.isArray(candidates)) return [];
+  const seen = new Set();
+  const result = [];
+  for (const asset of candidates) {
+    const candidate = normalizeCandidate(asset, strategyId);
+    if (!candidate || seen.has(candidate.id)) continue;
+    seen.add(candidate.id);
+    result.push(candidate);
+  }
+  return result;
+}
+
+function pristine(strategyId, candidates = []) {
+  return deepFreeze({
+    version: GENERATION_STRATEGY_SOURCE_PICKER_VERSION,
+    strategy_id: strategyId,
+    revision: 0,
+    candidates: Object.freeze(candidates),
+    selected_source_ids: Object.freeze([]),
+    error: null,
+  });
+}
+
+function validState(value) {
+  if (
+    !value
+    || typeof value !== "object"
+    || value.version !== GENERATION_STRATEGY_SOURCE_PICKER_VERSION
+    || !cleanStrategyId(value.strategy_id)
+    || !Number.isSafeInteger(value.revision)
+    || value.revision < 0
+    || !Array.isArray(value.candidates)
+    || !Array.isArray(value.selected_source_ids)
+    || value.selected_source_ids.length > GENERATION_STRATEGY_SOURCE_COUNT
+    || new Set(value.selected_source_ids).size !== value.selected_source_ids.length
+    || !Object.isFrozen(value)
+  ) return false;
+  const candidateIds = new Set(value.candidates.map((entry) => entry.id));
+  return value.selected_source_ids.every((id) => (
+    cleanUuid(id) === id && candidateIds.has(id)
+  ));
+}
+
+function withError(state, code) {
+  return deepFreeze({ ...state, error: code });
+}
+
+export function createGenerationStrategySourcePicker(
+  strategyId,
+  candidates = [],
+) {
+  const strategy = cleanStrategyId(strategyId);
+  if (!strategy) return null;
+  return pristine(strategy, normalizeCandidates(candidates, strategy));
+}
+
+export function reduceGenerationStrategySourcePicker(state, action) {
+  if (!validState(state) || !action || typeof action !== "object") return null;
+  if (action.type === GENERATION_STRATEGY_SOURCE_PICKER_ACTIONS.reset) {
+    if (Object.keys(action).length !== 1) return withError(state, "action_invalid");
+    return deepFreeze({
+      ...state,
+      revision: state.revision + 1,
+      selected_source_ids: Object.freeze([]),
+      error: null,
+    });
+  }
+  if (action.type === GENERATION_STRATEGY_SOURCE_PICKER_ACTIONS.replaceCandidates) {
+    if (
+      Object.keys(action).sort().join(",") !== "candidates,strategy_id,type"
+    ) return withError(state, "action_invalid");
+    const strategy = cleanStrategyId(action.strategy_id);
+    if (!strategy) return withError(state, "strategy_invalid");
+    const candidates = normalizeCandidates(action.candidates, strategy);
+    const candidateIds = new Set(candidates.map((entry) => entry.id));
+    const selected = strategy === state.strategy_id
+      ? state.selected_source_ids.filter((id) => candidateIds.has(id))
+      : [];
+    const changed = strategy !== state.strategy_id
+      || selected.length !== state.selected_source_ids.length
+      || JSON.stringify(candidates) !== JSON.stringify(state.candidates);
+    return deepFreeze({
+      version: GENERATION_STRATEGY_SOURCE_PICKER_VERSION,
+      strategy_id: strategy,
+      revision: state.revision + (changed ? 1 : 0),
+      candidates: Object.freeze(candidates),
+      selected_source_ids: Object.freeze(selected),
+      error: null,
+    });
+  }
+  if (action.type === GENERATION_STRATEGY_SOURCE_PICKER_ACTIONS.toggle) {
+    if (
+      Object.keys(action).sort().join(",") !== "source_media_id,type"
+    ) return withError(state, "action_invalid");
+    const id = cleanUuid(action.source_media_id);
+    const candidate = state.candidates.find((entry) => entry.id === id);
+    if (!id || !candidate) return withError(state, "source_not_selectable");
+    const currentIndex = state.selected_source_ids.indexOf(id);
+    const selected = [...state.selected_source_ids];
+    if (currentIndex >= 0) {
+      selected.splice(currentIndex, 1);
+    } else if (selected.length >= GENERATION_STRATEGY_SOURCE_COUNT) {
+      return withError(state, "source_limit_reached");
+    } else {
+      selected.push(id);
+    }
+    return deepFreeze({
+      ...state,
+      revision: state.revision + 1,
+      selected_source_ids: Object.freeze(selected),
+      error: null,
+    });
+  }
+  return withError(state, "action_unsupported");
+}
+
+export function generationStrategySourcePickerProjection(state) {
+  if (!validState(state)) return null;
+  const byId = new Map(state.candidates.map((entry) => [entry.id, entry]));
+  const selected = state.selected_source_ids.map((id, index) => {
+    const candidate = byId.get(id);
+    return deepFreeze({
+      position: index + 1,
+      source_media_id: id,
+      filename: candidate.filename,
+      duration_seconds: candidate.duration_seconds,
+      ready: candidate.ready,
+      probe_required: candidate.probe_required,
+      blocking_codes: Object.freeze([...candidate.blocking_codes]),
+    });
+  });
+  const probeIds = selected
+    .filter((entry) => entry.probe_required)
+    .map((entry) => entry.source_media_id);
+  const exactlyTen = selected.length === GENERATION_STRATEGY_SOURCE_COUNT;
+  return deepFreeze({
+    version: state.version,
+    strategy_id: state.strategy_id,
+    revision: state.revision,
+    selected_count: selected.length,
+    required_count: GENERATION_STRATEGY_SOURCE_COUNT,
+    exactly_ten_selected: exactlyTen,
+    all_selected_ready: exactlyTen && probeIds.length === 0,
+    selected: Object.freeze(selected),
+    probe_required_source_ids: Object.freeze(probeIds),
+    error: state.error,
+  });
+}
+
+export function generationStrategySourcePickerSelection(state) {
+  const projection = generationStrategySourcePickerProjection(state);
+  if (!projection?.all_selected_ready) return null;
+  return Object.freeze(projection.selected.map((entry) => entry.source_media_id));
+}

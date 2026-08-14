@@ -116,7 +116,7 @@ def test_trash_uses_a_dedicated_system_rpc_namespace() -> None:
     assert "CreatorApi.prototype.mutate" in ALIAS
     assert "Symbol.for" in ALIAS
     for source in (ALIAS, SCRIPT):
-        assert '"./supabase-api.js?v=20260813.os4.39"' in source
+        assert '"./supabase-api.js?v=20260814.os4.41"' in source
         assert "supabase-api.js?v=20260729.2" not in source
 
 

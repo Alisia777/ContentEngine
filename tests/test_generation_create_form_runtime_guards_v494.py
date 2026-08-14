@@ -380,13 +380,30 @@ def test_real_spend_fingerprint_changes_with_actor_product_concept_media_and_spe
           generation_reference_mechanics: {{ value: "Крупный план и поворот упаковки" }},
           generation_reference_source_access_confirmed: {{ checked: true }},
           generation_reference_transformative_use_confirmed: {{ checked: true }},
+          generation_strategy_id: {{ value: "viral_product_swap" }},
+          generation_strategy_version: {{ value: "2026-08-14.v1" }},
+          generation_strategy_recipe_version: {{ value: "2026-06" }},
+          generation_strategy_source_basis: {{ value: "exact_source_video" }},
+          generation_strategy_duration_seconds: {{ value: "10" }},
+          generation_strategy_ratio: {{ value: "" }},
+          generation_strategy_resolution: {{ value: "1080p" }},
+          generation_strategy_audio: {{ value: "true" }},
+          generation_strategy_source_video_id: {{ value: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }},
+          generation_strategy_avatar_media_id: {{ value: "" }},
+          generation_strategy_original_product_media_id: {{ value: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }},
         }};
         const media = [{{ value: "66666666-6666-4666-8666-666666666666" }}];
+        const attestations = [{{
+          dataset: {{ generationStrategyAttestation: "transformative_use_confirmed" }},
+          checked: true,
+        }}];
         const primary = {{ value: media[0].value }};
         const form = {{
           dataset: {{ identityProductId: "77777777-7777-4777-8777-777777777777" }},
           elements: fields,
-          querySelectorAll: () => media,
+          querySelectorAll: (selector) => selector.includes("generation-strategy")
+            ? attestations
+            : media,
           querySelector: () => primary,
         }};
         const baseline = generationSpendConsentFingerprint(form);
@@ -402,6 +419,10 @@ def test_real_spend_fingerprint_changes_with_actor_product_concept_media_and_spe
         mutate("media", () => media[0].value = "99999999-9999-4999-8999-999999999999", () => media[0].value = "66666666-6666-4666-8666-666666666666");
         mutate("token", () => fields.real_spend_confirmation.value = "OTHER", () => fields.real_spend_confirmation.value = "CONFIRM-5-USD");
         mutate("spec", () => state.generationSpec.data.generationSpec.spec_version = 2, () => state.generationSpec.data.generationSpec.spec_version = 1);
+        mutate("strategy", () => fields.generation_strategy_id.value = "viral_rebuild", () => fields.generation_strategy_id.value = "viral_product_swap");
+        mutate("strategy_output", () => fields.generation_strategy_resolution.value = "720p", () => fields.generation_strategy_resolution.value = "1080p");
+        mutate("strategy_source", () => fields.generation_strategy_source_video_id.value = "cccccccc-cccc-4ccc-8ccc-cccccccccccc", () => fields.generation_strategy_source_video_id.value = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+        mutate("strategy_attestation", () => attestations[0].checked = false, () => attestations[0].checked = true);
         process.stdout.write(JSON.stringify(changed));
         """
     )

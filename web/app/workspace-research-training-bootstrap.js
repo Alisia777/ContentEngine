@@ -10,16 +10,16 @@
 (() => {
   "use strict";
 
-  const BUILD = "20260813.os4.39";
+  const BUILD = "20260814.os4.41";
   const ASSET_BUILD_OVERRIDES = Object.freeze({
     "workspace-ai-exact-youtube-sources.js":
-      "20260813.os4.39",
+      "20260814.os4.41",
     "workspace-ai-research-training.js":
-      "20260813.os4.39",
+      "20260814.os4.41",
     "workspace-generation-research-recommendations.js":
-      "20260813.os4.39",
+      "20260814.os4.41",
     "workspace-research-failure-recovery.js":
-      "20260813.os4.39",
+      "20260814.os4.41",
   });
   const SCRIPT_URL = document.currentScript?.src || window.location.href;
   const BASE_URL = new URL(".", SCRIPT_URL);

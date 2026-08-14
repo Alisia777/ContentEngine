@@ -21,6 +21,40 @@ import {
 import {
   buildGenerationProviderRequest,
 } from "../_shared/generation-provider-adapters.js";
+import {
+  estimateGenerationStrategyCredits,
+  GENERATION_STRATEGY_CATALOG,
+  GENERATION_STRATEGY_CATALOG_VERSION,
+  generationStrategyCatalogEntry,
+  publicGenerationStrategyCatalog,
+  RUNWAY_RECIPE_PRICING_VERSION,
+  RUNWAY_RECIPE_VERSION,
+  validateGenerationStrategySelection,
+} from "../_shared/generation-strategy-catalog.js";
+import {
+  buildRunwayRecipeRequest,
+} from "../_shared/generation-recipe-adapters.js";
+import {
+  ISO_BMFF_DURATION_PARSER_VERSION,
+  ISO_BMFF_MAX_BYTES,
+  parseIsoBmffDuration,
+} from "../_shared/iso-bmff-duration.js";
+import {
+  classifyRunwayRecipeCreateOutcome,
+  isRunwayTaskId as isStrategyRunwayTaskId,
+  preDispatchStrategyFailure,
+  publicGenerationStrategyProbeResult,
+  readGenerationStrategyDispatchAttempt,
+  readGenerationStrategyDispatchResult,
+  readGenerationStrategyProbeContext,
+  readGenerationStrategyProviderPolicy,
+  readGenerationStrategyProviderStatusResult,
+  readGenerationStrategyReadiness,
+  readGenerationStrategyReconciliationResult,
+  readGenerationStrategyStartClaim,
+  readPublicGenerationStrategyStatus,
+  runwayStrategyProviderStatus,
+} from "../_shared/generation-strategy-edge-contract.js";
 
 const PUBLIC_APP_ORIGIN = "https://alisia777.github.io";
 const LOCAL_QA_APP_ORIGIN = "http://127.0.0.1:8767";
@@ -68,6 +102,9 @@ const OUTPUT_TIMEOUT_MS = 70_000;
 const OUTPUT_STORAGE_TIMEOUT_MS = 20_000;
 const OUTPUT_DATABASE_TIMEOUT_MS = 5_000;
 const OUTPUT_ACCESS_TIMEOUT_MS = 10_000;
+const STRATEGY_INPUT_HEAD_TIMEOUT_MS = 10_000;
+const STRATEGY_MEDIA_PROBE_TIMEOUT_MS = 70_000;
+const STRATEGY_SIGNED_URL_MAX_LENGTH = 2_048;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
@@ -90,6 +127,9 @@ const RUNWAY_PROVIDER_ENDPOINTS = new Set([
   "/v1/text_to_video",
   "/v1/video_to_video",
   "/v1/text_to_image",
+  "/v1/recipes/product_ugc",
+  "/v1/recipes/product_swap",
+  "/v1/recipes/product_ad",
 ]);
 const SPEC_BOUND_RUNWAY_MODELS: ReadonlySet<string> = new Set([
   "gen4.5",
@@ -225,6 +265,28 @@ const GENERATION_SPEC_INTERNAL_ERROR_CODES = new Set([
   "research_outcome_generation_assignment_binding_invalid",
   "research_outcome_generation_assignment_invalid",
 ]);
+const GENERATION_STRATEGY_BIND_VALIDATION_ERROR_CODES = new Set([
+  "generation_strategy_resolve_bind_payload_invalid",
+  "generation_strategy_binding_payload_invalid",
+  "generation_strategy_catalog_selection_invalid",
+  "generation_strategy_catalog_attestation_invalid",
+  "generation_strategy_catalog_asset_invalid",
+  "generation_strategy_catalog_asset_count_invalid",
+  "generation_strategy_role_asset_invalid",
+  "generation_strategy_snapshot_invalid",
+]);
+const GENERATION_STRATEGY_BIND_ACCESS_ERROR_CODES = new Set([
+  "generation_strategy_binding_project_access_required",
+]);
+const GENERATION_STRATEGY_BIND_CONFLICT_ERROR_CODES = new Set([
+  "generation_strategy_binding_spec_invalid",
+  "generation_strategy_binding_spec_not_approved",
+  "generation_strategy_catalog_spec_assets_invalid",
+  "generation_strategy_exact_source_attachment_required",
+  "generation_strategy_source_binding_invalid",
+  "generation_strategy_binding_conflict",
+  "generation_strategy_binding_invalid",
+]);
 
 type BudgetErrorCode =
   | "paid_generation_paused"
@@ -309,6 +371,54 @@ type ContentEngineDatabase = {
         Args: { p_payload: Json };
         Returns: Json;
       };
+      system_resolve_and_bind_generation_strategy: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
+      system_generation_strategy_catalog_policy: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
+      system_generation_strategy_provider_policy: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
+      system_generation_strategy_media_probe_context: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
+      system_record_generation_strategy_media_duration: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
+      system_record_generation_strategy_readiness: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
+      system_claim_generation_strategy_start: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
+      system_mark_generation_strategy_dispatch_attempt: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
+      system_record_generation_strategy_dispatch_result: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
+      system_reconcile_generation_strategy_dispatch: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
+      system_record_generation_strategy_provider_status: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
+      system_generation_strategy_status: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
       system_record_generation_provider_readiness: {
         Args: { p_payload: Json };
         Returns: Json;
@@ -358,6 +468,17 @@ type ContentEngineDatabase = {
           id: string;
           organization_id: string;
           name: string;
+        };
+        Insert: Record<string, never>;
+        Update: Record<string, never>;
+        Relationships: [];
+      };
+      generation_strategy_start_claims: {
+        Row: {
+          organization_id: string;
+          project_id: string;
+          actor_id: string;
+          generation_job_id: string;
         };
         Insert: Record<string, never>;
         Update: Record<string, never>;
@@ -572,6 +693,147 @@ type GenerationProviderPolicy = {
   model: GenerationModel;
   launchEnabled: boolean;
   disabledReasonCode: string | null;
+};
+
+type GenerationStrategyId =
+  | "viral_avatar_ugc"
+  | "viral_product_swap"
+  | "viral_rebuild";
+type RunwayRecipe = "product_ugc" | "product_swap" | "product_ad";
+type GenerationStrategyCatalogPolicy = {
+  executionCapabilities: Record<string, unknown>;
+  selectEnabled: boolean;
+  preflightEnabled: boolean;
+};
+type GenerationStrategyPayload =
+  | {
+    ok: true;
+    strategyId: GenerationStrategyId;
+    recipe: RunwayRecipe;
+    selection: Record<string, unknown>;
+  }
+  | { ok: false };
+type GenerationStrategyBindPayload = {
+  action: "strategy_bind";
+  organization_id: string;
+  project_id: string;
+  spec_id: string;
+  spec_version: number;
+  spec_hash: string;
+  generation_strategy: Record<string, unknown>;
+  confirmation: true;
+  idempotency_key: string;
+};
+type GenerationStrategyMediaProbePayload = {
+  action: "strategy_media_probe";
+  organization_id: string;
+  project_id: string;
+  media_id: string;
+  confirmation: true;
+  idempotency_key: string;
+};
+type GenerationStrategyPreflightPayload = {
+  action: "strategy_preflight";
+  organization_id: string;
+  project_id: string;
+  spec_id: string;
+  spec_version: number;
+  spec_hash: string;
+  binding_id: string;
+  binding_hash: string;
+  selection_hash: string;
+  price_hash: string;
+  spend_confirmation: string;
+  confirmation: true;
+  idempotency_key: string;
+};
+type GenerationStrategyStartPayload =
+  & Omit<
+    GenerationStrategyPreflightPayload,
+    "action" | "idempotency_key"
+  >
+  & {
+    action: "strategy_start";
+    receipt_id: string;
+    receipt_hash: string;
+    campaign_id: string;
+    idempotency_key: string;
+  };
+type GenerationStrategyStatusPayload = {
+  action: "strategy_status";
+  organization_id: string;
+  project_id: string;
+  generation_job_id: string;
+  worker_context?: GenerationStrategyWorkerContext;
+};
+type GenerationStrategyReconcilePayload = {
+  action: "strategy_reconcile";
+  organization_id: string;
+  project_id: string;
+  generation_job_id: string;
+  dispatch_result_id: string;
+  incident_id: string;
+  resolution: "attach_existing_task" | "confirm_no_submission";
+  provider_task_id?: string;
+  confirmation: "RUNWAY_TASK_ID_VERIFIED" | "RUNWAY_NO_TASK_VERIFIED";
+  evidence_reference: string;
+  reason: string;
+  idempotency_key: string;
+};
+type GenerationStrategyWorkerContext = {
+  version: "generation-strategy-worker-dispatch-v1";
+  actor_id: string;
+  start_claim_id: string;
+  claim_hash: string;
+  phase: "pre_dispatch" | "dispatch_unknown" | "provider_poll";
+  dispatch_attempt_id: string | null;
+  attempt_hash: string | null;
+  dispatch_token: string | null;
+  provider_task_id: string | null;
+  lease_id: string;
+  lease_token: string;
+  lease_hash: string;
+};
+type GenerationStrategySignedRoleAsset = {
+  role:
+    | "source_video"
+    | "avatar_image"
+    | "product_image"
+    | "original_product_image"
+    | "new_product_image"
+    | "style_image";
+  uri: string;
+  view?: "front" | "side" | "back";
+};
+type GenerationStrategyRecipeContext = {
+  strategyVersion: string;
+  strategyId: GenerationStrategyId;
+  recipe: RunwayRecipe;
+  recipeVersion: string;
+  durationSeconds: number;
+  audio: boolean;
+  ratio?: string;
+  resolution?: string;
+  productInfo?: string;
+  userConcept?: string;
+};
+type PublicGenerationStrategyCatalogEntry = {
+  strategy_id: GenerationStrategyId;
+  public_label: string;
+  public_summary: string;
+  transformation_kind: string;
+  source_reference_mode: string;
+  preservation_notice: string;
+  human_review_required: boolean;
+  provider: "runway";
+  recipe: RunwayRecipe;
+  recipe_version: string;
+  asset_roles: unknown[];
+  required_attestations: unknown[];
+  output_rules: unknown;
+  pricing: unknown;
+  enabled: boolean;
+  disabled_reason: string | null;
 };
 
 type GenerationModelFeatureFlags = {
@@ -839,6 +1101,24 @@ function readGenerationSpecRpcError(value: unknown): {
   return null;
 }
 
+function readGenerationStrategyBindRpcError(value: unknown): {
+  code: string;
+  status: 403 | 409 | 422;
+} | null {
+  if (!isRecord(value) || typeof value.message !== "string") return null;
+  const code = value.message.trim();
+  if (GENERATION_STRATEGY_BIND_VALIDATION_ERROR_CODES.has(code)) {
+    return { code, status: 422 };
+  }
+  if (GENERATION_STRATEGY_BIND_ACCESS_ERROR_CODES.has(code)) {
+    return { code, status: 403 };
+  }
+  if (GENERATION_STRATEGY_BIND_CONFLICT_ERROR_CODES.has(code)) {
+    return { code, status: 409 };
+  }
+  return null;
+}
+
 function readClaimErrorCode(value: unknown): ClaimErrorCode | null {
   if (!isRecord(value)) return null;
   const code = typeof value.message === "string"
@@ -912,6 +1192,16 @@ function hasOnlyKeys(
   allowed: ReadonlySet<string>,
 ): boolean {
   return Object.keys(value).every((key) => allowed.has(key));
+}
+
+function hasExactKeys(
+  value: unknown,
+  keys: readonly string[],
+): value is Record<string, unknown> {
+  if (!isRecord(value)) return false;
+  const allowed = new Set(keys);
+  return Object.keys(value).length === allowed.size &&
+    hasOnlyKeys(value, allowed);
 }
 
 function isUuid(value: unknown): value is string {
@@ -1419,6 +1709,359 @@ function readModelCatalogPayload(value: unknown): ModelCatalogPayload | null {
   };
 }
 
+function readGenerationStrategyId(value: unknown): GenerationStrategyId | null {
+  return value === "viral_avatar_ugc" || value === "viral_product_swap" ||
+      value === "viral_rebuild"
+    ? value
+    : null;
+}
+
+function readRunwayRecipe(value: unknown): RunwayRecipe | null {
+  return value === "product_ugc" || value === "product_swap" ||
+      value === "product_ad"
+    ? value
+    : null;
+}
+
+function readGenerationStrategyBindPayload(
+  value: unknown,
+): GenerationStrategyBindPayload | null {
+  const keys = [
+    "action",
+    "organization_id",
+    "project_id",
+    "spec_id",
+    "spec_version",
+    "spec_hash",
+    "generation_strategy",
+    "confirmation",
+    "idempotency_key",
+  ] as const;
+  if (
+    !hasExactKeys(value, keys) || value.action !== "strategy_bind" ||
+    !isUuid(value.organization_id) || !isUuid(value.project_id) ||
+    !isUuid(value.spec_id) ||
+    !isIntegerInRange(value.spec_version, 1, 100_000) ||
+    typeof value.spec_hash !== "string" ||
+    !SHA256_PATTERN.test(value.spec_hash) || value.confirmation !== true ||
+    typeof value.idempotency_key !== "string" ||
+    !IDEMPOTENCY_PATTERN.test(value.idempotency_key) ||
+    !isRecord(value.generation_strategy)
+  ) return null;
+  const validated = validateGenerationStrategySelection(
+    value.generation_strategy,
+  );
+  if (!isRecord(validated) || validated.ok !== true) return null;
+  const strategyId = readGenerationStrategyId(validated.strategy_id);
+  const recipe = readRunwayRecipe(validated.recipe);
+  const entry = strategyId === null
+    ? null
+    : generationStrategyCatalogEntry(strategyId);
+  if (
+    strategyId === null || recipe === null || entry === null ||
+    entry.provider !== "runway" || entry.recipe !== recipe ||
+    entry.recipe_version !== value.generation_strategy.recipe_version
+  ) return null;
+  return {
+    action: "strategy_bind",
+    organization_id: value.organization_id,
+    project_id: value.project_id,
+    spec_id: value.spec_id,
+    spec_version: value.spec_version,
+    spec_hash: value.spec_hash,
+    generation_strategy: value.generation_strategy,
+    confirmation: true,
+    idempotency_key: value.idempotency_key,
+  };
+}
+
+function readGenerationStrategyMediaProbePayload(
+  value: unknown,
+): GenerationStrategyMediaProbePayload | null {
+  const keys = [
+    "action",
+    "organization_id",
+    "project_id",
+    "media_id",
+    "confirmation",
+    "idempotency_key",
+  ] as const;
+  if (
+    !hasExactKeys(value, keys) ||
+    value.action !== "strategy_media_probe" ||
+    !isUuid(value.organization_id) || !isUuid(value.project_id) ||
+    !isUuid(value.media_id) || value.confirmation !== true ||
+    typeof value.idempotency_key !== "string" ||
+    !IDEMPOTENCY_PATTERN.test(value.idempotency_key)
+  ) return null;
+  return value as GenerationStrategyMediaProbePayload;
+}
+
+function readGenerationStrategyPreflightPayload(
+  value: unknown,
+): GenerationStrategyPreflightPayload | null {
+  const keys = [
+    "action",
+    "organization_id",
+    "project_id",
+    "spec_id",
+    "spec_version",
+    "spec_hash",
+    "binding_id",
+    "binding_hash",
+    "selection_hash",
+    "price_hash",
+    "spend_confirmation",
+    "confirmation",
+    "idempotency_key",
+  ] as const;
+  if (
+    !hasExactKeys(value, keys) || value.action !== "strategy_preflight" ||
+    !isUuid(value.organization_id) || !isUuid(value.project_id) ||
+    !isUuid(value.spec_id) ||
+    !isIntegerInRange(value.spec_version, 1, 100_000) ||
+    typeof value.spec_hash !== "string" ||
+    !SHA256_PATTERN.test(value.spec_hash) || !isUuid(value.binding_id) ||
+    typeof value.binding_hash !== "string" ||
+    !SHA256_PATTERN.test(value.binding_hash) ||
+    typeof value.selection_hash !== "string" ||
+    !SHA256_PATTERN.test(value.selection_hash) ||
+    typeof value.price_hash !== "string" ||
+    !SHA256_PATTERN.test(value.price_hash) ||
+    typeof value.spend_confirmation !== "string" ||
+    readStrategySpendConfirmation(value.spend_confirmation) === null ||
+    value.confirmation !== true ||
+    typeof value.idempotency_key !== "string" ||
+    !IDEMPOTENCY_PATTERN.test(value.idempotency_key)
+  ) return null;
+  return value as GenerationStrategyPreflightPayload;
+}
+
+function readGenerationStrategyStartPayload(
+  value: unknown,
+): GenerationStrategyStartPayload | null {
+  const keys = [
+    "action",
+    "organization_id",
+    "project_id",
+    "spec_id",
+    "spec_version",
+    "spec_hash",
+    "binding_id",
+    "binding_hash",
+    "selection_hash",
+    "price_hash",
+    "spend_confirmation",
+    "confirmation",
+    "receipt_id",
+    "receipt_hash",
+    "campaign_id",
+    "idempotency_key",
+  ] as const;
+  if (!hasExactKeys(value, keys) || value.action !== "strategy_start") {
+    return null;
+  }
+  const preflight = readGenerationStrategyPreflightPayload({
+    action: "strategy_preflight",
+    organization_id: value.organization_id,
+    project_id: value.project_id,
+    spec_id: value.spec_id,
+    spec_version: value.spec_version,
+    spec_hash: value.spec_hash,
+    binding_id: value.binding_id,
+    binding_hash: value.binding_hash,
+    selection_hash: value.selection_hash,
+    price_hash: value.price_hash,
+    spend_confirmation: value.spend_confirmation,
+    confirmation: value.confirmation,
+    idempotency_key: value.idempotency_key,
+  });
+  if (
+    preflight === null || !isUuid(value.receipt_id) ||
+    typeof value.receipt_hash !== "string" ||
+    !SHA256_PATTERN.test(value.receipt_hash) || !isUuid(value.campaign_id)
+  ) return null;
+  return value as GenerationStrategyStartPayload;
+}
+
+function readGenerationStrategyWorkerContext(
+  value: unknown,
+): GenerationStrategyWorkerContext | null {
+  const keys = [
+    "version",
+    "actor_id",
+    "start_claim_id",
+    "claim_hash",
+    "phase",
+    "dispatch_attempt_id",
+    "attempt_hash",
+    "dispatch_token",
+    "provider_task_id",
+    "lease_id",
+    "lease_token",
+    "lease_hash",
+  ] as const;
+  if (
+    !hasExactKeys(value, keys) ||
+    value.version !== "generation-strategy-worker-dispatch-v1" ||
+    !isUuid(value.actor_id) || !isUuid(value.start_claim_id) ||
+    typeof value.claim_hash !== "string" ||
+    !SHA256_PATTERN.test(value.claim_hash) ||
+    !["pre_dispatch", "dispatch_unknown", "provider_poll"].includes(
+      String(value.phase),
+    ) || !isUuid(value.lease_id) || !isUuid(value.lease_token) ||
+    typeof value.lease_hash !== "string" ||
+    !SHA256_PATTERN.test(value.lease_hash)
+  ) return null;
+  const attemptNull = value.dispatch_attempt_id === null &&
+    value.attempt_hash === null && value.dispatch_token === null;
+  const attemptExact = isUuid(value.dispatch_attempt_id) &&
+    typeof value.attempt_hash === "string" &&
+    SHA256_PATTERN.test(value.attempt_hash) && isUuid(value.dispatch_token);
+  if (
+    (value.phase === "pre_dispatch" &&
+      (!attemptNull || value.provider_task_id !== null)) ||
+    (value.phase === "dispatch_unknown" &&
+      (!attemptExact || value.provider_task_id !== null)) ||
+    (value.phase === "provider_poll" &&
+      (!attemptNull || !isValidTaskId(value.provider_task_id)))
+  ) return null;
+  return value as GenerationStrategyWorkerContext;
+}
+
+function readGenerationStrategyStatusPayload(
+  value: unknown,
+  internalWorker: boolean,
+): GenerationStrategyStatusPayload | null {
+  const keys = internalWorker
+    ? [
+      "action",
+      "organization_id",
+      "project_id",
+      "generation_job_id",
+      "worker_context",
+    ] as const
+    : [
+      "action",
+      "organization_id",
+      "project_id",
+      "generation_job_id",
+    ] as const;
+  if (
+    !hasExactKeys(value, keys) || value.action !== "strategy_status" ||
+    !isUuid(value.organization_id) || !isUuid(value.project_id) ||
+    !isUuid(value.generation_job_id)
+  ) return null;
+  if (internalWorker) {
+    const workerContext = readGenerationStrategyWorkerContext(
+      value.worker_context,
+    );
+    if (workerContext === null) return null;
+    return {
+      ...value,
+      worker_context: workerContext,
+    } as GenerationStrategyStatusPayload;
+  }
+  return value as GenerationStrategyStatusPayload;
+}
+
+function readGenerationStrategyReconcilePayload(
+  value: unknown,
+): GenerationStrategyReconcilePayload | null {
+  const required = [
+    "action",
+    "organization_id",
+    "project_id",
+    "generation_job_id",
+    "dispatch_result_id",
+    "incident_id",
+    "resolution",
+    "confirmation",
+    "evidence_reference",
+    "reason",
+    "idempotency_key",
+  ] as const;
+  const attach = isRecord(value) &&
+    value.resolution === "attach_existing_task";
+  const keys = attach ? [...required, "provider_task_id"] : required;
+  if (
+    !hasExactKeys(value, keys) || value.action !== "strategy_reconcile" ||
+    !isUuid(value.organization_id) || !isUuid(value.project_id) ||
+    !isUuid(value.generation_job_id) ||
+    !isUuid(value.dispatch_result_id) || !isUuid(value.incident_id) ||
+    !isBoundedText(value.evidence_reference, 8, 500) ||
+    !isBoundedText(value.reason, 20, 1_000) ||
+    typeof value.idempotency_key !== "string" ||
+    !IDEMPOTENCY_PATTERN.test(value.idempotency_key) ||
+    (attach && (
+      !isValidTaskId(value.provider_task_id) ||
+      value.confirmation !== "RUNWAY_TASK_ID_VERIFIED"
+    )) ||
+    (!attach && (
+      value.resolution !== "confirm_no_submission" ||
+      value.confirmation !== "RUNWAY_NO_TASK_VERIFIED"
+    ))
+  ) return null;
+  return value as GenerationStrategyReconcilePayload;
+}
+
+function readStrategySpendConfirmation(value: unknown): {
+  strategyId: GenerationStrategyId;
+  recipe: RunwayRecipe;
+  estimatedCredits: number;
+} | null {
+  if (typeof value !== "string") return null;
+  const match = value.match(
+    /^RUNWAY_(PRODUCT_UGC|PRODUCT_SWAP|PRODUCT_AD)_([4-9]|1[0-5])S_(720P|1080P)_(AUDIO|SILENT)_USD_([0-9]{1,4})[.]([0-9]{2})$/u,
+  );
+  if (match === null) return null;
+  const recipe = match[1].toLocaleLowerCase("en-US") as RunwayRecipe;
+  const entry = GENERATION_STRATEGY_CATALOG.find((candidate: {
+    recipe: string;
+    strategy_id: string;
+  }) => candidate.recipe === recipe);
+  const estimatedCredits = Number(match[5]) * 100 + Number(match[6]);
+  if (
+    entry === undefined || !Number.isSafeInteger(estimatedCredits) ||
+    estimatedCredits <= 0
+  ) return null;
+  return {
+    strategyId: entry.strategy_id as GenerationStrategyId,
+    recipe,
+    estimatedCredits,
+  };
+}
+
+function readGenerationStrategyPayload(
+  value: unknown,
+): GenerationStrategyPayload | null {
+  if (!isRecord(value) || !Object.hasOwn(value, "generation_strategy")) {
+    return null;
+  }
+  if (value.action !== "start" || !isRecord(value.generation_strategy)) {
+    return { ok: false };
+  }
+  const validated = validateGenerationStrategySelection(
+    value.generation_strategy,
+  );
+  if (!isRecord(validated) || validated.ok !== true) return { ok: false };
+  const strategyId = readGenerationStrategyId(validated.strategy_id);
+  const recipe = readRunwayRecipe(validated.recipe);
+  if (strategyId === null || recipe === null) return { ok: false };
+  const entry = generationStrategyCatalogEntry(strategyId);
+  if (
+    entry === null || entry.provider !== "runway" || entry.recipe !== recipe ||
+    entry.recipe_version !== value.generation_strategy.recipe_version ||
+    !RUNWAY_PROVIDER_ENDPOINTS.has(entry.server.provider_path)
+  ) return { ok: false };
+  return {
+    ok: true,
+    strategyId,
+    recipe,
+    selection: value.generation_strategy,
+  };
+}
+
 function readGenerationProviderPolicy(
   value: unknown,
   provider: GenerationProvider,
@@ -1458,6 +2101,351 @@ function readGenerationProviderPolicy(
     launchEnabled: value.launch_enabled,
     disabledReasonCode,
   };
+}
+
+function readGenerationStrategyCatalogPolicy(
+  value: unknown,
+): GenerationStrategyCatalogPolicy | null {
+  if (
+    !hasExactKeys(value, [
+      "ok",
+      "version",
+      "execution_capabilities",
+      "checks",
+      "select_enabled",
+      "preflight_enabled",
+      "paid_start_authorized",
+      "contract",
+    ]) || value.ok !== true ||
+    value.version !== "generation-strategy-catalog-policy-response-v1" ||
+    typeof value.select_enabled !== "boolean" ||
+    typeof value.preflight_enabled !== "boolean" ||
+    value.paid_start_authorized !== false ||
+    !hasExactKeys(value.checks, [
+      "organization_active",
+      "sql_provider_configuration_enabled",
+      "execution_chain_installed",
+      "edge_secret_check_required_at_preflight",
+    ]) ||
+    !Object.values(value.checks).every((item) => typeof item === "boolean") ||
+    !hasExactKeys(value.contract, [
+      "read_only",
+      "server_authoritative",
+      "provider_call_started",
+      "receipt_required_for_paid_start",
+      "catalog_policy_is_not_paid_authority",
+    ]) || value.contract.read_only !== true ||
+    value.contract.server_authoritative !== true ||
+    value.contract.provider_call_started !== false ||
+    value.contract.receipt_required_for_paid_start !== true ||
+    value.contract.catalog_policy_is_not_paid_authority !== true ||
+    !isRecord(value.execution_capabilities)
+  ) return null;
+  const capabilities = value.execution_capabilities;
+  const expectedIds = new Set(GENERATION_STRATEGY_CATALOG.map((entry: {
+    strategy_id: string;
+  }) => entry.strategy_id));
+  if (
+    Object.keys(capabilities).length !== expectedIds.size ||
+    Object.keys(capabilities).some((id) => !expectedIds.has(id))
+  ) return null;
+  for (const entry of GENERATION_STRATEGY_CATALOG) {
+    const capability = capabilities[entry.strategy_id];
+    if (
+      !hasExactKeys(capability, [
+        "enabled",
+        "catalog_version",
+        "strategy_id",
+        "provider",
+        "recipe",
+        "recipe_version",
+        "provider_path",
+        "pricing_version",
+      ]) || typeof capability.enabled !== "boolean" ||
+      capability.catalog_version !== GENERATION_STRATEGY_CATALOG_VERSION ||
+      capability.strategy_id !== entry.strategy_id ||
+      capability.provider !== "runway" || capability.recipe !== entry.recipe ||
+      capability.recipe_version !== RUNWAY_RECIPE_VERSION ||
+      capability.provider_path !== entry.server.provider_path ||
+      capability.pricing_version !== RUNWAY_RECIPE_PRICING_VERSION
+    ) return null;
+  }
+  return {
+    executionCapabilities: capabilities,
+    selectEnabled: value.select_enabled,
+    preflightEnabled: value.preflight_enabled,
+  };
+}
+
+function generationStrategyBindingAssetsValid(
+  value: unknown,
+  strategyId: GenerationStrategyId,
+  productId: string,
+): boolean {
+  if (!Array.isArray(value) || value.length < 2 || value.length > 16) {
+    return false;
+  }
+  const counts = new Map<string, number>();
+  const identities = new Set<string>();
+  for (const asset of value) {
+    if (
+      !hasExactKeys(asset, [
+        "role",
+        "ordinal",
+        "media_object_id",
+        "sha256",
+        "kind",
+        "mime_type",
+        "product_id",
+        "rights_confirmed",
+        "likeness_consent",
+      ]) ||
+      typeof asset.role !== "string" ||
+      ![
+        "product_primary",
+        "product_reference",
+        "creator_avatar",
+        "original_product",
+        "source_video",
+        "style_reference",
+      ].includes(asset.role) || !isUuid(asset.media_object_id) ||
+      typeof asset.sha256 !== "string" ||
+      !SHA256_PATTERN.test(asset.sha256) ||
+      !isIntegerInRange(asset.ordinal, 1, 99) ||
+      typeof asset.kind !== "string" || typeof asset.mime_type !== "string" ||
+      (asset.product_id !== null && !isUuid(asset.product_id)) ||
+      asset.rights_confirmed !== true ||
+      typeof asset.likeness_consent !== "boolean"
+    ) return false;
+    const image = ["image/jpeg", "image/png", "image/webp"].includes(
+      asset.mime_type,
+    );
+    if (
+      (asset.role === "product_primary" ||
+          asset.role === "product_reference") &&
+        (!image || !["product_photo", "packshot"].includes(asset.kind) ||
+          asset.product_id !== productId || asset.likeness_consent) ||
+      (["creator_avatar", "original_product", "style_reference"].includes(
+        asset.role,
+      ) && (!image || asset.kind !== "creator_reference")) ||
+      (asset.role === "source_video" &&
+        (asset.kind !== "source_video" || asset.mime_type !== "video/mp4" ||
+          asset.likeness_consent)) ||
+      ((asset.role === "creator_avatar") !== asset.likeness_consent) ||
+      (asset.role === "product_primary" && asset.ordinal !== 1) ||
+      (["creator_avatar", "original_product", "source_video"].includes(
+        asset.role,
+      ) && asset.ordinal !== 1) ||
+      (asset.role === "product_reference" && asset.ordinal > 9) ||
+      (asset.role === "style_reference" && asset.ordinal > 4)
+    ) return false;
+    const identity = `${asset.role}:${asset.ordinal}`;
+    if (identities.has(identity) || identities.has(asset.media_object_id)) {
+      return false;
+    }
+    identities.add(identity);
+    identities.add(asset.media_object_id);
+    counts.set(asset.role, (counts.get(asset.role) || 0) + 1);
+  }
+  const count = (role: string) => counts.get(role) || 0;
+  if (count("product_primary") !== 1) return false;
+  if (strategyId === "viral_avatar_ugc") {
+    return value.length === 2 && count("creator_avatar") === 1 &&
+      count("product_reference") === 0 && count("original_product") === 0 &&
+      count("source_video") === 0 && count("style_reference") === 0;
+  }
+  if (strategyId === "viral_product_swap") {
+    return count("creator_avatar") === 0 && count("original_product") === 1 &&
+      count("source_video") === 1 && count("style_reference") === 0 &&
+      count("product_reference") <= 9 &&
+      value.length === count("product_reference") + 3;
+  }
+  return count("creator_avatar") === 0 && count("original_product") === 0 &&
+    count("source_video") === 1 && count("product_reference") <= 9 &&
+    count("style_reference") <= 4 &&
+    value.length ===
+      count("product_reference") + count("style_reference") + 2;
+}
+
+function generationStrategyPriceValid(
+  value: unknown,
+  payload: GenerationStrategyBindPayload,
+  strategyId: GenerationStrategyId,
+  recipe: RunwayRecipe,
+): boolean {
+  if (
+    !hasExactKeys(value, [
+      "version",
+      "strategy_id",
+      "provider",
+      "recipe",
+      "input_mode",
+      "duration_seconds",
+      "resolution",
+      "ratio",
+      "audio",
+      "estimated_credits",
+      "estimated_pre_tax_usd_minor",
+      "estimated_cost_minor",
+      "estimated_cost_usd",
+      "currency",
+      "credit_unit_cost_minor",
+      "catalog_version",
+      "pricing_version",
+      "recipe_version",
+      "spend_confirmation",
+      "price_hash",
+    ])
+  ) return false;
+  const selection = payload.generation_strategy;
+  const estimatedCredits = value.estimated_credits;
+  const expectedPrice = estimateGenerationStrategyCredits(
+    strategyId,
+    selection,
+  );
+  if (
+    !isRecord(expectedPrice) || expectedPrice.ok !== true ||
+    value.estimated_credits !== expectedPrice.estimated_credits ||
+    value.estimated_pre_tax_usd_minor !==
+      expectedPrice.estimated_pre_tax_usd_minor ||
+    value.version !== "generation-strategy-price-snapshot-v1" ||
+    value.strategy_id !== strategyId || value.provider !== "runway" ||
+    value.recipe !== recipe ||
+    value.input_mode !==
+      (strategyId === "viral_avatar_ugc"
+        ? "character_and_product_images"
+        : strategyId === "viral_product_swap"
+        ? "video_and_product_images"
+        : "product_images") ||
+    value.duration_seconds !== selection.duration_seconds ||
+    !["720p", "1080p"].includes(String(value.resolution)) ||
+    value.audio !== selection.audio ||
+    !isIntegerInRange(estimatedCredits, 0, 1_000_000) ||
+    value.estimated_pre_tax_usd_minor !== estimatedCredits ||
+    value.estimated_cost_minor !== estimatedCredits ||
+    value.estimated_cost_usd !== (estimatedCredits / 100).toFixed(2) ||
+    value.currency !== "USD" || value.credit_unit_cost_minor !== 1 ||
+    value.catalog_version !== GENERATION_STRATEGY_CATALOG_VERSION ||
+    value.pricing_version !== RUNWAY_RECIPE_PRICING_VERSION ||
+    value.recipe_version !== RUNWAY_RECIPE_VERSION ||
+    typeof value.price_hash !== "string" ||
+    !SHA256_PATTERN.test(value.price_hash)
+  ) return false;
+  if (
+    strategyId === "viral_product_swap"
+      ? value.ratio !== "source" ||
+        value.resolution !== selection.resolution
+      : value.ratio !== selection.ratio
+  ) return false;
+  const expectedConfirmation = `RUNWAY_${recipe.toUpperCase()}_${
+    String(value.duration_seconds)
+  }S_${String(value.resolution).toUpperCase()}_${
+    value.audio ? "AUDIO" : "SILENT"
+  }_USD_${value.estimated_cost_usd}`;
+  return value.spend_confirmation === expectedConfirmation;
+}
+
+function readGenerationStrategyBindResult(
+  value: unknown,
+  payload: GenerationStrategyBindPayload,
+): Record<string, unknown> | null {
+  if (
+    !hasExactKeys(value, [
+      "ok",
+      "version",
+      "binding",
+      "selection",
+      "price",
+      "contract",
+    ]) || value.ok !== true ||
+    value.version !== "generation-strategy-resolve-bind-response-v1" ||
+    !hasExactKeys(value.selection, [
+      "catalog_version",
+      "recipe_version",
+      "pricing_version",
+      "strategy_id",
+      "recipe",
+      "selection_hash",
+    ])
+  ) return null;
+  const strategyId = readGenerationStrategyId(value.selection.strategy_id);
+  const recipe = readRunwayRecipe(value.selection.recipe);
+  const expectedStrategyId = readGenerationStrategyId(
+    payload.generation_strategy.strategy_id,
+  );
+  const entry = strategyId === null
+    ? null
+    : generationStrategyCatalogEntry(strategyId);
+  if (
+    strategyId === null || recipe === null ||
+    strategyId !== expectedStrategyId ||
+    entry === null || entry.recipe !== recipe ||
+    value.selection.catalog_version !== GENERATION_STRATEGY_CATALOG_VERSION ||
+    value.selection.recipe_version !== RUNWAY_RECIPE_VERSION ||
+    value.selection.pricing_version !== RUNWAY_RECIPE_PRICING_VERSION ||
+    typeof value.selection.selection_hash !== "string" ||
+    !SHA256_PATTERN.test(value.selection.selection_hash) ||
+    !hasExactKeys(value.binding, [
+      "id",
+      "project_id",
+      "spec_id",
+      "spec_version",
+      "spec_hash",
+      "product_id",
+      "strategy_id",
+      "selection_hash",
+      "source_basis",
+      "source_binding_id",
+      "source_binding_hash",
+      "role_assets",
+      "strategy_snapshot_hash",
+      "binding_hash",
+      "bound_at",
+    ]) || !isUuid(value.binding.id) ||
+    value.binding.project_id !== payload.project_id ||
+    value.binding.spec_id !== payload.spec_id ||
+    value.binding.spec_version !== payload.spec_version ||
+    value.binding.spec_hash !== payload.spec_hash ||
+    !isUuid(value.binding.product_id) ||
+    value.binding.strategy_id !== strategyId ||
+    value.binding.selection_hash !== value.selection.selection_hash ||
+    value.binding.source_basis !== "exact_source_video" ||
+    !isUuid(value.binding.source_binding_id) ||
+    typeof value.binding.source_binding_hash !== "string" ||
+    !SHA256_PATTERN.test(value.binding.source_binding_hash) ||
+    typeof value.binding.strategy_snapshot_hash !== "string" ||
+    !SHA256_PATTERN.test(value.binding.strategy_snapshot_hash) ||
+    typeof value.binding.binding_hash !== "string" ||
+    !SHA256_PATTERN.test(value.binding.binding_hash) ||
+    typeof value.binding.bound_at !== "string" ||
+    !Number.isFinite(Date.parse(value.binding.bound_at)) ||
+    !generationStrategyBindingAssetsValid(
+      value.binding.role_assets,
+      strategyId,
+      value.binding.product_id,
+    ) || !generationStrategyPriceValid(
+      value.price,
+      payload,
+      strategyId,
+      recipe,
+    ) ||
+    !hasExactKeys(value.contract, [
+      "server_resolved_source_binding",
+      "server_resolved_media_hashes",
+      "browser_hashes_accepted",
+      "browser_source_binding_accepted",
+      "provider_call_started",
+      "paid_start_integrated",
+      "launch_enabled",
+    ]) || value.contract.server_resolved_source_binding !== true ||
+    value.contract.server_resolved_media_hashes !== true ||
+    value.contract.browser_hashes_accepted !== false ||
+    value.contract.browser_source_binding_accepted !== false ||
+    value.contract.provider_call_started !== false ||
+    value.contract.paid_start_integrated !== false ||
+    value.contract.launch_enabled !== false
+  ) return null;
+  return value;
 }
 
 function readGenerationModelFeatureFlags(
@@ -2791,6 +3779,112 @@ type ProviderRequestEnvelope = {
   pollKind: "runway_task" | "google_long_running_operation";
 };
 
+export function buildGenerationStrategyProviderRequest(
+  context: GenerationStrategyRecipeContext,
+  signedRoleAssets: GenerationStrategySignedRoleAsset[],
+): ProviderRequestEnvelope | null {
+  const entry = generationStrategyCatalogEntry(context.strategyId);
+  if (
+    entry === null || entry.provider !== "runway" ||
+    entry.recipe !== context.recipe ||
+    entry.recipe_version !== context.recipeVersion ||
+    !RUNWAY_PROVIDER_ENDPOINTS.has(entry.server.provider_path) ||
+    !Array.isArray(signedRoleAssets) || signedRoleAssets.length < 1
+  ) return null;
+
+  const mappedAssets: Array<Record<string, string>> = [];
+  let productIndex = 0;
+  for (const asset of signedRoleAssets) {
+    if (!isRecord(asset)) return null;
+    const withView = Object.hasOwn(asset, "view");
+    const allowedFields = new Set(
+      withView ? ["role", "uri", "view"] : ["role", "uri"],
+    );
+    if (
+      !hasOnlyKeys(asset, allowedFields) ||
+      Object.keys(asset).length !== allowedFields.size
+    ) return null;
+
+    if (context.recipe === "product_ugc") {
+      if (withView) return null;
+      if (asset.role === "avatar_image") {
+        mappedAssets.push({ role: "avatar", uri: String(asset.uri) });
+      } else if (asset.role === "product_image") {
+        mappedAssets.push({ role: "product_primary", uri: String(asset.uri) });
+      } else {
+        // The source video is mechanics-only for Product UGC and is never
+        // accepted as a signed provider input.
+        return null;
+      }
+    } else if (context.recipe === "product_swap") {
+      if (asset.role === "source_video") {
+        if (withView) return null;
+        mappedAssets.push({ role: "source_video", uri: String(asset.uri) });
+      } else if (asset.role === "original_product_image") {
+        if (withView) return null;
+        mappedAssets.push({
+          role: "original_product",
+          uri: String(asset.uri),
+        });
+      } else if (asset.role === "new_product_image") {
+        mappedAssets.push({
+          role: productIndex++ === 0 ? "product_primary" : "product_reference",
+          uri: String(asset.uri),
+          ...(withView ? { view: String(asset.view) } : {}),
+        });
+      } else {
+        return null;
+      }
+    } else if (asset.role === "product_image") {
+      mappedAssets.push({
+        role: productIndex++ === 0 ? "product_primary" : "product_reference",
+        uri: String(asset.uri),
+        ...(withView ? { view: String(asset.view) } : {}),
+      });
+    } else if (asset.role === "style_image") {
+      mappedAssets.push({
+        role: "style_reference",
+        uri: String(asset.uri),
+        ...(withView ? { view: String(asset.view) } : {}),
+      });
+    } else {
+      // Product Ad consumes the source only through server-compiled mechanics
+      // in userConcept; it must never receive the source video URI.
+      return null;
+    }
+  }
+
+  const commonSelection = {
+    strategyVersion: context.strategyVersion,
+    strategyId: context.strategyId,
+    recipe: context.recipe,
+    recipeVersion: context.recipeVersion,
+    durationSeconds: context.durationSeconds,
+    audio: context.audio,
+  };
+  const selection = context.recipe === "product_swap"
+    ? { ...commonSelection, resolution: context.resolution }
+    : {
+      ...commonSelection,
+      ratio: context.ratio,
+      productInfo: context.productInfo,
+      userConcept: context.userConcept,
+    };
+  try {
+    const envelope = buildRunwayRecipeRequest(selection, mappedAssets);
+    if (
+      envelope?.provider !== "runway" || envelope.method !== "POST" ||
+      envelope.pollKind !== "runway_task" ||
+      envelope.endpointPath !== entry.server.provider_path ||
+      !RUNWAY_PROVIDER_ENDPOINTS.has(envelope.endpointPath) ||
+      !isRecord(envelope.body)
+    ) return null;
+    return envelope as ProviderRequestEnvelope;
+  } catch {
+    return null;
+  }
+}
+
 function buildProviderRequest(
   job: StartJob,
   signedReferenceUrls: string[],
@@ -3150,6 +4244,101 @@ function readNonNegativeNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= 0
     ? value
     : null;
+}
+
+type GenerationStrategyReadinessCheck = {
+  credentialConfigured: boolean;
+  providerAuthenticationConfirmed: boolean;
+  balanceSufficient: boolean;
+  failureCode:
+    | "provider_configuration_error"
+    | "provider_authentication_failed"
+    | "provider_balance_insufficient"
+    | "provider_readiness_unavailable"
+    | null;
+};
+
+async function checkRunwayStrategyReadiness(
+  secret: string | null,
+  estimatedCredits: number,
+): Promise<GenerationStrategyReadinessCheck> {
+  if (secret === null) {
+    return {
+      credentialConfigured: false,
+      providerAuthenticationConfirmed: false,
+      balanceSufficient: false,
+      failureCode: "provider_configuration_error",
+    };
+  }
+  let response: ProviderJsonResult;
+  try {
+    response = await fetchProviderJsonWithDeadline(
+      `${RUNWAY_API_ORIGIN}/v1/organization`,
+      {
+        method: "GET",
+        redirect: "manual",
+        headers: {
+          authorization: `Bearer ${secret}`,
+          "x-runway-version": RUNWAY_API_VERSION,
+        },
+      },
+      PROVIDER_TIMEOUT_MS,
+    );
+  } catch {
+    return {
+      credentialConfigured: true,
+      providerAuthenticationConfirmed: false,
+      balanceSufficient: false,
+      failureCode: "provider_readiness_unavailable",
+    };
+  }
+  if (!response.ok) {
+    return {
+      credentialConfigured: true,
+      providerAuthenticationConfirmed: false,
+      balanceSufficient: false,
+      failureCode: response.status === 401 || response.status === 403
+        ? "provider_authentication_failed"
+        : "provider_readiness_unavailable",
+    };
+  }
+  const balance = isRecord(response.value)
+    ? readNonNegativeNumber(response.value.creditBalance)
+    : null;
+  if (balance === null) {
+    return {
+      credentialConfigured: true,
+      providerAuthenticationConfirmed: false,
+      balanceSufficient: false,
+      failureCode: "provider_readiness_unavailable",
+    };
+  }
+  const sufficient = balance >= estimatedCredits;
+  return {
+    credentialConfigured: true,
+    providerAuthenticationConfirmed: true,
+    balanceSufficient: sufficient,
+    failureCode: sufficient ? null : "provider_balance_insufficient",
+  };
+}
+
+function readGenerationStrategyRpcError(value: unknown): {
+  code: string;
+  status: 403 | 409 | 422 | 503;
+} | null {
+  if (!isRecord(value) || typeof value.message !== "string") return null;
+  const code = value.message.trim();
+  if (!/^generation_strategy_[a-z0-9_]{3,110}$/u.test(code)) return null;
+  if (code.endsWith("_access_required") || code.endsWith("_forbidden")) {
+    return { code, status: 403 };
+  }
+  if (code.endsWith("_payload_invalid")) return { code, status: 422 };
+  if (
+    code.includes("_conflict") || code.includes("_not_current") ||
+    code.includes("_expired") || code.includes("_consumed") ||
+    code.includes("_required") || code.includes("_not_ready")
+  ) return { code, status: 409 };
+  return { code: "generation_unavailable", status: 503 };
 }
 
 function runwayProviderReadiness(
@@ -4169,13 +5358,33 @@ async function handleCreatorGenerate(
     }
   };
 
+  const loadGenerationStrategyCatalogPolicy = async (
+    organizationId: string,
+  ): Promise<GenerationStrategyCatalogPolicy | null> => {
+    try {
+      const { data, error } = await supabaseAdmin.rpc(
+        "system_generation_strategy_catalog_policy",
+        {
+          p_payload: {
+            version: "generation-strategy-catalog-policy-request-v1",
+            organization_id: organizationId,
+          },
+        },
+      );
+      if (error !== null) return null;
+      return readGenerationStrategyCatalogPolicy(data);
+    } catch {
+      return null;
+    }
+  };
+
   const modelCatalogPayload = readModelCatalogPayload(body);
   if (!internalWorker && modelCatalogPayload !== null) {
     // Reuse the established generation overview boundary to prove that the
     // authenticated actor belongs to the requested organization. Feature
-    // flags are deliberately not accepted from the browser; until the
-    // authoritative organization policy projection is wired, all opt-in
-    // catalog entries remain disabled.
+    // flags are deliberately not accepted from the browser. The dedicated
+    // organization policy projection below is the only strategy capability
+    // authority used for this read-only catalog response.
     try {
       const { error } = await context.supabase.rpc(
         "creator_generation_spend_overview",
@@ -4242,6 +5451,24 @@ async function handleCreatorGenerate(
     const policyByKey: Map<string, GenerationProviderPolicy | null> = new Map(
       policyPairs,
     );
+    const strategyCatalogPolicy = await loadGenerationStrategyCatalogPolicy(
+      modelCatalogPayload.organization_id,
+    );
+    if (strategyCatalogPolicy === null) {
+      return json(
+        request,
+        { ok: false, code: "generation_unavailable" },
+        503,
+      );
+    }
+    const publicStrategyCatalog = publicGenerationStrategyCatalog({
+      executionCapabilities: strategyCatalogPolicy.executionCapabilities,
+    }) as {
+      version: string;
+      recipe_version: string;
+      pricing_version: string;
+      strategies: PublicGenerationStrategyCatalogEntry[];
+    };
     const catalog = publicGenerationModelCatalog({
       featureFlags: catalogFeatureFlags,
     });
@@ -4326,9 +5553,382 @@ async function handleCreatorGenerate(
             ...executionPolicy,
           };
         }),
+        strategyCatalogVersion: publicStrategyCatalog.version,
+        strategyRecipeVersion: publicStrategyCatalog.recipe_version,
+        strategyPricingVersion: publicStrategyCatalog.pricing_version,
+        strategies: publicStrategyCatalog.strategies.map((entry) => {
+          return {
+            strategy_id: entry.strategy_id,
+            public_label: entry.public_label,
+            public_summary: entry.public_summary,
+            transformation_kind: entry.transformation_kind,
+            source_reference_mode: entry.source_reference_mode,
+            preservation_notice: entry.preservation_notice,
+            human_review_required: entry.human_review_required,
+            provider: entry.provider,
+            recipe: entry.recipe,
+            recipe_version: entry.recipe_version,
+            asset_roles: entry.asset_roles,
+            required_attestations: entry.required_attestations,
+            output_rules: entry.output_rules,
+            pricing: entry.pricing,
+            enabled: entry.enabled,
+            disabled_reason: entry.disabled_reason,
+          };
+        }),
         version: GENERATION_MODEL_CATALOG_VERSION,
       },
     });
+  }
+
+  const strategyBindPayload = readGenerationStrategyBindPayload(body);
+  if (!internalWorker && strategyBindPayload !== null) {
+    const actorId = context.userClaims?.id;
+    if (!isUuid(actorId)) {
+      return json(
+        request,
+        { ok: false, code: "authentication_required" },
+        401,
+      );
+    }
+    try {
+      const { data, error } = await supabaseAdmin.rpc(
+        "system_resolve_and_bind_generation_strategy",
+        {
+          p_payload: {
+            version: "generation-strategy-resolve-bind-request-v1",
+            organization_id: strategyBindPayload.organization_id,
+            project_id: strategyBindPayload.project_id,
+            actor_id: actorId,
+            spec_id: strategyBindPayload.spec_id,
+            spec_version: strategyBindPayload.spec_version,
+            spec_hash: strategyBindPayload.spec_hash,
+            selection: strategyBindPayload.generation_strategy as Json,
+            confirmation: true,
+            idempotency_key: strategyBindPayload.idempotency_key,
+          },
+        },
+      );
+      if (error !== null) {
+        const mapped = readGenerationStrategyBindRpcError(error);
+        if (mapped !== null) {
+          return json(
+            request,
+            { ok: false, code: mapped.code },
+            mapped.status,
+          );
+        }
+        return json(
+          request,
+          { ok: false, code: "generation_unavailable" },
+          503,
+        );
+      }
+      const result = readGenerationStrategyBindResult(
+        data,
+        strategyBindPayload,
+      );
+      return result === null
+        ? json(
+          request,
+          { ok: false, code: "generation_unavailable" },
+          503,
+        )
+        : json(request, result);
+    } catch {
+      return json(
+        request,
+        { ok: false, code: "generation_unavailable" },
+        503,
+      );
+    }
+  }
+
+  const strategyMediaProbePayload = readGenerationStrategyMediaProbePayload(
+    body,
+  );
+  if (!internalWorker && strategyMediaProbePayload !== null) {
+    const actorId = context.userClaims?.id;
+    if (!isUuid(actorId)) {
+      return json(request, { ok: false, code: "authentication_required" }, 401);
+    }
+    try {
+      const contextResult = await supabaseAdmin.rpc(
+        "system_generation_strategy_media_probe_context",
+        {
+          p_payload: {
+            version: "generation-strategy-media-probe-context-request-v1",
+            organization_id: strategyMediaProbePayload.organization_id,
+            project_id: strategyMediaProbePayload.project_id,
+            actor_id: actorId,
+            media_id: strategyMediaProbePayload.media_id,
+          },
+        },
+      );
+      if (contextResult.error !== null) {
+        const mapped = readGenerationStrategyRpcError(contextResult.error);
+        return json(
+          request,
+          { ok: false, code: mapped?.code || "generation_unavailable" },
+          mapped?.status || 503,
+        );
+      }
+      const media = readGenerationStrategyProbeContext(contextResult.data, {
+        mediaId: strategyMediaProbePayload.media_id,
+      });
+      if (media === null) {
+        return json(
+          request,
+          { ok: false, code: "generation_unavailable" },
+          503,
+        );
+      }
+      const signed = await supabaseAdmin.storage.from(media.bucket_id)
+        .createSignedUrl(media.object_name, INPUT_URL_TTL_SECONDS);
+      const signedUrl = signed.error === null
+        ? validateSupabaseSignedUrl(signed.data?.signedUrl)
+        : null;
+      if (
+        signedUrl === null || signedUrl.length > STRATEGY_SIGNED_URL_MAX_LENGTH
+      ) {
+        return json(
+          request,
+          { ok: false, code: "strategy_media_probe_signing_failed" },
+          503,
+        );
+      }
+      const bytes = await withFetchDeadline(
+        signedUrl,
+        { method: "GET", redirect: "manual" },
+        STRATEGY_MEDIA_PROBE_TIMEOUT_MS,
+        async (response) => {
+          const mimeType = (response.headers.get("content-type") ?? "")
+            .split(";", 1)[0].trim().toLocaleLowerCase("en-US");
+          const declared = Number(response.headers.get("content-length") ?? "");
+          if (
+            response.status !== 200 || mimeType !== "video/mp4" ||
+            !Number.isSafeInteger(declared) || declared !== media.size_bytes ||
+            declared < 1 || declared > ISO_BMFF_MAX_BYTES
+          ) {
+            await response.body?.cancel();
+            throw new Error("strategy_media_probe_response_invalid");
+          }
+          const bodyBytes = await readBoundedBytes(
+            response,
+            ISO_BMFF_MAX_BYTES,
+          );
+          if (bodyBytes.byteLength !== media.size_bytes) {
+            throw new Error("strategy_media_probe_size_mismatch");
+          }
+          return bodyBytes;
+        },
+      );
+      if (await sha256Hex(bytes) !== media.sha256) {
+        return json(
+          request,
+          { ok: false, code: "strategy_media_probe_hash_mismatch" },
+          409,
+        );
+      }
+      const parsed = parseIsoBmffDuration(bytes);
+      const evidenceHash = await sha256Hex(new TextEncoder().encode(stableJson({
+        version: "generation-strategy-media-probe-evidence-v1",
+        media_id: media.media_id,
+        attachment_id: media.attachment_id,
+        attachment_hash: media.attachment_hash,
+        media_sha256: media.sha256,
+        size_bytes: media.size_bytes,
+        parser_version: parsed.parser_version,
+        timescale: parsed.timescale,
+        duration_units: parsed.duration_units,
+        duration_ms: parsed.duration_ms,
+      })));
+      const recorded = await supabaseAdmin.rpc(
+        "system_record_generation_strategy_media_duration",
+        {
+          p_payload: {
+            version: "generation-strategy-media-duration-record-request-v1",
+            organization_id: strategyMediaProbePayload.organization_id,
+            project_id: strategyMediaProbePayload.project_id,
+            actor_id: actorId,
+            media_id: media.media_id,
+            attachment_id: media.attachment_id,
+            attachment_hash: media.attachment_hash,
+            media_sha256: media.sha256,
+            size_bytes: media.size_bytes,
+            http_status: 200,
+            content_type: "video/mp4",
+            download_complete: true,
+            parser_version: ISO_BMFF_DURATION_PARSER_VERSION,
+            timescale: parsed.timescale,
+            duration_units: parsed.duration_units,
+            duration_ms: parsed.duration_ms,
+            mvhd_count: parsed.mvhd_count,
+            fragmented: parsed.fragmented,
+            verification_method: "server_mp4_probe",
+            evidence_hash: evidenceHash,
+            idempotency_key: strategyMediaProbePayload.idempotency_key,
+          },
+        },
+      );
+      if (recorded.error !== null) {
+        const mapped = readGenerationStrategyRpcError(recorded.error);
+        return json(
+          request,
+          { ok: false, code: mapped?.code || "generation_unavailable" },
+          mapped?.status || 503,
+        );
+      }
+      const publicResult = publicGenerationStrategyProbeResult(recorded.data, {
+        mediaId: media.media_id,
+        attachmentId: media.attachment_id,
+        attachmentHash: media.attachment_hash,
+        mediaSha256: media.sha256,
+        sizeBytes: media.size_bytes,
+        timescale: parsed.timescale,
+        durationUnits: parsed.duration_units,
+        durationMs: parsed.duration_ms,
+        durationSeconds: parsed.duration_seconds,
+      });
+      return publicResult === null
+        ? json(request, { ok: false, code: "generation_unavailable" }, 503)
+        : json(request, publicResult);
+    } catch {
+      return json(
+        request,
+        { ok: false, code: "strategy_media_probe_failed" },
+        503,
+      );
+    }
+  }
+
+  const strategyPreflightPayload = readGenerationStrategyPreflightPayload(body);
+  if (!internalWorker && strategyPreflightPayload !== null) {
+    const actorId = context.userClaims?.id;
+    const spend = readStrategySpendConfirmation(
+      strategyPreflightPayload.spend_confirmation,
+    );
+    if (!isUuid(actorId) || spend === null) {
+      return json(request, { ok: false, code: "invalid_payload" }, 400);
+    }
+    const readiness = await checkRunwayStrategyReadiness(
+      runwaySecret(),
+      spend.estimatedCredits,
+    );
+    try {
+      const recorded = await supabaseAdmin.rpc(
+        "system_record_generation_strategy_readiness",
+        {
+          p_payload: {
+            version: "generation-strategy-readiness-record-request-v1",
+            organization_id: strategyPreflightPayload.organization_id,
+            project_id: strategyPreflightPayload.project_id,
+            actor_id: actorId,
+            binding_id: strategyPreflightPayload.binding_id,
+            binding_hash: strategyPreflightPayload.binding_hash,
+            selection_hash: strategyPreflightPayload.selection_hash,
+            price_hash: strategyPreflightPayload.price_hash,
+            spend_confirmation: strategyPreflightPayload.spend_confirmation,
+            credential_configured: readiness.credentialConfigured,
+            provider_authentication_confirmed:
+              readiness.providerAuthenticationConfirmed,
+            balance_sufficient: readiness.balanceSufficient,
+            provider_failure_code: readiness.failureCode,
+            confirmation: true,
+            idempotency_key: strategyPreflightPayload.idempotency_key,
+          },
+        },
+      );
+      if (recorded.error !== null) {
+        const mapped = readGenerationStrategyRpcError(recorded.error);
+        return json(
+          request,
+          { ok: false, code: mapped?.code || "generation_unavailable" },
+          mapped?.status || 503,
+        );
+      }
+      const result = readGenerationStrategyReadiness(recorded.data, {
+        bindingId: strategyPreflightPayload.binding_id,
+        bindingHash: strategyPreflightPayload.binding_hash,
+        selectionHash: strategyPreflightPayload.selection_hash,
+        priceHash: strategyPreflightPayload.price_hash,
+        spendConfirmation: strategyPreflightPayload.spend_confirmation,
+      });
+      if (
+        result === null || result.receipt.strategy_id !== spend.strategyId ||
+        result.receipt.recipe !== spend.recipe
+      ) {
+        return json(
+          request,
+          { ok: false, code: "generation_unavailable" },
+          503,
+        );
+      }
+      if (!result.receipt.ready) {
+        return json(
+          request,
+          { ok: false, code: result.receipt.failure_code },
+          result.receipt.failure_code === "provider_balance_insufficient"
+            ? 409
+            : 503,
+        );
+      }
+      const policyRpc = await supabaseAdmin.rpc(
+        "system_generation_strategy_provider_policy",
+        {
+          p_payload: {
+            version: "generation-strategy-provider-policy-request-v1",
+            organization_id: strategyPreflightPayload.organization_id,
+            project_id: strategyPreflightPayload.project_id,
+            actor_id: actorId,
+            spec_id: strategyPreflightPayload.spec_id,
+            spec_version: strategyPreflightPayload.spec_version,
+            spec_hash: strategyPreflightPayload.spec_hash,
+            strategy_id: spend.strategyId,
+            provider_readiness_receipt_id: result.receipt.id,
+            provider_readiness_receipt_hash: result.receipt.receipt_hash,
+          },
+        },
+      );
+      if (policyRpc.error !== null) {
+        const mapped = readGenerationStrategyRpcError(policyRpc.error);
+        return json(
+          request,
+          { ok: false, code: mapped?.code || "generation_unavailable" },
+          mapped?.status || 503,
+        );
+      }
+      const policy = readGenerationStrategyProviderPolicy(policyRpc.data, {
+        strategyId: spend.strategyId,
+        bindingId: strategyPreflightPayload.binding_id,
+        bindingHash: strategyPreflightPayload.binding_hash,
+        receiptId: result.receipt.id,
+        receiptHash: result.receipt.receipt_hash,
+      });
+      if (policy === null) {
+        return json(
+          request,
+          { ok: false, code: "generation_unavailable" },
+          503,
+        );
+      }
+      if (!policy.launchEnabled) {
+        return json(
+          request,
+          {
+            ok: false,
+            code: policy.blockers[0] || "generation_strategy_launch_disabled",
+          },
+          409,
+        );
+      }
+      return json(request, {
+        ...result.publicResult,
+        launch_enabled: true,
+      });
+    } catch {
+      return json(request, { ok: false, code: "generation_unavailable" }, 503);
+    }
   }
 
   const readCurrentStatus = async (
@@ -5605,6 +7205,898 @@ async function handleCreatorGenerate(
     });
   };
 
+  const loadPublicGenerationStrategyStatus = async (
+    organizationId: string,
+    projectId: string,
+    actorId: string,
+    generationJobId: string,
+  ): Promise<Record<string, unknown> | null> => {
+    try {
+      const { data, error } = await supabaseAdmin.rpc(
+        "system_generation_strategy_status",
+        {
+          p_payload: {
+            version: "generation-strategy-status-request-v1",
+            organization_id: organizationId,
+            project_id: projectId,
+            actor_id: actorId,
+            generation_job_id: generationJobId,
+          },
+        },
+      );
+      if (error !== null) return null;
+      return readPublicGenerationStrategyStatus(data, {
+        projectId,
+        generationJobId,
+      });
+    } catch {
+      return null;
+    }
+  };
+
+  const strategyWorkerResponse = (
+    generationJobId: string,
+    status: string,
+  ): Response =>
+    json(request, {
+      ok: true,
+      job: { id: generationJobId, status },
+    });
+
+  const recordGenerationStrategyDispatchResult = async (
+    identity: {
+      organizationId: string;
+      projectId: string;
+      actorId: string;
+      generationJobId: string;
+      attemptId: string;
+      attemptHash: string;
+      dispatchToken: string;
+    },
+    outcome: {
+      outcome: "submitted" | "ambiguous" | "rejected";
+      provider_post_started: boolean;
+      provider_http_status: number | null;
+      provider_task_id: string | null;
+      failure_code: string | null;
+    },
+    providerEvidenceHash: string,
+  ): Promise<Record<string, unknown> | null> => {
+    try {
+      const { data, error } = await supabaseAdmin.rpc(
+        "system_record_generation_strategy_dispatch_result",
+        {
+          p_payload: {
+            version: "generation-strategy-dispatch-result-request-v1",
+            organization_id: identity.organizationId,
+            project_id: identity.projectId,
+            actor_id: identity.actorId,
+            attempt_id: identity.attemptId,
+            attempt_hash: identity.attemptHash,
+            dispatch_token: identity.dispatchToken,
+            generation_job_id: identity.generationJobId,
+            outcome: outcome.outcome,
+            provider_post_started: outcome.provider_post_started,
+            provider_http_status: outcome.provider_http_status,
+            provider_task_id: outcome.provider_task_id,
+            failure_code: outcome.failure_code,
+            provider_evidence_hash: providerEvidenceHash,
+            confirmation: true,
+            idempotency_key: `strategy-dispatch-result:${identity.attemptId}`,
+          },
+        },
+      );
+      if (error !== null) return null;
+      return readGenerationStrategyDispatchResult(data, {
+        attemptId: identity.attemptId,
+        attemptHash: identity.attemptHash,
+        generationJobId: identity.generationJobId,
+      });
+    } catch {
+      return null;
+    }
+  };
+
+  const signAndValidateGenerationStrategyAssets = async (
+    assets: Array<Record<string, unknown>>,
+  ): Promise<
+    | { ok: true; assets: GenerationStrategySignedRoleAsset[] }
+    | {
+      ok: false;
+      code:
+        | "input_signing_failed"
+        | "input_asset_not_current"
+        | "signed_url_invalid";
+    }
+  > => {
+    const output: GenerationStrategySignedRoleAsset[] = [];
+    for (const asset of assets) {
+      let signedUrl: string | null = null;
+      try {
+        const signed = await supabaseAdmin.storage.from(String(asset.bucket_id))
+          .createSignedUrl(String(asset.object_name), INPUT_URL_TTL_SECONDS);
+        signedUrl = signed.error === null
+          ? validateSupabaseSignedUrl(signed.data?.signedUrl)
+          : null;
+      } catch {
+        return { ok: false, code: "input_signing_failed" };
+      }
+      if (signedUrl === null) {
+        return { ok: false, code: "input_signing_failed" };
+      }
+      if (signedUrl.length > STRATEGY_SIGNED_URL_MAX_LENGTH) {
+        return { ok: false, code: "signed_url_invalid" };
+      }
+      try {
+        const current = await withFetchDeadline(
+          signedUrl,
+          { method: "HEAD", redirect: "manual" },
+          STRATEGY_INPUT_HEAD_TIMEOUT_MS,
+          async (response) => {
+            const mimeType = (response.headers.get("content-type") ?? "")
+              .split(";", 1)[0].trim().toLocaleLowerCase("en-US");
+            const size = Number(response.headers.get("content-length") ?? "");
+            await response.body?.cancel();
+            return response.status === 200 && mimeType === asset.mime_type &&
+              Number.isSafeInteger(size) && size === asset.size_bytes;
+          },
+        );
+        if (!current) {
+          return { ok: false, code: "input_asset_not_current" };
+        }
+      } catch {
+        return { ok: false, code: "input_asset_not_current" };
+      }
+      output.push({
+        role: asset.role as GenerationStrategySignedRoleAsset["role"],
+        uri: signedUrl,
+        ...(typeof asset.view === "string"
+          ? { view: asset.view as "front" | "side" | "back" }
+          : {}),
+      });
+    }
+    return { ok: true, assets: output };
+  };
+
+  const strategyPromptHashesMatch = async (
+    recipeContext: Record<string, unknown>,
+  ): Promise<boolean> => {
+    const productInfo = recipeContext.productInfo;
+    const productInfoHash = recipeContext.productInfoHash;
+    const userConcept = recipeContext.userConcept;
+    const userConceptHash = recipeContext.userConceptHash;
+    if (
+      typeof productInfo === "string" &&
+      await sha256Hex(new TextEncoder().encode(productInfo)) !== productInfoHash
+    ) return false;
+    if (
+      productInfo === null && productInfoHash !== null ||
+      typeof productInfo !== "string" && productInfo !== null
+    ) return false;
+    if (
+      typeof userConcept === "string" &&
+      await sha256Hex(new TextEncoder().encode(userConcept)) !== userConceptHash
+    ) return false;
+    return !(userConcept === null && userConceptHash !== null) &&
+      (typeof userConcept === "string" || userConcept === null);
+  };
+
+  const continueGenerationStrategyClaim = async (
+    identity: {
+      organizationId: string;
+      projectId: string;
+      actorId: string;
+      claimId: string;
+      claimHash: string;
+      generationJobId: string;
+      campaignId?: string;
+    },
+  ): Promise<{ status: string; providerTaskId: string | null } | null> => {
+    let attempt: Record<string, unknown> | null = null;
+    try {
+      const { data, error } = await supabaseAdmin.rpc(
+        "system_mark_generation_strategy_dispatch_attempt",
+        {
+          p_payload: {
+            version: "generation-strategy-dispatch-attempt-request-v1",
+            organization_id: identity.organizationId,
+            project_id: identity.projectId,
+            actor_id: identity.actorId,
+            claim_id: identity.claimId,
+            claim_hash: identity.claimHash,
+            generation_job_id: identity.generationJobId,
+            confirmation: true,
+            idempotency_key: `strategy-dispatch-attempt:${identity.claimId}`,
+          },
+        },
+      );
+      if (error !== null) return null;
+      attempt = readGenerationStrategyDispatchAttempt(data, {
+        claimId: identity.claimId,
+        claimHash: identity.claimHash,
+        generationJobId: identity.generationJobId,
+        ...(identity.campaignId ? { campaignId: identity.campaignId } : {}),
+      });
+    } catch {
+      return null;
+    }
+    if (attempt === null) return null;
+    if (
+      attempt.dispatch_allowed !== true || attempt.replay !== false ||
+      attempt.terminal_result !== null
+    ) {
+      return {
+        status: attempt.terminal_result === null ? "starting" : "failed",
+        providerTaskId: null,
+      };
+    }
+    const attemptRow = attempt.attempt as Record<string, unknown>;
+    const dispatchIdentity = {
+      ...identity,
+      attemptId: String(attemptRow.id),
+      attemptHash: String(attemptRow.attempt_hash),
+      dispatchToken: String(attemptRow.dispatch_token),
+    };
+    const rejectBeforePost = async (
+      code:
+        | "input_signing_failed"
+        | "input_asset_not_current"
+        | "signed_url_invalid",
+    ): Promise<{ status: string; providerTaskId: string | null } | null> => {
+      const rejected = preDispatchStrategyFailure(code);
+      if (rejected === null) return null;
+      const evidence = await sha256Hex(new TextEncoder().encode(stableJson({
+        version: "generation-strategy-pre-dispatch-evidence-v1",
+        attempt_id: dispatchIdentity.attemptId,
+        code,
+      })));
+      const result = await recordGenerationStrategyDispatchResult(
+        dispatchIdentity,
+        rejected,
+        evidence,
+      );
+      return result === null
+        ? null
+        : { status: "failed", providerTaskId: null };
+    };
+
+    const secret = runwaySecret();
+    if (secret === null) return await rejectBeforePost("input_signing_failed");
+    const recipeContext = attempt.recipe_context as Record<string, unknown>;
+    if (!(await strategyPromptHashesMatch(recipeContext))) {
+      return await rejectBeforePost("input_asset_not_current");
+    }
+    const signedAssets = await signAndValidateGenerationStrategyAssets(
+      attempt.asset_context as Array<Record<string, unknown>>,
+    );
+    if (!signedAssets.ok) {
+      return await rejectBeforePost(signedAssets.code);
+    }
+    const providerRequest = buildGenerationStrategyProviderRequest(
+      recipeContext as unknown as GenerationStrategyRecipeContext,
+      signedAssets.assets,
+    );
+    if (providerRequest === null) {
+      return await rejectBeforePost("input_asset_not_current");
+    }
+    let serialized: string;
+    try {
+      serialized = JSON.stringify(providerRequest.body);
+    } catch {
+      return await rejectBeforePost("input_asset_not_current");
+    }
+    if (
+      new TextEncoder().encode(serialized).byteLength > MAX_PROVIDER_JSON_BYTES
+    ) {
+      return await rejectBeforePost("input_asset_not_current");
+    }
+
+    let outcome: ReturnType<typeof classifyRunwayRecipeCreateOutcome>;
+    let evidenceValue: unknown;
+    try {
+      // SQL C is the unique dispatch owner. This is the sole fetch call in this
+      // continuation and providerPostStarted becomes true immediately before it.
+      const response = await fetchProviderJsonWithDeadline(
+        `${RUNWAY_API_ORIGIN}${providerRequest.endpointPath}`,
+        {
+          method: "POST",
+          redirect: "manual",
+          headers: {
+            authorization: `Bearer ${secret}`,
+            "content-type": "application/json",
+            "x-runway-version": RUNWAY_API_VERSION,
+          },
+          body: serialized,
+        },
+        PROVIDER_TIMEOUT_MS,
+      );
+      const task = response.ok ? parseCreatedRunwayTask(response.value) : null;
+      evidenceValue = {
+        status: response.status,
+        body: response.ok ? response.value : null,
+      };
+      outcome = classifyRunwayRecipeCreateOutcome({
+        kind: "response",
+        status: response.status,
+        providerTaskId: task?.id || null,
+      });
+    } catch (error) {
+      evidenceValue = {
+        status: null,
+        error: error instanceof ProviderResponseInvalidError
+          ? "provider_response_invalid"
+          : "provider_network_unknown",
+      };
+      outcome = classifyRunwayRecipeCreateOutcome({ kind: "network" });
+    }
+    if (outcome === null) return null;
+    const evidenceHash = await sha256Hex(new TextEncoder().encode(stableJson({
+      version: "generation-strategy-provider-create-evidence-v1",
+      attempt_id: dispatchIdentity.attemptId,
+      evidence: evidenceValue,
+    })));
+    const recorded = await recordGenerationStrategyDispatchResult(
+      dispatchIdentity,
+      outcome,
+      evidenceHash,
+    );
+    if (recorded === null) return null;
+    const result = recorded.result as Record<string, unknown>;
+    return {
+      status: result.outcome === "submitted"
+        ? "submitted"
+        : result.outcome === "ambiguous"
+        ? "starting"
+        : "failed",
+      providerTaskId: typeof result.provider_task_id === "string"
+        ? result.provider_task_id
+        : null,
+    };
+  };
+
+  const generationStrategyOutputObjectName = async (
+    organizationId: string,
+    projectId: string,
+    actorId: string,
+    generationJobId: string,
+  ): Promise<string | null> => {
+    try {
+      const claims = await supabaseAdmin.schema("content_factory")
+        .from("generation_strategy_start_claims")
+        .select("organization_id, project_id, actor_id, generation_job_id")
+        .eq("organization_id", organizationId)
+        .eq("project_id", projectId)
+        .eq("actor_id", actorId)
+        .eq("generation_job_id", generationJobId)
+        .maybeSingle();
+      if (claims.error !== null || !isRecord(claims.data)) return null;
+      const jobs = await supabaseAdmin.schema("content_factory")
+        .from("generation_jobs")
+        .select("id, organization_id, project_id, input")
+        .eq("organization_id", organizationId)
+        .eq("project_id", projectId)
+        .eq("id", generationJobId)
+        .maybeSingle();
+      if (
+        jobs.error !== null || !isRecord(jobs.data) ||
+        !isRecord(jobs.data.input) ||
+        !isObjectName(jobs.data.input.output_object_name)
+      ) return null;
+      return jobs.data.input.output_object_name;
+    } catch {
+      return null;
+    }
+  };
+
+  const pollGenerationStrategyProvider = async (
+    identity: {
+      organizationId: string;
+      projectId: string;
+      actorId: string;
+      generationJobId: string;
+      providerTaskId: string;
+    },
+  ): Promise<string | null> => {
+    const secret = runwaySecret();
+    if (secret === null) return null;
+    let response: ProviderJsonResult;
+    try {
+      response = await fetchProviderJsonWithDeadline(
+        `${RUNWAY_API_ORIGIN}/v1/tasks/${identity.providerTaskId}`,
+        {
+          method: "GET",
+          redirect: "manual",
+          headers: {
+            authorization: `Bearer ${secret}`,
+            "x-runway-version": RUNWAY_API_VERSION,
+          },
+        },
+        PROVIDER_TIMEOUT_MS,
+      );
+    } catch {
+      return null;
+    }
+    if (!response.ok) return null;
+    const providerState = runwayStrategyProviderStatus(response.value);
+    if (
+      providerState === null || !isRecord(response.value) ||
+      response.value.id !== identity.providerTaskId
+    ) return null;
+    const evidenceHash = await sha256Hex(new TextEncoder().encode(stableJson({
+      version: "generation-strategy-provider-status-evidence-v1",
+      provider_task_id: identity.providerTaskId,
+      response: response.value,
+    })));
+    let output: Record<string, Json> | null = null;
+    if (providerState.providerStatus === "succeeded") {
+      const outputUrl = validateRunwayOutputUrl(providerState.outputUrl);
+      const outputObjectName = await generationStrategyOutputObjectName(
+        identity.organizationId,
+        identity.projectId,
+        identity.actorId,
+        identity.generationJobId,
+      );
+      if (outputUrl === null || outputObjectName === null) return null;
+      let outputBytes: Uint8Array<ArrayBuffer>;
+      try {
+        outputBytes = await withFetchDeadline(
+          outputUrl,
+          { method: "GET", redirect: "manual" },
+          OUTPUT_TIMEOUT_MS,
+          async (outputResponse) => {
+            const mimeType = (outputResponse.headers.get("content-type") ?? "")
+              .split(";", 1)[0].trim().toLocaleLowerCase("en-US");
+            if (
+              outputResponse.status !== 200 || !new Set([
+                "video/mp4",
+                "application/mp4",
+                "application/octet-stream",
+              ]).has(mimeType)
+            ) {
+              await outputResponse.body?.cancel();
+              throw new Error("strategy_output_invalid");
+            }
+            return await readBoundedBytes(outputResponse, MAX_OUTPUT_BYTES);
+          },
+        );
+      } catch {
+        return null;
+      }
+      if (!isMp4(outputBytes)) return null;
+      const digest = await sha256Hex(outputBytes);
+      try {
+        const uploaded = await withOperationDeadline(
+          supabaseAdmin.storage.from(STORAGE_BUCKET).upload(
+            outputObjectName,
+            outputBytes,
+            {
+              cacheControl: "31536000",
+              contentType: "video/mp4",
+              upsert: true,
+              metadata: { sha256: digest },
+            },
+          ),
+          OUTPUT_STORAGE_TIMEOUT_MS,
+        );
+        if (uploaded.error !== null) return null;
+      } catch {
+        return null;
+      }
+      output = {
+        output_object_name: outputObjectName,
+        mime_type: "video/mp4",
+        size_bytes: outputBytes.byteLength,
+        sha256: digest,
+      };
+    }
+    const idempotency =
+      `strategy-provider-status:${identity.generationJobId}:` +
+      `${providerState.providerStatus}:${evidenceHash.slice(0, 32)}`;
+    try {
+      const recorded = await supabaseAdmin.rpc(
+        "system_record_generation_strategy_provider_status",
+        {
+          p_payload: {
+            version: "generation-strategy-provider-status-record-request-v1",
+            organization_id: identity.organizationId,
+            project_id: identity.projectId,
+            actor_id: identity.actorId,
+            generation_job_id: identity.generationJobId,
+            provider_task_id: identity.providerTaskId,
+            provider_status: providerState.providerStatus,
+            output,
+            failure_code: providerState.failureCode,
+            provider_evidence_hash: evidenceHash,
+            confirmation: true,
+            idempotency_key: idempotency,
+          },
+        },
+      );
+      if (recorded.error !== null) return null;
+      const parsed = readGenerationStrategyProviderStatusResult(recorded.data, {
+        generationJobId: identity.generationJobId,
+        providerTaskId: identity.providerTaskId,
+      });
+      if (parsed === null) return null;
+      const event = parsed.event as Record<string, unknown>;
+      return event.provider_status === "succeeded"
+        ? "succeeded"
+        : event.provider_status === "failed"
+        ? "failed"
+        : event.provider_status === "cancelled"
+        ? "cancelled"
+        : "processing";
+    } catch {
+      return null;
+    }
+  };
+
+  const handleGenerationStrategyStatus = async (
+    payload: GenerationStrategyStatusPayload,
+  ): Promise<Response> => {
+    const actorId = internalWorker
+      ? payload.worker_context?.actor_id
+      : context.userClaims?.id;
+    if (!isUuid(actorId)) {
+      return json(request, { ok: false, code: "authentication_required" }, 401);
+    }
+    if (internalWorker && payload.worker_context !== undefined) {
+      const worker = payload.worker_context;
+      if (worker.phase === "pre_dispatch") {
+        const continued = await continueGenerationStrategyClaim({
+          organizationId: payload.organization_id,
+          projectId: payload.project_id,
+          actorId,
+          claimId: worker.start_claim_id,
+          claimHash: worker.claim_hash,
+          generationJobId: payload.generation_job_id,
+        });
+        return continued === null
+          ? json(request, { ok: false, code: "generation_unavailable" }, 503)
+          : strategyWorkerResponse(payload.generation_job_id, continued.status);
+      }
+      if (worker.phase === "dispatch_unknown") {
+        if (
+          !isUuid(worker.dispatch_attempt_id) ||
+          typeof worker.attempt_hash !== "string" ||
+          !SHA256_PATTERN.test(worker.attempt_hash) ||
+          !isUuid(worker.dispatch_token)
+        ) {
+          return json(request, { ok: false, code: "invalid_payload" }, 400);
+        }
+        const ambiguous = classifyRunwayRecipeCreateOutcome({
+          kind: "network",
+        });
+        if (ambiguous === null) {
+          return json(
+            request,
+            { ok: false, code: "generation_unavailable" },
+            503,
+          );
+        }
+        const evidenceHash = await sha256Hex(
+          new TextEncoder().encode(stableJson({
+            version: "generation-strategy-dispatch-unknown-evidence-v1",
+            attempt_id: worker.dispatch_attempt_id,
+            provider_post_outcome: "unknown_after_90_seconds",
+          })),
+        );
+        const recorded = await recordGenerationStrategyDispatchResult(
+          {
+            organizationId: payload.organization_id,
+            projectId: payload.project_id,
+            actorId,
+            generationJobId: payload.generation_job_id,
+            attemptId: worker.dispatch_attempt_id,
+            attemptHash: worker.attempt_hash,
+            dispatchToken: worker.dispatch_token,
+          },
+          ambiguous,
+          evidenceHash,
+        );
+        return recorded === null
+          ? json(request, { ok: false, code: "generation_unavailable" }, 503)
+          : strategyWorkerResponse(payload.generation_job_id, "starting");
+      }
+      if (
+        worker.phase === "provider_poll" &&
+        isStrategyRunwayTaskId(worker.provider_task_id)
+      ) {
+        const status = await pollGenerationStrategyProvider({
+          organizationId: payload.organization_id,
+          projectId: payload.project_id,
+          actorId,
+          generationJobId: payload.generation_job_id,
+          providerTaskId: worker.provider_task_id as string,
+        });
+        return status === null
+          ? json(request, { ok: false, code: "provider_unavailable" }, 503)
+          : strategyWorkerResponse(payload.generation_job_id, status);
+      }
+      return json(request, { ok: false, code: "invalid_payload" }, 400);
+    }
+
+    const current = await loadPublicGenerationStrategyStatus(
+      payload.organization_id,
+      payload.project_id,
+      actorId,
+      payload.generation_job_id,
+    );
+    if (current === null) {
+      return json(request, { ok: false, code: "generation_unavailable" }, 503);
+    }
+    const contract = current.contract as Record<string, unknown>;
+    const job = current.job as Record<string, unknown>;
+    if (
+      contract.poll_provider_allowed === true &&
+      isStrategyRunwayTaskId(job.provider_task_id)
+    ) {
+      await pollGenerationStrategyProvider({
+        organizationId: payload.organization_id,
+        projectId: payload.project_id,
+        actorId,
+        generationJobId: payload.generation_job_id,
+        providerTaskId: job.provider_task_id as string,
+      });
+      const refreshed = await loadPublicGenerationStrategyStatus(
+        payload.organization_id,
+        payload.project_id,
+        actorId,
+        payload.generation_job_id,
+      );
+      if (refreshed !== null) return json(request, refreshed);
+    }
+    return json(request, current);
+  };
+
+  const handleGenerationStrategyStart = async (
+    payload: GenerationStrategyStartPayload,
+  ): Promise<Response> => {
+    const actorId = context.userClaims?.id;
+    if (!isUuid(actorId)) {
+      return json(request, { ok: false, code: "authentication_required" }, 401);
+    }
+    let claim: Record<string, unknown> | null = null;
+    try {
+      const { data, error } = await supabaseAdmin.rpc(
+        "system_claim_generation_strategy_start",
+        {
+          p_payload: {
+            version: "generation-strategy-start-claim-request-v1",
+            organization_id: payload.organization_id,
+            project_id: payload.project_id,
+            actor_id: actorId,
+            receipt_id: payload.receipt_id,
+            receipt_hash: payload.receipt_hash,
+            binding_id: payload.binding_id,
+            binding_hash: payload.binding_hash,
+            selection_hash: payload.selection_hash,
+            price_hash: payload.price_hash,
+            spend_confirmation: payload.spend_confirmation,
+            campaign_id: payload.campaign_id,
+            confirmation: true,
+            idempotency_key: payload.idempotency_key,
+          },
+        },
+      );
+      if (error !== null) {
+        const mapped = readGenerationStrategyRpcError(error);
+        return json(
+          request,
+          { ok: false, code: mapped?.code || "generation_unavailable" },
+          mapped?.status || 503,
+        );
+      }
+      claim = readGenerationStrategyStartClaim(data, {
+        receiptId: payload.receipt_id,
+        receiptHash: payload.receipt_hash,
+        bindingId: payload.binding_id,
+        bindingHash: payload.binding_hash,
+        selectionHash: payload.selection_hash,
+        priceHash: payload.price_hash,
+        spendConfirmation: payload.spend_confirmation,
+        campaignId: payload.campaign_id,
+      });
+    } catch {
+      claim = null;
+    }
+    if (claim === null) {
+      return json(request, { ok: false, code: "generation_unavailable" }, 503);
+    }
+    const claimRow = claim.claim as Record<string, unknown>;
+    const continued = await continueGenerationStrategyClaim({
+      organizationId: payload.organization_id,
+      projectId: payload.project_id,
+      actorId,
+      claimId: String(claimRow.id),
+      claimHash: String(claimRow.claim_hash),
+      generationJobId: String(claimRow.generation_job_id),
+      campaignId: payload.campaign_id,
+    });
+    if (continued === null) {
+      return json(request, {
+        ok: false,
+        code: "generation_dispatch_state_unavailable",
+        generation_job_id: claimRow.generation_job_id,
+      }, 503);
+    }
+    const current = await loadPublicGenerationStrategyStatus(
+      payload.organization_id,
+      payload.project_id,
+      actorId,
+      String(claimRow.generation_job_id),
+    );
+    return current === null
+      ? json(request, { ok: false, code: "generation_unavailable" }, 503)
+      : json(request, current);
+  };
+
+  const handleGenerationStrategyReconciliation = async (
+    payload: GenerationStrategyReconcilePayload,
+  ): Promise<Response> => {
+    const actorId = context.userClaims?.id;
+    if (!isUuid(actorId)) {
+      return json(request, { ok: false, code: "authentication_required" }, 401);
+    }
+    const current = await loadPublicGenerationStrategyStatus(
+      payload.organization_id,
+      payload.project_id,
+      actorId,
+      payload.generation_job_id,
+    );
+    if (
+      current === null || !isRecord(current.dispatch) ||
+      current.dispatch.result_id !== payload.dispatch_result_id ||
+      !isRecord(current.reconciliation) ||
+      current.reconciliation.required !== true ||
+      current.reconciliation.incident_id !== payload.incident_id
+    ) {
+      return json(
+        request,
+        { ok: false, code: "generation_strategy_reconciliation_not_current" },
+        409,
+      );
+    }
+    let providerTaskId: string | null = null;
+    let providerTaskCreatedAt: string | null = null;
+    let providerStatus: string | null = null;
+    let providerEvidence: unknown = {
+      evidence_reference: payload.evidence_reference,
+      reason: payload.reason,
+      resolution: payload.resolution,
+    };
+    if (payload.resolution === "attach_existing_task") {
+      const secret = runwaySecret();
+      if (
+        secret === null || !isStrategyRunwayTaskId(payload.provider_task_id)
+      ) {
+        return json(request, { ok: false, code: "provider_unavailable" }, 503);
+      }
+      let response: ProviderJsonResult;
+      try {
+        response = await fetchProviderJsonWithDeadline(
+          `${RUNWAY_API_ORIGIN}/v1/tasks/${payload.provider_task_id}`,
+          {
+            method: "GET",
+            redirect: "manual",
+            headers: {
+              authorization: `Bearer ${secret}`,
+              "x-runway-version": RUNWAY_API_VERSION,
+            },
+          },
+          PROVIDER_TIMEOUT_MS,
+        );
+      } catch {
+        return json(request, { ok: false, code: "provider_unavailable" }, 503);
+      }
+      const task = response.ok ? parseRunwayTask(response.value) : null;
+      const state = response.ok
+        ? runwayStrategyProviderStatus(response.value)
+        : null;
+      if (
+        task === null || state === null ||
+        task.id !== payload.provider_task_id ||
+        task.createdAt === null
+      ) {
+        return json(
+          request,
+          {
+            ok: false,
+            code: "generation_strategy_reconciliation_task_mismatch",
+          },
+          422,
+        );
+      }
+      providerTaskId = task.id;
+      providerTaskCreatedAt = task.createdAt;
+      providerStatus = state.providerStatus === "processing"
+        ? task.status === "RUNNING" ? "processing" : "submitted"
+        : state.providerStatus;
+      providerEvidence = {
+        ...providerEvidence as Record<string, unknown>,
+        task: response.value,
+      };
+    }
+    const evidenceHash = await sha256Hex(new TextEncoder().encode(stableJson({
+      version: "generation-strategy-reconciliation-evidence-v1",
+      evidence: providerEvidence,
+    })));
+    try {
+      const { data, error } = await supabaseAdmin.rpc(
+        "system_reconcile_generation_strategy_dispatch",
+        {
+          p_payload: {
+            version: "generation-strategy-dispatch-reconciliation-request-v1",
+            organization_id: payload.organization_id,
+            project_id: payload.project_id,
+            actor_id: actorId,
+            dispatch_result_id: payload.dispatch_result_id,
+            generation_job_id: payload.generation_job_id,
+            incident_id: payload.incident_id,
+            resolution: payload.resolution === "attach_existing_task"
+              ? "provider_task_attached"
+              : "confirmed_not_submitted",
+            provider_task_id: providerTaskId,
+            provider_task_created_at: providerTaskCreatedAt,
+            provider_status: providerStatus,
+            external_evidence_hash: evidenceHash,
+            confirmation: payload.confirmation,
+            idempotency_key: payload.idempotency_key,
+          },
+        },
+      );
+      if (
+        error !== null || readGenerationStrategyReconciliationResult(data, {
+            dispatchResultId: payload.dispatch_result_id,
+            generationJobId: payload.generation_job_id,
+          }) === null
+      ) {
+        const mapped = readGenerationStrategyRpcError(error);
+        return json(
+          request,
+          {
+            ok: false,
+            code: mapped?.code || "generation_strategy_reconciliation_rejected",
+          },
+          mapped?.status || 409,
+        );
+      }
+    } catch {
+      return json(request, { ok: false, code: "generation_unavailable" }, 503);
+    }
+    const refreshed = await loadPublicGenerationStrategyStatus(
+      payload.organization_id,
+      payload.project_id,
+      actorId,
+      payload.generation_job_id,
+    );
+    return refreshed === null
+      ? json(request, { ok: false, code: "generation_unavailable" }, 503)
+      : json(request, refreshed);
+  };
+
+  const strategyStartPayload = readGenerationStrategyStartPayload(body);
+  if (!internalWorker && strategyStartPayload !== null) {
+    return await handleGenerationStrategyStart(strategyStartPayload);
+  }
+
+  const strategyReconcilePayload = readGenerationStrategyReconcilePayload(body);
+  if (!internalWorker && strategyReconcilePayload !== null) {
+    return await handleGenerationStrategyReconciliation(
+      strategyReconcilePayload,
+    );
+  }
+
+  const generationStrategyStatusPayload = readGenerationStrategyStatusPayload(
+    body,
+    internalWorker,
+  );
+  if (generationStrategyStatusPayload !== null) {
+    return await handleGenerationStrategyStatus(
+      generationStrategyStatusPayload,
+    );
+  }
+
   const preflightPayload = readPreflightPayload(body);
   if (!internalWorker && preflightPayload !== null) {
     return await handlePreflight(preflightPayload);
@@ -5620,6 +8112,21 @@ async function handleCreatorGenerate(
 
   if (internalWorker) {
     return json(request, { ok: false, code: "invalid_payload" }, 400);
+  }
+
+  const generationStrategyPayload = readGenerationStrategyPayload(body);
+  if (generationStrategyPayload !== null) {
+    if (!generationStrategyPayload.ok) {
+      return json(request, { ok: false, code: "invalid_payload" }, 400);
+    }
+    // Parsing and provider-body construction are installed, but execution must
+    // remain fail-closed until SQL returns one current spec-bound strategy
+    // snapshot plus server-authorized signed assets and an exact launch policy.
+    return json(
+      request,
+      { ok: false, code: "generation_strategy_start_not_ready" },
+      409,
+    );
   }
 
   const startPayload = readStartPayload(body);

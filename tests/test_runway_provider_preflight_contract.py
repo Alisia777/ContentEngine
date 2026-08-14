@@ -109,7 +109,8 @@ def test_client_performs_free_preflight_before_starting_paid_generation() -> Non
         "recordMetric(snapshot)",
     )
     assert '"preflight"' in invoke
-    assert 'new Set(["start", "reconcile"]).has(action)' in invoke
+    assert '"start", "reconcile", "strategy_bind"' in invoke
+    assert "generatedIdempotencyKey" in invoke
     assert 'if (action === "preflight")' in invoke
     assert "if (expectedActorId && actorId !== expectedActorId)" in invoke
     assert 'typeof isContextCurrent === "function"' in invoke

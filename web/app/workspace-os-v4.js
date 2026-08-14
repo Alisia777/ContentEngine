@@ -6,11 +6,11 @@
  * reads secrets or clones file inputs.
  */
 
-import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260813.os4.39";
+import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260814.os4.41";
 import {
   createWorkspaceWindowManagerState,
   workspaceWindowManagerReducer,
-} from "./workspace-window-manager-contract.js?v=20260813.os4.39";
+} from "./workspace-window-manager-contract.js?v=20260814.os4.41";
 import {
   WORKSPACE_DOCK_PIN_HOVER_MS,
   WORKSPACE_DOCK_PREFERENCE_VERSION,
@@ -20,21 +20,21 @@ import {
   normalizeWorkspaceDockExternalTarget,
   selectWorkspaceDockShortcut,
   workspaceDockReducer,
-} from "./workspace-dock-contract.js?v=20260813.os4.39";
+} from "./workspace-dock-contract.js?v=20260814.os4.41";
 import {
   WORKSPACE_INTERNAL_APP_TABS,
   WORKSPACE_INTERNAL_SPACES,
   resolveWorkspaceCommand,
-} from "./workspace-command-registry.js?v=20260813.os4.39";
+} from "./workspace-command-registry.js?v=20260814.os4.41";
 import {
   countWorkspaceNotificationItems,
   evaluateWorkspaceNotificationAction,
   filterWorkspaceNotificationItems,
   formatWorkspaceNotificationBadge,
   normalizeWorkspaceNotificationFeed,
-} from "./workspace-notification-contract.js?v=20260813.os4.39";
+} from "./workspace-notification-contract.js?v=20260814.os4.41";
 
-const BUILD = "20260813.os4.39";
+const BUILD = "20260814.os4.41";
 const STORAGE_KEY = "contentengine.desktop-v4.v1";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
 const PROJECT_CONTEXT_KEY = "contentengine.desktop-v4.project";

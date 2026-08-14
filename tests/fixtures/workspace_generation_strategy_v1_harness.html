@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="ru" data-portal-theme="obsidian">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ContentEngine generation strategies v1</title>
+    <link rel="stylesheet" href="../../web/app/styles.css" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-generation-guided.css" />
+    <style>
+      html, body { margin: 0; min-width: 0; background: #0e0c0a; }
+      body { padding: 12px; }
+      .generation-launch-card { width: 100%; min-width: 0; padding: 0; }
+      body:not([data-fixture-generation-strategies-ready="true"]) #mock-batch-form { visibility: hidden; }
+      #fixture-loading { margin: 24px; color: #d7c8ba; font: 600 14px/1.4 system-ui, sans-serif; }
+      body[data-fixture-generation-strategies-ready="true"] #fixture-loading { display: none; }
+    </style>
+  </head>
+  <body>
+    <p id="fixture-loading" role="status">Готовим три способа создания…</p>
+    <section class="generation-launch-card">
+      <form id="mock-batch-form" novalidate>
+        <p id="generation-draft-status">Черновик</p>
+        <label class="field" data-original-mode-field>
+          <span>Режим генерации</span>
+          <select name="generation_mode" required>
+            <option value="" selected disabled>Сначала выберите способ создания</option>
+            <option value="mock">Dry-run</option>
+            <option value="real_photo">Фото</option>
+            <option value="real_seedance">UGC-видео</option>
+            <option value="real_gen4">Анимация товара</option>
+          </select>
+        </label>
+        <label class="field" id="generation-duration-field" hidden>
+          <span>Длительность</span>
+          <select name="duration_seconds" disabled>
+            <option value="4">4 секунды</option>
+            <option value="5">5 секунд</option>
+            <option value="8" selected>8 секунд</option>
+            <option value="10">10 секунд</option>
+            <option value="12">12 секунд</option>
+            <option value="15">15 секунд</option>
+          </select>
+        </label>
+        <label class="field" id="generation-format-field">
+          <span>Соотношение сторон</span>
+          <select name="format">
+            <option value="9:16" selected>9:16</option>
+            <option value="1:1">1:1</option>
+            <option value="16:9">16:9</option>
+          </select>
+        </label>
+        <label class="field" id="generation-campaign-field" hidden>
+          <span>Кампания</span>
+          <select name="campaign_id" disabled><option value="campaign-1">Кампания · $25</option></select>
+        </label>
+        <div id="real-generation-confirmation" hidden>
+          <div class="inline-actions">
+            <button type="button" data-action="check-runway-readiness" hidden tabindex="-1" aria-hidden="true">Проверить доступность и стоимость</button>
+            <small id="runway-readiness-status" role="status"></small>
+          </div>
+          <label><input name="real_spend_confirmation" type="checkbox" /> Подтверждаю оплату</label>
+        </div>
+        <label><span>Артикул</span><input name="sku" required value="BOMBBAR-001" /></label>
+        <label><span>Название</span><input name="product_name" required value="Bombbar" /></label>
+        <label><span>Категория</span><select name="product_category" required><option value="food">Еда</option></select></label>
+        <label><span>Площадка</span><select name="platform" required><option value="tiktok">TikTok</option></select></label>
+        <label><span>Карточка</span><input name="destination_ref" required value="Bombbar" /></label>
+        <label><span>Замысел</span><textarea name="brief" required>Снять новый ролик по механике сохранённого референса.</textarea></label>
+
+        <fieldset id="generation-strategy-assets" class="card card-pad form-stack generation-strategy-assets" hidden disabled>
+          <legend class="field-label">Точные исходники выбранной стратегии</legend>
+          <input type="hidden" name="generation_strategy_id" value="" />
+          <input type="hidden" name="generation_strategy_version" value="" />
+          <input type="hidden" name="generation_strategy_recipe_version" value="" />
+          <input type="hidden" name="generation_strategy_source_basis" value="" />
+          <p class="muted tiny" data-generation-strategy-assets-copy>Сначала вручную выберите один из трёх способов создания.</p>
+          <div class="field-grid generation-strategy-assets__output" data-generation-strategy-output hidden>
+            <label class="field">
+              <span>Длительность результата *</span>
+              <input name="generation_strategy_duration_seconds" type="number" min="4" max="15" step="1" value="" disabled />
+            </label>
+            <label class="field" data-generation-strategy-dimension="ratio" hidden>
+              <span>Формат результата *</span>
+              <select name="generation_strategy_ratio" disabled><option value="">Выберите формат</option></select>
+            </label>
+            <label class="field" data-generation-strategy-dimension="resolution" hidden>
+              <span>Разрешение результата *</span>
+              <select name="generation_strategy_resolution" disabled><option value="">Выберите разрешение</option></select>
+            </label>
+            <label class="field">
+              <span>Звук результата *</span>
+              <select name="generation_strategy_audio" disabled>
+                <option value="">Выберите явно</option>
+                <option value="true">Со звуком</option>
+                <option value="false">Без сгенерированного звука</option>
+              </select>
+            </label>
+          </div>
+          <label class="field" data-generation-strategy-role="source_video" data-generation-strategy-legacy-source hidden>
+            <span>Внутренняя совместимость источника</span>
+            <select name="generation_strategy_source_video_id" disabled aria-hidden="true" tabindex="-1">
+              <option value="">Выберите сохранённый MP4 с подтверждёнными правами</option>
+            </select>
+          </label>
+          <section class="generation-strategy-source-picker" aria-label="Десять исходных хитов">
+            <div data-generation-strategy-source-picker role="group"></div>
+          </section>
+          <label class="field" data-generation-strategy-role="avatar_image" hidden>
+            <span>Фото аватара *</span>
+            <select name="generation_strategy_avatar_media_id" disabled>
+              <option value="">Выберите creator reference с согласием на внешность</option>
+            </select>
+          </label>
+          <label class="field" data-generation-strategy-role="original_product_image" hidden>
+            <span>Фото товара из исходного ролика *</span>
+            <select name="generation_strategy_original_product_media_id" disabled>
+              <option value="">Выберите creator reference исходного товара</option>
+            </select>
+          </label>
+          <div class="option-list generation-strategy-assets__attestations" data-generation-strategy-attestations></div>
+          <section data-generation-strategy-source-reviews aria-label="Разбор десяти исходных роликов"></section>
+          <section data-generation-strategy-spec-review aria-live="polite"></section>
+          <section data-generation-strategy-queue-mount aria-live="polite"></section>
+          <p class="muted tiny" data-generation-strategy-assets-status role="status">Ни один источник не отправлен и платный запуск не выполнялся.</p>
+          <div class="inline-actions generation-strategy-assets__actions">
+            <button type="button" data-action="probe-generation-strategy-media" hidden disabled>Проверить длительность MP4 бесплатно</button>
+            <button type="button" data-generation-strategy-assets-refresh>Обновить список исходников</button>
+            <button type="button" data-generation-strategy-assets-load-more hidden>Показать ещё</button>
+          </div>
+        </fieldset>
+
+        <fieldset style="border:0; padding:0; margin:0">
+          <legend class="field-label">Фото товара</legend>
+          <label class="option"><input name="media_id" type="checkbox" value="44444444-4444-4444-8444-444444444444" checked /> Главное фото товара</label>
+        </fieldset>
+        <button id="generation-submit" type="submit">Создать</button>
+      </form>
+    </section>
+    <output id="fixture-result" hidden></output>
+
+    <script>
+      location.hash = "#/workspace/generation?project_id=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+      window.__generationStrategyFixture = {
+        catalogCalls: 0,
+        assetCandidateCalls: 0,
+        nonCatalogApiCalls: 0,
+        preflightClicks: 0,
+        submitCalls: 0,
+        mount: null,
+        errors: [],
+      };
+      window.addEventListener("error", (event) => {
+        window.__generationStrategyFixture.errors.push(String(event.error?.stack || event.message || "error"));
+      });
+      window.addEventListener("unhandledrejection", (event) => {
+        window.__generationStrategyFixture.errors.push(String(event.reason?.stack || event.reason || "rejection"));
+      });
+      window.ContentEngineDesktopV4 = {
+        route: () => "/workspace/generation",
+        registerAdapter(_name, mount) { window.__generationStrategyFixture.mount = mount; },
+      };
+      const fixtureForm = document.querySelector("#mock-batch-form");
+      fixtureForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        window.__generationStrategyFixture.submitCalls += 1;
+      });
+      fixtureForm.addEventListener("click", (event) => {
+        if (event.target.closest?.('[data-action="check-runway-readiness"]')) {
+          window.__generationStrategyFixture.preflightClicks += 1;
+        }
+      });
+      window.__generationStrategyFixture.originalMode = fixtureForm.elements.generation_mode;
+    </script>
+    <script type="module">
+      const modelContract = await import("../../supabase/functions/_shared/generation-model-catalog.js");
+      const strategyContract = await import("../../supabase/functions/_shared/generation-strategy-catalog.js");
+
+      const executionCapabilities = Object.fromEntries(
+        strategyContract.GENERATION_STRATEGY_CATALOG.map((entry) => [entry.strategy_id, {
+          enabled: true,
+          catalog_version: strategyContract.GENERATION_STRATEGY_CATALOG_VERSION,
+          strategy_id: entry.strategy_id,
+          provider: entry.provider,
+          recipe: entry.recipe,
+          recipe_version: entry.recipe_version,
+          provider_path: entry.server.provider_path,
+          pricing_version: entry.pricing_version,
+        }]),
+      );
+      const enabledStrategies = strategyContract.publicGenerationStrategyCatalog({ executionCapabilities });
+      const disabledStrategies = strategyContract.publicGenerationStrategyCatalog();
+      const rawModels = modelContract.publicGenerationModelCatalog();
+      const models = rawModels.models.map((model) => {
+        const inputMode = model.inputModes.includes("image") ? "image" : model.inputModes[0];
+        const capability = model.inputCapabilities[inputMode];
+        const durationSeconds = model.contentKind === "photo" ? 0 : model.allowedDurations[0];
+        return {
+          ...model,
+          executionSupported: true,
+          launchEnabled: true,
+          disabledReasonCode: null,
+          selectionDefaults: {
+            inputMode,
+            durationSeconds,
+            format: capability.allowedRatios[0],
+            resolution: capability.allowedResolutions[0],
+            audio: false,
+            lastFrame: false,
+          },
+          audioModes: model.supportsGeneratedAudio ? [false, true] : [false],
+          lastFrameSupported: model.supportsLastFrame,
+        };
+      });
+      const catalog = {
+        ...rawModels,
+        models,
+        strategyCatalogVersion: enabledStrategies.version,
+        strategyRecipeVersion: enabledStrategies.recipe_version,
+        strategyPricingVersion: enabledStrategies.pricing_version,
+        strategies: enabledStrategies.strategies,
+      };
+      const catalogApi = async () => {
+        window.__generationStrategyFixture.catalogCalls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        return { ok: true, catalog };
+      };
+      const assetCursor = (id, at) => ({ id, at });
+      const strategyBlocking = () => ({
+        viral_avatar_ugc: [],
+        viral_product_swap: [],
+        viral_rebuild: [],
+      });
+      const sourceIds = Array.from({ length: 10 }, (_, index) => (
+        `10000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`
+      ));
+      const sourceAssets = sourceIds.map((id, index) => ({
+        id,
+        kind: "source_video",
+        mime_type: "video/mp4",
+        duration_seconds: 8 + (index % 3),
+        status: "ready",
+        rights_confirmed: true,
+        product_id: null,
+        product_identity: null,
+        filename: `viral-reference-${String(index + 1).padStart(2, "0")}.mp4`,
+        exact_youtube_attached: true,
+        eligible_roles: ["source_video"],
+        eligible_strategy_roles: [
+          { strategy_id: "viral_avatar_ugc", role: "source_video" },
+          { strategy_id: "viral_product_swap", role: "source_video" },
+          { strategy_id: "viral_rebuild", role: "source_video" },
+        ],
+        eligible: true,
+        blocking_codes: [],
+        blocking_codes_by_strategy: strategyBlocking(),
+        created_at: `2026-08-14T08:${String(59 - index).padStart(2, "0")}:00.000Z`,
+        _cursor: assetCursor(id, `2026-08-14T08:${String(59 - index).padStart(2, "0")}:00.000Z`),
+      }));
+      const assetCandidatesApi = async () => {
+        window.__generationStrategyFixture.assetCandidateCalls += 1;
+        return {
+          ok: true,
+          version: "generation-strategy-asset-candidates-response-v1",
+          project_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          assets: [
+            ...sourceAssets,
+            {
+              id: "22222222-2222-4222-8222-222222222222",
+              kind: "creator_reference",
+              mime_type: "image/jpeg",
+              duration_seconds: null,
+              status: "ready",
+              rights_confirmed: true,
+              product_id: null,
+              product_identity: null,
+              filename: "creator-avatar.jpg",
+              exact_youtube_attached: false,
+              eligible_roles: ["avatar_image", "original_product_image", "style_image"],
+              eligible_strategy_roles: [
+                { strategy_id: "viral_avatar_ugc", role: "avatar_image" },
+                { strategy_id: "viral_product_swap", role: "original_product_image" },
+                { strategy_id: "viral_rebuild", role: "style_image" },
+              ],
+              eligible: true,
+              blocking_codes: [],
+              blocking_codes_by_strategy: strategyBlocking(),
+              created_at: "2026-08-14T07:59:00.000Z",
+              _cursor: assetCursor("22222222-2222-4222-8222-222222222222", "2026-08-14T07:59:00.000Z"),
+            },
+            {
+              id: "33333333-3333-4333-8333-333333333333",
+              kind: "creator_reference",
+              mime_type: "image/jpeg",
+              duration_seconds: null,
+              status: "ready",
+              rights_confirmed: true,
+              product_id: null,
+              product_identity: null,
+              filename: "original-product.jpg",
+              exact_youtube_attached: false,
+              eligible_roles: ["avatar_image", "original_product_image", "style_image"],
+              eligible_strategy_roles: [
+                { strategy_id: "viral_avatar_ugc", role: "avatar_image" },
+                { strategy_id: "viral_product_swap", role: "original_product_image" },
+                { strategy_id: "viral_rebuild", role: "style_image" },
+              ],
+              eligible: true,
+              blocking_codes: [],
+              blocking_codes_by_strategy: strategyBlocking(),
+              created_at: "2026-08-14T07:58:00.000Z",
+              _cursor: assetCursor("33333333-3333-4333-8333-333333333333", "2026-08-14T07:58:00.000Z"),
+            },
+          ],
+          _meta: {
+            page_size: 100,
+            has_more: false,
+            next_cursor: null,
+            kind: "all",
+            product_id: null,
+            cursor_mode: "keyset_created_at_id",
+          },
+          contract: {
+            read_only: true,
+            object_names_returned: false,
+            hashes_returned: false,
+            signed_urls_returned: false,
+            source_video_requires_exact_youtube_attachment: true,
+          },
+        };
+      };
+      const api = new Proxy({
+        generationModelCatalog: catalogApi,
+        generationStrategyAssetCandidates: assetCandidatesApi,
+      }, {
+        get(target, property) {
+          if (property in target) return target[property];
+          return async () => {
+            window.__generationStrategyFixture.nonCatalogApiCalls += 1;
+            return { ok: false, code: "fixture_paid_call_forbidden" };
+          };
+        },
+      });
+      window.ContentEngineWorkspaceRuntime = {
+        setGenerationModelCatalog: () => true,
+        getGenerationModelAcceptance: () => ({ normalized: { models: [] } }),
+        getGenerationProviderReadiness: () => null,
+        getGenerationContext: () => ({
+          project_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        }),
+        getApi: () => api,
+      };
+
+      await import("../../web/app/workspace-os-v4-generation-guided.js");
+      window.__generationStrategyFixture.mount();
+      const form = document.querySelector("#mock-batch-form");
+      const guided = window.ContentEngineGenerationGuidedV4;
+      const settle = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const deadline = performance.now() + 2_500;
+      while (
+        (
+          form.querySelectorAll("[data-generation-strategy-card]").length !== 3
+          || window.__generationStrategyFixture.assetCandidateCalls < 1
+        )
+        && performance.now() < deadline
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      await settle();
+
+      const cardIsRendered = (card) => Boolean(card && !card.hidden && card.getClientRects().length);
+      const fits = (node) => Boolean(node && node.scrollWidth <= node.clientWidth + 1);
+      const rootFits = () => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1;
+      const cardIds = () => [...form.querySelectorAll("[data-generation-strategy-card]")]
+        .filter(cardIsRendered)
+        .map((card) => card.dataset.generationStrategyCard);
+      const selectedCardIds = () => [...form.querySelectorAll('[data-generation-strategy-card]')]
+        .filter((card) => card.classList.contains("is-selected"))
+        .map((card) => card.dataset.generationStrategyCard);
+      const pressedCardIds = () => [...form.querySelectorAll('[data-generation-strategy-action="SELECT"][aria-pressed="true"]')]
+        .map((button) => button.dataset.strategyId);
+
+      const initialCards = cardIds();
+      const initial = {
+        cards: initialCards,
+        selectedCards: selectedCardIds(),
+        pressedCards: pressedCardIds(),
+        selectedSummary: guided.getStrategySummary(),
+        mode: form.elements.generation_mode.value,
+        dryRunSelected: form.elements.generation_mode.value === "mock",
+        originalModePreserved: form.elements.generation_mode === window.__generationStrategyFixture.originalMode,
+        modelAdvisorHidden: form.querySelector("[data-ce-v4-model-advisor]")?.hidden === true,
+        fieldsetHidden: form.querySelector("#generation-strategy-assets")?.hidden === true,
+        rootFits: rootFits(),
+      };
+
+      guided.setModelCatalog({
+        ...catalog,
+        strategies: disabledStrategies.strategies,
+      });
+      await settle();
+      const disabledButton = form.querySelector('[data-generation-strategy-action="SELECT"]');
+      disabledButton?.click();
+      await settle();
+      const disabledAttempt = {
+        disabledCount: form.querySelectorAll('[data-generation-strategy-action="SELECT"]:disabled').length,
+        selectedCards: selectedCardIds(),
+        pressedCards: pressedCardIds(),
+        summary: guided.getStrategySummary(),
+        mode: form.elements.generation_mode.value,
+      };
+
+      guided.setModelCatalog(catalog);
+      await settle();
+
+      const targetHeights = [];
+      const geometryChecks = [];
+      const strategySnapshots = [];
+      for (const strategyId of enabledStrategies.strategies.map((entry) => entry.strategy_id)) {
+        guided.goToStep("mode");
+        await settle();
+        const button = form.querySelector(
+          `[data-generation-strategy-action="SELECT"][data-strategy-id="${CSS.escape(strategyId)}"]`,
+        );
+        button?.click();
+        await settle();
+        const summary = guided.getStrategySummary();
+        const advisor = form.querySelector("[data-ce-v4-model-advisor]");
+        const cardView = form.querySelector("[data-ce-v4-generation-strategies]");
+        const strategyButtonHeights = [...form.querySelectorAll('[data-generation-strategy-action="SELECT"]')]
+          .map((control) => control.getBoundingClientRect().height);
+        targetHeights.push(...strategyButtonHeights);
+        geometryChecks.push(rootFits(), fits(form), fits(cardView));
+
+        guided.goToStep("media");
+        await settle();
+        const fieldset = form.querySelector("#generation-strategy-assets");
+        const activeRoleFields = [...fieldset.querySelectorAll("[data-generation-strategy-role]")]
+          .filter((field) => !field.hidden)
+          .map((field) => ({
+            role: field.dataset.generationStrategyRole,
+            required: field.querySelector("select")?.required === true,
+            disabled: field.querySelector("select")?.disabled === true,
+            value: field.querySelector("select")?.value || "",
+          }));
+        const rights = [...fieldset.querySelectorAll("[data-generation-strategy-attestation]")]
+          .map((input) => ({
+            id: input.dataset.generationStrategyAttestation,
+            required: input.required,
+            checked: input.checked,
+          }));
+        const mediaTargets = [...fieldset.querySelectorAll([
+          "[data-generation-strategy-output] input[type=number]:not(:disabled)",
+          "[data-generation-strategy-output] select:not(:disabled)",
+          ".generation-strategy-attestation",
+          "[data-generation-strategy-role]:not([hidden]) select:not(:disabled)",
+        ].join(","))].map((control) => control.getBoundingClientRect().height);
+        targetHeights.push(...mediaTargets);
+        geometryChecks.push(rootFits(), fits(form), fits(fieldset));
+        strategySnapshots.push({
+          id: strategyId,
+          summaryId: summary.summary?.strategy_id || "",
+          summaryRoles: summary.summary?.required_asset_roles || [],
+          summaryRights: summary.summary?.required_attestation_ids || [],
+          selectedCards: selectedCardIds(),
+          pressedCards: pressedCardIds(),
+          fieldsetOpen: fieldset.hidden === false && fieldset.disabled === false,
+          fieldsetRendered: fieldset.getClientRects().length > 0,
+          outputOpen: fieldset.querySelector("[data-generation-strategy-output]")?.hidden === false,
+          audioValue: form.elements.generation_strategy_audio.value,
+          audioRequired: form.elements.generation_strategy_audio.required,
+          durationValue: form.elements.generation_strategy_duration_seconds.value,
+          activeRoleFields,
+          rights,
+          productMediaIds: [...form.querySelectorAll('input[name="media_id"]:checked:not(:disabled)')]
+            .map((input) => input.value),
+          modelAdvisorHidden: advisor?.hidden === true,
+          modelAdvisorMode: advisor?.dataset.strategyAdvisoryOnly || "",
+          modelAdvisorCards: advisor?.querySelectorAll(".ce-v4-model-card").length || 0,
+          recommendedModelCards: advisor?.querySelectorAll('[data-recommended="true"]').length || 0,
+          actionableModelCards: advisor?.querySelectorAll(
+            'input[data-ce-v4-generation-model]:not(:disabled)',
+          ).length || 0,
+          recommendationApplyDisabled: advisor?.querySelector(
+            "[data-ce-v4-apply-model-recommendation]",
+          )?.disabled === true,
+          nativeModeHidden: form.elements.generation_mode.closest("label, .field")?.hidden === true,
+          nativeModeDisabled: form.elements.generation_mode.disabled === true,
+          nativeModeRequired: form.elements.generation_mode.required === true,
+          validatedSelection: guided.getStrategySelection(form),
+        });
+      }
+
+      const gateFieldset = form.querySelector("#generation-strategy-assets");
+      for (const sourceId of sourceIds) {
+        form.querySelector(
+          `[data-generation-strategy-source-toggle="${CSS.escape(sourceId)}"]`,
+        )?.click();
+        await settle();
+      }
+      form.querySelectorAll("[data-generation-strategy-mechanics-field]").forEach((control) => {
+        control.value = control.dataset.generationStrategyMechanicsField === "beat_sequence"
+          ? "Показать исходную проблему\nПродемонстрировать товар и результат"
+          : `Проверенная механика для поля ${control.dataset.generationStrategyMechanicsField}`;
+        control.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      form.elements.generation_strategy_ratio.value = "720:1280";
+      form.elements.generation_strategy_audio.value = "false";
+      const gateRights = [...gateFieldset.querySelectorAll("[data-generation-strategy-attestation]")];
+      gateRights.slice(0, -1).forEach((input) => { input.checked = true; });
+      const beforeFinalAttestation = guided.getStrategySelections(form);
+      gateRights.at(-1).checked = true;
+      const exactTenSelections = guided.getStrategySelections(form);
+      const afterFinalAttestation = guided.getStrategySelection(form);
+      const attestationGate = {
+        beforeFinalAttestation,
+        afterFinalAttestation,
+        exactTenSelectionCount: exactTenSelections?.length || 0,
+        exactTenSourceOrder: exactTenSelections?.map((entry) => entry.source_media_id) || [],
+        sourcePickerSelectedCount: guided.getStrategySourcePickerProjection(form)?.selected_count || 0,
+        mechanicsEditorCount: form.querySelectorAll(
+          "[data-generation-strategy-source-review]",
+        ).length,
+        nativeFormValid: form.reportValidity(),
+      };
+
+      form.elements.real_spend_confirmation.checked = true;
+      form.dataset.autoGenerationPreflightKey = "stale-strategy-preflight";
+      guided.goToStep("mode");
+      await settle();
+      form.querySelector(
+        '[data-generation-strategy-action="SELECT"][data-strategy-id="viral_avatar_ugc"]',
+      )?.click();
+      await settle();
+      const switchingInvalidation = {
+        selectedCards: selectedCardIds(),
+        paymentUnchecked: form.elements.real_spend_confirmation.checked === false,
+        preflightKeyCleared: !("autoGenerationPreflightKey" in form.dataset),
+        audioBlank: form.elements.generation_strategy_audio.value === "",
+        rightsUnchecked: [...form.querySelectorAll(
+          "#generation-strategy-assets input[data-generation-strategy-attestation]",
+        )]
+          .every((input) => input.checked === false),
+        validatedSelection: guided.getStrategySelection(form),
+      };
+      const result = document.querySelector("#fixture-result");
+      result.textContent = JSON.stringify({
+        catalogProjection: {
+          version: catalog.strategyCatalogVersion,
+          recipeVersion: catalog.strategyRecipeVersion,
+          pricingVersion: catalog.strategyPricingVersion,
+          exactThreeRows: JSON.stringify(catalog.strategies) === JSON.stringify(enabledStrategies.strategies),
+          ids: catalog.strategies.map((entry) => entry.strategy_id),
+          enabled: catalog.strategies.map((entry) => entry.enabled),
+        },
+        initial,
+        disabledAttempt,
+        strategySnapshots,
+        attestationGate,
+        switchingInvalidation,
+        minimumTouchTarget: targetHeights.length ? Math.min(...targetHeights) : 0,
+        touchTargetCount: targetHeights.length,
+        geometryChecks,
+        catalogCalls: window.__generationStrategyFixture.catalogCalls,
+        assetCandidateCalls: window.__generationStrategyFixture.assetCandidateCalls,
+        nonCatalogApiCalls: window.__generationStrategyFixture.nonCatalogApiCalls,
+        preflightClicks: window.__generationStrategyFixture.preflightClicks,
+        submitCalls: window.__generationStrategyFixture.submitCalls,
+        browserErrors: [...window.__generationStrategyFixture.errors],
+      });
+      document.body.dataset.fixtureGenerationStrategiesReady = "true";
+    </script>
+  </body>
+</html>

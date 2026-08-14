@@ -453,7 +453,7 @@ select is(
   array[
     'content_kind', 'cursor_mode', 'has_more', 'model', 'next_cursor',
     'page_size', 'period', 'provider', 'quality_status', 'query',
-    'selection_source', 'status'
+    'selection_source', 'status', 'strategy_id'
   ]::text[],
   'archive metadata has the exact paging and multi-model filter contract'
 );
