@@ -283,6 +283,7 @@ const RESEARCH_SOURCE_STRUCTURAL_SIGNAL_PATTERN =
 
 const REAL_GENERATION_FUNCTION = "creator-generate";
 const GENERATION_STRATEGY_EDGE_ACTIONS = Object.freeze(new Set([
+  "strategy_catalog",
   "strategy_media_probe",
   "strategy_bind",
   "strategy_preflight",
@@ -301,6 +302,10 @@ const GENERATION_STRATEGY_UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 const GENERATION_STRATEGY_SHA256_PATTERN = /^[0-9a-f]{64}$/u;
 const GENERATION_STRATEGY_REQUEST_KEYS = Object.freeze({
+  strategy_catalog: Object.freeze([
+    "action",
+    "organization_id",
+  ]),
   strategy_media_probe: Object.freeze([
     "action",
     "organization_id",
@@ -361,6 +366,12 @@ const GENERATION_STRATEGY_REQUEST_KEYS = Object.freeze({
   ]),
 });
 const GENERATION_STRATEGY_RESPONSE_CONTRACTS = Object.freeze({
+  strategy_catalog: Object.freeze({
+    keys: Object.freeze([
+      "ok",
+      "catalog",
+    ]),
+  }),
   strategy_media_probe: Object.freeze({
     version: "generation-strategy-media-probe-response-v1",
     keys: Object.freeze([
@@ -5794,6 +5805,52 @@ export class CreatorApi {
     return data;
   }
 
+  async generationStrategyCatalog() {
+    const data = await this.invokeRealGeneration("strategy_catalog", {
+      action: "strategy_catalog",
+      organization_id: String(this.organizationId || ""),
+    });
+    const catalog = data?.catalog;
+    const strategyIds = Array.isArray(catalog?.strategies)
+      ? catalog.strategies.map((entry) => String(entry?.strategy_id || ""))
+      : [];
+    if (
+      !hasExactObjectKeys(data, ["ok", "catalog"])
+      || data.ok !== true
+      || !hasExactObjectKeys(catalog, [
+        "strategyCatalogVersion",
+        "strategyRecipeVersion",
+        "strategyPricingVersion",
+        "strategies",
+      ])
+      || typeof catalog.strategyCatalogVersion !== "string"
+      || !catalog.strategyCatalogVersion.trim()
+      || typeof catalog.strategyRecipeVersion !== "string"
+      || !catalog.strategyRecipeVersion.trim()
+      || typeof catalog.strategyPricingVersion !== "string"
+      || !catalog.strategyPricingVersion.trim()
+      || !Array.isArray(catalog.strategies)
+      || catalog.strategies.length !== 3
+      || catalog.strategies.some((entry) => (
+        !entry
+        || typeof entry !== "object"
+        || Array.isArray(entry)
+        || typeof entry.strategy_id !== "string"
+        || !entry.strategy_id.trim()
+        || typeof entry.public_label !== "string"
+        || !entry.public_label.trim()
+        || typeof entry.enabled !== "boolean"
+      ))
+      || new Set(strategyIds).size !== 3
+    ) {
+      throw new CreatorApiError(
+        "Каталог стратегий генерации временно недоступен. Ничего не выбрано и платный запуск не изменён.",
+        { code: "generation_strategy_catalog_invalid" },
+      );
+    }
+    return data;
+  }
+
   probeGenerationStrategyMedia(request = {}) {
     return this.invokeRealGeneration("strategy_media_probe", request);
   }
@@ -7103,7 +7160,7 @@ function assertGenerationStrategyRuntimeRequest(action, request, organizationId)
     "strategy_preflight",
     "strategy_start",
   ].includes(action);
-  const hasConfirmation = action !== "strategy_status";
+  const hasConfirmation = !["strategy_catalog", "strategy_status"].includes(action);
   const hasSpendConfirmation = [
     "strategy_preflight",
     "strategy_start",
@@ -7154,7 +7211,7 @@ function assertGenerationStrategyPublicResponse(action, data) {
     !contract
     || !hasExactObjectKeys(data, contract.keys)
     || data.ok !== true
-    || data.version !== contract.version
+    || (contract.version !== undefined && data.version !== contract.version)
   ) {
     throw new CreatorApiError(
       "Сервис генерации вернул некорректный ответ стратегии.",

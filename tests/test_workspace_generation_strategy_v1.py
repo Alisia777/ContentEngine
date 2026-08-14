@@ -21,6 +21,11 @@ HARNESS = ROOT / "tests" / "fixtures" / "workspace_generation_strategy_v1_harnes
 HARNESS_SOURCE = HARNESS.read_text(encoding="utf-8")
 
 STRATEGY_IDS = ["viral_avatar_ugc", "viral_product_swap", "viral_rebuild"]
+STRATEGY_LABELS = [
+    "Новый UGC с аватаром и товаром",
+    "Заменить товар в исходном ролике",
+    "Создать новый ролик по механике референса",
+]
 COMMON_RIGHTS = [
     "source_media_rights_confirmed",
     "transformative_use_confirmed",
@@ -197,6 +202,8 @@ def test_strategy_harness_is_server_catalog_driven_and_uses_the_portal_form() ->
     assert "normalizeGenerationStrategyAssetCandidates" in SUBJECT
     assert "generationStrategyAssetEligibility" in SUBJECT
     assert "generationStrategyAssetCandidates" in SUBJECT
+    assert "generationStrategyCatalog" in SUBJECT
+    assert "async function loadStrategyCatalog(form)" in SUBJECT
     assert 'model.model === "seedance2_fast"' not in SUBJECT
     assert "const proxyModel" not in SUBJECT
     assert 'node.id === "generation-strategy-assets"' in SUBJECT
@@ -217,6 +224,9 @@ def test_strategy_harness_is_server_catalog_driven_and_uses_the_portal_form() ->
     assert "strategyCatalogVersion: enabledStrategies.version" in HARNESS_SOURCE
     assert "strategyRecipeVersion: enabledStrategies.recipe_version" in HARNESS_SOURCE
     assert "strategyPricingVersion: enabledStrategies.pricing_version" in HARNESS_SOURCE
+    assert "generationModelCatalog: modelCatalogApi" in HARNESS_SOURCE
+    assert "generationStrategyCatalog: strategyCatalogApi" in HARNESS_SOURCE
+    assert 'throw new Error("fixture_model_catalog_unavailable")' in HARNESS_SOURCE
     assert "generationStrategyAssetCandidates: assetCandidatesApi" in HARNESS_SOURCE
     assert HARNESS_SOURCE.count('id="mock-batch-form"') == 1
     assert "requestSubmit" not in HARNESS_SOURCE
@@ -238,6 +248,12 @@ def test_three_strategy_picker_runtime_contract_and_geometry(width: int) -> None
 
     initial = result["initial"]
     assert initial["cards"] == STRATEGY_IDS
+    assert initial["labels"] == STRATEGY_LABELS
+    assert initial["enabled"] == ["true", "true", "true"]
+    assert initial["buttonCount"] == 3
+    assert initial["enabledButtonCount"] == 3
+    assert initial["catalogStatus"] == "ready"
+    assert initial["invalidCatalogCount"] == 0
     assert initial["selectedCards"] == []
     assert initial["pressedCards"] == []
     assert initial["selectedSummary"] == {
@@ -249,6 +265,8 @@ def test_three_strategy_picker_runtime_contract_and_geometry(width: int) -> None
     assert initial["dryRunSelected"] is False
     assert initial["originalModePreserved"] is True
     assert initial["modelAdvisorHidden"] is False
+    assert initial["modelAdvisorStatus"] == "error"
+    assert initial["modelAdvisorCards"] == 0
     assert initial["fieldsetHidden"] is True
     assert initial["rootFits"] is True
 
@@ -348,7 +366,8 @@ def test_three_strategy_picker_runtime_contract_and_geometry(width: int) -> None
         "validatedSelection": None,
     }
 
-    assert result["catalogCalls"] == 1
+    assert result["modelCatalogCalls"] == 1
+    assert result["strategyCatalogCalls"] == 1
     assert result["assetCandidateCalls"] == 1
     assert result["nonCatalogApiCalls"] == 0
     assert result["preflightClicks"] == 0

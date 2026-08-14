@@ -28,8 +28,8 @@ def test_build_id_is_consistent_across_entrypoints() -> None:
 
 def test_desktop_flag_loader_runs_before_app_and_build_guard_runs_last() -> None:
     build_id = MANIFEST["id"]
-    loader_cache_key = build_id
-    app_cache_key = build_id
+    loader_cache_key = f"{build_id}.strategy-catalog-1"
+    app_cache_key = f"{build_id}.strategy-catalog-1"
     assert f'<link rel="stylesheet" href="./workspace-os-v4.css?v={build_id}" />' in APP_INDEX
     assert f'<script type="module" src="./workspace-os-v4-loader.js?v={loader_cache_key}"></script>' in APP_INDEX
     assert f'<script type="module" src="./app.js?v={app_cache_key}"></script>' in APP_INDEX

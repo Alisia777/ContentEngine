@@ -688,6 +688,11 @@ type ModelCatalogPayload = {
   organization_id: string;
 };
 
+type StrategyCatalogPayload = {
+  action: "strategy_catalog";
+  organization_id: string;
+};
+
 type GenerationProviderPolicy = {
   provider: GenerationProvider;
   model: GenerationModel;
@@ -1705,6 +1710,23 @@ function readModelCatalogPayload(value: unknown): ModelCatalogPayload | null {
   ) return null;
   return {
     action: "model_catalog",
+    organization_id: value.organization_id,
+  };
+}
+
+function readStrategyCatalogPayload(
+  value: unknown,
+): StrategyCatalogPayload | null {
+  if (!isRecord(value)) return null;
+  const keys = new Set(["action", "organization_id"]);
+  if (
+    !hasOnlyKeys(value, keys) ||
+    Object.keys(value).length !== keys.size ||
+    value.action !== "strategy_catalog" ||
+    !isUuid(value.organization_id)
+  ) return null;
+  return {
+    action: "strategy_catalog",
     organization_id: value.organization_id,
   };
 }
@@ -5377,6 +5399,76 @@ async function handleCreatorGenerate(
       return null;
     }
   };
+
+  const strategyCatalogPayload = readStrategyCatalogPayload(body);
+  if (!internalWorker && strategyCatalogPayload !== null) {
+    // This authenticated RPC is used only as a lightweight active-role and
+    // active-organization proof. Its feature-flag projection is deliberately
+    // discarded: the service-only strategy policy below is the sole catalog
+    // capability authority for this read-only action.
+    try {
+      const { error } = await context.supabase.rpc(
+        "creator_generation_model_feature_flags",
+        {
+          p_payload: {
+            organization_id: strategyCatalogPayload.organization_id,
+          },
+        },
+      );
+      if (error !== null) {
+        return json(request, { ok: false, code: "generation_rejected" }, 403);
+      }
+    } catch {
+      return json(request, { ok: false, code: "generation_unavailable" }, 503);
+    }
+
+    const strategyCatalogPolicy = await loadGenerationStrategyCatalogPolicy(
+      strategyCatalogPayload.organization_id,
+    );
+    if (strategyCatalogPolicy === null) {
+      return json(
+        request,
+        { ok: false, code: "generation_unavailable" },
+        503,
+      );
+    }
+    const publicStrategyCatalog = publicGenerationStrategyCatalog({
+      executionCapabilities: strategyCatalogPolicy.executionCapabilities,
+    }) as {
+      version: string;
+      recipe_version: string;
+      pricing_version: string;
+      strategies: PublicGenerationStrategyCatalogEntry[];
+    };
+    return json(request, {
+      ok: true,
+      catalog: {
+        strategyCatalogVersion: publicStrategyCatalog.version,
+        strategyRecipeVersion: publicStrategyCatalog.recipe_version,
+        strategyPricingVersion: publicStrategyCatalog.pricing_version,
+        strategies: publicStrategyCatalog.strategies.map((strategy) => {
+          return {
+            strategy_id: strategy.strategy_id,
+            public_label: strategy.public_label,
+            public_summary: strategy.public_summary,
+            transformation_kind: strategy.transformation_kind,
+            source_reference_mode: strategy.source_reference_mode,
+            preservation_notice: strategy.preservation_notice,
+            human_review_required: strategy.human_review_required,
+            provider: strategy.provider,
+            recipe: strategy.recipe,
+            recipe_version: strategy.recipe_version,
+            asset_roles: strategy.asset_roles,
+            required_attestations: strategy.required_attestations,
+            output_rules: strategy.output_rules,
+            pricing: strategy.pricing,
+            enabled: strategy.enabled,
+            disabled_reason: strategy.disabled_reason,
+          };
+        }),
+      },
+    });
+  }
 
   const modelCatalogPayload = readModelCatalogPayload(body);
   if (!internalWorker && modelCatalogPayload !== null) {
