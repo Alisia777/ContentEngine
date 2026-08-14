@@ -11,8 +11,10 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "web" / "app"
 CONTRACT = APP / "generation-strategy-intake-contract-v2.js"
-ADAPTER = APP / "generation-strategy-intake-v2.js"
+SHIM = APP / "generation-strategy-intake-v2.js"
+ADAPTER = APP / "generation-strategy-intake-v3.js"
 CSS = APP / "generation-strategy-intake-v2.css"
+CSS_OVERRIDE = APP / "generation-strategy-intake-v3.css"
 MIGRATION = ROOT / "supabase" / "migrations" / "202608140001_generation_intake_v2.sql"
 LOADER = APP / "workspace-os-v4-loader.js"
 
@@ -43,7 +45,8 @@ def test_three_operator_routes_have_separate_visible_fields() -> None:
           {
             formKind: item.form_kind,
             fields: item.fields.map((field) => `${field.id}:${field.required ? 'required' : 'optional'}`),
-            legacy: item.legacy_strategy_id,
+            recipe: item.preparation_recipe,
+            authority: item.authority_strategy_id,
           },
         ]));
         """
@@ -56,7 +59,8 @@ def test_three_operator_routes_have_separate_visible_fields() -> None:
                 "product_media_ids:required",
                 "description:optional",
             ],
-            "legacy": "viral_product_swap",
+            "recipe": "product_swap",
+            "authority": "viral_product_swap",
         },
         "avatar_video": {
             "formKind": "compact",
@@ -65,12 +69,14 @@ def test_three_operator_routes_have_separate_visible_fields() -> None:
                 "source_url:required",
                 "description:optional",
             ],
-            "legacy": "viral_avatar_ugc",
+            "recipe": "character_performance",
+            "authority": None,
         },
         "strategy_video": {
             "formKind": "full",
             "fields": [],
-            "legacy": "viral_rebuild",
+            "recipe": "generation_spec",
+            "authority": "viral_rebuild",
         },
     }
 
@@ -80,7 +86,6 @@ def test_copy_form_accepts_one_source_product_photo_and_empty_description() -> N
         """
         const draft = intake.createGenerationIntakeDraft('copy_video', {
           version: intake.GENERATION_INTAKE_VERSION,
-          legacy_strategy_id: 'viral_product_swap',
           source_url: 'https://youtu.be/dQw4w9WgXcQ',
           product_media_ids: ['44444444-4444-4444-8444-444444444444'],
           description: '',
@@ -104,7 +109,6 @@ def test_avatar_form_requires_only_wishes_source_and_optional_description() -> N
         """
         const draft = intake.createGenerationIntakeDraft('avatar_video', {
           version: intake.GENERATION_INTAKE_VERSION,
-          legacy_strategy_id: 'viral_avatar_ugc',
           source_url: 'https://www.youtube.com/shorts/dQw4w9WgXcQ',
           avatar_wishes: 'Уверенная девушка в лаконичном чёрном образе.',
           description: '',
@@ -128,16 +132,15 @@ def test_invalid_cross_strategy_fields_fail_closed() -> None:
         """
         const copy = intake.createGenerationIntakeDraft('copy_video', {
           version: intake.GENERATION_INTAKE_VERSION,
-          legacy_strategy_id: 'viral_product_swap',
           source_url: 'https://youtube.com/watch?v=dQw4w9WgXcQ',
           avatar_wishes: 'Это поле не должно попасть в копирование.',
           product_media_ids: ['44444444-4444-4444-8444-444444444444'],
         });
         const avatar = intake.createGenerationIntakeDraft('avatar_video', {
           version: intake.GENERATION_INTAKE_VERSION,
-          legacy_strategy_id: 'viral_avatar_ugc',
           source_url: 'https://youtube.com/watch?v=dQw4w9WgXcQ',
           avatar_wishes: 'коротко',
+          product_media_ids: ['55555555-5555-4555-8555-555555555555'],
         });
         return {
           copy: intake.validateGenerationIntakeDraft(copy),
@@ -151,24 +154,27 @@ def test_invalid_cross_strategy_fields_fail_closed() -> None:
         "avatar_wishes_forbidden"
     }
     assert result["avatar"]["ok"] is False
-    assert "avatar_wishes_required" in {
-        item["code"] for item in result["avatar"]["errors"]
-    }
+    avatar_errors = {item["code"] for item in result["avatar"]["errors"]}
+    assert "avatar_wishes_required" in avatar_errors
+    assert "product_media_forbidden" in avatar_errors
     assert result["badUrl"] == ""
 
 
 def test_dom_adapter_preserves_paid_authority_and_uses_existing_strategy_buttons() -> None:
     script = ADAPTER.read_text(encoding="utf-8")
     for marker in (
-        'const RPC_REGISTER_SOURCE = "contentengine_register_exact_youtube_source"',
-        'const RPC_SAVE_INTAKE = "creator_save_generation_intake_v2"',
+        'const RPC_SOURCE = "contentengine_register_exact_youtube_source"',
+        'const RPC_INTAKE = "creator_save_generation_intake_v2"',
         'data-generation-strategy-action="SELECT"',
+        'strategy?.form_kind !== "full"',
+        'generation_intake_preparation_recipe',
+        'generation_intake_next_action',
         'event.stopImmediatePropagation()',
         'root?.contract?.paid_call_started !== false',
         'root?.contract?.provider_call_started !== false',
         'root?.contract?.budget_reserved !== false',
         'generation_intake_server_id',
-        'Фото исходного товара из ролика система должна получить сама',
+        'Изображение исходного товара из ролика система извлекает сама',
         'У каждого способа своя форма',
     ):
         assert marker in script
@@ -193,6 +199,10 @@ def test_compact_intake_server_contract_is_append_only_and_non_paid() -> None:
         "'human_review_required', true",
         "generation_intake_v2_copy_fields_invalid",
         "generation_intake_v2_avatar_fields_invalid",
+        "preparation_recipe in ('product_swap', 'character_performance')",
+        "research_exact_youtube_media_attachments",
+        "generation_intake_v2_product_media_scope_invalid",
+        "source_media_ready_for_preparation",
     ):
         assert marker in sql
     assert "http_post" not in sql.lower()
@@ -201,11 +211,16 @@ def test_compact_intake_server_contract_is_append_only_and_non_paid() -> None:
 
 def test_styles_are_responsive_and_reduced_motion_safe() -> None:
     css = CSS.read_text(encoding="utf-8")
+    override = CSS_OVERRIDE.read_text(encoding="utf-8")
     assert css.count("{") == css.count("}")
+    assert override.count("{") == override.count("}")
     assert "@media (max-width: 980px)" in css
     assert "@media (max-width: 680px)" in css
     assert "@media (prefers-reduced-motion: reduce)" in css
     assert 'data-generation-intake-display="compact"' in css
+    assert '> :not(.generation-intake-v2)' in override
+    assert 'data-state="source-ready"' in override
+
 
 
 def test_generation_route_loader_loads_the_new_intake_after_guided_form() -> None:
@@ -221,7 +236,8 @@ def test_new_javascript_files_parse() -> None:
     node = shutil.which("node")
     if not node:
         pytest.skip("Node.js is not installed")
-    for path in (CONTRACT, ADAPTER, LOADER):
+    assert 'generation-strategy-intake-v3.js' in SHIM.read_text(encoding="utf-8")
+    for path in (CONTRACT, SHIM, ADAPTER, LOADER):
         subprocess.run(
             [node, "--check", str(path)],
             check=True,

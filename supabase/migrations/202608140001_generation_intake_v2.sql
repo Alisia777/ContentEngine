@@ -1,8 +1,9 @@
 begin;
 
 -- Operator-facing generation intakes are intentionally separate from paid
--- generation jobs. A saved intake may register intent and source identity, but
--- it cannot reserve budget, call a provider, or authorize a generation.
+-- generation jobs. A saved intake records the exact source and the minimum
+-- fields for one route, but it cannot reserve budget, call a provider, or
+-- authorize a generation.
 
 create or replace function
   content_factory_private.generation_intake_v2_media_ids_valid(
@@ -38,11 +39,18 @@ create table if not exists content_factory.generation_intakes_v2 (
   organization_id uuid not null,
   project_id uuid not null,
   source_id uuid not null,
+  source_attachment_id uuid,
+  source_media_attached boolean not null,
+  source_media_sha256_snapshot text check (
+    source_media_sha256_snapshot is null
+    or source_media_sha256_snapshot ~ '^[0-9a-f]{64}$'
+  ),
+  product_id uuid,
   strategy_id text not null check (
     strategy_id in ('copy_video', 'avatar_video')
   ),
-  legacy_strategy_id text not null check (
-    legacy_strategy_id in ('viral_product_swap', 'viral_avatar_ugc')
+  preparation_recipe text not null check (
+    preparation_recipe in ('product_swap', 'character_performance')
   ),
   avatar_wishes text not null default '' check (
     length(avatar_wishes) <= 1200
@@ -51,13 +59,10 @@ create table if not exists content_factory.generation_intakes_v2 (
     length(description) <= 1200
   ),
   product_media_ids jsonb not null default '[]'::jsonb,
-  status text not null default 'awaiting_source_media' check (
+  status text not null check (
     status in (
       'awaiting_source_media',
-      'source_media_ready',
-      'awaiting_internal_preparation',
-      'ready_for_generation_spec',
-      'cancelled'
+      'source_media_ready_for_preparation'
     )
   ),
   requested_by uuid not null,
@@ -74,6 +79,12 @@ create table if not exists content_factory.generation_intakes_v2 (
     references content_factory.research_exact_youtube_sources(
       organization_id, id
     ),
+  foreign key (organization_id, source_attachment_id)
+    references content_factory.research_exact_youtube_media_attachments(
+      organization_id, id
+    ),
+  foreign key (organization_id, product_id)
+    references content_factory.products(organization_id, id),
   foreign key (organization_id, requested_by)
     references content_factory.memberships(organization_id, profile_id),
   check (
@@ -82,16 +93,30 @@ create table if not exists content_factory.generation_intakes_v2 (
     )
   ),
   check (
+    source_media_attached = (source_attachment_id is not null)
+    and source_media_attached =
+      (source_media_sha256_snapshot is not null)
+  ),
+  check (
+    (status = 'awaiting_source_media' and not source_media_attached)
+    or (
+      status = 'source_media_ready_for_preparation'
+      and source_media_attached
+    )
+  ),
+  check (
     (
       strategy_id = 'copy_video'
-      and legacy_strategy_id = 'viral_product_swap'
+      and preparation_recipe = 'product_swap'
+      and product_id is not null
       and avatar_wishes = ''
       and jsonb_array_length(product_media_ids) between 1 and 10
     )
     or
     (
       strategy_id = 'avatar_video'
-      and legacy_strategy_id = 'viral_avatar_ugc'
+      and preparation_recipe = 'character_performance'
+      and product_id is null
       and length(avatar_wishes) between 10 and 1200
       and jsonb_array_length(product_media_ids) = 0
     )
@@ -101,6 +126,10 @@ create table if not exists content_factory.generation_intakes_v2 (
 create index if not exists generation_intakes_v2_project_created_idx
   on content_factory.generation_intakes_v2 (
     organization_id, project_id, created_at desc, id desc
+  );
+create index if not exists generation_intakes_v2_source_idx
+  on content_factory.generation_intakes_v2 (
+    organization_id, project_id, source_id, created_at desc, id desc
   );
 
 alter table content_factory.generation_intakes_v2 enable row level security;
@@ -149,16 +178,25 @@ declare
   organization_id_value uuid;
   project_id_value uuid;
   source_id_value uuid;
+  source_attachment_id_value uuid;
+  source_media_sha256_value text;
+  source_media_attached_value boolean := false;
+  product_id_value uuid;
+  product_ids_value uuid[];
+  live_product_media_count integer := 0;
   strategy_id_value text;
-  legacy_strategy_id_value text;
+  preparation_recipe_value text;
   avatar_wishes_value text := '';
   description_value text := '';
   product_media_ids_value jsonb := '[]'::jsonb;
   idempotency_key_value text;
   input_hash_value text;
-  source_row content_factory.research_exact_youtube_sources%rowtype;
-  intake_row content_factory.generation_intakes_v2%rowtype;
+  status_value text;
   next_action_value text;
+  source_row content_factory.research_exact_youtube_sources%rowtype;
+  attachment_row
+    content_factory.research_exact_youtube_media_attachments%rowtype;
+  intake_row content_factory.generation_intakes_v2%rowtype;
 begin
   p_payload := content_factory_private.require_payload(p_payload);
   if p_payload - array[
@@ -199,9 +237,9 @@ begin
       errcode = '22023',
       message = 'generation_intake_v2_strategy_invalid';
   end if;
-  legacy_strategy_id_value := case strategy_id_value
-    when 'copy_video' then 'viral_product_swap'
-    when 'avatar_video' then 'viral_avatar_ugc'
+  preparation_recipe_value := case strategy_id_value
+    when 'copy_video' then 'product_swap'
+    when 'avatar_video' then 'character_performance'
   end;
 
   if p_payload ? 'avatar_wishes' then
@@ -237,23 +275,41 @@ begin
   if p_payload ? 'product_media_ids' then
     product_media_ids_value := p_payload -> 'product_media_ids';
   end if;
-  if jsonb_typeof(product_media_ids_value) <> 'array'
-     or jsonb_array_length(product_media_ids_value) > 10
-     or exists (
-       select 1
-       from jsonb_array_elements(product_media_ids_value) item(value)
-       where jsonb_typeof(item.value) <> 'string'
-          or coalesce(item.value #>> '{}', '') !~
-            '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
-     )
-     or jsonb_array_length(product_media_ids_value) <> (
-       select count(distinct item.value #>> '{}')
-       from jsonb_array_elements(product_media_ids_value) item(value)
+  if not content_factory_private.generation_intake_v2_media_ids_valid(
+       product_media_ids_value
      ) then
     raise exception using
       errcode = '22023',
       message = 'generation_intake_v2_product_media_invalid';
   end if;
+
+  select source.* into source_row
+  from content_factory.research_exact_youtube_sources source
+  where source.organization_id = organization_id_value
+    and source.project_id = project_id_value
+    and source.id = source_id_value
+    and source.status = 'awaiting_media'
+    and source.media_required;
+  if source_row.id is null then
+    raise exception using
+      errcode = 'P0002',
+      message = 'generation_intake_v2_source_not_found';
+  end if;
+
+  select attachment.* into attachment_row
+  from content_factory.research_exact_youtube_media_attachments attachment
+  where attachment.organization_id = organization_id_value
+    and attachment.project_id = project_id_value
+    and attachment.source_id = source_id_value
+    and attachment.status = 'attached'
+    and attachment.rights_confirmed
+    and attachment.media_matches_registered_source;
+  if attachment_row.id is not null then
+    source_attachment_id_value := attachment_row.id;
+    source_media_sha256_value := attachment_row.media_sha256_snapshot;
+    source_media_attached_value := true;
+  end if;
+
   if strategy_id_value = 'copy_video' then
     if avatar_wishes_value <> ''
        or jsonb_array_length(product_media_ids_value) not between 1 and 10 then
@@ -261,6 +317,43 @@ begin
         errcode = '22023',
         message = 'generation_intake_v2_copy_fields_invalid';
     end if;
+
+    select
+      count(*)::integer,
+      array_agg(distinct media.product_id)
+    into live_product_media_count, product_ids_value
+    from jsonb_array_elements_text(product_media_ids_value) selected(media_id)
+    join content_factory.media_objects media
+      on media.organization_id = organization_id_value
+     and media.project_id = project_id_value
+     and media.id = selected.media_id::uuid
+    where media.status = 'ready'
+      and media.mime_type in ('image/jpeg', 'image/png', 'image/webp')
+      and media.product_id is not null
+      and media.metadata ->> 'kind' in ('product_photo', 'packshot')
+      and media.metadata -> 'rights_confirmed' = 'true'::jsonb
+      and media.artifact_class = 'source'
+      and media.lifecycle_stage = 'sources'
+      and not (media.metadata ?| array[
+        'generation_job_id', 'provider_job_id', 'generation_provider',
+        'generated_from_job_id', 'output_media_id'
+      ])
+      and exists (
+        select 1
+        from content_factory.products product
+        where product.organization_id = media.organization_id
+          and product.id = media.product_id
+          and product.status = 'active'
+      );
+
+    if live_product_media_count <> jsonb_array_length(product_media_ids_value)
+       or coalesce(cardinality(product_ids_value), 0) <> 1
+       or product_ids_value[1] is null then
+      raise exception using
+        errcode = '22023',
+        message = 'generation_intake_v2_product_media_scope_invalid';
+    end if;
+    product_id_value := product_ids_value[1];
   elsif length(avatar_wishes_value) not between 10 and 1200
         or jsonb_array_length(product_media_ids_value) <> 0 then
     raise exception using
@@ -271,17 +364,15 @@ begin
   idempotency_key_value := content_factory_private.require_text(
     p_payload, 'idempotency_key', 8, 180
   );
-
-  select source.* into source_row
-  from content_factory.research_exact_youtube_sources source
-  where source.organization_id = organization_id_value
-    and source.project_id = project_id_value
-    and source.id = source_id_value;
-  if source_row.id is null then
-    raise exception using
-      errcode = 'P0002',
-      message = 'generation_intake_v2_source_not_found';
-  end if;
+  status_value := case
+    when source_media_attached_value then
+      'source_media_ready_for_preparation'
+    else 'awaiting_source_media'
+  end;
+  next_action_value := case
+    when source_media_attached_value then 'prepare_internal_references'
+    else 'attach_lawful_mp4'
+  end;
 
   input_hash_value := content_factory_private.json_hash(jsonb_build_object(
     'version', 'generation-intake-v2',
@@ -289,8 +380,11 @@ begin
     'project_id', project_id_value,
     'source_id', source_id_value,
     'source_hash', source_row.source_hash,
+    'source_attachment_id', to_jsonb(source_attachment_id_value),
+    'source_media_sha256', to_jsonb(source_media_sha256_value),
+    'product_id', to_jsonb(product_id_value),
     'strategy_id', strategy_id_value,
-    'legacy_strategy_id', legacy_strategy_id_value,
+    'preparation_recipe', preparation_recipe_value,
     'avatar_wishes', avatar_wishes_value,
     'description', description_value,
     'product_media_ids', product_media_ids_value
@@ -300,11 +394,16 @@ begin
     organization_id,
     project_id,
     source_id,
+    source_attachment_id,
+    source_media_attached,
+    source_media_sha256_snapshot,
+    product_id,
     strategy_id,
-    legacy_strategy_id,
+    preparation_recipe,
     avatar_wishes,
     description,
     product_media_ids,
+    status,
     requested_by,
     idempotency_key,
     input_hash
@@ -312,11 +411,16 @@ begin
     organization_id_value,
     project_id_value,
     source_id_value,
+    source_attachment_id_value,
+    source_media_attached_value,
+    source_media_sha256_value,
+    product_id_value,
     strategy_id_value,
-    legacy_strategy_id_value,
+    preparation_recipe_value,
     avatar_wishes_value,
     description_value,
     product_media_ids_value,
+    status_value,
     actor_id_value,
     idempotency_key_value,
     input_hash_value
@@ -337,8 +441,7 @@ begin
   end if;
 
   next_action_value := case
-    when source_row.status in ('ready', 'media_ready', 'analyzed') then
-      'prepare_internal_references'
+    when intake_row.source_media_attached then 'prepare_internal_references'
     else 'attach_lawful_mp4'
   end;
 
@@ -349,8 +452,11 @@ begin
       'id', intake_row.id,
       'project_id', intake_row.project_id,
       'source_id', intake_row.source_id,
+      'source_attachment_id', to_jsonb(intake_row.source_attachment_id),
+      'source_media_attached', intake_row.source_media_attached,
+      'product_id', to_jsonb(intake_row.product_id),
       'strategy_id', intake_row.strategy_id,
-      'legacy_strategy_id', intake_row.legacy_strategy_id,
+      'preparation_recipe', intake_row.preparation_recipe,
       'status', intake_row.status,
       'product_media_count', jsonb_array_length(
         intake_row.product_media_ids
@@ -365,7 +471,8 @@ begin
       'id', source_row.id,
       'canonical_url', source_row.canonical_url,
       'status', source_row.status,
-      'media_required', source_row.media_required
+      'media_required', source_row.media_required,
+      'media_attached', intake_row.source_media_attached
     ),
     'contract', jsonb_build_object(
       'separate_operator_form', true,
