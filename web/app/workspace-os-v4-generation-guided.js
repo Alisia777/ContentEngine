@@ -37,6 +37,9 @@ const ROUTE = "/workspace/generation";
 const SESSION_KEY = "contentengine.desktop.v4.generation-guided.v2";
 const STEP_ATTRIBUTE = "data-ce-v4-generation-step";
 const SESSION_ATTRIBUTE = "data-ce-v4-generation-session";
+const FORM_BINDING_KEY = Symbol.for(
+  "contentengine.generation-guided.form-binding.v1",
+);
 
 const STEPS = Object.freeze([
   {
@@ -95,6 +98,7 @@ const runtime = {
   strategyAssetRequest: 0,
   strategySourcePicker: null,
   strategyMechanicsDrafts: new Map(),
+  strategyViewRoots: new WeakSet(),
 };
 
 const LEGACY_MODEL_BY_MODE = Object.freeze({
@@ -1570,6 +1574,60 @@ function resetStrategyForm(form) {
   delete form.dataset.generationStrategySourcesReady;
 }
 
+function strategyAttestationsMatch(root, row) {
+  if (!(root instanceof HTMLElement)) return false;
+  if (root.dataset.generationStrategyId !== row.strategy_id) return false;
+  const inputs = qa("input[data-generation-strategy-attestation]", root);
+  if (inputs.length !== row.required_attestations.length) return false;
+  return row.required_attestations.every((attestation, index) => {
+    const input = inputs[index];
+    const label = input.closest("label");
+    const copy = q(":scope > span", label);
+    return input instanceof HTMLInputElement
+      && input.type === "checkbox"
+      && input.dataset.generationStrategyAttestation === attestation.id
+      && input.name === `generation_strategy_attestation_${attestation.id}`
+      && input.value === "true"
+      && input.required
+      && String(copy?.textContent || "").trim() === attestation.public_label;
+  });
+}
+
+function syncStrategyAttestations(root, row, { reset = false } = {}) {
+  if (!(root instanceof HTMLElement)) return;
+  if (!reset && strategyAttestationsMatch(root, row)) return;
+  root.replaceChildren(...row.required_attestations.map((attestation) => {
+    const label = element("label", "option generation-strategy-attestation");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.name = `generation_strategy_attestation_${attestation.id}`;
+    input.value = "true";
+    input.required = true;
+    input.dataset.generationStrategyAttestation = attestation.id;
+    const copy = element("span", "", attestation.public_label);
+    label.append(input, copy);
+    return label;
+  }));
+  root.dataset.generationStrategyId = row.strategy_id;
+}
+
+function clearStrategyAttestations(form) {
+  qa("#generation-strategy-assets input[data-generation-strategy-attestation]", form)
+    .forEach((input) => {
+      input.checked = false;
+    });
+}
+
+function isStrategyAssetAuthorityControl(control) {
+  if (!(control instanceof HTMLInputElement || control instanceof HTMLSelectElement)) {
+    return false;
+  }
+  const name = String(control.name || "");
+  return name === "media_id"
+    || name === "primary_media_id"
+    || /^generation_strategy_.+_media_id$/u.test(name);
+}
+
 function syncLegacyModelVisibility(form, strategySelected) {
   const targets = [
     q("[data-ce-v4-model-kind]", form),
@@ -1741,20 +1799,7 @@ function syncStrategyForm(form, { reset = false } = {}) {
   });
 
   const attestationRoot = q("[data-generation-strategy-attestations]", fieldset);
-  if (attestationRoot) {
-    attestationRoot.replaceChildren(...row.required_attestations.map((attestation) => {
-      const label = element("label", "option generation-strategy-attestation");
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.name = `generation_strategy_attestation_${attestation.id}`;
-      input.value = "true";
-      input.required = true;
-      input.dataset.generationStrategyAttestation = attestation.id;
-      const copy = element("span", "", attestation.public_label);
-      label.append(input, copy);
-      return label;
-    }));
-  }
+  syncStrategyAttestations(attestationRoot, row, { reset });
   const copy = q("[data-generation-strategy-assets-copy]", fieldset);
   if (copy) {
     copy.textContent = `${row.public_label}. Выберите ровно 10 хитов в нужном порядке, общие ассеты товара и права. Каждый исходник получит своё ТЗ, цену и задачу; до общего явного подтверждения списания не будет.`;
@@ -1902,6 +1947,7 @@ function renderStrategyView(form) {
   const root = q("[data-ce-v4-generation-strategies]", form);
   if (!root) return;
   root.innerHTML = generationStrategyViewMarkup(runtime.strategyState);
+  runtime.strategyViewRoots.add(root);
   syncStrategyForm(form);
 }
 
@@ -2005,43 +2051,48 @@ function ensureStrategyView(form) {
     root.dataset.ceV4GenerationStrategies = "";
     contentFor(form, "mode")?.prepend(root);
   }
-  renderStrategyView(form);
+  if (!runtime.strategyViewRoots.has(root)) renderStrategyView(form);
   return root;
 }
 
 function modelCard(form, model, state) {
   const key = modelKey(model);
   const recommendationKey = modelKey(state?.recommendation?.recommended);
-  const selectedKey = modeIsReal(form) || runtime.externalSelectionActive
-    ? modelKey(state?.selection)
-    : "";
   const strategyAdvisoryOnly = Boolean(selectedStrategyRow());
+  const selectedKey = strategyAdvisoryOnly
+    ? modelKey(state?.selection)
+    : modeIsReal(form) || runtime.externalSelectionActive
+      ? modelKey(state?.selection)
+      : "";
   const executable = !strategyAdvisoryOnly && modelCanUseExistingLaunch(form, model);
+  const selectable = strategyAdvisoryOnly ? model?.enabled === true : executable;
   const recommended = key === recommendationKey;
   const selected = key === selectedKey;
   const candidate = modelCandidate(state, model);
   const unavailableCodes = modelUnavailableCodes(state, model);
   const disabledReasons = translatedList(unavailableCodes);
   const policyDisabledReason = MODEL_COPY[String(model.disabledReasonCode || "")] || "";
-  const primaryDisabledReason = strategyAdvisoryOnly
-    ? "Для выбранного сценария эта карточка — рекомендация, а не платный маршрут. Запуск использует только серверно подтверждённый recipe."
+  const primaryDisabledReason = strategyAdvisoryOnly && selectable
+    ? "Можно сохранить как предпочтение для сравнения. Фактический запуск использует серверный recipe выбранной стратегии."
     : policyDisabledReason || disabledReasons[0] || "Недоступно";
   const costPresentation = modelCostPresentation(form, model, state);
-  const readiness = modelReadinessPresentation(form, model, state, executable);
-  const qualityText = modelQualityState(model, executable, state);
+  const readiness = strategyAdvisoryOnly
+    ? { state: "advisory", text: "Совет; маршрут стратегии проверяет сервер" }
+    : modelReadinessPresentation(form, model, state, executable);
+  const qualityText = modelQualityState(model, selectable, state);
 
   const card = element("article", "ce-v4-model-card");
   card.dataset.provider = String(model.provider || "");
   card.dataset.model = String(model.model || "");
   card.dataset.recommended = recommended ? "true" : "false";
-  card.dataset.available = executable ? "true" : "false";
+  card.dataset.available = selectable ? "true" : "false";
   card.dataset.lifecycle = String(model.lifecycle || "");
   card.dataset.quality = String(model.qualityTier || "");
   card.dataset.readiness = readiness.state;
   card.dataset.disabledReasonCode = String(model.disabledReasonCode || "");
   card.dataset.strategyAdvisoryOnly = strategyAdvisoryOnly ? "true" : "false";
   card.classList.toggle("is-selected", selected);
-  if (!executable) {
+  if (!selectable) {
     card.tabIndex = 0;
     card.setAttribute("aria-disabled", "true");
   }
@@ -2051,11 +2102,11 @@ function modelCard(form, model, state) {
   radio.name = "generation_model";
   radio.value = key;
   radio.checked = selected;
-  radio.disabled = !executable;
+  radio.disabled = !selectable;
   radio.dataset.ceV4GenerationModel = "";
   radio.setAttribute(
     "aria-label",
-    `${model.publicLabel || model.model}. ${executable ? "Можно выбрать" : primaryDisabledReason}`,
+    `${model.publicLabel || model.model}. ${selectable ? primaryDisabledReason : "Недоступно. " + primaryDisabledReason}`,
   );
 
   const top = element("span", "ce-v4-model-card__top");
@@ -2069,8 +2120,8 @@ function modelCard(form, model, state) {
         ? "ИИ советует"
         : selected
           ? "Ваш выбор"
-          : executable
-            ? "Доступна"
+          : selectable
+            ? strategyAdvisoryOnly ? "Можно выбрать" : "Доступна"
             : "Недоступна",
   );
   top.append(provider, flag);
@@ -2119,8 +2170,8 @@ function modelCard(form, model, state) {
         ? "experimental"
         : "recheck";
 
-  const copy = strategyAdvisoryOnly
-    ? "Альтернативная нейросеть остаётся видимой для сравнения. Платный запуск этого сценария станет доступен через неё только после отдельного серверного подтверждения совместимости."
+  const copy = strategyAdvisoryOnly && selectable
+    ? "Можно выбрать как предпочтение для сравнения. Этот выбор не меняет платный маршрут: генерацию выполнит серверный recipe стратегии."
     : executable
     ? recommended
       ? recommendationReason(candidate?.reasonCodes || state?.recommendation?.reasonCodes)
@@ -2291,10 +2342,13 @@ function renderRecommendationPanel(form, recommendation, state, suggestedModel, 
   );
   const strategyAdvisoryOnly = Boolean(selectedStrategyRow());
   const executable = !strategyAdvisoryOnly && modelCanUseExistingLaunch(form, suggestedModel);
+  const selectable = strategyAdvisoryOnly ? suggestedModel?.enabled === true : executable;
   const cost = modelCostPresentation(form, suggestedModel, state);
-  const readiness = modelReadinessPresentation(form, suggestedModel, state, executable);
+  const readiness = strategyAdvisoryOnly
+    ? { state: "advisory", text: "Совет; recipe стратегии проверяет сервер" }
+    : modelReadinessPresentation(form, suggestedModel, state, executable);
   const sameSelection = modelKey(state.selection) === modelKey(suggestedModel)
-    && (modeIsReal(form) || runtime.externalSelectionActive);
+    && (strategyAdvisoryOnly || modeIsReal(form) || runtime.externalSelectionActive);
   const accepted = sameSelection && state.selectionSource === "accepted_recommendation";
 
   const hero = element("div", "ce-v4-model-recommendation-hero");
@@ -2356,7 +2410,7 @@ function renderRecommendationPanel(form, recommendation, state, suggestedModel, 
   );
   apply.type = "button";
   apply.dataset.ceV4ApplyModelRecommendation = "";
-  apply.disabled = !executable || accepted;
+  apply.disabled = !selectable || accepted;
   actions.append(apply);
 
   if (selectedModel && modelKey(selectedModel) !== modelKey(suggestedModel)) {
@@ -2391,6 +2445,7 @@ function selectedInputText(state) {
 }
 
 function modelLaunchBlocker(form, state, selectedModel) {
+  if (selectedStrategyRow()) return "";
   if (!modeIsReal(form) && !runtime.externalSelectionActive) return "";
   if (!selectedModel) return "Выберите модель генерации.";
   if (!modelCanUseExistingLaunch(form, selectedModel)) {
@@ -2427,6 +2482,45 @@ function summaryRow(label, value) {
 function renderSelectionSummary(form, state, selectedModel) {
   const body = q("[data-ce-v4-model-selection-summary-body]", form);
   if (!body) return;
+  const strategy = selectedStrategyRow();
+  if (strategy) {
+    syncModelLaunchGuard(form, "");
+    const title = element(
+      "strong",
+      "ce-v4-model-selection-summary__title",
+      selectedModel
+        ? `Предпочтение: ${String(selectedModel.publicLabel || selectedModel.model)}`
+        : "Предпочтение модели не выбрано",
+    );
+    const badge = element(
+      "span",
+      "ce-v4-model-selection-summary__badge",
+      "Совет · не маршрут запуска",
+    );
+    badge.dataset.state = "ready";
+    const head = element("div", "ce-v4-model-selection-summary__head");
+    head.append(title, badge);
+    const list = element("dl", "ce-v4-model-selection-summary__list");
+    list.append(
+      summaryRow(
+        "Предпочтение для сравнения",
+        selectedModel ? `${selectedModel.provider} · ${selectedModel.model}` : "—",
+      ),
+      summaryRow("Стратегия", strategy.public_label),
+      summaryRow("Фактический запуск", "Точный Runway recipe подтверждает сервер"),
+    );
+    body.dataset.state = "advisory";
+    body.replaceChildren(
+      head,
+      list,
+      element(
+        "p",
+        "ce-v4-model-selection-summary__note",
+        "Выбранная модель остаётся вашим советующим предпочтением и не блокирует стратегию. Цена, recipe и платный маршрут берутся только из серверного контракта стратегии.",
+      ),
+    );
+    return;
+  }
   if (!modeIsReal(form) && !runtime.externalSelectionActive) {
     syncModelLaunchGuard(form, "");
     body.dataset.state = "dry-run";
@@ -2524,7 +2618,8 @@ function renderModelAdvisor(form) {
   const currentIdentity = selectedModelForForm(form)
     || modelIdentityForMode(form.elements?.generation_mode?.value);
   const currentModel = runtime.catalog.models.find((model) => modelKey(model) === modelKey(currentIdentity));
-  if (currentModel) syncExactModelControls(form, currentModel);
+  const strategyAdvisoryOnly = Boolean(selectedStrategyRow());
+  if (currentModel && !strategyAdvisoryOnly) syncExactModelControls(form, currentModel);
   if (!runtime.recommendationState) {
     runtime.recommendationState = createGenerationModelRecommendationState({
       catalogSnapshot: runtime.catalog,
@@ -2561,13 +2656,14 @@ function renderModelAdvisor(form) {
   const suggested = state.recommendation?.recommended;
   const suggestedModel = runtime.catalog.models.find((model) => modelKey(model) === modelKey(suggested));
   const selectedModel = runtime.catalog.models.find((model) => modelKey(model) === modelKey(state.selection));
-  syncExactModelControls(form, selectedModel);
+  if (!strategyAdvisoryOnly) syncExactModelControls(form, selectedModel);
   renderRecommendationPanel(form, recommendation, state, suggestedModel, selectedModel);
   renderSelectionSummary(form, state, selectedModel);
-  const selectionActive = modeIsReal(form) || runtime.externalSelectionActive;
+  const selectionActive = strategyAdvisoryOnly
+    ? Boolean(selectedModel)
+    : modeIsReal(form) || runtime.externalSelectionActive;
   const explicitDryRun = String(form.elements?.generation_mode?.value || "") === "mock";
   status.dataset.state = !selectionActive ? "advisory" : state.manualLock ? "manual" : "advisory";
-  const strategyAdvisoryOnly = Boolean(selectedStrategyRow());
   status.dataset.strategyAdvisoryOnly = strategyAdvisoryOnly ? "true" : "false";
   status.textContent = strategyAdvisoryOnly
     ? "ИИ предлагает несколько моделей для сравнения. Для этого сценария карточки носят рекомендательный характер; платно запускается только серверно подтверждённый recipe."
@@ -3103,7 +3199,7 @@ function syncSummary(form) {
   const values = summaryValues(form);
   Object.entries(values).forEach(([key, value]) => {
     const target = q(`[data-ce-v4-generation-summary-value="${key}"]`, form);
-    if (target) target.textContent = value;
+    if (target && target.textContent !== value) target.textContent = value;
   });
   const submit = q("#generation-submit", form);
   const status = q("[data-ce-v4-generation-launch-status]", form);
@@ -3118,7 +3214,7 @@ function syncSummary(form) {
       : busy
         ? "working"
         : "pending";
-    status.textContent = ready && preflightPhase
+    const copy = ready && preflightPhase
       ? "Следующий шаг бесплатный: портал подготовит точное ТЗ и проверит стоимость. Генерация не запустится и деньги не спишутся."
       : ready
         ? modeIsReal(form)
@@ -3127,6 +3223,7 @@ function syncSummary(form) {
       : busy
         ? "Портал проверяет техническое ТЗ. Не нажимайте запуск повторно."
         : blocker || "Заполните обязательное поле текущего шага.";
+    if (status.textContent !== copy) status.textContent = copy;
   }
 }
 
@@ -3293,6 +3390,30 @@ function applyModelIdentity(form, identity, {
   syncExactModelControls(form, model, { emit: true });
   renderModelAdvisor(form);
   scheduleSync(form);
+  return true;
+}
+
+function applyStrategyAdvisoryModel(form, identity, {
+  acceptRecommendation = false,
+} = {}) {
+  if (!selectedStrategyRow() || !runtime.recommendationState) return false;
+  const model = runtime.catalog?.models?.find(
+    (entry) => modelKey(entry) === modelKey(identity),
+  );
+  if (!model || model.enabled !== true) {
+    renderModelAdvisor(form);
+    return false;
+  }
+  runtime.recommendationState = generationModelRecommendationReducer(
+    runtime.recommendationState,
+    acceptRecommendation
+      ? { type: GENERATION_MODEL_RECOMMENDATION_ACTIONS.ACCEPT_RECOMMENDATION }
+      : {
+          type: GENERATION_MODEL_RECOMMENDATION_ACTIONS.SELECT_MANUAL,
+          selection: { provider: model.provider, model: model.model },
+        },
+  );
+  renderModelAdvisor(form);
   return true;
 }
 
@@ -3503,6 +3624,9 @@ function handleFormClick(event) {
       },
     );
     const next = renderStrategySourcePicker(form);
+    if (JSON.stringify(previous?.selected || []) !== JSON.stringify(next?.selected || [])) {
+      clearStrategyAttestations(form);
+    }
     if (
       previous?.selected.some((item) => item.source_media_id === sourceMediaId)
       && !next?.selected.some((item) => item.source_media_id === sourceMediaId)
@@ -3582,9 +3706,12 @@ function handleFormClick(event) {
   const applyRecommendation = event.target.closest("[data-ce-v4-apply-model-recommendation]");
   if (applyRecommendation) {
     event.preventDefault();
-    applyModelIdentity(form, runtime.recommendationState?.recommendation?.recommended, {
-      acceptRecommendation: true,
-    });
+    const recommended = runtime.recommendationState?.recommendation?.recommended;
+    if (selectedStrategyRow()) {
+      applyStrategyAdvisoryModel(form, recommended, { acceptRecommendation: true });
+    } else {
+      applyModelIdentity(form, recommended, { acceptRecommendation: true });
+    }
     return;
   }
   const stepButton = event.target.closest("[data-ce-v4-generation-target]");
@@ -3631,10 +3758,12 @@ function handleFormEdit(event) {
   }
   if (control?.matches?.('[data-ce-v4-generation-model]')) {
     const selected = runtime.catalog?.models?.find((model) => modelKey(model) === control.value);
-    applyModelIdentity(form, selected);
+    if (selectedStrategyRow()) applyStrategyAdvisoryModel(form, selected);
+    else applyModelIdentity(form, selected);
     return;
   }
   refreshRepeatedSetting(form, control);
+  if (isStrategyAssetAuthorityControl(control)) clearStrategyAttestations(form);
   if (
     control?.name?.startsWith?.("generation_strategy_")
   ) {
@@ -3701,17 +3830,28 @@ function handleFormEdit(event) {
 }
 
 function bindForm(form) {
-  if (form.dataset.ceV4GenerationGuidedBound === "true") return;
+  const existing = form[FORM_BINDING_KEY];
+  if (existing?.owner === handleFormClick && existing?.controller?.signal?.aborted === false) {
+    form.dataset.ceV4GenerationGuidedBound = "true";
+    return;
+  }
+  existing?.controller?.abort?.();
+  const controller = new AbortController();
+  const options = { signal: controller.signal };
   form.dataset.ceV4GenerationGuidedBound = "true";
-  form.addEventListener("click", handleFormClick);
-  form.addEventListener("input", handleFormEdit);
-  form.addEventListener("change", handleFormEdit);
-  form.addEventListener("contentengine:generation-repeat-settings", handleRepeatSettings);
-  form.addEventListener("contentengine:generation-apply-exact-scope", handleExactScope);
-  form.addEventListener("contentengine:generation-restore-strategy", handleStrategyRestore);
+  form.addEventListener("click", handleFormClick, options);
+  form.addEventListener("input", handleFormEdit, options);
+  form.addEventListener("change", handleFormEdit, options);
+  form.addEventListener("contentengine:generation-repeat-settings", handleRepeatSettings, options);
+  form.addEventListener("contentengine:generation-apply-exact-scope", handleExactScope, options);
+  form.addEventListener("contentengine:generation-restore-strategy", handleStrategyRestore, options);
+  Object.defineProperty(form, FORM_BINDING_KEY, {
+    configurable: true,
+    value: Object.freeze({ controller, owner: handleFormClick }),
+  });
 }
 
-function setupForm(form) {
+function setupForm(form, { initialSync = true } = {}) {
   let shell = q(":scope > [data-ce-v4-generation-guided-shell]", form);
   if (!shell) {
     const originalNodes = [...form.children];
@@ -3729,6 +3869,11 @@ function setupForm(form) {
   ensureModelAdvisor(form);
   exposeProviderReadinessControl(form);
   bindForm(form);
+  if (!initialSync) {
+    syncSummary(form);
+    syncCompletion(form);
+    return shell;
+  }
   const saved = readSession(form);
   const initial = form.dataset.ceV4GenerationStep || saved.step || STEPS[0].key;
   const requestedIndex = stepIndex(initial);
@@ -3743,7 +3888,7 @@ function setupForm(form) {
   );
   form.dataset.ceV4GenerationMaxVisited = String(restoredMax);
   setStep(form, restoredIndex);
-  scheduleSync(form);
+  if (initialSync) scheduleSync(form);
   if (runtime.strategyCatalogStatus === "idle") void loadStrategyCatalog(form);
   if (runtime.catalogStatus === "idle") void loadModelCatalog(form);
   if (runtime.strategyAssetStatus === "idle") {
@@ -3766,7 +3911,8 @@ function mount() {
   }
   const form = q("#mock-batch-form");
   if (!form) return;
-  if (runtime.form !== form) {
+  const formChanged = runtime.form !== form;
+  if (formChanged) {
     runtime.recommendationState = null;
     runtime.modelFilter = "relevant";
     runtime.externalSelectionActive = false;
@@ -3782,7 +3928,7 @@ function mount() {
   }
   runtime.form = form;
   document.body.classList.add("ce-v4-generation-guided-route");
-  setupForm(form);
+  setupForm(form, { initialSync: formChanged });
 }
 
 window.ContentEngineDesktopV4.registerAdapter("generation-guided", mount, { priority: 180 });

@@ -10,7 +10,7 @@
 import { workspaceActionKey } from "./workspace-action-key.js?v=20260814.os4.41";
 
 const BUILD = "20260814.os4.41";
-const GENERATION_HOTFIX_BUILD = `${BUILD}.strategy-catalog-2`;
+const GENERATION_HOTFIX_BUILD = `${BUILD}.strategy-interactions-1`;
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;

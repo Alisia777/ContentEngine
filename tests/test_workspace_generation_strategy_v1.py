@@ -164,6 +164,233 @@ def _run_fixture(width: int, height: int = 960) -> dict[str, object]:
                     f"Generation strategy fixture did not become ready: {details}"
                 )
 
+            def evaluate_value(
+                expression: str, *, await_promise: bool = False
+            ) -> object:
+                evaluated = cdp(
+                    "Runtime.evaluate",
+                    {
+                        "expression": expression,
+                        "returnByValue": True,
+                        "awaitPromise": await_promise,
+                    },
+                )
+                protocol_result = evaluated.get("result", {})
+                assert "exceptionDetails" not in protocol_result, evaluated
+                return protocol_result.get("result", {}).get("value")
+
+            driver = "window.__generationStrategyTrustedPointerDriver"
+
+            def prepare_pointer(kind: str, value: str = "") -> dict[str, object]:
+                prepared = evaluate_value(
+                    f"{driver}.preparePointer({json.dumps(kind)}, {json.dumps(value)})",
+                    await_promise=True,
+                )
+                assert isinstance(prepared, dict), prepared
+                return prepared
+
+            def pointer_down(prepared: dict[str, object]) -> bool:
+                if not prepared.get("ok") or not prepared.get("rendered"):
+                    return False
+                x = float(prepared["x"])
+                y = float(prepared["y"])
+                cdp(
+                    "Input.dispatchMouseEvent",
+                    {
+                        "type": "mouseMoved",
+                        "x": x,
+                        "y": y,
+                        "button": "none",
+                        "buttons": 0,
+                        "pointerType": "mouse",
+                    },
+                )
+                cdp(
+                    "Input.dispatchMouseEvent",
+                    {
+                        "type": "mousePressed",
+                        "x": x,
+                        "y": y,
+                        "button": "left",
+                        "buttons": 1,
+                        "clickCount": 1,
+                        "pointerType": "mouse",
+                    },
+                )
+                return True
+
+            def pointer_up(prepared: dict[str, object]) -> None:
+                cdp(
+                    "Input.dispatchMouseEvent",
+                    {
+                        "type": "mouseReleased",
+                        "x": float(prepared["x"]),
+                        "y": float(prepared["y"]),
+                        "button": "left",
+                        "buttons": 0,
+                        "clickCount": 1,
+                        "pointerType": "mouse",
+                    },
+                )
+
+            def trusted_click(
+                kind: str,
+                value: str = "",
+                *,
+                churn_mounts: int = 0,
+            ) -> tuple[dict[str, object], bool, dict[str, object] | None]:
+                prepared = prepare_pointer(kind, value)
+                dispatched = pointer_down(prepared)
+                identity = None
+                if churn_mounts:
+                    identity_value = evaluate_value(
+                        f"{driver}.churnMounts({churn_mounts})",
+                        await_promise=True,
+                    )
+                    assert isinstance(identity_value, dict), identity_value
+                    identity = identity_value
+                if dispatched:
+                    pointer_up(prepared)
+                evaluate_value(f"{driver}.settle()", await_promise=True)
+                return prepared, dispatched, identity
+
+            clone_info = evaluate_value(
+                f"{driver}.cloneAndRemount()", await_promise=True
+            )
+            assert isinstance(clone_info, dict), clone_info
+
+            mode_step = evaluate_value(
+                f'{driver}.goToStep("mode")', await_promise=True
+            )
+            strategy_prepared, strategy_dispatched, strategy_stability = trusted_click(
+                "strategy", "viral_product_swap", churn_mounts=25
+            )
+            strategy_state = evaluate_value(f"{driver}.state()")
+
+            media_step = evaluate_value(
+                f'{driver}.goToStep("media")', await_promise=True
+            )
+            checkbox_prepared, checkbox_dispatched, checkbox_stability = trusted_click(
+                "attestation", churn_mounts=25
+            )
+            checkbox_state = evaluate_value(f"{driver}.state()")
+            remembered_attestation = evaluate_value(
+                f"{driver}.rememberCheckedAttestation()"
+            )
+
+            mode_step_again = evaluate_value(
+                f'{driver}.goToStep("mode")', await_promise=True
+            )
+            same_prepared, same_dispatched, _ = trusted_click(
+                "strategy", "viral_product_swap"
+            )
+            same_strategy_state = evaluate_value(f"{driver}.state()")
+            attestation_persistence = evaluate_value(
+                f"{driver}.attestationPersistence()"
+            )
+
+            legacy_before_model = evaluate_value(f"{driver}.seedLegacyIdentity()")
+            model_prepared, model_dispatched, model_stability = trusted_click(
+                "model", churn_mounts=25
+            )
+            model_state = evaluate_value(f"{driver}.state()")
+
+            switch_prepared, switch_dispatched, _ = trusted_click(
+                "strategy", "viral_rebuild"
+            )
+            switch_state = evaluate_value(f"{driver}.state()")
+            strategy_reset = evaluate_value(f"{driver}.strategyReset()")
+            avatar_prepared, avatar_dispatched, _ = trusted_click(
+                "strategy", "viral_avatar_ugc"
+            )
+            avatar_state = evaluate_value(f"{driver}.state()")
+
+            consent_media_step = evaluate_value(
+                f'{driver}.goToStep("media")', await_promise=True
+            )
+            source_right_prepared, source_right_dispatched, _ = trusted_click(
+                "attestation"
+            )
+            before_source_change = evaluate_value(f"{driver}.state()")
+            source_prepared, source_dispatched, _ = trusted_click("source")
+            after_source_change = evaluate_value(f"{driver}.state()")
+
+            asset_right_prepared, asset_right_dispatched, _ = trusted_click(
+                "attestation"
+            )
+            before_asset_change = evaluate_value(f"{driver}.state()")
+            product_media_prepared, product_media_dispatched, _ = trusted_click(
+                "product_media"
+            )
+            after_asset_change = evaluate_value(f"{driver}.state()")
+            observer_loop = evaluate_value(
+                f"{driver}.observerLoopProbe()", await_promise=True
+            )
+            finish = evaluate_value(f"{driver}.finish()")
+
+            trusted_pointer_flow = {
+                "clone": clone_info,
+                "modeStep": mode_step,
+                "strategy": {
+                    "prepared": strategy_prepared,
+                    "dispatched": strategy_dispatched,
+                    "stability": strategy_stability,
+                    "state": strategy_state,
+                },
+                "mediaStep": media_step,
+                "checkbox": {
+                    "prepared": checkbox_prepared,
+                    "dispatched": checkbox_dispatched,
+                    "stability": checkbox_stability,
+                    "state": checkbox_state,
+                    "remembered": remembered_attestation,
+                },
+                "modeStepAgain": mode_step_again,
+                "sameStrategy": {
+                    "prepared": same_prepared,
+                    "dispatched": same_dispatched,
+                    "state": same_strategy_state,
+                    "attestation": attestation_persistence,
+                },
+                "model": {
+                    "legacyBefore": legacy_before_model,
+                    "prepared": model_prepared,
+                    "dispatched": model_dispatched,
+                    "stability": model_stability,
+                    "state": model_state,
+                },
+                "switchStrategy": {
+                    "prepared": switch_prepared,
+                    "dispatched": switch_dispatched,
+                    "state": switch_state,
+                    "reset": strategy_reset,
+                },
+                "thirdStrategy": {
+                    "prepared": avatar_prepared,
+                    "dispatched": avatar_dispatched,
+                    "state": avatar_state,
+                },
+                "consentMediaStep": consent_media_step,
+                "sourceConsentBoundary": {
+                    "rightPrepared": source_right_prepared,
+                    "rightDispatched": source_right_dispatched,
+                    "beforeChange": before_source_change,
+                    "sourcePrepared": source_prepared,
+                    "sourceDispatched": source_dispatched,
+                    "afterChange": after_source_change,
+                },
+                "assetConsentBoundary": {
+                    "rightPrepared": asset_right_prepared,
+                    "rightDispatched": asset_right_dispatched,
+                    "beforeChange": before_asset_change,
+                    "productMediaPrepared": product_media_prepared,
+                    "productMediaDispatched": product_media_dispatched,
+                    "afterChange": after_asset_change,
+                },
+                "observerLoop": observer_loop,
+                "finish": finish,
+            }
+
             evaluated = cdp(
                 "Runtime.evaluate",
                 {
@@ -174,7 +401,9 @@ def _run_fixture(width: int, height: int = 960) -> dict[str, object]:
                 },
             )
             assert "exceptionDetails" not in evaluated.get("result", {}), evaluated
-            return evaluated["result"]["result"]["value"]
+            result = evaluated["result"]["result"]["value"]
+            result["trustedPointerFlow"] = trusted_pointer_flow
+            return result
     finally:
         process.terminate()
         try:
@@ -235,6 +464,12 @@ def test_strategy_harness_is_server_catalog_driven_and_uses_the_portal_form() ->
     assert HARNESS_SOURCE.count('id="mock-batch-form"') == 1
     assert "requestSubmit" not in HARNESS_SOURCE
     assert '.click();\n        await settle();' in HARNESS_SOURCE
+    assert "cloneNode(true)" in HARNESS_SOURCE
+    assert "__generationStrategyTrustedPointerDriver" in HARNESS_SOURCE
+    assert 'clone.addEventListener("pointerdown"' in HARNESS_SOURCE
+    assert "new MutationObserver" in HARNESS_SOURCE
+    assert "observerLoopProbe" in HARNESS_SOURCE
+    assert "guided.mount();" in HARNESS_SOURCE
 
 
 @pytest.mark.parametrize("width", [1280, 390, 320])
@@ -338,8 +573,6 @@ def test_three_strategy_picker_runtime_contract_and_geometry(width: int) -> None
         assert snapshot["modelAdvisorMode"] == "true"
         assert snapshot["modelAdvisorCards"] >= 3
         assert snapshot["recommendedModelCards"] >= 1
-        assert snapshot["actionableModelCards"] == 0
-        assert snapshot["recommendationApplyDisabled"] is True
         assert snapshot["nativeModeHidden"] is True
         assert snapshot["nativeModeDisabled"] is True
         assert snapshot["nativeModeRequired"] is False
@@ -369,6 +602,242 @@ def test_three_strategy_picker_runtime_contract_and_geometry(width: int) -> None
         "rightsUnchecked": True,
         "validatedSelection": None,
     }
+
+    trusted = result["trustedPointerFlow"]
+    assert trusted["clone"] == {
+        "formWasReplaced": True,
+        "originalDisconnected": True,
+        "staleBoundBeforeMount": "true",
+        "boundAfterMount": "true",
+        "selectedStrategy": "viral_avatar_ugc",
+    }
+    assert trusted["modeStep"] == {"moved": True, "step": "mode"}
+
+    strategy_pointer = trusted["strategy"]
+    assert strategy_pointer["prepared"]["ok"] is True
+    assert strategy_pointer["prepared"]["rendered"] is True
+    assert strategy_pointer["prepared"]["disabled"] is False
+    assert strategy_pointer["prepared"]["value"] == "viral_product_swap"
+    assert strategy_pointer["prepared"]["baselineNodes"] == {
+        "strategy": True,
+        "model": True,
+        "attestation": True,
+    }
+    assert strategy_pointer["dispatched"] is True
+    assert strategy_pointer["stability"] == {
+        "pointerSame": True,
+        "strategySame": True,
+        "modelSame": True,
+        "attestationSame": True,
+        "pointerConnected": True,
+        "strategyConnected": True,
+        "modelConnected": True,
+        "attestationConnected": True,
+    }
+    assert strategy_pointer["state"]["selectedStrategy"] == "viral_product_swap"
+    assert strategy_pointer["state"]["pressedStrategies"] == [
+        "viral_product_swap"
+    ]
+
+    assert trusted["mediaStep"] == {"moved": True, "step": "media"}
+    checkbox_pointer = trusted["checkbox"]
+    assert checkbox_pointer["prepared"]["ok"] is True
+    assert checkbox_pointer["prepared"]["rendered"] is True
+    assert checkbox_pointer["prepared"]["disabled"] is False
+    assert checkbox_pointer["prepared"]["baselineNodes"] == {
+        "strategy": True,
+        "model": True,
+        "attestation": True,
+    }
+    assert checkbox_pointer["dispatched"] is True
+    assert checkbox_pointer["stability"] == {
+        "pointerSame": True,
+        "strategySame": True,
+        "modelSame": True,
+        "attestationSame": True,
+        "pointerConnected": True,
+        "strategyConnected": True,
+        "modelConnected": True,
+        "attestationConnected": True,
+    }
+    checked_right_id = checkbox_pointer["prepared"]["value"]
+    assert checkbox_pointer["state"]["checkedAttestations"] == [checked_right_id]
+    assert checkbox_pointer["remembered"] == {
+        "remembered": True,
+        "id": checked_right_id,
+        "checked": True,
+    }
+
+    assert trusted["modeStepAgain"] == {"moved": True, "step": "mode"}
+    same_strategy = trusted["sameStrategy"]
+    assert same_strategy["prepared"]["ok"] is True
+    assert same_strategy["prepared"]["rendered"] is True
+    assert same_strategy["prepared"]["disabled"] is False
+    assert same_strategy["dispatched"] is True
+    assert same_strategy["state"]["selectedStrategy"] == "viral_product_swap"
+    assert same_strategy["attestation"]["id"] == checked_right_id
+    assert same_strategy["attestation"]["checked"] is True
+
+    model_pointer = trusted["model"]
+    assert model_pointer["legacyBefore"] == {
+        "mode": "real_seedance",
+        "provider": "runway",
+        "model": "seedance2_fast",
+    }
+    assert model_pointer["prepared"]["ok"] is True
+    assert model_pointer["prepared"]["rendered"] is True
+    assert model_pointer["prepared"]["disabled"] is False
+    assert model_pointer["prepared"]["value"] != "runway:seedance2_fast"
+    assert model_pointer["prepared"]["baselineNodes"] == {
+        "strategy": True,
+        "model": True,
+        "attestation": True,
+    }
+    assert model_pointer["dispatched"] is True
+    assert model_pointer["stability"] == {
+        "pointerSame": True,
+        "strategySame": True,
+        "modelSame": True,
+        "attestationSame": True,
+        "pointerConnected": True,
+        "strategyConnected": True,
+        "modelConnected": True,
+        "attestationConnected": True,
+    }
+    assert model_pointer["state"]["modelAdvisorMode"] == "true"
+    assert model_pointer["state"]["enabledModelCount"] == model_pointer["state"][
+        "modelCount"
+    ]
+    assert model_pointer["state"]["modelCount"] >= 3
+    assert model_pointer["state"]["checkedModel"] == model_pointer["prepared"][
+        "value"
+    ]
+    assert model_pointer["state"]["checkedModelCardSelected"] is True
+    assert model_pointer["state"]["legacy"] == model_pointer["legacyBefore"]
+    assert model_pointer["state"]["legacyBlocker"] == ""
+    assert model_pointer["state"]["legacyValidationMessage"] == ""
+
+    switch_strategy = trusted["switchStrategy"]
+    assert switch_strategy["prepared"]["ok"] is True
+    assert switch_strategy["prepared"]["rendered"] is True
+    assert switch_strategy["prepared"]["disabled"] is False
+    assert switch_strategy["dispatched"] is True
+    assert switch_strategy["state"]["selectedStrategy"] == "viral_rebuild"
+    assert switch_strategy["state"]["pressedStrategies"] == ["viral_rebuild"]
+    assert switch_strategy["reset"]["selectedStrategy"] == "viral_rebuild"
+    assert switch_strategy["reset"]["allUnchecked"] is True
+    assert switch_strategy["reset"]["attestationCount"] == len(COMMON_RIGHTS)
+
+    third_strategy = trusted["thirdStrategy"]
+    assert third_strategy["prepared"]["ok"] is True
+    assert third_strategy["prepared"]["rendered"] is True
+    assert third_strategy["prepared"]["disabled"] is False
+    assert third_strategy["dispatched"] is True
+    assert third_strategy["state"]["selectedStrategy"] == "viral_avatar_ugc"
+    assert third_strategy["state"]["pressedStrategies"] == ["viral_avatar_ugc"]
+
+    assert trusted["consentMediaStep"] == {"moved": True, "step": "media"}
+    source_boundary = trusted["sourceConsentBoundary"]
+    assert source_boundary["rightPrepared"]["ok"] is True
+    assert source_boundary["rightPrepared"]["rendered"] is True
+    assert source_boundary["rightPrepared"]["disabled"] is False
+    assert source_boundary["rightDispatched"] is True
+    source_right_id = source_boundary["rightPrepared"]["value"]
+    assert source_boundary["beforeChange"]["checkedAttestations"] == [
+        source_right_id
+    ]
+    assert source_boundary["beforeChange"]["selectedSourceIds"] == []
+    assert source_boundary["sourcePrepared"]["ok"] is True
+    assert source_boundary["sourcePrepared"]["rendered"] is True
+    assert source_boundary["sourcePrepared"]["disabled"] is False
+    assert source_boundary["sourcePrepared"]["value"] in SOURCE_MEDIA_IDS
+    assert source_boundary["sourceDispatched"] is True
+    assert source_boundary["afterChange"]["selectedSourceIds"] == [
+        source_boundary["sourcePrepared"]["value"]
+    ]
+    assert source_boundary["afterChange"]["checkedAttestations"] == []
+    assert source_boundary["afterChange"]["allAttestationsUnchecked"] is True
+
+    asset_boundary = trusted["assetConsentBoundary"]
+    assert asset_boundary["rightPrepared"]["ok"] is True
+    assert asset_boundary["rightPrepared"]["rendered"] is True
+    assert asset_boundary["rightPrepared"]["disabled"] is False
+    assert asset_boundary["rightDispatched"] is True
+    asset_right_id = asset_boundary["rightPrepared"]["value"]
+    assert asset_boundary["beforeChange"]["checkedAttestations"] == [
+        asset_right_id
+    ]
+    assert asset_boundary["beforeChange"]["checkedProductMediaIds"] == [
+        PRODUCT_MEDIA_ID
+    ]
+    assert asset_boundary["productMediaPrepared"]["ok"] is True
+    assert asset_boundary["productMediaPrepared"]["rendered"] is True
+    assert asset_boundary["productMediaPrepared"]["disabled"] is False
+    assert asset_boundary["productMediaPrepared"]["value"] == PRODUCT_MEDIA_ID
+    assert asset_boundary["productMediaDispatched"] is True
+    assert asset_boundary["afterChange"]["checkedProductMediaIds"] == []
+    assert asset_boundary["afterChange"]["checkedAttestations"] == []
+    assert asset_boundary["afterChange"]["allAttestationsUnchecked"] is True
+
+    observer_loop = trusted["observerLoop"]
+    assert observer_loop["baseline"]["allNodesPresent"] is True
+    assert observer_loop["baseline"]["strategyId"] == "viral_avatar_ugc"
+    assert observer_loop["baseline"]["modelValue"]
+    assert observer_loop["baseline"]["attestationId"] in [
+        *COMMON_RIGHTS,
+        "avatar_likeness_consent_confirmed",
+    ]
+    assert 1 <= observer_loop["countAfterSettling"] <= 3
+    assert (
+        observer_loop["countAfterQuietWindow"]
+        == observer_loop["countAfterSettling"]
+    )
+    assert (
+        observer_loop["callbacksAfterQuietWindow"]
+        == observer_loop["callbacksAfterSettling"]
+    )
+    assert (
+        observer_loop["scheduledAfterQuietWindow"]
+        == observer_loop["scheduledAfterSettling"]
+    )
+    assert observer_loop["queuedAfterQuietWindow"] is False
+    stable_nodes = {
+        "strategySame": True,
+        "modelSame": True,
+        "attestationSame": True,
+        "strategyConnected": True,
+        "modelConnected": True,
+        "attestationConnected": True,
+    }
+    assert observer_loop["identityAfterSettling"] == stable_nodes
+    assert observer_loop["identityAfterQuietWindow"] == stable_nodes
+
+    finish = trusted["finish"]
+    pointer_events = finish["trustedPointerEvents"]
+    assert pointer_events
+    assert all(event["isTrusted"] is True for event in pointer_events)
+    click_kinds = [
+        event["kind"] for event in pointer_events if event["type"] == "click"
+    ]
+    assert click_kinds.count("strategy") == 4
+    assert click_kinds.count("attestation") == 3
+    assert click_kinds.count("model") == 1
+    assert click_kinds.count("source") == 1
+    assert click_kinds.count("product_media") == 1
+    assert [
+        event["value"]
+        for event in pointer_events
+        if event["type"] == "click" and event["kind"] == "strategy"
+    ] == [
+        "viral_product_swap",
+        "viral_product_swap",
+        "viral_rebuild",
+        "viral_avatar_ugc",
+    ]
+    assert finish["browserErrors"] == []
+    assert finish["nonCatalogApiCalls"] == 0
+    assert finish["preflightClicks"] == 0
+    assert finish["submitCalls"] == 0
 
     assert result["modelCatalogCalls"] == 1
     assert result["strategyCatalogCalls"] == 1
