@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 
 import pytest
 
@@ -28,6 +29,7 @@ def _dump_files_overview_harness(
 ) -> str:
     try:
         from websockets.sync.client import connect
+        from websockets.exceptions import InvalidHandshake
     except ImportError:
         pytest.skip("websockets is required for deterministic Files geometry QA")
     candidates = [
@@ -82,11 +84,30 @@ def _dump_files_overview_harness(
                 break
         assert browser_endpoint, "Chrome DevTools endpoint did not become ready"
 
-        with connect(
-            browser_endpoint,
-            origin="http://localhost",
-            open_timeout=5,
-        ) as websocket:
+        websocket = None
+        connect_deadline = time.monotonic() + 30
+        last_connect_error: BaseException | None = None
+        while websocket is None:
+            remaining = connect_deadline - time.monotonic()
+            if remaining <= 0:
+                raise AssertionError(
+                    "Chrome DevTools WebSocket did not accept a connection within 30 seconds",
+                ) from last_connect_error
+            try:
+                websocket = connect(
+                    browser_endpoint,
+                    origin="http://localhost",
+                    open_timeout=min(5, remaining),
+                )
+            except (InvalidHandshake, OSError, TimeoutError) as exc:
+                last_connect_error = exc
+                if process.poll() is not None:
+                    raise AssertionError(
+                        f"Chrome exited before DevTools accepted a connection: {process.returncode}",
+                    ) from exc
+                time.sleep(min(0.25, max(remaining, 0)))
+
+        with websocket:
             request_id = 0
             events: list[dict[str, object]] = []
 
