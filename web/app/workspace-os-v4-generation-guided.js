@@ -83,6 +83,9 @@ const runtime = {
   externalSelectionActive: false,
   repeatSettings: null,
   pendingRepeatSettings: null,
+  strategyCatalog: null,
+  strategyCatalogStatus: "idle",
+  strategyCatalogRequest: 0,
   strategyState: null,
   pendingStrategyRestore: null,
   strategyAssetPage: null,
@@ -2580,12 +2583,6 @@ function renderModelAdvisor(form) {
 
 async function loadModelCatalog(form) {
   if (runtime.catalog) {
-    if (!runtime.strategyState) {
-      runtime.strategyState = createGenerationStrategyViewState(
-        extractedStrategyCatalog(runtime.catalog),
-      );
-    }
-    renderStrategyView(form);
     renderModelAdvisor(form);
     return;
   }
@@ -2610,26 +2607,58 @@ async function loadModelCatalog(form) {
     runtime.catalogSignals = response?.signals || response?.recommendation_context || null;
     runtime.catalogStatus = "ready";
     runtime.recommendationState = null;
-    runtime.strategyState = createGenerationStrategyViewState(
-      extractedStrategyCatalog(catalog),
-    );
     window.ContentEngineWorkspaceRuntime?.setGenerationModelCatalog?.(catalog);
     const pending = runtime.pendingRepeatSettings;
     runtime.pendingRepeatSettings = null;
     if (!pending || pending.form !== form || !applyRepeatedSettings(form, pending.detail)) {
       renderModelAdvisor(form);
     }
+  } catch {
+    if (request !== runtime.catalogRequest || !form.isConnected) return;
+    runtime.catalogStatus = "error";
+    renderModelAdvisor(form);
+  }
+}
+
+async function loadStrategyCatalog(form) {
+  if (runtime.strategyCatalog) {
+    if (!runtime.strategyState) {
+      runtime.strategyState = createGenerationStrategyViewState(
+        extractedStrategyCatalog(runtime.strategyCatalog),
+      );
+    }
+    renderStrategyView(form);
+    return;
+  }
+  const request = ++runtime.strategyCatalogRequest;
+  runtime.strategyCatalogStatus = "loading";
+  try {
+    const api = window.ContentEngineWorkspaceRuntime?.getApi?.();
+    if (!api || typeof api.generationStrategyCatalog !== "function") {
+      throw new Error("generation_strategy_catalog_unavailable");
+    }
+    const response = await api.generationStrategyCatalog();
+    const catalog = response?.catalog;
+    if (request !== runtime.strategyCatalogRequest || !form.isConnected) return;
+    const strategyState = createGenerationStrategyViewState(
+      extractedStrategyCatalog(catalog),
+    );
+    if (strategyState.catalog_status !== "ready") {
+      throw new Error("generation_strategy_catalog_invalid");
+    }
+    runtime.strategyCatalog = catalog;
+    runtime.strategyCatalogStatus = "ready";
+    runtime.strategyState = strategyState;
     renderStrategyView(form);
     const pendingStrategy = runtime.pendingStrategyRestore;
     if (pendingStrategy?.form === form) {
       applyStrategyRestore(form, pendingStrategy.values);
     }
   } catch {
-    if (request !== runtime.catalogRequest || !form.isConnected) return;
-    runtime.catalogStatus = "error";
+    if (request !== runtime.strategyCatalogRequest || !form.isConnected) return;
+    runtime.strategyCatalogStatus = "error";
     runtime.strategyState = createGenerationStrategyViewState(null);
     renderStrategyView(form);
-    renderModelAdvisor(form);
   }
 }
 
@@ -3703,6 +3732,7 @@ function setupForm(form) {
   form.dataset.ceV4GenerationMaxVisited = String(restoredMax);
   setStep(form, restoredIndex);
   scheduleSync(form);
+  void loadStrategyCatalog(form);
   void loadModelCatalog(form);
   void loadGenerationStrategyAssets(form);
   return shell;
@@ -3792,9 +3822,6 @@ window.ContentEngineGenerationGuidedV4 = Object.freeze({
     runtime.catalog = catalog;
     runtime.catalogStatus = "ready";
     runtime.recommendationState = null;
-    runtime.strategyState = createGenerationStrategyViewState(
-      extractedStrategyCatalog(catalog),
-    );
     window.ContentEngineWorkspaceRuntime?.setGenerationModelCatalog?.(catalog);
     if (runtime.form?.isConnected) {
       const pending = runtime.pendingRepeatSettings;
@@ -3802,6 +3829,18 @@ window.ContentEngineGenerationGuidedV4 = Object.freeze({
       if (!pending || pending.form !== runtime.form || !applyRepeatedSettings(runtime.form, pending.detail)) {
         renderModelAdvisor(runtime.form);
       }
+    }
+    return true;
+  },
+  setStrategyCatalog(catalog) {
+    const strategyState = createGenerationStrategyViewState(
+      extractedStrategyCatalog(catalog),
+    );
+    if (strategyState.catalog_status !== "ready") return false;
+    runtime.strategyCatalog = catalog;
+    runtime.strategyCatalogStatus = "ready";
+    runtime.strategyState = strategyState;
+    if (runtime.form?.isConnected) {
       renderStrategyView(runtime.form);
       const pendingStrategy = runtime.pendingStrategyRestore;
       if (pendingStrategy?.form === runtime.form) {
@@ -3817,6 +3856,9 @@ window.ContentEngineGenerationGuidedV4 = Object.freeze({
 });
 
 window.addEventListener("contentengine:workspace-runtime-ready", () => {
+  if (runtime.form?.isConnected && !runtime.strategyCatalog) {
+    void loadStrategyCatalog(runtime.form);
+  }
   if (runtime.form?.isConnected && !runtime.catalog) void loadModelCatalog(runtime.form);
 });
 

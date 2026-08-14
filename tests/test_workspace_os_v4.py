@@ -29,7 +29,11 @@ def test_desktop_v4_6_is_the_only_eager_workspace_shell() -> None:
     assert "v4." + "28" not in INDEX
     assert "os4." + "28" not in INDEX
     assert '<link rel="stylesheet" href="./workspace-os-v4.css?v=20260814.os4.41" />' in INDEX
-    assert '<script type="module" src="./workspace-os-v4-loader.js?v=20260814.os4.41"></script>' in INDEX
+    assert (
+        '<script type="module" '
+        'src="./workspace-os-v4-loader.js?v=20260814.os4.41.strategy-catalog-1">'
+        '</script>' in INDEX
+    )
     assert INDEX.index('./workspace-os-v4-loader.js') < INDEX.index('./app.js')
     assert INDEX.index('./app.js') < INDEX.index('./workspace-build-guard.js')
 
@@ -39,8 +43,8 @@ def test_desktop_v4_6_is_the_only_eager_workspace_shell() -> None:
         flags=re.MULTILINE,
     )
     assert active_modules == [
-        './workspace-os-v4-loader.js?v=20260814.os4.41',
-        './app.js?v=20260814.os4.41',
+        './workspace-os-v4-loader.js?v=20260814.os4.41.strategy-catalog-1',
+        './app.js?v=20260814.os4.41.strategy-catalog-1',
         './workspace-build-guard.js?v=20260814.os4.41',
     ]
 
@@ -62,7 +66,7 @@ def test_route_loader_uses_current_v4_6_guided_assets_and_the_dom_patch() -> Non
         'workspace-os-v4-finder.css?v=${BUILD}',
         'workspace-os-v4-finder.js?v=${BUILD}',
         'workspace-os-v4-generation-guided.css?v=${BUILD}',
-        'workspace-os-v4-generation-guided.js?v=${BUILD}',
+        'workspace-os-v4-generation-guided.js?v=${GENERATION_HOTFIX_BUILD}',
         'workspace-os-v4-review-guided.css?v=${BUILD}',
         'workspace-os-v4-review-guided.js?v=${BUILD}',
         'match: (route) => route === "/workspace/board"',

@@ -141,7 +141,8 @@
     <script>
       location.hash = "#/workspace/generation?project_id=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
       window.__generationStrategyFixture = {
-        catalogCalls: 0,
+        modelCatalogCalls: 0,
+        strategyCatalogCalls: 0,
         assetCandidateCalls: 0,
         nonCatalogApiCalls: 0,
         preflightClicks: 0,
@@ -211,18 +212,25 @@
           lastFrameSupported: model.supportsLastFrame,
         };
       });
-      const catalog = {
+      const modelCatalog = {
         ...rawModels,
         models,
+      };
+      const strategyCatalog = {
         strategyCatalogVersion: enabledStrategies.version,
         strategyRecipeVersion: enabledStrategies.recipe_version,
         strategyPricingVersion: enabledStrategies.pricing_version,
         strategies: enabledStrategies.strategies,
       };
-      const catalogApi = async () => {
-        window.__generationStrategyFixture.catalogCalls += 1;
+      const modelCatalogApi = async () => {
+        window.__generationStrategyFixture.modelCatalogCalls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        throw new Error("fixture_model_catalog_unavailable");
+      };
+      const strategyCatalogApi = async () => {
+        window.__generationStrategyFixture.strategyCatalogCalls += 1;
         await new Promise((resolve) => setTimeout(resolve, 25));
-        return { ok: true, catalog };
+        return { ok: true, catalog: strategyCatalog };
       };
       const assetCursor = (id, at) => ({ id, at });
       const strategyBlocking = () => ({
@@ -329,7 +337,8 @@
         };
       };
       const api = new Proxy({
-        generationModelCatalog: catalogApi,
+        generationModelCatalog: modelCatalogApi,
+        generationStrategyCatalog: strategyCatalogApi,
         generationStrategyAssetCandidates: assetCandidatesApi,
       }, {
         get(target, property) {
@@ -360,6 +369,8 @@
         (
           form.querySelectorAll("[data-generation-strategy-card]").length !== 3
           || window.__generationStrategyFixture.assetCandidateCalls < 1
+          || window.__generationStrategyFixture.modelCatalogCalls < 1
+          || window.__generationStrategyFixture.strategyCatalogCalls < 1
         )
         && performance.now() < deadline
       ) {
@@ -380,8 +391,17 @@
         .map((button) => button.dataset.strategyId);
 
       const initialCards = cardIds();
+      const strategyCards = [...form.querySelectorAll("[data-generation-strategy-card]")]
+        .filter(cardIsRendered);
+      const strategyButtons = [...form.querySelectorAll('[data-generation-strategy-action="SELECT"]')];
       const initial = {
         cards: initialCards,
+        labels: strategyCards.map((card) => card.querySelector("h3")?.textContent?.trim() || ""),
+        enabled: strategyCards.map((card) => card.dataset.generationStrategyEnabled),
+        buttonCount: strategyButtons.length,
+        enabledButtonCount: strategyButtons.filter((button) => !button.disabled).length,
+        catalogStatus: form.querySelector("[data-generation-strategy-status]")?.dataset.generationStrategyStatus || "",
+        invalidCatalogCount: form.querySelectorAll('[data-generation-strategy-status="invalid"]').length,
         selectedCards: selectedCardIds(),
         pressedCards: pressedCardIds(),
         selectedSummary: guided.getStrategySummary(),
@@ -389,12 +409,14 @@
         dryRunSelected: form.elements.generation_mode.value === "mock",
         originalModePreserved: form.elements.generation_mode === window.__generationStrategyFixture.originalMode,
         modelAdvisorHidden: form.querySelector("[data-ce-v4-model-advisor]")?.hidden === true,
+        modelAdvisorStatus: form.querySelector("[data-ce-v4-model-advisor-status]")?.dataset.state || "",
+        modelAdvisorCards: form.querySelectorAll("[data-ce-v4-model-grid] .ce-v4-model-card").length,
         fieldsetHidden: form.querySelector("#generation-strategy-assets")?.hidden === true,
         rootFits: rootFits(),
       };
 
-      guided.setModelCatalog({
-        ...catalog,
+      guided.setStrategyCatalog({
+        ...strategyCatalog,
         strategies: disabledStrategies.strategies,
       });
       await settle();
@@ -409,7 +431,8 @@
         mode: form.elements.generation_mode.value,
       };
 
-      guided.setModelCatalog(catalog);
+      guided.setStrategyCatalog(strategyCatalog);
+      guided.setModelCatalog(modelCatalog);
       await settle();
 
       const targetHeights = [];
@@ -545,12 +568,12 @@
       const result = document.querySelector("#fixture-result");
       result.textContent = JSON.stringify({
         catalogProjection: {
-          version: catalog.strategyCatalogVersion,
-          recipeVersion: catalog.strategyRecipeVersion,
-          pricingVersion: catalog.strategyPricingVersion,
-          exactThreeRows: JSON.stringify(catalog.strategies) === JSON.stringify(enabledStrategies.strategies),
-          ids: catalog.strategies.map((entry) => entry.strategy_id),
-          enabled: catalog.strategies.map((entry) => entry.enabled),
+          version: strategyCatalog.strategyCatalogVersion,
+          recipeVersion: strategyCatalog.strategyRecipeVersion,
+          pricingVersion: strategyCatalog.strategyPricingVersion,
+          exactThreeRows: JSON.stringify(strategyCatalog.strategies) === JSON.stringify(enabledStrategies.strategies),
+          ids: strategyCatalog.strategies.map((entry) => entry.strategy_id),
+          enabled: strategyCatalog.strategies.map((entry) => entry.enabled),
         },
         initial,
         disabledAttempt,
@@ -560,7 +583,8 @@
         minimumTouchTarget: targetHeights.length ? Math.min(...targetHeights) : 0,
         touchTargetCount: targetHeights.length,
         geometryChecks,
-        catalogCalls: window.__generationStrategyFixture.catalogCalls,
+        modelCatalogCalls: window.__generationStrategyFixture.modelCatalogCalls,
+        strategyCatalogCalls: window.__generationStrategyFixture.strategyCatalogCalls,
         assetCandidateCalls: window.__generationStrategyFixture.assetCandidateCalls,
         nonCatalogApiCalls: window.__generationStrategyFixture.nonCatalogApiCalls,
         preflightClicks: window.__generationStrategyFixture.preflightClicks,
