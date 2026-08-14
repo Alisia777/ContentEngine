@@ -204,6 +204,9 @@ def test_strategy_harness_is_server_catalog_driven_and_uses_the_portal_form() ->
     assert "generationStrategyAssetCandidates" in SUBJECT
     assert "generationStrategyCatalog" in SUBJECT
     assert "async function loadStrategyCatalog(form)" in SUBJECT
+    assert 'runtime.strategyCatalogStatus === "loading"' in SUBJECT
+    assert 'runtime.catalogStatus === "loading"' in SUBJECT
+    assert 'runtime.strategyAssetStatus === "loading"' in SUBJECT
     assert 'model.model === "seedance2_fast"' not in SUBJECT
     assert "const proxyModel" not in SUBJECT
     assert 'node.id === "generation-strategy-assets"' in SUBJECT
@@ -227,6 +230,7 @@ def test_strategy_harness_is_server_catalog_driven_and_uses_the_portal_form() ->
     assert "generationModelCatalog: modelCatalogApi" in HARNESS_SOURCE
     assert "generationStrategyCatalog: strategyCatalogApi" in HARNESS_SOURCE
     assert 'throw new Error("fixture_model_catalog_unavailable")' in HARNESS_SOURCE
+    assert "remount < 25" in HARNESS_SOURCE
     assert "generationStrategyAssetCandidates: assetCandidatesApi" in HARNESS_SOURCE
     assert HARNESS_SOURCE.count('id="mock-batch-form"') == 1
     assert "requestSubmit" not in HARNESS_SOURCE

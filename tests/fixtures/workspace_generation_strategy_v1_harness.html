@@ -363,6 +363,7 @@
       window.__generationStrategyFixture.mount();
       const form = document.querySelector("#mock-batch-form");
       const guided = window.ContentEngineGenerationGuidedV4;
+      for (let remount = 0; remount < 25; remount += 1) guided.mount();
       const settle = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const deadline = performance.now() + 2_500;
       while (

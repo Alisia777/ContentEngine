@@ -3,7 +3,7 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260814.os4.41.strategy-catalog-1";
+} from "./supabase-api.js?v=20260814.os4.41.strategy-catalog-2";
 import {
   adminPeopleMarkup,
   normalizeAdminSnapshot,
