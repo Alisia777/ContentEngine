@@ -16,6 +16,12 @@ ADAPTER = APP / "generation-strategy-intake-v3.js"
 CSS = APP / "generation-strategy-intake-v2.css"
 CSS_OVERRIDE = APP / "generation-strategy-intake-v3.css"
 MIGRATION = ROOT / "supabase" / "migrations" / "202608140001_generation_intake_v2.sql"
+NAMESPACE_MIGRATION = (
+    ROOT
+    / "supabase"
+    / "migrations"
+    / "202608140002_generation_intake_v2_rpc_namespace.sql"
+)
 LOADER = APP / "workspace-os-v4-loader.js"
 
 
@@ -29,7 +35,13 @@ def run_node(expression: str) -> dict:
       console.log(JSON.stringify(result));
     """
     completed = subprocess.run(
-        [node, "--experimental-default-type=module", "--input-type=module", "-e", script],
+        [
+            node,
+            "--experimental-default-type=module",
+            "--input-type=module",
+            "-e",
+            script,
+        ],
         check=True,
         capture_output=True,
         text=True,
@@ -160,11 +172,11 @@ def test_invalid_cross_strategy_fields_fail_closed() -> None:
     assert result["badUrl"] == ""
 
 
-def test_dom_adapter_preserves_paid_authority_and_uses_existing_strategy_buttons() -> None:
+def test_dom_adapter_preserves_paid_authority_and_uses_preparation_rpcs() -> None:
     script = ADAPTER.read_text(encoding="utf-8")
     for marker in (
         'const RPC_SOURCE = "contentengine_register_exact_youtube_source"',
-        'const RPC_INTAKE = "creator_save_generation_intake_v2"',
+        'const RPC_INTAKE = "contentengine_save_generation_intake_v2"',
         'data-generation-strategy-action="SELECT"',
         'strategy?.form_kind !== "full"',
         'generation_intake_preparation_recipe',
@@ -186,6 +198,7 @@ def test_dom_adapter_preserves_paid_authority_and_uses_existing_strategy_buttons
 
 def test_compact_intake_server_contract_is_append_only_and_non_paid() -> None:
     sql = MIGRATION.read_text(encoding="utf-8")
+    namespace_sql = NAMESPACE_MIGRATION.read_text(encoding="utf-8")
     for marker in (
         "create table if not exists content_factory.generation_intakes_v2",
         "strategy_id in ('copy_video', 'avatar_video')",
@@ -205,8 +218,17 @@ def test_compact_intake_server_contract_is_append_only_and_non_paid() -> None:
         "source_media_ready_for_preparation",
     ):
         assert marker in sql
+    for marker in (
+        "rename to contentengine_save_generation_intake_v2",
+        "public.contentengine_save_generation_intake_v2(jsonb)",
+        "to authenticated, service_role",
+        "never reserves budget or starts a provider call",
+    ):
+        assert marker in namespace_sql
     assert "http_post" not in sql.lower()
     assert "net.http" not in sql.lower()
+    assert "http_post" not in namespace_sql.lower()
+    assert "net.http" not in namespace_sql.lower()
 
 
 def test_styles_are_responsive_and_reduced_motion_safe() -> None:
@@ -220,7 +242,6 @@ def test_styles_are_responsive_and_reduced_motion_safe() -> None:
     assert 'data-generation-intake-display="compact"' in css
     assert '> :not(.generation-intake-v2)' in override
     assert 'data-state="source-ready"' in override
-
 
 
 def test_generation_route_loader_loads_the_new_intake_after_guided_form() -> None:
