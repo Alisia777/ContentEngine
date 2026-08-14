@@ -220,11 +220,20 @@ def test_output_retry_never_creates_a_second_paid_provider_task() -> None:
     generation_query = worker.split("const generationQuery", 1)[1].split(
         "const researchQuery", 1
     )[0]
-    generation_target = worker.split('kind: "generation",', 1)[1].split(
-        "})),", 1
+    strategy_target = worker.split(
+        "...dispatchStrategyRows.map((row): DispatchTarget => ({", 1
+    )[1].split(
+        "...dispatchGenerationRows.map((row): DispatchTarget => ({", 1
+    )[0]
+    generation_target = worker.split(
+        "...dispatchGenerationRows.map((row): DispatchTarget => ({", 1
+    )[1].split(
+        "...dispatchResearchRows.map((row): DispatchTarget => ({", 1
     )[0]
     assert '.in("status", ["starting", "submitted", "processing"])' in (
         generation_query
     )
+    assert 'action: "strategy_status"' in strategy_target
+    assert '"action": "start"' not in strategy_target
     assert 'action: "status"' in generation_target
     assert '"action": "start"' not in generation_target

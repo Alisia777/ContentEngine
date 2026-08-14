@@ -291,12 +291,12 @@ def test_optional_reference_becomes_a_readiness_step_only_when_started() -> None
         """
     )
     assert result["absent"]["ready"] is True
-    assert result["absent"]["total"] == 7
+    assert result["absent"]["total"] == 8
     assert result["incomplete"]["ready"] is False
-    assert result["incomplete"]["total"] == 8
+    assert result["incomplete"]["total"] == 9
     assert result["incomplete"]["next"]["key"] == "video_reference"
     assert result["complete"]["ready"] is True
-    assert result["complete"]["total"] == 8
+    assert result["complete"]["total"] == 9
 
 
 def test_append_only_lineage_and_paid_job_binding_are_server_enforced() -> None:
