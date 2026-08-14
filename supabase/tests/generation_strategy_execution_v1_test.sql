@@ -705,7 +705,7 @@ select ok(
 
 select ok(
   position(
-    '''attestations'', reset_attestations_value' in pg_get_functiondef(
+    '''{attestations}'', reset_attestations_value' in pg_get_functiondef(
       'public.creator_generation_strategy_repeat_data(jsonb)'::regprocedure
     )
   ) > 0

@@ -444,7 +444,8 @@ select ok(
   position(
     'spec_id_value uuid := extensions.gen_random_uuid()' in
     pg_catalog.pg_get_functiondef(
-      'public.creator_prepare_generation_spec(jsonb)'::regprocedure
+      'content_factory_private.creator_prepare_generation_spec_pre_project_v49(jsonb)'
+        ::regprocedure
     )
   ) > 0
   and position(

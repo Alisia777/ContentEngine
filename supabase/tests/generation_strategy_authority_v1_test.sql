@@ -99,15 +99,23 @@ select ok(
     'public.system_resolve_and_bind_generation_strategy(jsonb)', 'execute'
   )
   and position(
-    '''browser_hashes_accepted'', false' in
+    'system_resolve_and_bind_generation_strategy_pre_execution_v1' in
     pg_get_functiondef(
       'public.system_resolve_and_bind_generation_strategy(jsonb)'::regprocedure
     )
   ) > 0
   and position(
+    '''browser_hashes_accepted'', false' in
+    pg_get_functiondef(
+      'public.system_resolve_and_bind_generation_strategy_pre_execution_v1(jsonb)'
+        ::regprocedure
+    )
+  ) > 0
+  and position(
     'research_exact_youtube_media_attachments' in
     pg_get_functiondef(
-      'public.system_resolve_and_bind_generation_strategy(jsonb)'::regprocedure
+      'public.system_resolve_and_bind_generation_strategy_pre_execution_v1(jsonb)'
+        ::regprocedure
     )
   ) > 0,
   'browser-safe wrapper is service-only and resolves attachment/hash authority'
@@ -245,23 +253,29 @@ select ok(
   position(
     'strategy_id_value = ''all''' in
     pg_get_functiondef(
-      'public.creator_generation_archive(jsonb)'::regprocedure
+      'public.creator_generation_archive_pre_execution_v1(jsonb)'::regprocedure
     )
   ) > 0
   and position(
     'strategy_snapshot.strategy_id = strategy_id_value' in
     pg_get_functiondef(
-      'public.creator_generation_archive(jsonb)'::regprocedure
+      'public.creator_generation_archive_pre_execution_v1(jsonb)'::regprocedure
     )
   ) > 0
   and position(
     'team_scope or batch.created_by = user_id' in
     pg_get_functiondef(
-      'public.creator_generation_archive(jsonb)'::regprocedure
+      'public.creator_generation_archive_pre_execution_v1(jsonb)'::regprocedure
     )
   ) > 0
   and position(
     'batch.archived_at is null' in
+    pg_get_functiondef(
+      'public.creator_generation_archive_pre_execution_v1(jsonb)'::regprocedure
+    )
+  ) > 0
+  and position(
+    'creator_generation_archive_pre_execution_v1' in
     pg_get_functiondef(
       'public.creator_generation_archive(jsonb)'::regprocedure
     )
@@ -271,18 +285,36 @@ select ok(
 
 select ok(
   position(
-    '''generation_strategy_start_path_not_integrated''' in
+    'generation_strategy_execution_chain_installed()' in
     pg_get_functiondef(
       'public.system_generation_strategy_provider_policy(jsonb)'::regprocedure
     )
   ) > 0
   and position(
-    '''launch_enabled'', false' in
+    'receipt_unconsumed_value' in
+    pg_get_functiondef(
+      'public.system_generation_strategy_provider_policy(jsonb)'::regprocedure
+    )
+  ) > 0
+  and position(
+    'launch_enabled_value := binding_current_value and approved_spec_value' in
+    pg_get_functiondef(
+      'public.system_generation_strategy_provider_policy(jsonb)'::regprocedure
+    )
+  ) > 0
+  and position(
+    '''launch_enabled'', launch_enabled_value' in
+    pg_get_functiondef(
+      'public.system_generation_strategy_provider_policy(jsonb)'::regprocedure
+    )
+  ) > 0
+  and position(
+    '''provider_call_started'', false' in
     pg_get_functiondef(
       'public.system_generation_strategy_provider_policy(jsonb)'::regprocedure
     )
   ) > 0,
-  'intermediate provider policy cannot make the UI executable by itself'
+  'final provider policy requires exact current single-use server authority'
 );
 
 select * from finish();
