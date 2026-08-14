@@ -72,16 +72,21 @@ def test_generation_worker_only_retrieves_existing_runway_tasks() -> None:
     assert "reconcileStaleStartingJobs" in source
     assert 'reason_code: "provider_create_state_stale"' in source
     assert 'row.status === "submitted" || row.status === "processing"' in source
-    generation_target = source.split('kind: "generation",', 1)[1].split("})),", 1)[0]
-    assert 'action: "status",' in generation_target
-    assert 'project_id: row.project_id as string' in generation_target
+    strategy_target = source.split('kind: "generation",', 1)[1].split("})),", 1)[0]
+    assert 'action: "strategy_status"' in strategy_target
+    assert 'phase: row.phase' in strategy_target
+    assert 'strategy: true' in strategy_target
+    legacy_target = source.split('action: "status",', 1)[1].split("})),", 1)[0]
+    assert 'project_id: row.project_id as string' in legacy_target
     assert "creator-generate" in source
     assert "image_to_video" not in source
     assert '"action": "start"' not in source
     assert '"action": "reconcile"' not in source
     # Starting jobs only cross the database reconciliation marker; the rows
     # mapped to creator-generate remain submitted/processing provider tasks.
-    assert "staleStartingRows" not in generation_target
+    assert "staleStartingRows" not in strategy_target
+    assert "generation_strategy_start_claims" in source
+    assert "!strategyClaimJobIds.has(row.id)" in source
     assert "SUPABASE_SERVICE_ROLE_KEY" in source
     assert 'authorization: `Bearer ${serviceKey}`' in source
     assert "apikey: serviceKey" in source

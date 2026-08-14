@@ -16,6 +16,12 @@ const PORTAL_THEME_IDS = new Set(PORTAL_THEMES.map((theme) => theme.id));
 const GENERATION_PERIODS = new Set(["week", "4w", "12w", "all"]);
 const GENERATION_STATUS_GROUPS = new Set(["all", "active", "ready", "issue"]);
 const GENERATION_PROVIDERS = new Set(["all", "runway", "google"]);
+const GENERATION_STRATEGIES = new Set([
+  "all",
+  "viral_avatar_ugc",
+  "viral_product_swap",
+  "viral_rebuild",
+]);
 const GENERATION_CONTENT_KINDS = new Set(["all", "video", "photo"]);
 const GENERATION_SELECTION_SOURCES = new Set([
   "all",
@@ -96,6 +102,9 @@ export function normalizeGenerationFilters(filters = {}) {
   const status = String(filters.status || "all").toLowerCase();
   const provider = String(filters.provider || "all").trim().toLowerCase();
   const requestedModel = String(filters.model || "all").trim().toLowerCase();
+  const strategyId = String(
+    filters.strategyId || filters.strategy_id || "all",
+  ).trim().toLowerCase();
   const contentKind = String(filters.contentKind || filters.content_kind || "all").trim().toLowerCase();
   const selectionSource = String(filters.selectionSource || filters.selection_source || "all").trim().toLowerCase();
   const qualityStatus = String(filters.qualityStatus || filters.quality_status || "all").trim().toLowerCase();
@@ -111,6 +120,7 @@ export function normalizeGenerationFilters(filters = {}) {
     model: requestedModel === "all" || GENERATION_MODEL_FILTER_PATTERN.test(requestedModel)
       ? requestedModel
       : "all",
+    strategyId: GENERATION_STRATEGIES.has(strategyId) ? strategyId : "all",
     contentKind: GENERATION_CONTENT_KINDS.has(contentKind) ? contentKind : "all",
     selectionSource: GENERATION_SELECTION_SOURCES.has(selectionSource) ? selectionSource : "all",
     qualityStatus: GENERATION_QUALITY_STATUSES.has(qualityStatus) ? qualityStatus : "all",
@@ -194,6 +204,11 @@ export function filterGenerationBatches(items, filters = {}, nowMs = Date.now())
     const identity = generationArchiveIdentity(item);
     if (normalized.provider !== "all" && identity.provider !== normalized.provider) return false;
     if (normalized.model !== "all" && identity.model !== normalized.model) return false;
+    if (
+      normalized.strategyId !== "all"
+      && String(item?.strategy_id || "").trim().toLowerCase()
+        !== normalized.strategyId
+    ) return false;
     if (normalized.contentKind !== "all" && identity.contentKind !== normalized.contentKind) return false;
     if (normalized.selectionSource !== "all" && identity.selectionSource !== normalized.selectionSource) return false;
     if (normalized.qualityStatus !== "all" && identity.qualityStatus !== normalized.qualityStatus) return false;
@@ -211,6 +226,7 @@ export function filterGenerationBatches(items, filters = {}, nowMs = Date.now())
       identity.provider,
       identity.model,
       identity.modelPublicLabel,
+      item?.strategy_id,
     ].filter(Boolean).join(" ")).includes(query);
   });
 }

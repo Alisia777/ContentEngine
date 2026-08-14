@@ -34,6 +34,7 @@ export const RPC = Object.freeze({
   generationRepairPolicy: "creator_generation_repair_policy",
   generationSpecStatus: "creator_generation_spec_status",
   prepareGenerationSpec: "creator_prepare_generation_spec",
+  prepareGenerationStrategySpec: "creator_prepare_generation_strategy_spec",
   controlGenerationSpec: "creator_control_generation_spec",
   generationSpecEffectivePolicy: "creator_generation_spec_effective_policy",
   bindGenerationSpecAiResearch:
@@ -49,6 +50,9 @@ export const RPC = Object.freeze({
   generationVideoReferenceLineage:
     "contentengine_generation_video_reference_lineage",
   generationArchive: "creator_generation_archive",
+  generationStrategyRepeatData: "creator_generation_strategy_repeat_data",
+  generationStrategyAssetCandidates:
+    "creator_generation_strategy_asset_candidates",
   archiveGenerationBatch: "creator_archive_generation_batch",
   workspaceBrowser: "creator_workspace_browser",
   createWorkspaceFolder: "creator_create_workspace_folder",
@@ -278,6 +282,233 @@ const RESEARCH_SOURCE_STRUCTURAL_SIGNAL_PATTERN =
   /^[a-z][a-z0-9_]*\.[a-z][a-z0-9_.]*$/u;
 
 const REAL_GENERATION_FUNCTION = "creator-generate";
+const GENERATION_STRATEGY_EDGE_ACTIONS = Object.freeze(new Set([
+  "strategy_media_probe",
+  "strategy_bind",
+  "strategy_preflight",
+  "strategy_start",
+  "strategy_status",
+]));
+const GENERATION_STRATEGY_IDEMPOTENT_ACTIONS = Object.freeze(new Set([
+  "strategy_media_probe",
+  "strategy_bind",
+  "strategy_preflight",
+  "strategy_start",
+]));
+const GENERATION_STRATEGY_IDEMPOTENCY_PATTERN =
+  /^[A-Za-z0-9._:-]{8,180}$/u;
+const GENERATION_STRATEGY_UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
+const GENERATION_STRATEGY_SHA256_PATTERN = /^[0-9a-f]{64}$/u;
+const GENERATION_STRATEGY_REQUEST_KEYS = Object.freeze({
+  strategy_media_probe: Object.freeze([
+    "action",
+    "organization_id",
+    "project_id",
+    "media_id",
+    "confirmation",
+    "idempotency_key",
+  ]),
+  strategy_bind: Object.freeze([
+    "action",
+    "organization_id",
+    "project_id",
+    "spec_id",
+    "spec_version",
+    "spec_hash",
+    "generation_strategy",
+    "confirmation",
+    "idempotency_key",
+  ]),
+  strategy_preflight: Object.freeze([
+    "action",
+    "organization_id",
+    "project_id",
+    "spec_id",
+    "spec_version",
+    "spec_hash",
+    "binding_id",
+    "binding_hash",
+    "selection_hash",
+    "price_hash",
+    "spend_confirmation",
+    "confirmation",
+    "idempotency_key",
+  ]),
+  strategy_start: Object.freeze([
+    "action",
+    "organization_id",
+    "project_id",
+    "spec_id",
+    "spec_version",
+    "spec_hash",
+    "binding_id",
+    "binding_hash",
+    "selection_hash",
+    "price_hash",
+    "spend_confirmation",
+    "confirmation",
+    "receipt_id",
+    "receipt_hash",
+    "campaign_id",
+    "idempotency_key",
+  ]),
+  strategy_status: Object.freeze([
+    "action",
+    "organization_id",
+    "project_id",
+    "generation_job_id",
+  ]),
+});
+const GENERATION_STRATEGY_RESPONSE_CONTRACTS = Object.freeze({
+  strategy_media_probe: Object.freeze({
+    version: "generation-strategy-media-probe-response-v1",
+    keys: Object.freeze([
+      "ok",
+      "version",
+      "media_id",
+      "duration_seconds",
+      "verified_at",
+      "replay",
+    ]),
+  }),
+  strategy_bind: Object.freeze({
+    version: "generation-strategy-resolve-bind-response-v1",
+    keys: Object.freeze([
+      "ok",
+      "version",
+      "binding",
+      "selection",
+      "price",
+      "contract",
+    ]),
+  }),
+  strategy_preflight: Object.freeze({
+    version: "generation-strategy-preflight-response-v1",
+    keys: Object.freeze([
+      "ok",
+      "version",
+      "replay",
+      "receipt",
+      "provider_preflight",
+      "launch_enabled",
+      "contract",
+    ]),
+  }),
+  strategy_start: Object.freeze({
+    version: "generation-strategy-status-response-v1",
+    keys: Object.freeze([
+      "ok",
+      "version",
+      "job",
+      "strategy",
+      "selection",
+      "price",
+      "dispatch",
+      "reconciliation",
+      "output",
+      "error",
+      "contract",
+    ]),
+  }),
+  strategy_status: Object.freeze({
+    version: "generation-strategy-status-response-v1",
+    keys: Object.freeze([
+      "ok",
+      "version",
+      "job",
+      "strategy",
+      "selection",
+      "price",
+      "dispatch",
+      "reconciliation",
+      "output",
+      "error",
+      "contract",
+    ]),
+  }),
+});
+const GENERATION_STRATEGY_SPEC_PREPARE_REQUEST_KEYS = Object.freeze([
+  "version",
+  "organization_id",
+  "project_id",
+  "platform",
+  "product_category",
+  "selection",
+  "editable_intent",
+  "proposed_prompt",
+  "mechanics_summary",
+  "confirmation",
+  "idempotency_key",
+  "reason",
+]);
+const GENERATION_STRATEGY_MECHANICS_KEYS = Object.freeze([
+  "version",
+  "hook",
+  "beat_sequence",
+  "pacing",
+  "camera_language",
+  "composition",
+  "audio_pattern",
+  "cta_pattern",
+]);
+const GENERATION_STRATEGY_SPEC_SELECTION_RULES = Object.freeze({
+  viral_avatar_ugc: Object.freeze({
+    dimension: "ratio",
+    dimensions: Object.freeze(["720:1280", "1080:1920"]),
+    attestations: Object.freeze([
+      "source_media_rights_confirmed",
+      "transformative_use_confirmed",
+      "product_assets_rights_confirmed",
+      "depicted_people_consent_confirmed",
+      "avatar_likeness_consent_confirmed",
+    ]),
+    roles: Object.freeze({
+      source_video: Object.freeze([1, 1]),
+      avatar_image: Object.freeze([1, 1]),
+      product_image: Object.freeze([1, 1]),
+    }),
+  }),
+  viral_product_swap: Object.freeze({
+    dimension: "resolution",
+    dimensions: Object.freeze(["720p", "1080p"]),
+    attestations: Object.freeze([
+      "source_media_rights_confirmed",
+      "transformative_use_confirmed",
+      "product_assets_rights_confirmed",
+      "depicted_people_consent_confirmed",
+    ]),
+    roles: Object.freeze({
+      source_video: Object.freeze([1, 1]),
+      original_product_image: Object.freeze([1, 1]),
+      new_product_image: Object.freeze([1, 10]),
+    }),
+  }),
+  viral_rebuild: Object.freeze({
+    dimension: "ratio",
+    dimensions: Object.freeze([
+      "1280:720",
+      "720:1280",
+      "960:960",
+      "834:1112",
+      "1920:1080",
+      "1080:1920",
+      "1440:1440",
+      "1248:1664",
+    ]),
+    attestations: Object.freeze([
+      "source_media_rights_confirmed",
+      "transformative_use_confirmed",
+      "product_assets_rights_confirmed",
+      "depicted_people_consent_confirmed",
+    ]),
+    roles: Object.freeze({
+      source_video: Object.freeze([1, 1]),
+      product_image: Object.freeze([1, 10]),
+      style_image: Object.freeze([0, 4]),
+    }),
+  }),
+});
 const PRODUCT_RESEARCH_FUNCTION = "creator-product-research";
 const RESEARCH_INGESTION_FUNCTION = "creator-research-ingestion";
 const AI_HISTORICAL_CASE_IMPORT_FUNCTION = "creator-ai-case-import";
@@ -1471,6 +1702,11 @@ export class CreatorApi {
     });
   }
 
+  prepareGenerationStrategySpec(request = {}) {
+    assertGenerationStrategySpecPrepareRequest(request, this.organizationId);
+    return this.call(RPC.prepareGenerationStrategySpec, request);
+  }
+
   controlGenerationSpec(input = {}) {
     const reference = normalizeGenerationSpecReference({
       spec_id: input.spec_id,
@@ -1736,6 +1972,12 @@ export class CreatorApi {
     const periods = new Set(["week", "4w", "12w", "all"]);
     const statuses = new Set(["all", "active", "ready", "issue"]);
     const providers = new Set(["all", "runway", "google"]);
+    const strategies = new Set([
+      "all",
+      "viral_avatar_ugc",
+      "viral_product_swap",
+      "viral_rebuild",
+    ]);
     const contentKinds = new Set(["all", "video", "photo"]);
     const selectionSources = new Set([
       "all",
@@ -1750,6 +1992,9 @@ export class CreatorApi {
     const status = String(options.status || "all").trim().toLowerCase();
     const provider = String(options.provider || "all").trim().toLowerCase();
     const model = String(options.model || "all").trim().toLowerCase();
+    const strategyId = String(
+      options.strategy_id ?? options.strategyId ?? "all",
+    ).trim().toLowerCase();
     const contentKind = String(options.content_kind ?? options.contentKind ?? "all").trim().toLowerCase();
     const selectionSource = String(options.selection_source ?? options.selectionSource ?? "all").trim().toLowerCase();
     const qualityStatus = String(options.quality_status ?? options.qualityStatus ?? "all").trim().toLowerCase();
@@ -1773,6 +2018,11 @@ export class CreatorApi {
     if (model !== "all" && !/^[a-z0-9][a-z0-9._-]{0,79}$/u.test(model)) {
       throw new CreatorApiError("Выберите доступную модель генерации.", {
         code: "generation_archive_model_invalid",
+      });
+    }
+    if (!strategies.has(strategyId)) {
+      throw new CreatorApiError("Выберите доступную стратегию генерации.", {
+        code: "generation_archive_strategy_id_invalid",
       });
     }
     if (!contentKinds.has(contentKind)) {
@@ -1810,6 +2060,7 @@ export class CreatorApi {
     if (query) payload.query = query;
     if (provider !== "all") payload.provider = provider;
     if (model !== "all") payload.model = model;
+    if (strategyId !== "all") payload.strategy_id = strategyId;
     if (contentKind !== "all") payload.content_kind = contentKind;
     if (selectionSource !== "all") payload.selection_source = selectionSource;
     if (qualityStatus !== "all") payload.quality_status = qualityStatus;
@@ -1833,6 +2084,91 @@ export class CreatorApi {
       };
     }
     return this.call(RPC.generationArchive, this.withOrganization(payload));
+  }
+
+  generationStrategyRepeatData(generationJobId, options = {}) {
+    const normalizedJobId = String(generationJobId || "").trim().toLowerCase();
+    if (!isUuid(normalizedJobId)) {
+      throw new CreatorApiError("Не удалось определить исходный запуск стратегии.", {
+        code: "generation_strategy_repeat_job_invalid",
+      });
+    }
+    return this.call(
+      RPC.generationStrategyRepeatData,
+      this.withOrganization({
+        version: "generation-strategy-repeat-request-v1",
+        project_id: requiredProjectId(
+          options.project_id ?? options.projectId,
+        ),
+        generation_job_id: normalizedJobId,
+      }),
+    );
+  }
+
+  generationStrategyAssetCandidates(options = {}) {
+    const projectId = requiredProjectId(
+      options.project_id ?? options.projectId,
+    );
+    const kind = String(options.kind || "all").trim().toLowerCase();
+    if (![
+      "all",
+      "product_photo",
+      "packshot",
+      "creator_reference",
+      "source_video",
+    ].includes(kind)) {
+      throw new CreatorApiError("Неизвестный тип исходника стратегии.", {
+        code: "generation_strategy_asset_kind_invalid",
+      });
+    }
+    const productIdSource = options.product_id ?? options.productId;
+    const productId = productIdSource === undefined || productIdSource === null
+      || String(productIdSource).trim() === ""
+      ? null
+      : String(productIdSource).trim().toLowerCase();
+    if (productId !== null && !isUuid(productId)) {
+      throw new CreatorApiError("Не удалось определить точный товар для исходников.", {
+        code: "generation_strategy_asset_product_invalid",
+      });
+    }
+    const pageSizeSource = options.page_size ?? options.pageSize ?? 50;
+    const pageSize = Number(pageSizeSource);
+    if (!Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+      throw new CreatorApiError("Размер страницы исходников имеет неверный формат.", {
+        code: "generation_strategy_asset_page_size_invalid",
+      });
+    }
+    const payload = {
+      version: "generation-strategy-asset-candidates-request-v1",
+      project_id: projectId,
+      kind,
+      page_size: pageSize,
+      ...(productId ? { product_id: productId } : {}),
+    };
+    if (options.cursor !== undefined && options.cursor !== null) {
+      const cursor = options.cursor;
+      const cursorAt = String(cursor?.at || "").trim();
+      const cursorId = String(cursor?.id || "").trim().toLowerCase();
+      if (
+        !cursor
+        || typeof cursor !== "object"
+        || Array.isArray(cursor)
+        || Object.keys(cursor).length !== 2
+        || !Object.hasOwn(cursor, "at")
+        || !Object.hasOwn(cursor, "id")
+        || !Number.isFinite(Date.parse(cursorAt))
+        || !isUuid(cursorId)
+      ) {
+        throw new CreatorApiError("Курсор исходников имеет неверный формат.", {
+          code: "generation_strategy_asset_cursor_invalid",
+        });
+      }
+      payload.cursor = { at: cursorAt, id: cursorId };
+    }
+    return this.call(
+      RPC.generationStrategyAssetCandidates,
+      this.withOrganization(payload),
+    );
   }
 
   archiveGenerationBatch(batchId, options = {}) {
@@ -5458,6 +5794,85 @@ export class CreatorApi {
     return data;
   }
 
+  probeGenerationStrategyMedia(request = {}) {
+    return this.invokeRealGeneration("strategy_media_probe", request);
+  }
+
+  preflightGenerationStrategy(request = {}) {
+    return this.invokeRealGeneration("strategy_preflight", request);
+  }
+
+  startGenerationStrategy(request = {}) {
+    if (this.config.REAL_GENERATION_ENABLED !== true) {
+      throw new CreatorApiError("Платная генерация выключена в конфигурации портала.", {
+        code: "real_generation_is_disabled",
+      });
+    }
+    return this.invokeRealGeneration("strategy_start", request);
+  }
+
+  generationStrategyStatus(request = {}) {
+    return this.invokeRealGeneration("strategy_status", request);
+  }
+
+  bindGenerationStrategy(input = {}) {
+    if (
+      input
+      && typeof input === "object"
+      && !Array.isArray(input)
+      && Object.prototype.hasOwnProperty.call(input, "action")
+    ) {
+      return this.invokeRealGeneration("strategy_bind", input);
+    }
+    const projectId = requiredProjectId(input.project_id ?? input.projectId);
+    const specContext = normalizeGenerationSpecReference(
+      input.generation_spec_context ?? input.generationSpecContext,
+    );
+    const selection = input.generation_strategy ?? input.generationStrategy;
+    if (!specContext) {
+      throw new CreatorApiError(
+        "Сначала подготовьте и одобрите точную серверную версию ТЗ.",
+        { code: "generation_spec_context_required" },
+      );
+    }
+    if (
+      !selection
+      || typeof selection !== "object"
+      || Array.isArray(selection)
+      || !hasExactObjectKeys(selection, [
+        "version",
+        "strategy_id",
+        "recipe_version",
+        "duration_seconds",
+        ...(String(selection.strategy_id || "") === "viral_product_swap"
+          ? ["resolution"]
+          : ["ratio"]),
+        "audio",
+        "assets",
+        "attestations",
+      ])
+      || !["viral_avatar_ugc", "viral_product_swap", "viral_rebuild"]
+        .includes(String(selection.strategy_id || ""))
+      || !Array.isArray(selection.assets)
+      || !selection.attestations
+      || typeof selection.attestations !== "object"
+      || Array.isArray(selection.attestations)
+    ) {
+      throw new CreatorApiError(
+        "Проверьте стратегию, исходники, параметры результата и подтверждения прав.",
+        { code: "generation_strategy_selection_invalid" },
+      );
+    }
+    return this.invokeRealGeneration("strategy_bind", {
+      project_id: projectId,
+      spec_id: specContext.spec_id,
+      spec_version: specContext.spec_version,
+      spec_hash: specContext.spec_hash,
+      generation_strategy: selection,
+      confirmation: true,
+    });
+  }
+
   realGenerationStatus(jobId, {
     projectId = "",
     project_id: projectIdSnake = "",
@@ -5544,18 +5959,39 @@ export class CreatorApi {
   }
 
   async invokeRealGeneration(action, payload = {}) {
-    if (!new Set(["model_catalog", "preflight", "start", "status", "reconcile"]).has(action)) {
+    const legacyAction = new Set([
+      "model_catalog",
+      "preflight",
+      "start",
+      "status",
+      "reconcile",
+    ]).has(action);
+    if (!legacyAction && !GENERATION_STRATEGY_EDGE_ACTIONS.has(action)) {
       throw new CreatorApiError("Неизвестное действие платной генерации.", {
         code: "real_generation_action_invalid",
       });
     }
 
     const clientContext = this.takeRealGenerationClientContext(payload);
+    const strategyRuntimeRequest = GENERATION_STRATEGY_EDGE_ACTIONS.has(action)
+      && (action !== "strategy_bind" || (
+        payload
+        && typeof payload === "object"
+        && Object.prototype.hasOwnProperty.call(payload, "action")
+      ));
+    if (strategyRuntimeRequest) {
+      assertGenerationStrategyRuntimeRequest(
+        action,
+        payload,
+        this.organizationId,
+      );
+    }
+
     const expectedActorId = String(
       clientContext?.expectedActorId || "",
     ).trim().toLowerCase();
     const isContextCurrent = clientContext?.isContextCurrent || null;
-    if (action === "start" && !clientContext) {
+    if (["start", "strategy_start"].includes(action) && !clientContext) {
       throw new CreatorApiError("Точный контур сотрудника для платного запуска не подтверждён.", {
         code: "auth_session_changed",
       });
@@ -5598,16 +6034,22 @@ export class CreatorApi {
     }
     const scopedPayload = this.withOrganization({ ...payload, action });
     const fingerprint = `edge:${REAL_GENERATION_FUNCTION}:${actorId}:${stableStringify(scopedPayload)}`;
-    const idempotencyKey = new Set(["start", "reconcile"]).has(action)
+    const callerIdempotencyKey = strategyRuntimeRequest
+      && GENERATION_STRATEGY_IDEMPOTENT_ACTIONS.has(action)
+      ? payload.idempotency_key
+      : null;
+    const generatedIdempotencyKey = callerIdempotencyKey === null && new Set([
+      "start", "reconcile", "strategy_bind",
+    ]).has(action)
       ? (this.mutationKeys[fingerprint] || crypto.randomUUID())
       : null;
-    if (idempotencyKey) {
-      this.mutationKeys[fingerprint] = idempotencyKey;
+    if (generatedIdempotencyKey) {
+      this.mutationKeys[fingerprint] = generatedIdempotencyKey;
       writeMutationKeys(this.mutationKeys);
     }
 
-    const requestBody = idempotencyKey
-      ? { ...scopedPayload, idempotency_key: idempotencyKey }
+    const requestBody = generatedIdempotencyKey
+      ? { ...scopedPayload, idempotency_key: generatedIdempotencyKey }
       : scopedPayload;
     let data;
     let error;
@@ -5630,14 +6072,17 @@ export class CreatorApi {
         code: "real_generation_response_invalid",
       });
     }
-    if (data.ok === false || data.error) {
+    if (data.ok === false || (!strategyRuntimeRequest && data.error)) {
       const details = data.error && typeof data.error === "object"
         ? data.error
         : {
             code: data.code || "real_generation_failed",
             message: String(data.error || data.code || "Generation failed"),
-          };
+      };
       throw new CreatorApiError(safeGenerationMessage(details), details);
+    }
+    if (strategyRuntimeRequest) {
+      return assertGenerationStrategyPublicResponse(action, data);
     }
     if (action === "preflight") {
       const preflight = normalizeApiGenerationProviderPreflight(
@@ -5653,13 +6098,20 @@ export class CreatorApi {
       return { ...data, preflight };
     }
     if (action === "model_catalog") return data;
+    if (action === "strategy_bind") {
+      if (generatedIdempotencyKey) {
+        delete this.mutationKeys[fingerprint];
+        writeMutationKeys(this.mutationKeys);
+      }
+      return data;
+    }
     if (!data.job || typeof data.job !== "object" || !data.job.id || !data.job.status) {
       throw new CreatorApiError("Сервис генерации вернул некорректную задачу.", {
         code: "real_generation_response_invalid",
       });
     }
 
-    if (idempotencyKey) {
+    if (generatedIdempotencyKey) {
       delete this.mutationKeys[fingerprint];
       writeMutationKeys(this.mutationKeys);
     }
@@ -6444,6 +6896,272 @@ function hasExactObjectKeys(value, keys) {
     && !Array.isArray(value)
     && Object.keys(value).length === keys.length
     && keys.every((key) => Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function generationStrategyExactUuid(value) {
+  return typeof value === "string"
+    && value !== "00000000-0000-0000-0000-000000000000"
+    && GENERATION_STRATEGY_UUID_PATTERN.test(value);
+}
+
+function generationStrategyExactBoundedText(value, minimum, maximum) {
+  return typeof value === "string"
+    && value === value.trim()
+    && value.length >= minimum
+    && value.length <= maximum
+    && !/[\u0000-\u001f\u007f-\u009f]/u.test(value);
+}
+
+function generationStrategySpecSelectionValid(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const strategyId = value.strategy_id;
+  const rules = GENERATION_STRATEGY_SPEC_SELECTION_RULES[strategyId];
+  if (!rules) return false;
+  const dimension = rules.dimension;
+  if (
+    !hasExactObjectKeys(value, [
+      "version",
+      "strategy_id",
+      "recipe_version",
+      "duration_seconds",
+      dimension,
+      "audio",
+      "assets",
+      "attestations",
+    ])
+    || value.version !== "2026-08-14.v1"
+    || value.recipe_version !== "2026-06"
+    || !Number.isSafeInteger(value.duration_seconds)
+    || value.duration_seconds < 4
+    || value.duration_seconds > 15
+    || typeof value.audio !== "boolean"
+    || typeof value[dimension] !== "string"
+    || !rules.dimensions.includes(value[dimension])
+    || !Array.isArray(value.assets)
+    || value.assets.length < 2
+    || value.assets.length > 15
+    || !hasExactObjectKeys(value.attestations, rules.attestations)
+    || rules.attestations.some((key) => value.attestations[key] !== true)
+  ) return false;
+
+  const counts = new Map();
+  const mediaIds = new Set();
+  for (const asset of value.assets) {
+    if (!asset || typeof asset !== "object" || Array.isArray(asset)) return false;
+    const role = asset.role;
+    if (!Object.prototype.hasOwnProperty.call(rules.roles, role)) return false;
+    const optionalKeys = [
+      ...(Object.prototype.hasOwnProperty.call(asset, "duration_seconds")
+        ? ["duration_seconds"]
+        : []),
+      ...(Object.prototype.hasOwnProperty.call(asset, "view") ? ["view"] : []),
+    ];
+    if (
+      !hasExactObjectKeys(asset, ["role", "media_id", ...optionalKeys])
+      || !generationStrategyExactUuid(asset.media_id)
+      || mediaIds.has(asset.media_id)
+    ) return false;
+    mediaIds.add(asset.media_id);
+    counts.set(role, (counts.get(role) || 0) + 1);
+
+    const hasDuration = Object.prototype.hasOwnProperty.call(
+      asset,
+      "duration_seconds",
+    );
+    const hasView = Object.prototype.hasOwnProperty.call(asset, "view");
+    if (role === "source_video") {
+      if (
+        hasView
+        || (hasDuration && (
+          typeof asset.duration_seconds !== "number"
+          || !Number.isFinite(asset.duration_seconds)
+          || asset.duration_seconds <= 0
+          || asset.duration_seconds > 3_600
+        ))
+        || (strategyId === "viral_product_swap" && (
+          !hasDuration
+          || asset.duration_seconds < 1.8
+          || asset.duration_seconds > 15
+        ))
+      ) return false;
+    } else if (hasDuration) {
+      return false;
+    }
+    if (role === "new_product_image") {
+      if (hasView && !["front", "side", "back"].includes(asset.view)) {
+        return false;
+      }
+    } else if (hasView) {
+      return false;
+    }
+  }
+  return Object.entries(rules.roles).every(([role, limits]) => {
+    const count = counts.get(role) || 0;
+    return count >= limits[0] && count <= limits[1];
+  });
+}
+
+function generationStrategyMechanicsSummaryValid(value) {
+  if (
+    !hasExactObjectKeys(value, GENERATION_STRATEGY_MECHANICS_KEYS)
+    || value.version !== "generation-strategy-mechanics-summary-v1"
+    || !generationStrategyExactBoundedText(value.hook, 20, 160)
+    || !generationStrategyExactBoundedText(value.pacing, 8, 100)
+    || !generationStrategyExactBoundedText(value.camera_language, 8, 100)
+    || !generationStrategyExactBoundedText(value.composition, 8, 100)
+    || !generationStrategyExactBoundedText(value.audio_pattern, 8, 100)
+    || !generationStrategyExactBoundedText(value.cta_pattern, 8, 100)
+    || !Array.isArray(value.beat_sequence)
+    || value.beat_sequence.length < 2
+    || value.beat_sequence.length > 6
+    || value.beat_sequence.some((beat) =>
+      !generationStrategyExactBoundedText(beat, 12, 120)
+    )
+    || new Set(value.beat_sequence).size !== value.beat_sequence.length
+  ) return false;
+  try {
+    return JSON.stringify(value).length <= 4_096;
+  } catch {
+    return false;
+  }
+}
+
+function assertGenerationStrategySpecPrepareRequest(request, organizationId) {
+  const organization = String(organizationId || "");
+  const selectionValid = generationStrategySpecSelectionValid(
+    request?.selection,
+  );
+  const strategyId = selectionValid ? request.selection.strategy_id : "";
+  const mechanicsValid = strategyId === "viral_product_swap"
+    ? request?.mechanics_summary === null
+    : ["viral_avatar_ugc", "viral_rebuild"].includes(strategyId)
+      && generationStrategyMechanicsSummaryValid(request?.mechanics_summary);
+  if (
+    !hasExactObjectKeys(request, GENERATION_STRATEGY_SPEC_PREPARE_REQUEST_KEYS)
+    || request.version !== "generation-strategy-spec-prepare-request-v1"
+    || !generationStrategyExactUuid(organization)
+    || request.organization_id !== organization
+    || !generationStrategyExactUuid(request.project_id)
+    || !RESEARCH_OUTCOME_PLATFORMS.has(request.platform)
+    || !AI_PRODUCT_CATEGORY_SET.has(request.product_category)
+    || !selectionValid
+    || !generationStrategyExactBoundedText(request.editable_intent, 1, 800)
+    || !generationStrategyExactBoundedText(request.proposed_prompt, 1, 1_200)
+    || !mechanicsValid
+    || request.confirmation !== true
+    || !generationStrategyExactBoundedText(request.idempotency_key, 8, 120)
+    || !generationStrategyExactBoundedText(request.reason, 3, 500)
+  ) {
+    throw new CreatorApiError(
+      "Параметры стратегии или механики изменились. Обновите форму и подготовьте техническую версию заново.",
+      { code: "generation_strategy_spec_prepare_payload_invalid" },
+    );
+  }
+  return request;
+}
+
+function assertGenerationStrategyRuntimeRequest(action, request, organizationId) {
+  const keys = GENERATION_STRATEGY_REQUEST_KEYS[action];
+  const organization = String(organizationId || "");
+  const uuidFields = {
+    strategy_media_probe: ["organization_id", "project_id", "media_id"],
+    strategy_bind: ["organization_id", "project_id", "spec_id"],
+    strategy_preflight: [
+      "organization_id",
+      "project_id",
+      "spec_id",
+      "binding_id",
+    ],
+    strategy_start: [
+      "organization_id",
+      "project_id",
+      "spec_id",
+      "binding_id",
+      "receipt_id",
+      "campaign_id",
+    ],
+    strategy_status: ["organization_id", "project_id", "generation_job_id"],
+  }[action] || [];
+  const hashFields = {
+    strategy_bind: ["spec_hash"],
+    strategy_preflight: [
+      "spec_hash",
+      "binding_hash",
+      "selection_hash",
+      "price_hash",
+    ],
+    strategy_start: [
+      "spec_hash",
+      "binding_hash",
+      "selection_hash",
+      "price_hash",
+      "receipt_hash",
+    ],
+  }[action] || [];
+  const hasSpecVersion = [
+    "strategy_bind",
+    "strategy_preflight",
+    "strategy_start",
+  ].includes(action);
+  const hasConfirmation = action !== "strategy_status";
+  const hasSpendConfirmation = [
+    "strategy_preflight",
+    "strategy_start",
+  ].includes(action);
+  if (
+    !keys
+    || !hasExactObjectKeys(request, keys)
+    || request.action !== action
+    || !generationStrategyExactUuid(organization)
+    || request.organization_id !== organization
+    || uuidFields.some((field) => !generationStrategyExactUuid(request[field]))
+    || hashFields.some((field) => (
+      typeof request[field] !== "string"
+      || !GENERATION_STRATEGY_SHA256_PATTERN.test(request[field])
+    ))
+    || (hasSpecVersion && (
+      !Number.isSafeInteger(request.spec_version)
+      || request.spec_version < 1
+      || request.spec_version > 100_000
+    ))
+    || (hasConfirmation && request.confirmation !== true)
+    || (GENERATION_STRATEGY_IDEMPOTENT_ACTIONS.has(action) && (
+      typeof request.idempotency_key !== "string"
+      || !GENERATION_STRATEGY_IDEMPOTENCY_PATTERN.test(request.idempotency_key)
+    ))
+    || (action === "strategy_bind" && (
+      !request.generation_strategy
+      || typeof request.generation_strategy !== "object"
+      || Array.isArray(request.generation_strategy)
+    ))
+    || (hasSpendConfirmation && (
+      typeof request.spend_confirmation !== "string"
+      || !/^RUNWAY_(?:PRODUCT_UGC|PRODUCT_SWAP|PRODUCT_AD)_(?:[4-9]|1[0-5])S_(?:720P|1080P)_(?:AUDIO|SILENT)_USD_[0-9]{1,4}[.][0-9]{2}$/u
+        .test(request.spend_confirmation)
+    ))
+  ) {
+    throw new CreatorApiError(
+      "Параметры запуска стратегии изменились. Обновите форму и повторите бесплатную проверку.",
+      { code: "generation_strategy_request_invalid" },
+    );
+  }
+  return request;
+}
+
+function assertGenerationStrategyPublicResponse(action, data) {
+  const contract = GENERATION_STRATEGY_RESPONSE_CONTRACTS[action];
+  if (
+    !contract
+    || !hasExactObjectKeys(data, contract.keys)
+    || data.ok !== true
+    || data.version !== contract.version
+  ) {
+    throw new CreatorApiError(
+      "Сервис генерации вернул некорректный ответ стратегии.",
+      { code: "generation_strategy_response_invalid" },
+    );
+  }
+  return data;
 }
 
 function stableStringify(value) {
@@ -7818,6 +8536,13 @@ function toFriendlyMessage(error) {
     generation_learning_policy_stale: "Обученное ТЗ обновилось. Восстановите авто-ТЗ и повторите запуск.",
     generation_learning_prompt_binding_invalid: "Обученные инструкции не попали в фактическое ТЗ. Восстановите безопасное авто-ТЗ перед запуском.",
     generation_mode_prompt_binding_invalid: "ТЗ не соответствует техническому контракту выбранной модели. Восстановите безопасное авто-ТЗ: точный товар, формат, длительность, реплика и запрет надписей будут проверены заново.",
+    generation_strategy_selection_invalid: "Проверьте выбранную стратегию, точные исходники, параметры результата и все подтверждения прав.",
+    generation_strategy_binding_payload_invalid: "Параметры стратегии изменились. Проверьте форму и выполните бесплатную привязку заново.",
+    generation_strategy_binding_project_access_required: "Нет доступа к проекту выбранной стратегии. Вернитесь на рабочий стол и обновите проект.",
+    generation_strategy_binding_spec_invalid: "Стратегия не совпадает с текущей технической версией. Подготовьте ТЗ заново.",
+    generation_strategy_binding_spec_not_approved: "Перед проверкой цены прочитайте и отдельно одобрите точную техническую версию.",
+    generation_strategy_binding_conflict: "К этой версии ТЗ уже привязана другая стратегия или другой набор исходников. Подготовьте новую версию.",
+    generation_strategy_binding_invalid: "Сервер не подтвердил точные исходники и права стратегии. Обновите файлы и повторите бесплатную проверку.",
     generation_spec_context_required: "Портал не привязал техническое ТЗ к запуску. Деньги не списаны — повторите запуск.",
     generation_spec_baseline_required: "Эта новая модель пока запускается только с базовым ТЗ без применённого Research или обученного сценария. Выберите доступную модель либо подготовьте базовый замысел — деньги не списаны.",
     generation_spec_context_invalid: "Техническая версия устарела. Деньги не списаны — повторите запуск.",

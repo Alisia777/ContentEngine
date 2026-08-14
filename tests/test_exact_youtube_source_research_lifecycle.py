@@ -453,10 +453,10 @@ def test_ai_card_routes_each_authoritative_state_without_restarting_research() -
 def test_cache_bump_is_scoped_to_ai_center_runtime_modules() -> None:
     bootstrap = read(BOOTSTRAP)
     index = read(INDEX)
-    assert 'const BUILD = "20260813.os4.39"' in bootstrap
+    assert 'const BUILD = "20260814.os4.41"' in bootstrap
     assert (
         '"workspace-ai-exact-youtube-sources.js":\n'
-        '      "20260813.os4.39"'
+        '      "20260814.os4.41"'
         in bootstrap
     )
     assert "ASSET_BUILD_OVERRIDES[file] || BUILD" in bootstrap

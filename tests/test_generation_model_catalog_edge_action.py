@@ -72,5 +72,22 @@ def test_browser_client_uses_the_existing_generation_transport_and_validates_pro
         assert field in method
     assert "fetch(" not in method
     assert "localStorage" not in method
-    assert 'new Set(["model_catalog", "preflight", "start", "status", "reconcile"])' in source
+    invoke = source[
+        source.index("  async invokeRealGeneration(action, payload = {})") :
+        source.index("\n  recordMetric(", source.index("  async invokeRealGeneration"))
+    ]
+    for action in (
+        "model_catalog",
+        "preflight",
+        "start",
+        "status",
+        "reconcile",
+        "strategy_media_probe",
+        "strategy_bind",
+        "strategy_preflight",
+        "strategy_start",
+        "strategy_status",
+    ):
+        assert f'"{action}"' in source
+    assert "GENERATION_STRATEGY_EDGE_ACTIONS.has(action)" in invoke
     assert 'if (action === "model_catalog") return data;' in source

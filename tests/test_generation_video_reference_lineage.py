@@ -411,7 +411,7 @@ def test_client_edge_and_archive_use_exact_context_without_provider_url() -> Non
     assert "promptText: job.promptText" in provider_body
     assert "promptText: exactPrompt(input, entry)" in PROVIDER_ADAPTER
     assert (
-        'from "./generation-video-reference.js?v=20260813.os4.39"'
+        'from "./generation-video-reference.js?v=20260814.os4.41"'
         in APP
     )
 

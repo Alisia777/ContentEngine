@@ -412,8 +412,14 @@ def test_browser_adapter_validates_and_idempotently_sends_manual_resolution() ->
         'this.invokeRealGeneration("reconcile"',
     ):
         assert token in reconcile
-    assert 'new Set(["model_catalog", "preflight", "start", "status", "reconcile"])' in API
-    assert 'const idempotencyKey = new Set(["start", "reconcile"]).has(action)' in API
+    invoke = API[
+        API.index("  async invokeRealGeneration(action, payload = {})") :
+        API.index("\n  recordMetric(", API.index("  async invokeRealGeneration"))
+    ]
+    for action in ("model_catalog", "preflight", "start", "status", "reconcile"):
+        assert f'"{action}"' in invoke
+    assert '"start", "reconcile", "strategy_bind"' in invoke
+    assert "generatedIdempotencyKey" in invoke
     assert "this.mutationKeys[fingerprint] || crypto.randomUUID()" in API
     assert "real_generation_reconciliation_required" in API
 

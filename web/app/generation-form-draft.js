@@ -1,4 +1,14 @@
-const MODES = new Set(["mock", "real_photo", "real_seedance", "real_gen4"]);
+const MODES = new Set(["", "mock", "real_photo", "real_seedance", "real_gen4"]);
+const GENERATION_STRATEGY_IDS = new Set([
+  "viral_avatar_ugc",
+  "viral_product_swap",
+  "viral_rebuild",
+]);
+const GENERATION_STRATEGY_SOURCE_BASES = new Set([
+  "ai_research_recommendation",
+  "operator_summary_only",
+  "exact_source_video",
+]);
 const PRODUCT_CATEGORIES = new Set([
   "cosmetics",
   "baa",
@@ -21,7 +31,7 @@ const FORMATS = new Set(["9:16", "1:1", "16:9", "2048:2048"]);
 const VIDEO_DURATIONS = new Set(["2", "4", "5", "8", "10", "12", "15"]);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
-export const GENERATION_FORM_DRAFT_VERSION = 3;
+export const GENERATION_FORM_DRAFT_VERSION = 4;
 export const GENERATION_FORM_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 
 function boundedText(value, maximum) {
@@ -65,9 +75,9 @@ export function buildGenerationFormDraft(value = {}, {
   context = {},
 } = {}) {
   const mode = MODES.has(String(value.generation_mode || ""))
-    ? String(value.generation_mode)
-    : "mock";
-  const real = mode !== "mock";
+    ? String(value.generation_mode || "")
+    : "";
+  const real = Boolean(mode && mode !== "mock");
   const durationSeconds = String(value.duration_seconds ?? "").trim();
   const productCategory = String(value.product_category || "").trim();
   const platform = String(value.platform || "").trim();
@@ -121,6 +131,47 @@ export function buildGenerationFormDraft(value = {}, {
         value.generation_reference_source_access_confirmed === true,
       generation_reference_transformative_use_confirmed:
         value.generation_reference_transformative_use_confirmed === true,
+      generation_strategy_id: GENERATION_STRATEGY_IDS.has(
+        String(value.generation_strategy_id || ""),
+      ) ? String(value.generation_strategy_id) : "",
+      generation_strategy_version: boundedText(
+        value.generation_strategy_version,
+        80,
+      ),
+      generation_strategy_recipe_version: boundedText(
+        value.generation_strategy_recipe_version,
+        80,
+      ),
+      generation_strategy_source_basis: GENERATION_STRATEGY_SOURCE_BASES.has(
+        String(value.generation_strategy_source_basis || ""),
+      ) ? String(value.generation_strategy_source_basis) : "",
+      generation_strategy_duration_seconds: boundedInteger(
+        value.generation_strategy_duration_seconds,
+        4,
+        15,
+        0,
+      ),
+      generation_strategy_ratio: /^\d{3,4}:\d{3,4}$/u.test(
+        String(value.generation_strategy_ratio || ""),
+      ) ? String(value.generation_strategy_ratio) : "",
+      generation_strategy_resolution: ["720p", "1080p"].includes(
+        String(value.generation_strategy_resolution || ""),
+      ) ? String(value.generation_strategy_resolution) : "",
+      generation_strategy_audio: ["true", "false"].includes(
+        String(value.generation_strategy_audio || ""),
+      ) ? String(value.generation_strategy_audio) : "",
+      generation_strategy_source_video_id: optionalUuid(
+        value.generation_strategy_source_video_id,
+      ),
+      generation_strategy_avatar_media_id: optionalUuid(
+        value.generation_strategy_avatar_media_id,
+      ),
+      generation_strategy_original_product_media_id: optionalUuid(
+        value.generation_strategy_original_product_media_id,
+      ),
+      // Rights, likeness and transformative-use confirmations belong to one
+      // exact launch. A local draft may restore choices, but never consent.
+      generation_strategy_attestations: {},
       media_ids: mediaIds,
       primary_media_id: primaryMediaId,
     },

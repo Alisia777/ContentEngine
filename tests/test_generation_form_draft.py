@@ -69,7 +69,7 @@ def test_generation_draft_is_bounded_and_never_contains_spend_confirmation() -> 
         "now: 1000, context: {projectId: '11111111-1111-4111-8111-111111111111', handoffDraftId: 'draft-1'}"
         "})"
     )
-    assert result["version"] == 3
+    assert result["version"] == 4
     assert result["updatedAt"] == 1000
     assert result["context"]["projectId"] == "11111111-1111-4111-8111-111111111111"
     assert result["context"]["handoffDraftId"] == "draft-1"
@@ -84,6 +84,50 @@ def test_generation_draft_is_bounded_and_never_contains_spend_confirmation() -> 
     assert result["values"]["generation_reference_transformative_use_confirmed"] is True
     assert "real_spend_confirmation" not in result
     assert "real_spend_confirmation" not in result["values"]
+
+
+def test_strategy_draft_keeps_role_ids_but_never_persists_human_consent() -> None:
+    value = json.dumps(
+        {
+            "generation_mode": "real_seedance",
+            "generation_strategy_id": "viral_product_swap",
+            "generation_strategy_version": "2026-08-14.v1",
+            "generation_strategy_recipe_version": "2026-06",
+            "generation_strategy_source_basis": "exact_source_video",
+            "generation_strategy_duration_seconds": "10",
+            "generation_strategy_resolution": "1080p",
+            "generation_strategy_audio": "true",
+            "generation_strategy_source_video_id":
+                "11111111-1111-4111-8111-111111111111",
+            "generation_strategy_original_product_media_id":
+                "22222222-2222-4222-8222-222222222222",
+            "generation_strategy_attestations": {
+                "source_media_rights_confirmed": True,
+                "transformative_use_confirmed": True,
+                "not valid": True,
+            },
+            "provider": "client-must-not-persist-provider",
+            "recipe": "client-must-not-persist-recipe",
+            "estimated_cost_minor": 999999,
+            "signed_url": "https://example.invalid/private",
+        }
+    )
+    result = _evaluate(
+        f"subject.buildGenerationFormDraft({value}, {{"
+        "now: 1000, context: {projectId: '33333333-3333-4333-8333-333333333333'}"
+        "})"
+    )
+    strategy = result["values"]
+    assert strategy["generation_strategy_id"] == "viral_product_swap"
+    assert strategy["generation_strategy_version"] == "2026-08-14.v1"
+    assert strategy["generation_strategy_recipe_version"] == "2026-06"
+    assert strategy["generation_strategy_source_basis"] == "exact_source_video"
+    assert strategy["generation_strategy_duration_seconds"] == 10
+    assert strategy["generation_strategy_resolution"] == "1080p"
+    assert strategy["generation_strategy_audio"] == "true"
+    assert strategy["generation_strategy_attestations"] == {}
+    for forbidden in ("signed_url", "estimated_cost_minor", "provider", "recipe"):
+        assert forbidden not in strategy
 
 
 def test_generation_draft_fails_closed_for_age_version_and_context() -> None:
@@ -153,9 +197,9 @@ def test_portal_restores_generation_draft_but_requires_fresh_spend_confirmation(
         "persistGenerationFormDraft(form, { manual: true })",
     ):
         assert token in APP
-    assert "generation-form-draft.js?v=20260813.os4.39" in APP
+    assert "generation-form-draft.js?v=20260814.os4.41" in APP
     assert "form.dataset.generationScenarioIntent" in APP
-    assert "app.js?v=20260813.os4.39" in INDEX
+    assert "app.js?v=20260814.os4.41" in INDEX
 
 
 def test_generated_video_review_starts_automatically_after_durable_evidence() -> None:

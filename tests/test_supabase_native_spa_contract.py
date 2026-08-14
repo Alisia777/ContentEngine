@@ -312,18 +312,23 @@ def test_spa_payload_and_workspace_fields_match_the_creator_rpc_migration() -> N
         path.read_text(encoding="utf-8")
         for path in sorted((ROOT / "supabase" / "migrations").glob("*.sql"))
     )
+    rpc_start = adapter.index("export const RPC = Object.freeze({")
+    rpc_end = adapter.index("});", rpc_start) + len("});")
+    rpc_contract = adapter[rpc_start:rpc_end]
     rpc_names = [
         name
-        for name in re.findall(r'"(creator_[a-z0-9_]+)"', adapter)
+        for name in re.findall(r'"(creator_[a-z0-9_]+)"', rpc_contract)
         if name != "creator_api_error"
     ]
-    assert len(set(rpc_names)) == 104
+    assert len(set(rpc_names)) == 107
     assert "creator_admin_snapshot" in rpc_names
     assert "creator_admin_mutate" in rpc_names
     assert "creator_operational_health" in rpc_names
     assert "creator_generation_learning_policy" in rpc_names
     assert "creator_generation_repair_policy" in rpc_names
     assert "creator_generation_archive" in rpc_names
+    assert "creator_generation_strategy_repeat_data" in rpc_names
+    assert "creator_generation_strategy_asset_candidates" in rpc_names
     assert "creator_create_generation_campaign" in rpc_names
     assert "creator_update_generation_campaign_spend_policy" in rpc_names
     assert "creator_prepare_content_review_evidence" in rpc_names
@@ -493,7 +498,7 @@ def test_password_reset_has_a_bounded_wait_and_always_unlocks_the_form() -> None
     assert "finally" in reset
     assert "if (form.isConnected) setFormBusy(form, false)" in reset
     assert "Promise.race([operation, timeout])" in app
-    assert './app.js?v=20260813.os4.39' in index
+    assert './app.js?v=20260814.os4.41' in index
 
 
 def test_novice_workspace_has_required_tabs_and_last_mile_forms() -> None:

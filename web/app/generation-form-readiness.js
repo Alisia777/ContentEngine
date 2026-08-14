@@ -1,13 +1,21 @@
 const REAL_MODES = new Set(["real_gen4", "real_seedance", "real_photo"]);
 
 export function evaluateGenerationFormReadiness(value = {}) {
-  const mode = String(value.mode || "mock");
+  const mode = String(value.mode || "").trim();
   const real = REAL_MODES.has(mode);
+  const mock = mode === "mock";
+  const modeSelected = real || mock;
   const photo = mode === "real_photo";
   const mediaCount = Math.max(0, Number(value.mediaCount) || 0);
   const count = Number(value.count);
   const maxMockCount = Math.max(1, Number(value.maxMockCount) || 10);
   const steps = [
+    step(
+      "mode",
+      "Способ создания",
+      modeSelected,
+      "Выберите одну из трёх стратегий генерации либо явно выберите dry-run без файлов и списаний.",
+    ),
     step(
       "product",
       "Точный товар",
@@ -23,7 +31,7 @@ export function evaluateGenerationFormReadiness(value = {}) {
     step(
       "media",
       "Фото и ракурсы товара",
-      real ? mediaCount >= 1 && mediaCount <= 5 : mediaCount >= 1,
+      real ? mediaCount >= 1 && mediaCount <= 5 : mock && mediaCount >= 1,
       real && mediaCount > 5
         ? "Оставьте до пяти ракурсов одного и того же товара."
         : "Выберите от одного до пяти точных фото товара ниже.",
@@ -71,7 +79,7 @@ export function evaluateGenerationFormReadiness(value = {}) {
           : "Подтвердите создание одного платного видео.",
       ),
     );
-  } else {
+  } else if (mock) {
     steps.push(
       step(
         "count",
@@ -89,6 +97,8 @@ export function evaluateGenerationFormReadiness(value = {}) {
     .join("|");
   return {
     real,
+    mock,
+    modeSelected,
     ready: next === null,
     completed,
     total: steps.length,

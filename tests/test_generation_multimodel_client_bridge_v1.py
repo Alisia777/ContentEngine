@@ -206,6 +206,28 @@ def test_one_form_bridge_owns_submit_and_forwards_only_authoritative_fields() ->
     assert "generation_selection_snapshot" in paid_start
 
 
+def test_strategy_bind_is_a_separate_free_idempotent_transport() -> None:
+    bind_start = API.index("  bindGenerationStrategy(input = {})")
+    bind_end = API.index("  realGenerationStatus(", bind_start)
+    bind = API[bind_start:bind_end]
+    invoke_start = API.index("  async invokeRealGeneration(")
+    invoke_end = API.index("  recordMetric(", invoke_start)
+    invoke = API[invoke_start:invoke_end]
+
+    assert 'this.invokeRealGeneration("strategy_bind"' in bind
+    assert 'confirmation: true' in bind
+    assert 'generation_strategy: selection' in bind
+    assert 'spec_id: specContext.spec_id' in bind
+    assert 'spec_hash: specContext.spec_hash' in bind
+    assert "startRealGeneration" not in bind
+    assert "spend_confirmation" not in bind
+    assert "estimated_cost_minor" not in bind
+    assert '"strategy_bind"' in invoke
+    assert '"start", "reconcile", "strategy_bind"' in invoke
+    assert 'if (action === "strategy_bind")' in invoke
+    assert "delete this.mutationKeys[fingerprint]" in invoke
+
+
 def test_google_reconciliation_is_provider_specific_without_loosening_runway_id() -> None:
     reconcile = API[
         API.index("  reconcileRealGeneration(") :

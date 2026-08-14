@@ -383,6 +383,19 @@ def test_archive_visible_qa_uses_production_renderer_not_a_second_owner() -> Non
     assert "<form" not in _harness_html()
 
 
+def test_strategy_archive_job_identity_is_immutable_and_never_proxy_inferred() -> None:
+    details = _between(
+        APP,
+        "function generationBatchDetails(item)",
+        "function mergeGenerationDeepLinkedBatch",
+    )
+    assert "rawStrategySnapshot?.generation_job_id" in details
+    assert 'hasOwnProperty.call(item, "generation_job_id")' in details
+    assert "topLevelStrategyJobId === snapshotStrategyJobId" in details
+    assert "? strategy.generationJobId" in details
+    assert ': String(parameters.job_id || "")' in details
+
+
 @pytest.mark.parametrize("width", [1280, 820, 390, 320])
 def test_archive_visible_content_controls_and_geometry(width: int) -> None:
     result = _run_archive_fixture(width)
@@ -395,6 +408,7 @@ def test_archive_visible_content_controls_and_geometry(width: int) -> None:
         "status",
         "provider",
         "model",
+        "strategy_id",
         "content_kind",
         "selection_source",
         "quality_status",
