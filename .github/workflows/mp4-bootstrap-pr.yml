@@ -139,8 +139,10 @@ jobs:
               extra = sorted(set(parts) - expected_indexes)
               raise SystemExit(f"Payload parts incomplete; missing={missing}, extra={extra}")
 
-          encoded_archive = "".join(parts[index] for index in range(expected_parts))
-          archive = base64.b64decode(encoded_archive, validate=True)
+          archive = b"".join(
+              base64.b64decode(parts[index], validate=True)
+              for index in range(expected_parts)
+          )
           archive_sha = hashlib.sha256(archive).hexdigest()
           if archive_sha != expected_archive_sha:
               raise SystemExit(
