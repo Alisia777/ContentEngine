@@ -34,18 +34,32 @@ def run_node(expression: str) -> dict:
       const result = await (async () => {{ {expression} }})();
       console.log(JSON.stringify(result));
     """
+    command = [
+        node,
+        "--experimental-default-type=module",
+        "--input-type=module",
+        "-e",
+        script,
+    ]
     completed = subprocess.run(
-        [
-            node,
-            "--experimental-default-type=module",
-            "--input-type=module",
-            "-e",
-            script,
-        ],
-        check=True,
+        command,
+        check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
+    if (
+        completed.returncode
+        and "bad option: --experimental-default-type=module" in completed.stderr
+    ):
+        completed = subprocess.run(
+            [node, "--input-type=module", "-e", script],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+    completed.check_returncode()
     return json.loads(completed.stdout)
 
 
@@ -246,7 +260,7 @@ def test_styles_are_responsive_and_reduced_motion_safe() -> None:
 
 def test_generation_route_loader_loads_the_new_intake_after_guided_form() -> None:
     loader = LOADER.read_text(encoding="utf-8")
-    assert 'generation-strategy-intake-v2.css?v=${GENERATION_INTAKE_BUILD}' in loader
+    assert 'generation-strategy-intake-v4.css?v=${GENERATION_INTAKE_BUILD}' in loader
     assert 'generation-strategy-intake-v2.js?v=${GENERATION_INTAKE_BUILD}' in loader
     assert loader.index('workspace-os-v4-generation-guided.js') < loader.index(
         'generation-strategy-intake-v2.js'
@@ -257,7 +271,7 @@ def test_new_javascript_files_parse() -> None:
     node = shutil.which("node")
     if not node:
         pytest.skip("Node.js is not installed")
-    assert 'generation-strategy-intake-v3.js' in SHIM.read_text(encoding="utf-8")
+    assert 'generation-strategy-intake-v4.js' in SHIM.read_text(encoding="utf-8")
     for path in (CONTRACT, SHIM, ADAPTER, LOADER):
         subprocess.run(
             [node, "--check", str(path)],

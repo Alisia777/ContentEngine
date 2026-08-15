@@ -245,10 +245,11 @@ def test_view_pins_all_frozen_authorities_and_has_no_side_effect_channel() -> No
     expected_hashes = {
         RUNTIME_MODULE: "70387d40a78f9fd4ec5401fbe3ca558f8969afc7bfc12511c743e653ba961ced",
         QUEUE_MODULE: "b4c8d6739233ae73dc81d7c0881089cb4ebd55bca1fc6df237b926829f6eff31",
-        SOURCE_PICKER_MODULE: "1f8d4ce2a5970a0d82f96d1fff9610f8474fb370eece4eefa065152e6d562224",
+        SOURCE_PICKER_MODULE: "06179c4c9507122f243fd4c4cf80eb42d882836122eb6fa9caa353bce845ce79",
     }
     for path, expected in expected_hashes.items():
-        assert hashlib.sha256(path.read_bytes()).hexdigest() == expected
+        canonical_bytes = path.read_bytes().replace(b"\r\n", b"\n")
+        assert hashlib.sha256(canonical_bytes).hexdigest() == expected
     assert (
         'from "./generation-strategy-source-picker.js?v=20260814.os4.41";'
         in VIEW_SOURCE

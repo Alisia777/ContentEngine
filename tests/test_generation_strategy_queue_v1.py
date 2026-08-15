@@ -396,7 +396,8 @@ def _evaluate(expression: str) -> object:
 
 
 def test_queue_imports_frozen_runtime_and_is_pure_planning_only() -> None:
-    assert hashlib.sha256(RUNTIME_MODULE.read_bytes()).hexdigest() == (
+    canonical_runtime = RUNTIME_MODULE.read_bytes().replace(b"\r\n", b"\n")
+    assert hashlib.sha256(canonical_runtime).hexdigest() == (
         "70387d40a78f9fd4ec5401fbe3ca558f8969afc7bfc12511c743e653ba961ced"
     )
     assert (

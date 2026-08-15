@@ -20,6 +20,7 @@ import {
 import {
   GENERATION_STRATEGY_SOURCE_PICKER_ACTIONS,
   createGenerationStrategySourcePicker,
+  generationStrategyRequiredSourceCount,
   generationStrategySourcePickerProjection,
   reduceGenerationStrategySourcePicker,
 } from "./generation-strategy-source-picker.js?v=20260814.os4.41";
@@ -1161,7 +1162,7 @@ function syncStrategySourcePickerState(strategyId, { reset = false } = {}) {
   return runtime.strategySourcePicker;
 }
 
-function strategyMechanicsEditor(source, strategyId, position) {
+function strategyMechanicsEditor(source, strategyId, position, requiredCount) {
   const article = element("article", "generation-strategy-source-review");
   article.dataset.generationStrategySourceReview = source.source_media_id;
   const details = document.createElement("details");
@@ -1194,7 +1195,7 @@ function strategyMechanicsEditor(source, strategyId, position) {
       control.name = `generation_strategy_mechanics_${position}_${field.key}`;
       control.setAttribute(
         "aria-label",
-        `${field.label} · ролик ${position} из 10 · ${source.filename}`,
+        `${field.label} · ролик ${position} из ${requiredCount} · ${source.filename}`,
       );
       label.append(control, element("small", "field-hint", field.hint));
       fields.append(label);
@@ -1216,13 +1217,18 @@ function renderStrategySourcePicker(form, { reset = false } = {}) {
   if (!projection) return null;
 
   const header = element("div", "generation-strategy-source-picker__header");
+  const sourceCopy = row.strategy_id === "viral_product_swap"
+    ? "Один MP4 станет исходной сценой Product Swap."
+    : projection.required_count === 1
+      ? "Один MP4 станет референсом нового ролика."
+      : `Порядок станет порядком ${projection.required_count} независимых роликов.`;
   header.append(
-    element("strong", "", `Выбрано ${projection.selected_count} из 10`),
     element(
-      "span",
-      "muted tiny",
-      "Порядок станет порядком десяти независимых роликов.",
+      "strong",
+      "",
+      `Выбрано ${projection.selected_count} из ${projection.required_count}`,
     ),
+    element("span", "muted tiny", sourceCopy),
   );
   const options = element("div", "generation-strategy-source-picker__options");
   const selectedIds = new Set(projection.selected.map((item) => item.source_media_id));
@@ -1233,7 +1239,8 @@ function renderStrategySourcePicker(form, { reset = false } = {}) {
     input.name = "generation_strategy_source_selection";
     input.value = candidate.id;
     input.checked = selectedIds.has(candidate.id);
-    input.disabled = !input.checked && projection.selected_count >= 10;
+    input.disabled =
+      !input.checked && projection.selected_count >= projection.required_count;
     input.dataset.generationStrategySourceToggle = candidate.id;
     input.setAttribute("aria-label", `Выбрать ${candidate.filename}`);
     const position = projection.selected.find(
@@ -1258,13 +1265,18 @@ function renderStrategySourcePicker(form, { reset = false } = {}) {
     root.append(element(
       "p",
       "muted tiny",
-      "Нет доступных MP4 с привязкой к точному YouTube-источнику и подтверждёнными правами.",
+      "Нет доступных зарегистрированных MP4 с подтверждёнными правами.",
     ));
   }
 
   if (reviews) {
     reviews.replaceChildren(...projection.selected.map((source) => (
-      strategyMechanicsEditor(source, row.strategy_id, source.position)
+      strategyMechanicsEditor(
+        source,
+        row.strategy_id,
+        source.position,
+        projection.required_count,
+      )
     )));
   }
   form.dataset.generationStrategySourceCount = String(projection.selected_count);
@@ -1423,13 +1435,17 @@ function syncStrategyAssetCandidates(form, { reset = false } = {}) {
     return;
   }
   const sourceCount = sourceProjection?.selected_count || 0;
-  const incompleteSources = sourceCount !== 10;
+  const requiredCount = sourceProjection?.required_count
+    || generationStrategyRequiredSourceCount(row.strategy_id);
+  const incompleteSources = sourceCount !== requiredCount;
   status.dataset.state = missing.length || incompleteSources ? "warning" : "ready";
   status.textContent = missing.length
     ? "Для одной из обязательных ролей нет подходящего серверно подтверждённого файла. Добавьте исходник в Материалы или загрузите следующую страницу."
     : incompleteSources
-      ? `Выберите ровно 10 исходных хитов: сейчас ${sourceCount} из 10. Порядок выбора будет сохранён в очереди.`
-      : "Ровно 10 MP4 выбраны и проверены сервером. Каждый станет отдельным роликом; выбор ещё не запускает провайдера и не списывает средств.";
+      ? `Выберите ровно ${requiredCount} MP4: сейчас ${sourceCount} из ${requiredCount}. Порядок выбора будет сохранён в очереди.`
+      : requiredCount === 1
+        ? "Исходный MP4 выбран и проверен сервером. Выбор ещё не запускает провайдера и не списывает средств."
+        : `Ровно ${requiredCount} MP4 выбраны и проверены сервером. Каждый станет отдельным роликом; выбор ещё не запускает провайдера и не списывает средств.`;
 }
 
 async function loadGenerationStrategyAssets(form, { append = false } = {}) {
@@ -1802,7 +1818,10 @@ function syncStrategyForm(form, { reset = false } = {}) {
   syncStrategyAttestations(attestationRoot, row, { reset });
   const copy = q("[data-generation-strategy-assets-copy]", fieldset);
   if (copy) {
-    copy.textContent = `${row.public_label}. Выберите ровно 10 хитов в нужном порядке, общие ассеты товара и права. Каждый исходник получит своё ТЗ, цену и задачу; до общего явного подтверждения списания не будет.`;
+    const requiredCount = generationStrategyRequiredSourceCount(row.strategy_id);
+    copy.textContent = row.strategy_id === "viral_product_swap"
+      ? `${row.public_label}. Выберите один исходный MP4, кадр исходного товара, фото нового товара и подтвердите права. До явного подтверждения списания не будет.`
+      : `${row.public_label}. Выберите ровно ${requiredCount} исходных MP4 в нужном порядке, общие ассеты товара и права. Каждый исходник получит своё ТЗ, цену и задачу; до общего явного подтверждения списания не будет.`;
   }
   syncStrategyAssetCandidates(form, { reset });
   return true;
@@ -1936,7 +1955,9 @@ function generationStrategySelections(form) {
       ),
     }));
   }
-  return results.length === 10 ? Object.freeze(results) : null;
+  return results.length === sourceProjection.required_count
+    ? Object.freeze(results)
+    : null;
 }
 
 function generationStrategySelection(form) {

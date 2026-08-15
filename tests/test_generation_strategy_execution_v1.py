@@ -79,7 +79,8 @@ def test_sql_and_pgtap_parse_and_frozen_authority_is_untouched() -> None:
     assert migration.startswith("begin;\n")
     assert migration.rstrip().endswith("commit;")
     for path, expected_hash in FROZEN_AUTHORITY_HASHES.items():
-        assert hashlib.sha256(path.read_bytes()).hexdigest() == expected_hash
+        canonical_bytes = path.read_bytes().replace(b"\r\n", b"\n")
+        assert hashlib.sha256(canonical_bytes).hexdigest() == expected_hash
 
 
 def test_execution_ledgers_are_additive_private_rls_append_only_authority() -> None:

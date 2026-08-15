@@ -15,6 +15,16 @@ export const GENERATION_STRATEGY_SOURCE_PICKER_VERSION =
   "generation-strategy-source-picker-v1";
 
 export const GENERATION_STRATEGY_SOURCE_COUNT = 10;
+export const GENERATION_STRATEGY_SOURCE_REQUIREMENTS = Object.freeze({
+  viral_avatar_ugc: 1,
+  viral_product_swap: 1,
+  viral_rebuild: GENERATION_STRATEGY_SOURCE_COUNT,
+});
+
+export function generationStrategyRequiredSourceCount(strategyId) {
+  const strategy = cleanStrategyId(strategyId);
+  return strategy ? GENERATION_STRATEGY_SOURCE_REQUIREMENTS[strategy] : 0;
+}
 
 export const GENERATION_STRATEGY_SOURCE_PICKER_ACTIONS = Object.freeze({
   replaceCandidates: "REPLACE_CANDIDATES",
@@ -132,7 +142,8 @@ function validState(value) {
     || value.revision < 0
     || !Array.isArray(value.candidates)
     || !Array.isArray(value.selected_source_ids)
-    || value.selected_source_ids.length > GENERATION_STRATEGY_SOURCE_COUNT
+    || value.selected_source_ids.length >
+      generationStrategyRequiredSourceCount(value.strategy_id)
     || new Set(value.selected_source_ids).size !== value.selected_source_ids.length
     || !Object.isFrozen(value)
   ) return false;
@@ -200,7 +211,9 @@ export function reduceGenerationStrategySourcePicker(state, action) {
     const selected = [...state.selected_source_ids];
     if (currentIndex >= 0) {
       selected.splice(currentIndex, 1);
-    } else if (selected.length >= GENERATION_STRATEGY_SOURCE_COUNT) {
+    } else if (
+      selected.length >= generationStrategyRequiredSourceCount(state.strategy_id)
+    ) {
       return withError(state, "source_limit_reached");
     } else {
       selected.push(id);
@@ -233,15 +246,18 @@ export function generationStrategySourcePickerProjection(state) {
   const probeIds = selected
     .filter((entry) => entry.probe_required)
     .map((entry) => entry.source_media_id);
-  const exactlyTen = selected.length === GENERATION_STRATEGY_SOURCE_COUNT;
+  const requiredCount = generationStrategyRequiredSourceCount(state.strategy_id);
+  const exactRequired = selected.length === requiredCount;
   return deepFreeze({
     version: state.version,
     strategy_id: state.strategy_id,
     revision: state.revision,
     selected_count: selected.length,
-    required_count: GENERATION_STRATEGY_SOURCE_COUNT,
-    exactly_ten_selected: exactlyTen,
-    all_selected_ready: exactlyTen && probeIds.length === 0,
+    required_count: requiredCount,
+    exact_required_selected: exactRequired,
+    exactly_ten_selected:
+      requiredCount === GENERATION_STRATEGY_SOURCE_COUNT && exactRequired,
+    all_selected_ready: exactRequired && probeIds.length === 0,
     selected: Object.freeze(selected),
     probe_required_source_ids: Object.freeze(probeIds),
     error: state.error,

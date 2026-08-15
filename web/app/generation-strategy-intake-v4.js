@@ -13,8 +13,10 @@ const COPY_AUTHORITY_STRATEGY = "viral_product_swap";
 const STRATEGY_AUTHORITY_STRATEGY = "viral_rebuild";
 const CHARACTER_PERFORMANCE_FEATURE = "generation_character_performance_v1";
 const HANDOFF_VERSION = "generation-intake-mp4-v4";
+const DIRECT_MP4_ATTACHMENT_RPC =
+  "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260815.mp4.4",
+  "./generation-strategy-intake-v4.css?v=20260815.mp4.5",
   import.meta.url,
 ).href;
 const UUID_PATTERN =
@@ -23,7 +25,7 @@ const MAX_COPY_DURATION = 15;
 const MIN_COPY_DURATION = 4;
 const MAX_AVATAR_DURATION = 30;
 const MAX_STRATEGY_FILES = 10;
-const MAX_MP4_BYTES = 250 * 1024 * 1024;
+const MAX_MP4_BYTES = 32 * 1024 * 1024;
 const STORYBOARD_FRAME_COUNT = 8;
 const formStates = new WeakMap();
 let mountQueued = false;
@@ -73,7 +75,13 @@ function projectId() {
 }
 
 function ensureStyle() {
-  if (q(`link[data-generation-intake-v4-style="${CSS.escape(STYLE_HREF)}"]`)) {
+  const alreadyLoaded = [...(document.styleSheets || [])].some(
+    (sheet) => sheet.href === STYLE_HREF,
+  );
+  if (
+    alreadyLoaded
+    || q(`link[data-generation-intake-v4-style="${CSS.escape(STYLE_HREF)}"]`)
+  ) {
     return;
   }
   const link = document.createElement("link");
@@ -482,7 +490,8 @@ function refreshVideoSelects(form, state) {
 function selectedProductMediaIds(form) {
   const result = [];
   const seen = new Set();
-  qa('input[name="media_id"]:checked:not(:disabled)', form).forEach((input) => {
+  const productRoot = q(".generation-intake-v4__product-items", form);
+  qa('input[name="media_id"]:checked:not(:disabled)', productRoot).forEach((input) => {
     const id = String(input.value || "").trim().toLowerCase();
     if (!UUID_PATTERN.test(id) || seen.has(id)) return;
     seen.add(id);
@@ -711,66 +720,79 @@ function safeFilename(value, fallback) {
   return normalized || fallback;
 }
 
-function objectKeyCandidates(api, file, kind) {
-  const exactProjectId = projectId();
-  const token = crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const name = safeFilename(file.name, kind === "source_video" ? "source.mp4" : "frame.jpg");
-  const result = [];
-  for (const helper of [api.privateObjectKey, api.mediaObjectKey, api.createPrivateObjectKey]) {
-    if (typeof helper !== "function") continue;
-    try {
-      const value = helper.call(api, { projectId: exactProjectId, filename: name, kind });
-      if (typeof value === "string" && value) result.push(value);
-    } catch {
-      // Try canonical fallbacks below.
-    }
+function privateObjectKey(api, file, kind) {
+  const prefix = String(api?.storagePrefix || "");
+  if (!prefix || !prefix.endsWith("/") || prefix.includes("..")) {
+    throw new Error("private_upload_prefix_unavailable");
   }
-  result.push(
-    `projects/${exactProjectId}/generation-intake/${token}/${name}`,
-    `${exactProjectId}/generation-intake/${token}/${name}`,
+  const month = new Date().toISOString().slice(0, 7);
+  const token = crypto.randomUUID?.()
+    || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const fallback = kind === "source_video" ? "source.mp4" : "reference.jpg";
+  const name = safeFilename(file.name, fallback);
+  return `${prefix}uploads/${month}/${token}-${name}`;
+}
+
+function withOrganization(api, payload) {
+  return typeof api?.withOrganization === "function"
+    ? api.withOrganization(payload)
+    : payload;
+}
+
+function normalizeDirectMp4Attachment(response, mediaId) {
+  const root = response?.data && typeof response.data === "object"
+    ? response.data
+    : response;
+  const attachmentMediaId = String(root?.attachment?.media_id || "")
+    .trim()
+    .toLowerCase();
+  if (
+    root?.ok !== true
+    || root?.version !== "generation-direct-mp4-attachment-v1"
+    || attachmentMediaId !== mediaId
+    || !UUID_PATTERN.test(String(root?.attachment?.id || "").toLowerCase())
+    || root?.contract?.registered_media_reused !== true
+    || root?.contract?.provider_call_started !== false
+    || root?.contract?.paid_call_started !== false
+  ) {
+    throw new Error("direct_mp4_attachment_response_invalid");
+  }
+  return root;
+}
+
+async function attachDirectMp4(api, mediaId) {
+  if (typeof api?.call !== "function") {
+    throw new Error("direct_mp4_attachment_unavailable");
+  }
+  const response = await api.call(
+    DIRECT_MP4_ATTACHMENT_RPC,
+    withOrganization(api, {
+      project_id: projectId(),
+      media_id: mediaId,
+      idempotency_key: `generation-direct-mp4-${mediaId}`,
+    }),
   );
-  return [...new Set(result)];
+  return normalizeDirectMp4Attachment(response, mediaId);
 }
 
 async function registerUploadedMedia(api, file, objectKey, kind, sha256) {
-  if (typeof api.registerMedia !== "function") throw new Error("register_media_unavailable");
-  const exactProjectId = projectId();
-  const common = {
-    filename: file.name,
-    originalFilename: file.name,
+  if (typeof api.registerMedia !== "function") {
+    throw new Error("register_media_unavailable");
+  }
+  const response = await api.registerMedia({
+    projectId: projectId(),
+    bucket: String(api.storageBucket || "contentengine-private"),
+    object_key: objectKey,
     original_filename: file.name,
-    mimeType: file.type,
     mime_type: file.type,
-    sizeBytes: file.size,
     size_bytes: file.size,
     sha256,
     kind,
-    artifactClass: "source",
-    artifact_class: "source",
-    lifecycleStage: "sources",
-    lifecycle_stage: "sources",
-    metadata: {
-      kind,
-      rights_confirmed: true,
-      generation_intake_version: HANDOFF_VERSION,
-    },
-  };
-  const variants = [
-    { projectId: exactProjectId, objectKey, ...common },
-    { project_id: exactProjectId, object_key: objectKey, storage_key: objectKey, ...common },
-  ];
-  let lastError = null;
-  for (const payload of variants) {
-    try {
-      const response = await api.registerMedia(payload);
-      const mediaId = findUuid(response);
-      if (mediaId) return mediaId;
-      lastError = new Error("register_media_response_invalid");
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError || new Error("register_media_failed");
+    rights_confirmed: true,
+  });
+  const mediaId = findUuid(response);
+  if (!mediaId) throw new Error("register_media_response_invalid");
+  return mediaId;
 }
 
 async function uploadProjectMedia(file, kind) {
@@ -779,23 +801,19 @@ async function uploadProjectMedia(file, kind) {
     throw new Error("private_upload_unavailable");
   }
   const sha256 = await sha256Hex(file);
-  let lastError = null;
-  for (const objectKey of objectKeyCandidates(api, file, kind)) {
-    try {
-      await api.uploadPrivateObject(objectKey, file);
-      try {
-        return await registerUploadedMedia(api, file, objectKey, kind, sha256);
-      } catch (error) {
-        if (typeof api.removePrivateObject === "function") {
-          await Promise.resolve(api.removePrivateObject(objectKey)).catch(() => {});
-        }
-        throw error;
-      }
-    } catch (error) {
-      lastError = error;
+  const objectKey = privateObjectKey(api, file, kind);
+  await api.uploadPrivateObject(objectKey, file);
+  let mediaId = "";
+  try {
+    mediaId = await registerUploadedMedia(api, file, objectKey, kind, sha256);
+  } catch (error) {
+    if (typeof api.removePrivateObject === "function") {
+      await Promise.resolve(api.removePrivateObject(objectKey)).catch(() => {});
     }
+    throw error;
   }
-  throw lastError || new Error("private_upload_failed");
+  if (kind === "source_video") await attachDirectMp4(api, mediaId);
+  return mediaId;
 }
 
 function panelFor(state, route) {
@@ -857,9 +875,11 @@ function bindRoleAsset(form, role, mediaId) {
   const escapedMedia = CSS.escape(mediaId);
   const selectors = [
     `[data-generation-strategy-role="${escapedRole}"] input[value="${escapedMedia}"]`,
+    `[data-generation-strategy-role="${escapedRole}"] option[value="${escapedMedia}"]`,
     `input[data-generation-strategy-role="${escapedRole}"][value="${escapedMedia}"]`,
     `input[name*="${escapedRole}"][value="${escapedMedia}"]`,
     `option[data-generation-strategy-role="${escapedRole}"][value="${escapedMedia}"]`,
+    `input[name="generation_strategy_source_selection"][value="${escapedMedia}"]`,
   ];
   let changed = false;
   selectors.forEach((selector) => {
@@ -868,8 +888,15 @@ function bindRoleAsset(form, role, mediaId) {
         control.selected = true;
         control.parentElement?.dispatchEvent(new Event("change", { bubbles: true }));
       } else if (control instanceof HTMLInputElement) {
-        control.checked = true;
-        control.dispatchEvent(new Event("change", { bubbles: true }));
+        if (
+          control.name === "generation_strategy_source_selection"
+          && !control.checked
+        ) {
+          control.click();
+        } else {
+          control.checked = true;
+          control.dispatchEvent(new Event("change", { bubbles: true }));
+        }
       }
       changed = true;
     });
@@ -877,13 +904,20 @@ function bindRoleAsset(form, role, mediaId) {
   return changed;
 }
 
-function openNativeLaunch(form, handoff) {
+async function openNativeLaunch(form, handoff) {
   form.dataset.generationIntakeV4Mode = "full";
   selectStrategy(form, handoff.strategy_id);
-  handoff.assets.forEach(({ role, media_id: mediaId }) => bindRoleAsset(form, role, mediaId));
+  await window.ContentEngineGenerationGuidedV4
+    ?.refreshStrategyAssets?.(form);
+  handoff.assets.forEach(({ role, media_id: mediaId }) => {
+    bindRoleAsset(form, role, mediaId);
+  });
   q('[data-ce-v4-generation-target="media"]', form)?.click?.();
   requestAnimationFrame(() => {
-    q(".generation-strategy-view", form)?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    q(".generation-strategy-view", form)?.scrollIntoView?.({
+      behavior: "smooth",
+      block: "start",
+    });
   });
 }
 
@@ -951,7 +985,7 @@ async function analyzeRoute(form, route) {
   } catch (error) {
     const messages = {
       mp4_required: "Нужен настоящий MP4-файл.",
-      mp4_too_large: "MP4 больше 250 МБ.",
+      mp4_too_large: "MP4 больше 32 МБ.",
       mp4_signature_invalid: "Файл не содержит корректную MP4/ISO-BMFF сигнатуру.",
       mp4_duration_too_long: `Ролик длиннее допустимых ${route === "copy_video" ? MAX_COPY_DURATION : MAX_AVATAR_DURATION} секунд.`,
       mp4_duration_too_short: `Для Product Swap нужен ролик не короче ${MIN_COPY_DURATION} секунд.`,
@@ -963,9 +997,18 @@ async function analyzeRoute(form, route) {
 }
 
 async function ensureSourceMedia(routeState) {
-  if (UUID_PATTERN.test(routeState.sourceMediaId || "")) return routeState.sourceMediaId;
-  if (!(routeState.sourceFile instanceof File)) throw new Error("source_media_required");
-  routeState.sourceMediaId = await uploadProjectMedia(routeState.sourceFile, "source_video");
+  if (UUID_PATTERN.test(routeState.sourceMediaId || "")) {
+    const api = await apiRuntime();
+    await attachDirectMp4(api, routeState.sourceMediaId);
+    return routeState.sourceMediaId;
+  }
+  if (!(routeState.sourceFile instanceof File)) {
+    throw new Error("source_media_required");
+  }
+  routeState.sourceMediaId = await uploadProjectMedia(
+    routeState.sourceFile,
+    "source_video",
+  );
   return routeState.sourceMediaId;
 }
 
@@ -989,17 +1032,17 @@ async function prepareCopy(form) {
       if (frame) {
         originalProductMediaId = await uploadProjectMedia(
           frameAsFile(frame, "copy"),
-          "original_product",
+          "creator_reference",
         );
       }
     }
     const assets = [
       { role: "source_video", media_id: sourceMediaId },
       ...(originalProductMediaId
-        ? [{ role: "original_product", media_id: originalProductMediaId }]
+        ? [{ role: "original_product_image", media_id: originalProductMediaId }]
         : []),
-      ...productMediaIds.map((mediaId, index) => ({
-        role: index === 0 ? "product_primary" : "product_reference",
+      ...productMediaIds.map((mediaId) => ({
+        role: "new_product_image",
         media_id: mediaId,
       })),
     ];
@@ -1026,14 +1069,14 @@ async function prepareCopy(form) {
         "Product Swap подготовлен. Проверьте привязанные материалы, стоимость и запустите через действующий creator-generate.",
         "success",
       );
-      openNativeLaunch(form, handoff);
+      await openNativeLaunch(form, handoff);
     } else {
       setStatus(
         panel,
         "MP4 и товар загружены. В полном Product Swap выберите отдельное фото исходного товара — без него платный запуск заблокирован.",
         "warning",
       );
-      openNativeLaunch(form, handoff);
+      await openNativeLaunch(form, handoff);
     }
   } catch (error) {
     console.warn("Copy Product Swap preparation failed", error);
@@ -1124,19 +1167,19 @@ async function uploadStrategySources(form) {
       launch_enabled: false,
     };
     persistHandoff(form, handoff);
+    selectStrategy(form, STRATEGY_AUTHORITY_STRATEGY);
+    await window.ContentEngineGenerationGuidedV4
+      ?.refreshStrategyAssets?.(form);
     mediaIds.forEach((mediaId) => {
-      const inputNode = q(`input[name="media_id"][value="${CSS.escape(mediaId)}"]`, form);
-      if (inputNode instanceof HTMLInputElement) {
-        inputNode.checked = true;
-        inputNode.dispatchEvent(new Event("change", { bubbles: true }));
-      }
+      bindRoleAsset(form, "source_video", mediaId);
     });
     setStatus(
       panel,
-      `${mediaIds.length} MP4 добавлено в проект. Используйте их в полном конструкторе ниже.`,
+      `${mediaIds.length} MP4 добавлено в проект и выбрано в полном конструкторе. Бесплатная проверка длительности остаётся обязательной перед запуском.`,
       "success",
     );
     input.value = "";
+    q('[data-ce-v4-generation-target="media"]', form)?.click?.();
     refreshVideoSelects(form, state);
   } catch (error) {
     console.warn("Strategy MP4 upload failed", error);

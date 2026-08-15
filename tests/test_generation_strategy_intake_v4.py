@@ -22,9 +22,9 @@ def test_three_routes_have_separate_operator_forms() -> None:
     assert '"copy_video"' in source
     assert '"avatar_video"' in source
     assert '"strategy_video"' in source
-    assert 'dataGenerationIntakePanel = "copy_video"' in source
-    assert 'dataGenerationIntakePanel = "avatar_video"' in source
-    assert 'dataGenerationIntakePanel = "strategy_video"' in source
+    assert 'panel.dataset.generationIntakePanel = "copy_video"' in source
+    assert 'panel.dataset.generationIntakePanel = "avatar_video"' in source
+    assert 'panel.dataset.generationIntakePanel = "strategy_video"' in source
     assert "Скопировать ролик" in source
     assert "Сделать с аватаром" in source
     assert "Создать видео по стратегии" in source
@@ -48,8 +48,8 @@ def test_copy_builds_complete_product_swap_handoff() -> None:
     assert 'const PAID_AUTHORITY = "creator-generate"' in source
     assert 'const COPY_AUTHORITY_STRATEGY = "viral_product_swap"' in source
     assert 'role: "source_video"' in source
-    assert 'role: "original_product"' in source
-    assert 'role: index === 0 ? "product_primary" : "product_reference"' in source
+    assert 'role: "original_product_image"' in source
+    assert 'role: "new_product_image"' in source
     assert "original_product_media_id" in source
     assert "generation_strategy_prefill_assets" in source
     assert "contentengine:generation-strategy-handoff" in source
@@ -87,6 +87,8 @@ def test_strategy_accepts_up_to_ten_mp4_sources_and_keeps_full_constructor() -> 
     assert "MAX_STRATEGY_FILES = 10" in source
     assert "input.multiple = multiple" in source
     assert "files.length > MAX_STRATEGY_FILES" in source
+    assert 'bindRoleAsset(form, "source_video", mediaId)' in source
+    assert "refreshStrategyAssets" in source
     assert 'const STRATEGY_AUTHORITY_STRATEGY = "viral_rebuild"' in source
     assert "Ниже остаётся действующая шестишаговая форма" in source
     assert "reference_media_ids" in source
@@ -112,12 +114,13 @@ def test_direct_upload_uses_existing_private_media_runtime() -> None:
     source = text(V4)
 
     assert "ContentEngineWorkspaceRuntime?.getApi" in source
+    assert "contentengine_attach_generation_direct_mp4" in source
     assert "api.uploadPrivateObject" in source
     assert "api.registerMedia" in source
     assert "api.removePrivateObject" in source
+    assert "api?.storagePrefix" in source
+    assert "api.storageBucket" in source
     assert "sha256Hex" in source
-    assert 'artifactClass: "source"' in source
-    assert 'lifecycleStage: "sources"' in source
 
 
 def test_compact_routes_do_not_submit_legacy_generation_form() -> None:
@@ -126,7 +129,8 @@ def test_compact_routes_do_not_submit_legacy_generation_form() -> None:
     assert 'form.addEventListener("submit"' not in source
     assert ".submit()" not in source
     assert ".requestSubmit()" not in source
-    assert "paid launch" not in source.lower()
+    assert "/v1/recipes/" not in source
+    assert "RUNWAYML_API_SECRET" not in source
 
 
 def test_interface_is_responsive_and_reduced_motion_safe() -> None:
