@@ -1,0 +1,186 @@
+name: Generation strategies production gate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/app/generation-intake-mp4*.js'
+      - 'web/app/generation-intake-mp4*.css'
+      - 'web/app/generation-strategy-intake*.js'
+      - 'web/app/generation-strategy-intake*.css'
+      - 'web/app/workspace-os-v4-loader.js'
+      - 'supabase/functions/creator-generate/**'
+      - 'supabase/migrations/**generation_intake**'
+      - 'supabase/migrations/**generation_strategy**'
+      - 'supabase/tests/**generation_intake**'
+      - 'tests/test_generation_intake_mp4_execution_v1.py'
+      - 'tests/test_generation_strategy_intake_v2.py'
+      - '.github/workflows/generation-strategies-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: generation-strategies-production-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify three routes and MP4 Product Swap
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out main
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Verify production architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f web/app/generation-strategy-intake-contract-v2.js
+          test -f web/app/generation-strategy-intake-v3.js
+          test -f web/app/generation-intake-mp4-v1.js
+          test -f tests/test_generation_strategy_intake_v2.py
+          test -f tests/test_generation_intake_mp4_execution_v1.py
+          test -f supabase/functions/creator-generate/index.ts
+
+          # Delivery/bootstrap helpers must never reach production.
+          test ! -e .github/mp4-bootstrap-ready
+          test ! -e .github/workflows/mp4-bootstrap-apply.yml
+          test ! -e .github/workflows/mp4-bootstrap-pr.yml
+          test ! -e .github/workflows/export-pr-tree.yml
+          test ! -e .github/workflows/export-mp4-fragments.yml
+          test ! -e .github/workflows/finalize-pr205.yml
+          test ! -e .github/workflows/finalize-pr205-v2.yml
+          test ! -e .github/workflows/inspect-pr205.yml
+
+          # Intake may prepare assets, but creator-generate remains the only paid authority.
+          test ! -d supabase/functions/contentengine-generation-intake
+          ! grep -R --line-number --fixed-strings 'generation_intake_spend_ledger' supabase web tests
+          ! grep -R --line-number --fixed-strings 'contentengine-generation-intake' web/app supabase/config.toml
+          grep -q 'creator-generate' web/app/generation-intake-mp4-v1.js
+          grep -q 'viral_product_swap' web/app/generation-intake-mp4-v1.js
+
+          # Three genuinely different operator routes.
+          grep -q 'copy_video' web/app/generation-strategy-intake-contract-v2.js
+          grep -q 'avatar_video' web/app/generation-strategy-intake-contract-v2.js
+          grep -q 'strategy_video' web/app/generation-strategy-intake-contract-v2.js
+
+          # Copy and Avatar are MP4-first; source URL is optional metadata.
+          grep -q 'source_media_id' web/app/generation-intake-mp4-v1.js
+          grep -q 'source_url' web/app/generation-intake-mp4-v1.js
+          grep -q 'product_media_ids' web/app/generation-intake-mp4-v1.js
+          grep -q 'original_product' web/app/generation-intake-mp4-v1.js
+
+          git diff --check HEAD^
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements-dev.txt
+
+      - name: Run focused contracts
+        run: |
+          set -euo pipefail
+          python -m pytest -q \
+            tests/test_generation_strategy_intake_v2.py \
+            tests/test_generation_intake_mp4_execution_v1.py \
+            tests/test_generation_strategy_app_integration_v1.py \
+            tests/test_generation_strategy_execution_v1.py
+          node --check web/app/generation-strategy-intake-contract-v2.js
+          node --check web/app/generation-strategy-intake-v2.js
+          node --check web/app/generation-strategy-intake-v3.js
+          node --check web/app/generation-intake-mp4-v1.js
+
+      - name: Validate workflow YAML
+        run: python -c "import pathlib,yaml; [yaml.safe_load(p.read_text(encoding='utf-8')) for p in pathlib.Path('.github/workflows').glob('*.yml')]"
+
+      - name: Write verification report
+        shell: bash
+        run: |
+          cat > /tmp/generation-strategies-verification.md <<EOF
+          # Generation strategies production verification
+
+          - Commit: $GITHUB_SHA
+          - Copy route: verified
+          - Avatar route: verified
+          - Strategy route: verified
+          - MP4-first intake: verified
+          - Product Swap authority: creator-generate
+          - Separate spend/provider authority: absent
+          - Paid provider smoke: not executed by CI
+          EOF
+
+      - name: Upload verification report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: generation-strategies-verification
+          path: /tmp/generation-strategies-verification.md
+          if-no-files-found: error
+          retention-days: 14
+
+  deploy-supabase:
+    name: Apply Supabase migrations and creator-generate
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+    steps:
+      - name: Check out verified main
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@3c2f5e2ae34c34e428e8e206e2c4d21fa2d20fbf # v2.1.1
+        with:
+          version: 2.109.1
+          github-token: ${{ github.token }}
+
+      - name: Require configured production target
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${SUPABASE_ACCESS_TOKEN:?SUPABASE_ACCESS_TOKEN is required}"
+          : "${SUPABASE_PROJECT_REF:?SUPABASE_PROJECT_REF is required}"
+          : "${SUPABASE_DB_PASSWORD:?SUPABASE_DB_PASSWORD is required}"
+
+      - name: Link production project
+        run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Apply pending migrations
+        run: supabase db push --linked
+
+      - name: Deploy the single paid generation authority
+        run: supabase functions deploy creator-generate --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt=false
+
+      - name: Write deployment report
+        shell: bash
+        run: |
+          cat > /tmp/generation-strategies-deployment.md <<EOF
+          # Generation strategies Supabase deployment
+
+          - Commit: $GITHUB_SHA
+          - Project ref: $SUPABASE_PROJECT_REF
+          - Database migrations: applied
+          - Edge function: creator-generate deployed
+          - Paid provider smoke: not executed
+          EOF
+
+      - name: Upload deployment report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: generation-strategies-supabase-deployment
+          path: /tmp/generation-strategies-deployment.md
+          if-no-files-found: error
+          retention-days: 14
