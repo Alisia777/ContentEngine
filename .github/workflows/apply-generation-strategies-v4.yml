@@ -1,0 +1,267 @@
+name: Apply MP4-first generation strategies v4
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-generation-strategies-v4.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: apply-generation-strategies-v4
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+    steps:
+      - name: Check out main
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Activate v4 entrypoint and remove delivery scaffolding
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > web/app/generation-strategy-intake-v2.js <<'EOF'
+          /* Compatibility entrypoint retained for the current workspace loader. */
+          import "./generation-strategy-intake-v4.js?v=20260815.mp4.4";
+          EOF
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          candidates = [
+              Path("web/app/workspace-os-v4-loader.js"),
+              Path("web/app/index.html"),
+          ]
+          for path in candidates:
+              if not path.exists():
+                  continue
+              text = path.read_text(encoding="utf-8")
+              text = re.sub(
+                  r"generation-strategy-intake-v2[.]js(?:[?]v=[^\"']+)?",
+                  "generation-strategy-intake-v2.js?v=20260815.mp4.4",
+                  text,
+              )
+              text = re.sub(
+                  r"generation-strategy-intake-v3[.]js(?:[?]v=[^\"']+)?",
+                  "generation-strategy-intake-v4.js?v=20260815.mp4.4",
+                  text,
+              )
+              path.write_text(text, encoding="utf-8")
+          PY
+
+          cat > tests/test_generation_strategy_intake_v2.py <<'PYTEST'
+          from __future__ import annotations
+
+          from pathlib import Path
+          import shutil
+          import subprocess
+
+
+          ROOT = Path(__file__).resolve().parents[1]
+          ENTRY = ROOT / "web/app/generation-strategy-intake-v2.js"
+          V4 = ROOT / "web/app/generation-strategy-intake-v4.js"
+          LOADER = ROOT / "web/app/workspace-os-v4-loader.js"
+
+
+          def test_compatibility_entrypoint_loads_v4_only() -> None:
+              source = ENTRY.read_text(encoding="utf-8")
+              assert "generation-strategy-intake-v4.js?v=20260815.mp4.4" in source
+              assert "generation-strategy-intake-v3.js" not in source
+
+
+          def test_workspace_loader_cache_busts_mp4_v4() -> None:
+              source = LOADER.read_text(encoding="utf-8")
+              assert "generation-strategy-intake-v2.js?v=20260815.mp4.4" in source
+
+
+          def test_compact_routes_use_mp4_not_mandatory_youtube() -> None:
+              source = V4.read_text(encoding="utf-8")
+              assert 'input.accept = "video/mp4,.mp4"' in source
+              assert "Источник публикации — по желанию" in source
+              assert "contentengine_register_exact_youtube_source" not in source
+              assert "canonicalGenerationIntakeSourceUrl" not in source
+
+
+          def test_copy_avatar_and_strategy_are_separate() -> None:
+              source = V4.read_text(encoding="utf-8")
+              for route in ("copy_video", "avatar_video", "strategy_video"):
+                  assert route in source
+              assert 'COPY_AUTHORITY_STRATEGY = "viral_product_swap"' in source
+              assert 'STRATEGY_AUTHORITY_STRATEGY = "viral_rebuild"' in source
+              assert 'strategy_id: "character_performance"' in source
+              assert "viral_avatar_ugc" not in source
+
+
+          def test_paid_authority_remains_creator_generate() -> None:
+              source = V4.read_text(encoding="utf-8")
+              assert 'PAID_AUTHORITY = "creator-generate"' in source
+              assert "contentengine-generation-intake" not in source
+              assert "generation_intake_spend_ledger" not in source
+              assert "RUNWAYML_API_SECRET" not in source
+              assert "fetch(" not in source
+
+
+          def test_v4_javascript_parses() -> None:
+              node = shutil.which("node")
+              assert node is not None
+              result = subprocess.run(
+                  [node, "--check", str(V4)],
+                  cwd=ROOT,
+                  capture_output=True,
+                  text=True,
+                  encoding="utf-8",
+                  timeout=15,
+              )
+              assert result.returncode == 0, result.stderr
+          PYTEST
+
+          git rm -rf --ignore-unmatch \
+            .github/mp4-bootstrap-ready \
+            .github/workflows/mp4-bootstrap-apply.yml \
+            .github/workflows/mp4-bootstrap-pr.yml \
+            .github/workflows/export-pr-tree.yml \
+            .github/workflows/export-mp4-fragments.yml \
+            .github/workflows/finalize-pr205.yml \
+            .github/workflows/finalize-pr205-v2.yml \
+            .github/workflows/inspect-pr205.yml \
+            .github/workflows/generation-strategies-deploy.yml \
+            .github/workflows/mp4-intake-ci.yml \
+            supabase/functions/contentengine-generation-intake \
+            supabase/migrations/202608150001_generation_intake_mp4_tables_v1.sql \
+            supabase/migrations/202608150002_generation_intake_mp4_reserve_v1.sql \
+            supabase/migrations/202608150003_generation_intake_mp4_commit_v1.sql \
+            supabase/migrations/202608150004_generation_intake_mp4_release_v1.sql \
+            supabase/migrations/202608150005_generation_intake_mp4_review_v1.sql \
+            supabase/tests/generation_intake_mp4_execution_v1_test.sql
+
+          test -f web/app/generation-strategy-intake-v4.js
+          test -f web/app/generation-strategy-intake-v4.css
+          test -f supabase/functions/creator-generate/index.ts
+          ! grep -R --line-number --fixed-strings 'generation_intake_spend_ledger' supabase web tests
+          ! grep -R --line-number --fixed-strings 'contentengine-generation-intake' web/app supabase/config.toml
+          grep -q 'creator-generate' web/app/generation-strategy-intake-v4.js
+          grep -q 'viral_product_swap' web/app/generation-strategy-intake-v4.js
+          grep -q 'source_media_id' web/app/generation-strategy-intake-v4.js
+          grep -q 'original_product' web/app/generation-strategy-intake-v4.js
+          grep -q 'MAX_STRATEGY_FILES = 10' web/app/generation-strategy-intake-v4.js
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements-dev.txt
+
+      - name: Run production contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check web/app/generation-strategy-intake-v2.js
+          node --check web/app/generation-strategy-intake-v4.js
+          python -m pytest -q \
+            tests/test_generation_strategy_intake_v2.py \
+            tests/test_generation_strategy_intake_v4.py \
+            tests/test_generation_strategy_app_integration_v1.py \
+            tests/test_generation_strategy_execution_v1.py
+          python -c "import pathlib,yaml; [yaml.safe_load(p.read_text(encoding='utf-8')) for p in pathlib.Path('.github/workflows').glob('*.yml')]"
+          git diff --check
+
+      - name: Commit verified source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/apply-generation-strategies-v4.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Activate three MP4-first generation strategies'
+          git push origin HEAD:main
+          echo "APPLIED_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@3c2f5e2ae34c34e428e8e206e2c4d21fa2d20fbf # v2.1.1
+        with:
+          version: 2.109.1
+          github-token: ${{ github.token }}
+
+      - name: Apply Supabase production state when configured
+        id: supabase
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${SUPABASE_ACCESS_TOKEN:-}" || -z "${SUPABASE_PROJECT_REF:-}" || -z "${SUPABASE_DB_PASSWORD:-}" ]]; then
+            echo 'status=skipped_missing_secrets' >> "$GITHUB_OUTPUT"
+            echo 'Supabase production secrets are not configured; code and Pages continue without a false deployment claim.'
+            exit 0
+          fi
+          supabase link \
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            --password "$SUPABASE_DB_PASSWORD"
+          supabase db push \
+            --password "$SUPABASE_DB_PASSWORD" \
+            --include-all
+          supabase functions deploy creator-generate \
+            --project-ref "$SUPABASE_PROJECT_REF"
+          echo 'status=deployed' >> "$GITHUB_OUTPUT"
+
+      - name: Trigger Pages deployment from verified main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api \
+            --method POST \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/dispatches" \
+            -f event_type='generation-strategies-pages' \
+            -F client_payload="{\"sha\":\"${APPLIED_SHA}\"}"
+
+      - name: Publish application report to PR #205
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUPABASE_STATUS: ${{ steps.supabase.outputs.status }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/report.md <<EOF
+          ## Production application
+
+          - three separate routes: applied to main
+          - Copy: MP4 → storyboard → original-product frame → viral_product_swap handoff
+          - Avatar: separate MP4 preparation; no silent Product UGC fallback
+          - Strategy: full constructor plus up to 10 MP4 sources
+          - paid authority: creator-generate only
+          - applied commit: ${APPLIED_SHA:-unknown}
+          - Supabase: ${SUPABASE_STATUS:-not_started}
+          - Pages dispatch: requested from verified main
+          - paid Runway smoke: not executed by CI
+          EOF
+          gh api \
+            --method POST \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/issues/205/comments" \
+            -f body=@/tmp/report.md
