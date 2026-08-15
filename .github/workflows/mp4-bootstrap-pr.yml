@@ -59,12 +59,42 @@ jobs:
           expected_sha = os.environ["EXPECTED_ARCHIVE_SHA256"]
           token = os.environ["GH_TOKEN"]
           root = Path.cwd().resolve()
+          alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
           pattern = re.compile(
               r"^<!-- contentengine-mp4-bundle-v1 "
               r"part=(\d{3}) total=(\d{3}) chunk_sha256=([0-9a-f]{64})\n"
               r"([A-Za-z0-9+/=]+)\n-->$",
               re.DOTALL,
           )
+
+          def digest(value: str) -> str:
+              return hashlib.sha256(value.encode("ascii")).hexdigest()
+
+          def repair_encoded(value: str, expected_digest: str, index: int) -> str:
+              if digest(value) == expected_digest:
+                  return value
+              for position in range(len(value) + 1):
+                  prefix, suffix = value[:position], value[position:]
+                  for character in alphabet:
+                      candidate = prefix + character + suffix
+                      if digest(candidate) == expected_digest:
+                          print(f"Recovered one missing character in part {index:03d}")
+                          return candidate
+              for position in range(len(value)):
+                  candidate = value[:position] + value[position + 1:]
+                  if digest(candidate) == expected_digest:
+                      print(f"Removed one duplicated character in part {index:03d}")
+                      return candidate
+              for position, original in enumerate(value):
+                  prefix, suffix = value[:position], value[position + 1:]
+                  for character in alphabet:
+                      if character == original:
+                          continue
+                      candidate = prefix + character + suffix
+                      if digest(candidate) == expected_digest:
+                          print(f"Recovered one changed character in part {index:03d}")
+                          return candidate
+              raise SystemExit(f"Part {index:03d} cannot be repaired from its declared SHA")
 
           comments: list[dict[str, object]] = []
           for page in range(1, 20):
@@ -94,11 +124,13 @@ jobs:
                   continue
               index = int(match.group(1))
               total = int(match.group(2))
+              declared_digest = match.group(3)
               encoded = match.group(4)
               if total != expected_parts:
                   raise SystemExit(f"Part {index:03d} declares wrong total")
               if index in parts:
                   raise SystemExit(f"Duplicate part {index:03d}")
+              encoded = repair_encoded(encoded, declared_digest, index)
               padded = encoded + "=" * ((4 - len(encoded) % 4) % 4)
               parts[index] = base64.b64decode(padded, validate=True)
 
