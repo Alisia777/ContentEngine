@@ -110,6 +110,17 @@ def test_generation_intake_does_not_create_second_paid_authority() -> None:
     assert "provider POST" not in source
 
 
+def test_generation_intake_video_select_refresh_is_mutation_idempotent() -> None:
+    source = text(V4)
+
+    # The module observes the entire document for child-list changes. Replacing
+    # these options on every scheduled mount creates an endless observer loop on
+    # the real generation route, so an unchanged projection must not mutate.
+    assert "const unchanged = options.length === desired.length" in source
+    assert "if (!unchanged)" in source
+    assert "select.replaceChildren(...desired.map" in source
+
+
 def test_direct_upload_uses_existing_private_media_runtime() -> None:
     source = text(V4)
 

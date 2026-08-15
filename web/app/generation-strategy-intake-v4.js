@@ -16,7 +16,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260815.mp4.5",
+  "./generation-strategy-intake-v4.css?v=20260815.mp4.6",
   import.meta.url,
 ).href;
 const UUID_PATTERN =
@@ -481,9 +481,21 @@ function refreshVideoSelects(form, state) {
   const videos = collectProjectVideos(form);
   qa("[data-generation-intake-existing-video]", state.shell).forEach((select) => {
     const current = select.value;
-    select.replaceChildren(new Option("Не выбран файл проекта", ""));
-    videos.forEach(({ id, label }) => select.append(new Option(label, id)));
-    if (videos.some(({ id }) => id === current)) select.value = current;
+    const desired = [
+      { id: "", label: "Не выбран файл проекта" },
+      ...videos,
+    ];
+    const options = [...select.options];
+    const unchanged = options.length === desired.length
+      && desired.every(({ id, label }, index) => (
+        options[index]?.value === id && options[index]?.text === label
+      ));
+    if (!unchanged) {
+      select.replaceChildren(...desired.map(({ id, label }) => new Option(label, id)));
+    }
+    if (videos.some(({ id }) => id === current) && select.value !== current) {
+      select.value = current;
+    }
   });
 }
 
