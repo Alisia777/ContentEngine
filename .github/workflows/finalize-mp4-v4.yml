@@ -1,0 +1,120 @@
+name: Finalize MP4-first generation v4
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: finalize-mp4-v4-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    if: >-
+      github.event.pull_request.number == 206 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'agent/finalize-mp4-first-generation-v4' &&
+      github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out exact PR head
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Reassemble and verify exact patch
+        env:
+          EXPECTED_GZIP_SHA256: 3fc409573ffdace7d942dc311dc73de602c7113fe4f9d0f24bce6348a27a81de
+          EXPECTED_PATCH_SHA256: f90bfd4a49f8d1e7d22c55a8d9a6b10d71532e0329a1b497e8bab3bf040525d4
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64
+          import gzip
+          import hashlib
+          import os
+
+          root = Path('.github/finalize-mp4-v4')
+          parts = [root / f'part-{index:02d}.b64' for index in range(4)]
+          for part in parts:
+              if not part.is_file():
+                  raise SystemExit(f'missing payload part: {part}')
+          encoded = ''.join(part.read_text(encoding='ascii') for part in parts)
+          compressed = base64.b64decode(encoded, validate=True)
+          compressed_sha = hashlib.sha256(compressed).hexdigest()
+          if compressed_sha != os.environ['EXPECTED_GZIP_SHA256']:
+              raise SystemExit(
+                  f'gzip sha mismatch: {compressed_sha} != '
+                  f"{os.environ['EXPECTED_GZIP_SHA256']}"
+              )
+          patch = gzip.decompress(compressed)
+          patch_sha = hashlib.sha256(patch).hexdigest()
+          if patch_sha != os.environ['EXPECTED_PATCH_SHA256']:
+              raise SystemExit(
+                  f'patch sha mismatch: {patch_sha} != '
+                  f"{os.environ['EXPECTED_PATCH_SHA256']}"
+              )
+          Path('/tmp/mp4-v4-final.patch').write_bytes(patch)
+          print(f'verified patch: {len(patch)} bytes · {patch_sha}')
+          PY
+          git apply --check /tmp/mp4-v4-final.patch
+          git apply /tmp/mp4-v4-final.patch
+          git diff --check
+
+      - name: Install development dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Validate MP4-first and generation strategy contracts
+        run: |
+          set -euo pipefail
+          python -m pytest -q \
+            tests/test_generation_strategy_intake_v2.py \
+            tests/test_generation_strategy_intake_v4.py \
+            tests/test_generation_strategy_queue_view_v1.py \
+            tests/test_generation_strategy_source_picker_v1.py \
+            tests/test_generation_direct_mp4_attachment_v1.py
+          node --check web/app/generation-strategy-intake-v2.js
+          node --check web/app/generation-strategy-intake-v4.js
+          node --check web/app/generation-strategy-source-picker.js
+          node --check web/app/workspace-os-v4-generation-guided.js
+          node --check web/app/workspace-os-v4-loader.js
+          python - <<'PY'
+          from pathlib import Path
+          from pglast import parse_sql
+
+          for path in (
+              Path('supabase/migrations/202608150001_generation_direct_mp4_source_v1.sql'),
+              Path('supabase/tests/generation_direct_mp4_attachment_v1_test.sql'),
+          ):
+              parse_sql(path.read_text(encoding='utf-8'))
+              print(f'parsed {path}')
+          PY
+
+      - name: Commit ordinary source diff
+        env:
+          TARGET_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          rm -rf .github/finalize-mp4-v4
+          rm -f .github/workflows/finalize-mp4-v4.yml
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Complete MP4-first Product Swap and strategy forms'
+          git push origin "HEAD:${TARGET_BRANCH}"
