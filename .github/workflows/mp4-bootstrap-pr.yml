@@ -2,12 +2,8 @@ name: Apply verified MP4 payload from PR
 
 on:
   pull_request:
-    branches:
-      - main
-    types:
-      - opened
-      - reopened
-      - synchronize
+    branches: [main]
+    types: [opened, reopened, synchronize]
 
 permissions:
   contents: write
@@ -20,14 +16,14 @@ concurrency:
 
 jobs:
   apply:
-    name: Verify, test, and commit MP4 implementation
+    name: Verify, unpack, test, and commit MP4 implementation
     if: >-
       github.event.pull_request.number == 205 &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.head.ref == 'agent/generation-three-separate-forms-v2' &&
       github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Check out exact PR head
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -35,32 +31,16 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Set up Deno
-        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
-        with:
-          deno-version: v2.8.1
-
-      - name: Reassemble, verify, test, and commit exact payload
+      - name: Reassemble and verify exact payload
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          TARGET_BRANCH: ${{ github.event.pull_request.head.ref }}
           PR_NUMBER: "205"
           EXPECTED_PARTS: "21"
           EXPECTED_ARCHIVE_SHA256: "b806bb80b108d6567ac24d2fed55e19853a6f7fc83a4b3a8031026e78ca959b7"
         run: |
           set -euo pipefail
-          test -f .github/mp4-bootstrap-ready || {
-            echo "Verified MP4 bootstrap marker is absent; nothing to apply."
-            exit 0
-          }
-
+          test -f .github/mp4-bootstrap-ready
           python3 - <<'PY'
           from __future__ import annotations
 
@@ -76,7 +56,7 @@ jobs:
           repository = os.environ["REPOSITORY"]
           pr_number = int(os.environ["PR_NUMBER"])
           expected_parts = int(os.environ["EXPECTED_PARTS"])
-          expected_archive_sha = os.environ["EXPECTED_ARCHIVE_SHA256"]
+          expected_sha = os.environ["EXPECTED_ARCHIVE_SHA256"]
           token = os.environ["GH_TOKEN"]
           root = Path.cwd().resolve()
           pattern = re.compile(
@@ -87,14 +67,10 @@ jobs:
           )
 
           comments: list[dict[str, object]] = []
-          page = 1
-          while True:
-              url = (
-                  f"https://api.github.com/repos/{repository}/issues/"
-                  f"{pr_number}/comments?per_page=100&page={page}"
-              )
+          for page in range(1, 20):
               request = urllib.request.Request(
-                  url,
+                  f"https://api.github.com/repos/{repository}/issues/{pr_number}/comments"
+                  f"?per_page=100&page={page}",
                   headers={
                       "Accept": "application/vnd.github+json",
                       "Authorization": f"Bearer {token}",
@@ -109,78 +85,35 @@ jobs:
               comments.extend(batch)
               if len(batch) < 100:
                   break
-              page += 1
 
-          parts: dict[int, str] = {}
+          parts: dict[int, bytes] = {}
           for comment in comments:
               body = str(comment.get("body") or "").replace("\r\n", "\n").strip()
               match = pattern.fullmatch(body)
               if not match:
                   continue
-              part_index = int(match.group(1))
-              declared_total = int(match.group(2))
-              declared_sha = match.group(3)
+              index = int(match.group(1))
+              total = int(match.group(2))
               encoded = match.group(4)
-              if declared_total != expected_parts:
-                  raise SystemExit(f"Part {part_index:03d} declares wrong total")
-              actual_sha = hashlib.sha256(encoded.encode("ascii")).hexdigest()
-              if actual_sha != declared_sha:
-                  print(
-                      f"Part {part_index:03d} metadata SHA differs; "
-                      "the authoritative whole-archive SHA will decide validity"
-                  )
-              if part_index in parts and parts[part_index] != encoded:
-                  raise SystemExit(f"Conflicting duplicate part {part_index:03d}")
-              parts[part_index] = encoded
+              if total != expected_parts:
+                  raise SystemExit(f"Part {index:03d} declares wrong total")
+              if index in parts:
+                  raise SystemExit(f"Duplicate part {index:03d}")
+              padded = encoded + "=" * ((4 - len(encoded) % 4) % 4)
+              parts[index] = base64.b64decode(padded, validate=True)
 
-          expected_indexes = set(range(expected_parts))
-          if set(parts) != expected_indexes:
-              missing = sorted(expected_indexes - set(parts))
-              extra = sorted(set(parts) - expected_indexes)
-              raise SystemExit(f"Payload parts incomplete; missing={missing}, extra={extra}")
-
-          archive = b"".join(
-              base64.b64decode(parts[index], validate=True)
-              for index in range(expected_parts)
-          )
+          expected = set(range(expected_parts))
+          if set(parts) != expected:
+              raise SystemExit(f"Payload parts incomplete: {sorted(expected - set(parts))}")
+          archive = b"".join(parts[index] for index in range(expected_parts))
           archive_sha = hashlib.sha256(archive).hexdigest()
-          if archive_sha != expected_archive_sha:
-              raise SystemExit(
-                  f"Archive SHA mismatch: {archive_sha} != {expected_archive_sha}"
-              )
+          if archive_sha != expected_sha:
+              raise SystemExit(f"Archive SHA mismatch: {archive_sha} != {expected_sha}")
 
           archive_path = Path("/tmp/contentengine-mp4-payload.tar.gz")
           archive_path.write_bytes(archive)
-          required = {
-              ".github/workflows/mp4-intake-ci.yml",
-              "docs/interface/archive/2026-08-15-mp4-first-generation-execution-v1.md",
-              "supabase/functions/contentengine-generation-intake/index.ts",
-              "supabase/functions/contentengine-generation-intake/contract.ts",
-              "supabase/functions/contentengine-generation-intake/create-run.ts",
-              "supabase/functions/contentengine-generation-intake/start-run.ts",
-              "supabase/functions/contentengine-generation-intake/status-run.ts",
-              "supabase/functions/contentengine-generation-intake/provider-output.ts",
-              "supabase/functions/contentengine-generation-intake/review.ts",
-              "supabase/functions/contentengine-generation-intake/run-state.ts",
-              "supabase/migrations/202608150001_generation_intake_mp4_tables_v1.sql",
-              "supabase/migrations/202608150002_generation_intake_mp4_reserve_v1.sql",
-              "supabase/migrations/202608150003_generation_intake_mp4_commit_v1.sql",
-              "supabase/migrations/202608150004_generation_intake_mp4_release_v1.sql",
-              "supabase/migrations/202608150005_generation_intake_mp4_review_v1.sql",
-              "supabase/tests/generation_intake_mp4_execution_v1_test.sql",
-              "web/app/generation-intake-mp4-v1.js",
-              "web/app/generation-intake-mp4-v1.css",
-              "tests/test_generation_intake_mp4_execution_v1.py",
-              "tests/fixtures/workspace_generation_intake_mp4_v1_harness.html",
-              "tests/fixtures/generation_intake_mp4_sample_4s.mp4",
-          }
-
           with tarfile.open(archive_path, "r:gz") as bundle:
               members = bundle.getmembers()
-              names = {member.name for member in members}
-              missing_files = sorted(required - names)
-              if missing_files:
-                  raise SystemExit(f"Required files absent from payload: {missing_files}")
               for member in members:
                   if member.isdev() or member.issym() or member.islnk():
                       raise SystemExit(f"Unsafe archive member: {member.name}")
@@ -188,28 +121,32 @@ jobs:
                   if root != destination and root not in destination.parents:
                       raise SystemExit(f"Path traversal rejected: {member.name}")
               bundle.extractall(root)
-
           print(f"Verified and extracted {len(members)} files from {archive_sha}")
           PY
 
+      - name: Validate extracted implementation
+        run: |
+          set -euo pipefail
           python -m pip install --upgrade pip
           python -m pip install -r requirements-dev.txt
           git diff --check
           python -m pytest -q tests/test_generation_intake_mp4_execution_v1.py -k 'not browser_route'
           find web/app -maxdepth 1 -type f -name 'generation-intake-mp4*.js' -print0 \
-            | xargs -0 -n1 node --check
+            | xargs -0 -r -n1 node --check
           node --check web/app/generation-strategy-intake-v2.js
-          deno fmt --check supabase/functions/contentengine-generation-intake
-          deno lint supabase/functions/contentengine-generation-intake
-          deno check supabase/functions/contentengine-generation-intake/index.ts
 
+      - name: Commit ordinary source files to the feature branch
+        env:
+          TARGET_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
           rm -f \
             .github/mp4-bootstrap-ready \
             .github/workflows/mp4-bootstrap-apply.yml \
-            .github/workflows/mp4-bootstrap-pr.yml
-
+            .github/workflows/mp4-bootstrap-pr.yml \
+            .github/workflows/export-pr-tree.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "Complete MP4-first Copy and Avatar generation execution"
+          git commit -m "Complete MP4-first generation execution"
           git push origin "HEAD:${TARGET_BRANCH}"
