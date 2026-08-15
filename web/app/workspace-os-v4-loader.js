@@ -11,6 +11,7 @@ import { workspaceActionKey } from "./workspace-action-key.js?v=20260814.os4.41"
 
 const BUILD = "20260814.os4.41";
 const GENERATION_HOTFIX_BUILD = `${BUILD}.strategy-interactions-1`;
+const GENERATION_INTAKE_BUILD = "20260814.intake2.1";
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;
@@ -34,8 +35,14 @@ const ROUTE_ASSETS = Object.freeze({
   }),
   generation: Object.freeze({
     match: (route) => route === "/workspace/generation",
-    styles: [`workspace-os-v4-generation-guided.css?v=${BUILD}`],
-    modules: [`workspace-os-v4-generation-guided.js?v=${GENERATION_HOTFIX_BUILD}`],
+    styles: [
+      `workspace-os-v4-generation-guided.css?v=${BUILD}`,
+      `generation-strategy-intake-v2.css?v=${GENERATION_INTAKE_BUILD}`,
+    ],
+    modules: [
+      `workspace-os-v4-generation-guided.js?v=${GENERATION_HOTFIX_BUILD}`,
+      `generation-strategy-intake-v2.js?v=${GENERATION_INTAKE_BUILD}`,
+    ],
   }),
   review: Object.freeze({
     match: (route) => route === "/workspace/review",

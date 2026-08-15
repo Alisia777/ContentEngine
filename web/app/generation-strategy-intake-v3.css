@@ -1,0 +1,21 @@
+/* v3 hardening overrides for the separate generation intakes. */
+
+#mock-batch-form[data-generation-intake-display="compact"]
+  [data-ce-v4-generation-panel="mode"] > :not(.generation-intake-v2) {
+  display: none !important;
+}
+
+.generation-intake-v2__status[data-state="source-ready"] {
+  color: var(--text, #f3ece5);
+  border-left: 3px solid var(--success, #67c587);
+}
+
+.generation-intake-v2__status[data-state="error"] {
+  color: var(--danger, #ff8f86);
+  border-left: 3px solid currentColor;
+}
+
+.generation-intake-v2__panel textarea:required:invalid:not(:placeholder-shown),
+.generation-intake-v2__panel input:required:invalid:not(:placeholder-shown) {
+  border-color: color-mix(in srgb, var(--danger, #ff8f86) 72%, transparent);
+}
