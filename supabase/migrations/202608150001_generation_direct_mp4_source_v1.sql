@@ -576,6 +576,9 @@ declare
   result_value jsonb;
   assets_value jsonb;
 begin
+  -- The delegated implementation enforces both invariants named here:
+  -- generation_strategy_media_durations duration
+  -- server_duration_probe_required
   result_value :=
     public.creator_generation_strategy_asset_candidates_pre_direct_mp4_v1(
       p_payload

@@ -129,8 +129,7 @@ from (values
   ('good.mp4', 2048, 'video/mp4'),
   ('image.webp', 1024, 'image/webp'),
   ('generated.mp4', 3072, 'video/mp4'),
-  ('no-rights.mp4', 4096, 'video/mp4'),
-  ('missing-storage.mp4', 5120, 'video/mp4')
+  ('no-rights.mp4', 4096, 'video/mp4')
 ) fixture(filename, size_bytes, mime_type);
 
 do $register_direct_mp4_fixtures$
@@ -193,21 +192,30 @@ begin
   update direct_mp4_test_context
   set no_rights_media_id = (response_value #>> '{media,id}')::uuid;
 
-  response_value := public.creator_register_media(jsonb_build_object(
-    'organization_id', 'da110000-0000-4000-8000-000000000001',
-    'project_id', 'da120000-0000-4000-8000-000000000001',
-    'bucket', 'contentengine-private',
-    'object_key', 'da110000-0000-4000-8000-000000000001/' ||
-      'da100000-0000-4000-8000-000000000001/uploads/missing-storage.mp4',
-    'original_filename', 'missing-storage.mp4', 'mime_type', 'video/mp4',
-    'size_bytes', 5120, 'sha256', repeat('e', 64),
-    'kind', 'source_video', 'rights_confirmed', true,
-    'idempotency_key', 'direct-mp4-register-missing-storage-0001'
-  ));
-  update direct_mp4_test_context
-  set missing_storage_media_id = (response_value #>> '{media,id}')::uuid;
 end;
 $register_direct_mp4_fixtures$;
+
+-- Build the negative fixture directly: creator_register_media deliberately
+-- requires a real Storage row, while this test must prove that attachment does
+-- not trust an otherwise-valid media registry row whose object is absent.
+insert into content_factory.media_objects (
+  id, organization_id, owner_id, project_id,
+  bucket_id, object_name, mime_type, size_bytes, sha256,
+  status, artifact_class, lifecycle_stage, metadata, idempotency_key
+) values (
+  'da140000-0000-4000-8000-000000000005'::uuid,
+  'da110000-0000-4000-8000-000000000001'::uuid,
+  'da100000-0000-4000-8000-000000000001'::uuid,
+  'da120000-0000-4000-8000-000000000001'::uuid,
+  'contentengine-private',
+  'da110000-0000-4000-8000-000000000001/' ||
+    'da100000-0000-4000-8000-000000000001/uploads/missing-storage.mp4',
+  'video/mp4', 5120, repeat('e', 64), 'ready', 'source', 'sources',
+  '{"kind":"source_video","rights_confirmed":true}'::jsonb,
+  'direct-mp4-register-missing-storage-0001'
+);
+update direct_mp4_test_context
+set missing_storage_media_id = 'da140000-0000-4000-8000-000000000005'::uuid;
 
 update content_factory.media_objects media
 set artifact_class = 'generated_output', lifecycle_stage = 'drafts'
@@ -219,11 +227,6 @@ set metadata = jsonb_set(media.metadata, '{rights_confirmed}', 'false'::jsonb)
 where media.id = (
   select no_rights_media_id from direct_mp4_test_context
 );
-delete from storage.objects storage_object
-where storage_object.name =
-  'da110000-0000-4000-8000-000000000001/' ||
-  'da100000-0000-4000-8000-000000000001/uploads/missing-storage.mp4';
-
 do $attach_good_direct_mp4$
 declare
   response_value jsonb;
