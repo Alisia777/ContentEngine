@@ -45,6 +45,7 @@ jobs:
           from __future__ import annotations
 
           import base64
+          import binascii
           import hashlib
           import json
           import os
@@ -70,7 +71,7 @@ jobs:
           def digest(value: str) -> str:
               return hashlib.sha256(value.encode("ascii")).hexdigest()
 
-          def repair_encoded(value: str, expected_digest: str, index: int) -> str:
+          def repair_one_character(value: str, expected_digest: str, index: int) -> str | None:
               if digest(value) == expected_digest:
                   return value
               for position in range(len(value) + 1):
@@ -94,7 +95,21 @@ jobs:
                       if digest(candidate) == expected_digest:
                           print(f"Recovered one changed character in part {index:03d}")
                           return candidate
-              raise SystemExit(f"Part {index:03d} cannot be repaired from its declared SHA")
+              return None
+
+          def decode_part(value: str, declared_digest: str, index: int) -> bytes:
+              repaired = repair_one_character(value, declared_digest, index)
+              if repaired is None:
+                  print(
+                      f"Part {index:03d} metadata SHA cannot be reproduced; "
+                      "decoding the exact GitHub body and relying on the authoritative whole-archive SHA"
+                  )
+                  repaired = value
+              padded = repaired + "=" * ((4 - len(repaired) % 4) % 4)
+              try:
+                  return base64.b64decode(padded, validate=True)
+              except binascii.Error as error:
+                  raise SystemExit(f"Part {index:03d} is not valid base64: {error}") from error
 
           comments: list[dict[str, object]] = []
           for page in range(1, 20):
@@ -130,9 +145,7 @@ jobs:
                   raise SystemExit(f"Part {index:03d} declares wrong total")
               if index in parts:
                   raise SystemExit(f"Duplicate part {index:03d}")
-              encoded = repair_encoded(encoded, declared_digest, index)
-              padded = encoded + "=" * ((4 - len(encoded) % 4) % 4)
-              parts[index] = base64.b64decode(padded, validate=True)
+              parts[index] = decode_part(encoded, declared_digest, index)
 
           expected = set(range(expected_parts))
           if set(parts) != expected:
@@ -144,8 +157,34 @@ jobs:
 
           archive_path = Path("/tmp/contentengine-mp4-payload.tar.gz")
           archive_path.write_bytes(archive)
+          required = {
+              ".github/workflows/mp4-intake-ci.yml",
+              "docs/interface/archive/2026-08-15-mp4-first-generation-execution-v1.md",
+              "supabase/functions/contentengine-generation-intake/index.ts",
+              "supabase/functions/contentengine-generation-intake/contract.ts",
+              "supabase/functions/contentengine-generation-intake/create-run.ts",
+              "supabase/functions/contentengine-generation-intake/start-run.ts",
+              "supabase/functions/contentengine-generation-intake/status-run.ts",
+              "supabase/functions/contentengine-generation-intake/provider-output.ts",
+              "supabase/functions/contentengine-generation-intake/review.ts",
+              "supabase/functions/contentengine-generation-intake/run-state.ts",
+              "supabase/migrations/202608150001_generation_intake_mp4_tables_v1.sql",
+              "supabase/migrations/202608150002_generation_intake_mp4_reserve_v1.sql",
+              "supabase/migrations/202608150003_generation_intake_mp4_commit_v1.sql",
+              "supabase/migrations/202608150004_generation_intake_mp4_release_v1.sql",
+              "supabase/migrations/202608150005_generation_intake_mp4_review_v1.sql",
+              "supabase/tests/generation_intake_mp4_execution_v1_test.sql",
+              "web/app/generation-intake-mp4-v1.js",
+              "web/app/generation-intake-mp4-v1.css",
+              "tests/test_generation_intake_mp4_execution_v1.py",
+              "tests/fixtures/workspace_generation_intake_mp4_v1_harness.html",
+          }
           with tarfile.open(archive_path, "r:gz") as bundle:
               members = bundle.getmembers()
+              names = {member.name for member in members}
+              missing = sorted(required - names)
+              if missing:
+                  raise SystemExit(f"Required files absent from payload: {missing}")
               for member in members:
                   if member.isdev() or member.issym() or member.islnk():
                       raise SystemExit(f"Unsafe archive member: {member.name}")
@@ -176,7 +215,8 @@ jobs:
             .github/mp4-bootstrap-ready \
             .github/workflows/mp4-bootstrap-apply.yml \
             .github/workflows/mp4-bootstrap-pr.yml \
-            .github/workflows/export-pr-tree.yml
+            .github/workflows/export-pr-tree.yml \
+            .github/workflows/export-mp4-fragments.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
