@@ -1,0 +1,47 @@
+name: Deploy generation strategies to Pages
+
+on:
+  repository_dispatch:
+    types: [generation-strategies-pages]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: generation-strategies-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out main
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: main
+
+      - name: Verify generation entrypoint
+        run: |
+          set -euo pipefail
+          grep -q 'generation-strategy-intake-v4.js' web/app/generation-strategy-intake-v2.js
+          test -f web/app/generation-strategy-intake-v4.js
+          test -f web/app/generation-strategy-intake-v4.css
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload static application
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/app
+
+      - name: Deploy Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
