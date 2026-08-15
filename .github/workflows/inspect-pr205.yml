@@ -1,0 +1,40 @@
+name: Inspect PR205 tree
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  inspect:
+    if: >-
+      github.event.pull_request.number == 205 &&
+      github.event.pull_request.head.ref == 'agent/generation-three-separate-forms-v2'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Pack exact working tree
+        run: tar --exclude=.git -czf /tmp/pr205-tree.tar.gz .
+      - name: Upload tree
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pr205-tree-inspection
+          path: /tmp/pr205-tree.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+      - name: Remove one-shot inspector
+        env:
+          TARGET_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/inspect-pr205.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Remove one-shot PR205 inspector'
+          git push origin "HEAD:${TARGET_BRANCH}"
