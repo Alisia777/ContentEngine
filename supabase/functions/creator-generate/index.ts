@@ -419,6 +419,10 @@ type ContentEngineDatabase = {
         Args: { p_payload: Json };
         Returns: Json;
       };
+      system_local_mock_generation_strategy: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
       system_record_generation_provider_readiness: {
         Args: { p_payload: Json };
         Returns: Json;
@@ -770,6 +774,38 @@ type GenerationStrategyStatusPayload = {
   project_id: string;
   generation_job_id: string;
   worker_context?: GenerationStrategyWorkerContext;
+};
+type GenerationStrategyMockPreflightPayload = {
+  action: "strategy_mock_preflight";
+  organization_id: string;
+  project_id: string;
+  spec_id: string;
+  spec_version: number;
+  spec_hash: string;
+  binding_id: string;
+  binding_hash: string;
+  selection_hash: string;
+  confirmation: true;
+  idempotency_key: string;
+};
+type GenerationStrategyMockStartPayload =
+  & Omit<
+    GenerationStrategyMockPreflightPayload,
+    "action" | "idempotency_key"
+  >
+  & {
+    action: "strategy_mock_start";
+    output_object_name: string;
+    output_mime_type: "video/mp4";
+    output_size_bytes: number;
+    output_sha256: string;
+    idempotency_key: string;
+  };
+type GenerationStrategyMockStatusPayload = {
+  action: "strategy_mock_status";
+  organization_id: string;
+  project_id: string;
+  generation_job_id: string;
 };
 type GenerationStrategyReconcilePayload = {
   action: "strategy_reconcile";
@@ -1985,6 +2021,295 @@ function readGenerationStrategyStatusPayload(
     } as GenerationStrategyStatusPayload;
   }
   return value as GenerationStrategyStatusPayload;
+}
+
+function readGenerationStrategyMockPreflightPayload(
+  value: unknown,
+): GenerationStrategyMockPreflightPayload | null {
+  const keys = [
+    "action",
+    "organization_id",
+    "project_id",
+    "spec_id",
+    "spec_version",
+    "spec_hash",
+    "binding_id",
+    "binding_hash",
+    "selection_hash",
+    "confirmation",
+    "idempotency_key",
+  ] as const;
+  if (
+    !hasExactKeys(value, keys) ||
+    value.action !== "strategy_mock_preflight" ||
+    !isUuid(value.organization_id) || !isUuid(value.project_id) ||
+    !isUuid(value.spec_id) ||
+    !isIntegerInRange(value.spec_version, 1, 100_000) ||
+    typeof value.spec_hash !== "string" ||
+    !SHA256_PATTERN.test(value.spec_hash) ||
+    !isUuid(value.binding_id) ||
+    typeof value.binding_hash !== "string" ||
+    !SHA256_PATTERN.test(value.binding_hash) ||
+    typeof value.selection_hash !== "string" ||
+    !SHA256_PATTERN.test(value.selection_hash) ||
+    value.confirmation !== true ||
+    typeof value.idempotency_key !== "string" ||
+    !IDEMPOTENCY_PATTERN.test(value.idempotency_key)
+  ) return null;
+  return value as GenerationStrategyMockPreflightPayload;
+}
+
+function readGenerationStrategyMockStartPayload(
+  value: unknown,
+): GenerationStrategyMockStartPayload | null {
+  const keys = [
+    "action",
+    "organization_id",
+    "project_id",
+    "spec_id",
+    "spec_version",
+    "spec_hash",
+    "binding_id",
+    "binding_hash",
+    "selection_hash",
+    "output_object_name",
+    "output_mime_type",
+    "output_size_bytes",
+    "output_sha256",
+    "confirmation",
+    "idempotency_key",
+  ] as const;
+  if (!hasExactKeys(value, keys) || value.action !== "strategy_mock_start") {
+    return null;
+  }
+  const preflight = readGenerationStrategyMockPreflightPayload({
+    action: "strategy_mock_preflight",
+    organization_id: value.organization_id,
+    project_id: value.project_id,
+    spec_id: value.spec_id,
+    spec_version: value.spec_version,
+    spec_hash: value.spec_hash,
+    binding_id: value.binding_id,
+    binding_hash: value.binding_hash,
+    selection_hash: value.selection_hash,
+    confirmation: value.confirmation,
+    idempotency_key: value.idempotency_key,
+  });
+  if (
+    preflight === null ||
+    typeof value.output_object_name !== "string" ||
+    value.output_object_name.length < 10 ||
+    value.output_object_name.length > 1_000 ||
+    value.output_object_name.includes("\\") ||
+    /(^|\/)\.\.(\/|$)/u.test(value.output_object_name) ||
+    value.output_mime_type !== "video/mp4" ||
+    !isIntegerInRange(value.output_size_bytes, 1, MAX_OUTPUT_BYTES) ||
+    typeof value.output_sha256 !== "string" ||
+    !SHA256_PATTERN.test(value.output_sha256)
+  ) return null;
+  return value as GenerationStrategyMockStartPayload;
+}
+
+function readGenerationStrategyMockStatusPayload(
+  value: unknown,
+): GenerationStrategyMockStatusPayload | null {
+  const keys = [
+    "action",
+    "organization_id",
+    "project_id",
+    "generation_job_id",
+  ] as const;
+  if (
+    !hasExactKeys(value, keys) || value.action !== "strategy_mock_status" ||
+    !isUuid(value.organization_id) || !isUuid(value.project_id) ||
+    !isUuid(value.generation_job_id)
+  ) return null;
+  return value as GenerationStrategyMockStatusPayload;
+}
+
+type LocalMockGenerationStrategyOperation =
+  | "preflight"
+  | "complete"
+  | "status";
+
+function readLocalMockGenerationStrategyResult(
+  value: unknown,
+  operation: LocalMockGenerationStrategyOperation,
+): Record<string, unknown> | null {
+  if (
+    !hasExactKeys(value, [
+      "ok",
+      "version",
+      "operation",
+      "replay",
+      "identity",
+      "inputs",
+      "output",
+      "generation",
+      "contract",
+    ]) || value.ok !== true ||
+    value.version !== "local-mock-generation-strategy-response-v1" ||
+    value.operation !== operation || typeof value.replay !== "boolean" ||
+    !hasExactKeys(value.identity, [
+      "organization_id",
+      "project_id",
+      "actor_id",
+      "spec_strategy_binding_id",
+      "binding_hash",
+      "spec_id",
+      "spec_version",
+      "spec_hash",
+      "selection_hash",
+      "strategy_id",
+    ]) || !isUuid(value.identity.organization_id) ||
+    !isUuid(value.identity.project_id) || !isUuid(value.identity.actor_id) ||
+    !isUuid(value.identity.spec_strategy_binding_id) ||
+    typeof value.identity.binding_hash !== "string" ||
+    !SHA256_PATTERN.test(value.identity.binding_hash) ||
+    !isUuid(value.identity.spec_id) ||
+    !isIntegerInRange(value.identity.spec_version, 1, 100_000) ||
+    typeof value.identity.spec_hash !== "string" ||
+    !SHA256_PATTERN.test(value.identity.spec_hash) ||
+    typeof value.identity.selection_hash !== "string" ||
+    !SHA256_PATTERN.test(value.identity.selection_hash) ||
+    value.identity.strategy_id !== "viral_product_swap" ||
+    !hasExactKeys(value.inputs, [
+      "source_video_media_id",
+      "source_video_sha256",
+      "source_video_duration_ms",
+      "original_product_media_id",
+      "new_product_media_ids",
+    ]) || !isUuid(value.inputs.source_video_media_id) ||
+    typeof value.inputs.source_video_sha256 !== "string" ||
+    !SHA256_PATTERN.test(value.inputs.source_video_sha256) ||
+    !isIntegerInRange(value.inputs.source_video_duration_ms, 1_800, 15_000) ||
+    !isUuid(value.inputs.original_product_media_id) ||
+    !Array.isArray(value.inputs.new_product_media_ids) ||
+    value.inputs.new_product_media_ids.length < 3 ||
+    value.inputs.new_product_media_ids.length > 5 ||
+    value.inputs.new_product_media_ids.some((mediaId) => !isUuid(mediaId)) ||
+    new Set(value.inputs.new_product_media_ids).size !==
+      value.inputs.new_product_media_ids.length ||
+    !hasExactKeys(value.contract, [
+      "mode",
+      "provider",
+      "model",
+      "allow_real_spend",
+      "estimated_cost_minor",
+      "actual_cost_minor",
+      "provider_call_started",
+      "paid_authority_used",
+      "spend_ledger_written",
+    ]) || value.contract.mode !== "mock" ||
+    value.contract.provider !== "mock" ||
+    value.contract.model !== "local_product_swap_v1" ||
+    value.contract.allow_real_spend !== false ||
+    value.contract.estimated_cost_minor !== 0 ||
+    value.contract.actual_cost_minor !== 0 ||
+    value.contract.provider_call_started !== false ||
+    value.contract.paid_authority_used !== false ||
+    value.contract.spend_ledger_written !== false
+  ) return null;
+
+  const outputKeys = operation === "preflight"
+    ? ["bucket_id", "object_name", "mime_type"] as const
+    : [
+      "bucket_id",
+      "object_name",
+      "mime_type",
+      "media_id",
+      "size_bytes",
+      "sha256",
+      "duration_ms",
+    ] as const;
+  if (
+    !hasExactKeys(value.output, outputKeys) ||
+    value.output.bucket_id !== STORAGE_BUCKET ||
+    typeof value.output.object_name !== "string" ||
+    value.output.object_name.length < 10 ||
+    value.output.object_name.length > 1_000 ||
+    value.output.mime_type !== "video/mp4"
+  ) return null;
+
+  if (operation === "preflight") {
+    if (value.generation !== null) return null;
+  } else if (
+    !isUuid(value.output.media_id) ||
+    !isIntegerInRange(value.output.size_bytes, 1, MAX_OUTPUT_BYTES) ||
+    typeof value.output.sha256 !== "string" ||
+    !SHA256_PATTERN.test(value.output.sha256) ||
+    !isIntegerInRange(value.output.duration_ms, 1_800, 15_000) ||
+    !hasExactKeys(value.generation, [
+      "batch_id",
+      "generation_job_id",
+      "status",
+      "provider",
+      "persisted_model",
+      "logical_model",
+    ]) || !isUuid(value.generation.batch_id) ||
+    !isUuid(value.generation.generation_job_id) ||
+    value.generation.status !== "mock_ready" ||
+    value.generation.provider !== "mock" ||
+    value.generation.persisted_model !== "mock" ||
+    value.generation.logical_model !== "local_product_swap_v1"
+  ) return null;
+  return value as Record<string, unknown>;
+}
+
+function publicLocalMockGenerationStrategyResult(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  const identity = value.identity as Record<string, unknown>;
+  const inputs = value.inputs as Record<string, unknown>;
+  const output = value.output as Record<string, unknown>;
+  const preflight = value.operation === "preflight";
+  return {
+    ok: true,
+    version: "creator-generate-local-mock-strategy-v1",
+    operation: value.operation,
+    replay: value.replay,
+    authority: "creator-generate",
+    mode: "mock",
+    strategy_id: "viral_product_swap",
+    identity: {
+      project_id: identity.project_id,
+      spec_strategy_binding_id: identity.spec_strategy_binding_id,
+      binding_hash: identity.binding_hash,
+      spec_id: identity.spec_id,
+      spec_version: identity.spec_version,
+      spec_hash: identity.spec_hash,
+      selection_hash: identity.selection_hash,
+    },
+    inputs: {
+      source_video_media_id: inputs.source_video_media_id,
+      source_video_duration_ms: inputs.source_video_duration_ms,
+      original_product_media_id: inputs.original_product_media_id,
+      new_product_media_ids: inputs.new_product_media_ids,
+    },
+    output: preflight
+      ? {
+        bucket_id: output.bucket_id,
+        object_name: output.object_name,
+        mime_type: output.mime_type,
+      }
+      : {
+        media_id: output.media_id,
+        mime_type: output.mime_type,
+        size_bytes: output.size_bytes,
+        duration_ms: output.duration_ms,
+      },
+    generation: value.generation,
+    contract: {
+      provider: "mock",
+      model: "local_product_swap_v1",
+      allow_real_spend: false,
+      estimated_cost_minor: 0,
+      actual_cost_minor: 0,
+      provider_call_started: false,
+      paid_authority_used: false,
+      spend_ledger_written: false,
+    },
+  };
 }
 
 function readGenerationStrategyReconcilePayload(
@@ -5186,8 +5511,49 @@ function validateSupabaseSignedUrl(value: unknown): string | null {
   try {
     const expected = new URL(supabaseUrl);
     const actual = new URL(value);
+    const localStorageHosts = new Set([
+      "127.0.0.1",
+      "localhost",
+      "[::1]",
+      "::1",
+      "kong",
+      "host.docker.internal",
+      "supabase_kong_contentengine-local",
+    ]);
+    const localLoopbackOverlay = localMockStrategyEnabled() &&
+      expected.protocol === "http:" &&
+      localStorageHosts.has(expected.hostname.toLocaleLowerCase("en-US"));
     if (
-      expected.protocol !== "https:" || actual.protocol !== "https:" ||
+      (expected.protocol !== "https:" && !localLoopbackOverlay) ||
+      actual.protocol !== expected.protocol ||
+      actual.origin !== expected.origin || actual.username !== "" ||
+      actual.password !== "" ||
+      !actual.pathname.startsWith(
+        `/storage/v1/object/sign/${STORAGE_BUCKET}/`,
+      )
+    ) {
+      return null;
+    }
+    return actual.href;
+  } catch {
+    return null;
+  }
+}
+
+function localMockStrategyEnabled(): boolean {
+  return Deno.env.get("QVF_CREATOR_GENERATE_MOCK_ONLY") === "true" &&
+    Deno.env.get("QVF_ALLOW_REAL_SPEND") === "false";
+}
+
+function validateLocalMockSignedUrl(value: unknown): string | null {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+  if (typeof value !== "string" || value.length > 4_096) return null;
+  try {
+    const expected = new URL(supabaseUrl);
+    const actual = new URL(value);
+    if (
+      !["http:", "https:"].includes(expected.protocol) ||
+      actual.protocol !== expected.protocol ||
       actual.origin !== expected.origin || actual.username !== "" ||
       actual.password !== "" ||
       !actual.pathname.startsWith(
@@ -5355,6 +5721,237 @@ async function handleCreatorGenerate(
     body = JSON.parse(bodyText);
   } catch {
     return json(request, { ok: false, code: "invalid_json" }, 400);
+  }
+
+  const localMockUnavailable = (code = "local_mock_generation_rejected") =>
+    json(request, {
+      ok: false,
+      version: "creator-generate-local-mock-strategy-v1",
+      code,
+      authority: "creator-generate",
+      mode: "mock",
+      provider_call_started: false,
+    }, code === "local_mock_strategy_disabled" ? 409 : 503);
+
+  const callLocalMockGenerationStrategy = async (
+    operation: LocalMockGenerationStrategyOperation,
+    rpcPayload: Record<string, Json>,
+  ): Promise<Record<string, unknown> | null> => {
+    try {
+      const { data, error } = await supabaseAdmin.rpc(
+        "system_local_mock_generation_strategy",
+        { p_payload: rpcPayload },
+      );
+      if (error !== null) return null;
+      return readLocalMockGenerationStrategyResult(data, operation);
+    } catch {
+      return null;
+    }
+  };
+
+  const localMockPreflightPayload =
+    readGenerationStrategyMockPreflightPayload(body);
+  if (!internalWorker && localMockPreflightPayload !== null) {
+    if (!localMockStrategyEnabled()) {
+      return localMockUnavailable("local_mock_strategy_disabled");
+    }
+    const actorId = context.userClaims?.id;
+    if (!isUuid(actorId)) {
+      return json(request, { ok: false, code: "authentication_required" }, 401);
+    }
+    const result = await callLocalMockGenerationStrategy("preflight", {
+      version: "local-mock-generation-strategy-request-v1",
+      operation: "preflight",
+      organization_id: localMockPreflightPayload.organization_id,
+      project_id: localMockPreflightPayload.project_id,
+      actor_id: actorId,
+      spec_strategy_binding_id: localMockPreflightPayload.binding_id,
+      spec_id: localMockPreflightPayload.spec_id,
+      spec_version: localMockPreflightPayload.spec_version,
+      spec_hash: localMockPreflightPayload.spec_hash,
+      selection_hash: localMockPreflightPayload.selection_hash,
+      mode: "mock",
+      allow_real_spend: false,
+      provider_call_started: false,
+      confirmation: "LOCAL_MOCK_ONLY",
+      idempotency_key: localMockPreflightPayload.idempotency_key,
+    });
+    if (result === null) return localMockUnavailable();
+    const identity = result.identity as Record<string, unknown>;
+    const output = result.output as Record<string, unknown>;
+    const expectedPrefix =
+      `${localMockPreflightPayload.organization_id}/${actorId}/local-mock-output/`;
+    if (
+      identity.organization_id !== localMockPreflightPayload.organization_id ||
+      identity.project_id !== localMockPreflightPayload.project_id ||
+      identity.actor_id !== actorId ||
+      identity.spec_strategy_binding_id !==
+        localMockPreflightPayload.binding_id ||
+      identity.binding_hash !== localMockPreflightPayload.binding_hash ||
+      identity.spec_id !== localMockPreflightPayload.spec_id ||
+      identity.spec_version !== localMockPreflightPayload.spec_version ||
+      identity.spec_hash !== localMockPreflightPayload.spec_hash ||
+      identity.selection_hash !== localMockPreflightPayload.selection_hash ||
+      typeof output.object_name !== "string" ||
+      !output.object_name.startsWith(expectedPrefix) ||
+      !output.object_name.endsWith(".mp4")
+    ) return localMockUnavailable("local_mock_generation_contract_invalid");
+    return json(request, publicLocalMockGenerationStrategyResult(result));
+  }
+
+  const localMockStartPayload = readGenerationStrategyMockStartPayload(body);
+  if (!internalWorker && localMockStartPayload !== null) {
+    if (!localMockStrategyEnabled()) {
+      return localMockUnavailable("local_mock_strategy_disabled");
+    }
+    const actorId = context.userClaims?.id;
+    if (!isUuid(actorId)) {
+      return json(request, { ok: false, code: "authentication_required" }, 401);
+    }
+    const expectedPrefix =
+      `${localMockStartPayload.organization_id}/${actorId}/local-mock-output/`;
+    if (
+      !localMockStartPayload.output_object_name.startsWith(expectedPrefix) ||
+      !localMockStartPayload.output_object_name.endsWith(".mp4")
+    ) {
+      return localMockUnavailable("local_mock_output_object_invalid");
+    }
+
+    let outputBytes: Uint8Array;
+    try {
+      const signed = await supabaseAdmin.storage.from(STORAGE_BUCKET)
+        .createSignedUrl(
+          localMockStartPayload.output_object_name,
+          INPUT_URL_TTL_SECONDS,
+        );
+      const signedUrl = signed.error === null
+        ? validateLocalMockSignedUrl(signed.data?.signedUrl)
+        : null;
+      if (
+        signedUrl === null || signedUrl.length > STRATEGY_SIGNED_URL_MAX_LENGTH
+      ) throw new Error("local_mock_output_signing_failed");
+      outputBytes = await withFetchDeadline(
+        signedUrl,
+        { method: "GET", redirect: "manual" },
+        STRATEGY_MEDIA_PROBE_TIMEOUT_MS,
+        async (response) => {
+          const mimeType = (response.headers.get("content-type") ?? "")
+            .split(";", 1)[0].trim().toLocaleLowerCase("en-US");
+          const declared = Number(response.headers.get("content-length") ?? "");
+          if (
+            response.status !== 200 || mimeType !== "video/mp4" ||
+            !Number.isSafeInteger(declared) ||
+            declared !== localMockStartPayload.output_size_bytes
+          ) {
+            await response.body?.cancel();
+            throw new Error("local_mock_output_response_invalid");
+          }
+          const bytes = await readBoundedBytes(response, MAX_OUTPUT_BYTES);
+          if (bytes.byteLength !== localMockStartPayload.output_size_bytes) {
+            throw new Error("local_mock_output_size_mismatch");
+          }
+          return bytes;
+        },
+      );
+    } catch {
+      return localMockUnavailable("local_mock_output_verification_failed");
+    }
+    if (await sha256Hex(outputBytes) !== localMockStartPayload.output_sha256) {
+      return localMockUnavailable("local_mock_output_hash_mismatch");
+    }
+    let parsedOutput: ReturnType<typeof parseIsoBmffDuration>;
+    try {
+      parsedOutput = parseIsoBmffDuration(outputBytes);
+    } catch {
+      return localMockUnavailable("local_mock_output_mp4_invalid");
+    }
+    if (parsedOutput.duration_ms < 1_800 || parsedOutput.duration_ms > 15_000) {
+      return localMockUnavailable("local_mock_output_duration_invalid");
+    }
+
+    const result = await callLocalMockGenerationStrategy("complete", {
+      version: "local-mock-generation-strategy-request-v1",
+      operation: "complete",
+      organization_id: localMockStartPayload.organization_id,
+      project_id: localMockStartPayload.project_id,
+      actor_id: actorId,
+      spec_strategy_binding_id: localMockStartPayload.binding_id,
+      spec_id: localMockStartPayload.spec_id,
+      spec_version: localMockStartPayload.spec_version,
+      spec_hash: localMockStartPayload.spec_hash,
+      selection_hash: localMockStartPayload.selection_hash,
+      mode: "mock",
+      allow_real_spend: false,
+      provider_call_started: false,
+      confirmation: "LOCAL_MOCK_ONLY",
+      idempotency_key: localMockStartPayload.idempotency_key,
+      output: {
+        bucket_id: STORAGE_BUCKET,
+        object_name: localMockStartPayload.output_object_name,
+        mime_type: "video/mp4",
+        size_bytes: localMockStartPayload.output_size_bytes,
+        sha256: localMockStartPayload.output_sha256,
+        duration_ms: parsedOutput.duration_ms,
+        http_status: 200,
+        download_complete: true,
+        parser_version: ISO_BMFF_DURATION_PARSER_VERSION,
+        mvhd_count: parsedOutput.mvhd_count,
+        fragmented: parsedOutput.fragmented,
+        verification_method: "creator-generate-local-mock-full-object-v1",
+      },
+    });
+    if (result === null) return localMockUnavailable();
+    const identity = result.identity as Record<string, unknown>;
+    const output = result.output as Record<string, unknown>;
+    if (
+      identity.organization_id !== localMockStartPayload.organization_id ||
+      identity.project_id !== localMockStartPayload.project_id ||
+      identity.actor_id !== actorId ||
+      identity.spec_strategy_binding_id !== localMockStartPayload.binding_id ||
+      identity.binding_hash !== localMockStartPayload.binding_hash ||
+      identity.spec_id !== localMockStartPayload.spec_id ||
+      identity.spec_version !== localMockStartPayload.spec_version ||
+      identity.spec_hash !== localMockStartPayload.spec_hash ||
+      identity.selection_hash !== localMockStartPayload.selection_hash ||
+      output.object_name !== localMockStartPayload.output_object_name ||
+      output.size_bytes !== localMockStartPayload.output_size_bytes ||
+      output.sha256 !== localMockStartPayload.output_sha256 ||
+      output.duration_ms !== parsedOutput.duration_ms
+    ) return localMockUnavailable("local_mock_generation_contract_invalid");
+    return json(request, publicLocalMockGenerationStrategyResult(result));
+  }
+
+  const localMockStatusPayload = readGenerationStrategyMockStatusPayload(body);
+  if (!internalWorker && localMockStatusPayload !== null) {
+    if (!localMockStrategyEnabled()) {
+      return localMockUnavailable("local_mock_strategy_disabled");
+    }
+    const actorId = context.userClaims?.id;
+    if (!isUuid(actorId)) {
+      return json(request, { ok: false, code: "authentication_required" }, 401);
+    }
+    const result = await callLocalMockGenerationStrategy("status", {
+      version: "local-mock-generation-strategy-request-v1",
+      operation: "status",
+      organization_id: localMockStatusPayload.organization_id,
+      project_id: localMockStatusPayload.project_id,
+      actor_id: actorId,
+      generation_job_id: localMockStatusPayload.generation_job_id,
+      mode: "mock",
+      allow_real_spend: false,
+      provider_call_started: false,
+    });
+    if (result === null) return localMockUnavailable();
+    const identity = result.identity as Record<string, unknown>;
+    const generation = result.generation as Record<string, unknown>;
+    if (
+      identity.organization_id !== localMockStatusPayload.organization_id ||
+      identity.project_id !== localMockStatusPayload.project_id ||
+      identity.actor_id !== actorId ||
+      generation.generation_job_id !==
+        localMockStatusPayload.generation_job_id
+    ) return localMockUnavailable("local_mock_generation_contract_invalid");
+    return json(request, publicLocalMockGenerationStrategyResult(result));
   }
 
   const loadProviderPolicy = async (
@@ -9013,8 +9610,69 @@ const creatorGenerateWorker = withSupabase<ContentEngineDatabase>(
   (request, context) => handleCreatorGenerate(request, context, true),
 );
 
+const LOCAL_MOCK_FREE_ACTIONS = new Set([
+  "model_catalog",
+  "strategy_catalog",
+  "strategy_bind",
+  "strategy_media_probe",
+  "strategy_preflight",
+  "strategy_status",
+  "preflight",
+  "status",
+  "reconcile",
+]);
+const LOCAL_MOCK_STRATEGY_ACTIONS = new Set([
+  "strategy_mock_preflight",
+  "strategy_mock_start",
+  "strategy_mock_status",
+]);
+
+async function localMockOnlyResponse(
+  request: Request,
+): Promise<Response | null> {
+  if (Deno.env.get("QVF_CREATOR_GENERATE_MOCK_ONLY") !== "true") return null;
+  if (Deno.env.get("QVF_ALLOW_REAL_SPEND") !== "false") {
+    return json(request, {
+      ok: false,
+      code: "local_mock_spend_gate_invalid",
+      provider_call_started: false,
+    }, 503);
+  }
+  if (request.method !== "POST") return null;
+  if (isInternalWorkerRequest(request)) {
+    return json(request, {
+      ok: false,
+      code: "local_mock_worker_dispatch_blocked",
+      authority: "creator-generate",
+      mode: "mock",
+      provider_call_started: false,
+    }, 409);
+  }
+  let action = "";
+  try {
+    const body: unknown = await request.clone().json();
+    action = isRecord(body) && typeof body.action === "string"
+      ? body.action
+      : "";
+  } catch {
+    action = "";
+  }
+  if (LOCAL_MOCK_FREE_ACTIONS.has(action)) return null;
+  if (LOCAL_MOCK_STRATEGY_ACTIONS.has(action)) return null;
+  return json(request, {
+    ok: false,
+    version: "creator-generate-local-mock-v1",
+    code: action === "strategy_start"
+      ? "local_mock_strategy_start_blocked"
+      : "local_mock_paid_start_blocked",
+    mode: "mock",
+    authority: "creator-generate",
+    provider_call_started: false,
+  }, 409);
+}
+
 export default {
-  fetch(request: Request): Promise<Response> | Response {
+  async fetch(request: Request): Promise<Response> {
     if (request.method === "OPTIONS") {
       if (!USER_APP_ORIGINS.has(request.headers.get("origin") ?? "")) {
         return json(request, { ok: false, code: "origin_not_allowed" }, 403);
@@ -9024,6 +9682,8 @@ export default {
         headers: responseHeaders(request),
       });
     }
+    const localMock = await localMockOnlyResponse(request);
+    if (localMock !== null) return localMock;
     if (isInternalWorkerRequest(request)) {
       return creatorGenerateWorker(request);
     }

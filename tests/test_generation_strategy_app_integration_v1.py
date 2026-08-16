@@ -289,7 +289,7 @@ def test_strategy_runtime_is_a_separate_branch_before_legacy_mode_and_sku() -> N
     )
     assert "generationStrategySelectionsForForm(form)" in submit_batch
     assert "submitGenerationStrategyExactTen(" in submit_batch
-    assert "submitGenerationStrategy(" not in submit_batch
+    assert "submitGenerationStrategy(" in submit_batch
     assert "submitRealGeneration(" in submit_batch
     for forbidden in (
         "generationSkuForForm",
@@ -310,10 +310,168 @@ def test_strategy_runtime_is_a_separate_branch_before_legacy_mode_and_sku() -> N
         "planGenerationStrategyQueueSequentialStarts",
         "state.api.bindGenerationStrategy",
         "state.api.preflightGenerationStrategy",
-        "state.api.startGenerationStrategy",
-        "state.api.generationStrategyStatus",
+        "requestApi.startGenerationStrategy",
+        "requestApi.generationStrategyStatus",
     ):
         assert required in APP
+
+
+def test_product_swap_dispatch_is_exactly_one_and_character_performance_is_closed() -> None:
+    submit_batch = _top_level_function(APP, "submitGenerationBatch")
+    selections = _top_level_function(APP, "generationStrategySelectionsForForm")
+
+    assert "generationStrategySourceProjectionForForm(form)?.required_count" in selections
+    assert "[1, 10].includes(requiredCount)" in selections
+    assert "value.length === requiredCount" in selections
+
+    swap_branch = submit_batch.index('strategyId === "viral_product_swap"')
+    swap_count = submit_batch.index("sourceProjection.required_count === 1", swap_branch)
+    swap_selection_count = submit_batch.index("strategySelections?.length === 1", swap_count)
+    swap_submit = submit_batch.index("await submitGenerationStrategy(", swap_selection_count)
+    rebuild_branch = submit_batch.index('strategyId === "viral_rebuild"', swap_submit)
+    rebuild_count = submit_batch.index("sourceProjection.required_count === 10", rebuild_branch)
+    rebuild_selection_count = submit_batch.index(
+        "strategySelections?.length === 10", rebuild_count
+    )
+    rebuild_submit = submit_batch.index(
+        "await submitGenerationStrategyExactTen(", rebuild_selection_count
+    )
+    gated_branch = submit_batch.index('strategyId === "viral_avatar_ugc"', rebuild_submit)
+    legacy_branch = submit_batch.index(
+        'const mode = String(values.get("generation_mode")', gated_branch
+    )
+
+    assert swap_branch < swap_count < swap_selection_count < swap_submit
+    assert swap_submit < rebuild_branch < rebuild_count < rebuild_selection_count
+    assert rebuild_selection_count < rebuild_submit < gated_branch < legacy_branch
+    assert "Character Performance пока закрыт feature gate" in submit_batch
+    assert "submitGenerationStrategy(" not in submit_batch[gated_branch:legacy_branch]
+    assert "submitGenerationStrategyExactTen(" not in submit_batch[
+        gated_branch:legacy_branch
+    ]
+
+
+def test_single_product_swap_uses_approved_strategy_spec_and_one_creator_runtime() -> None:
+    submit = _source_slice(
+        APP,
+        "async function submitGenerationStrategy(",
+        "async function pollGenerationStrategyStatuses",
+    )
+
+    for marker in (
+        'sourceProjection?.strategy_id !== "viral_product_swap"',
+        "sourceProjection.required_count !== 1",
+        "sourceProjection.all_selected_ready !== true",
+        'selection?.strategy_id !== "viral_product_swap"',
+        "prepareGenerationStrategySpecs(form, [currentEntry], projectId)",
+        "approveGenerationStrategySpecs(form, [currentEntry], projectId)",
+        "generationStrategyRuntimeContextForApprovedSpec(",
+        "specRecord?.approvedContext || null",
+        "requestApi.bindGenerationStrategy(bindPlan.request)",
+        "requestApi.preflightGenerationStrategy(",
+        "requestApi.startGenerationStrategy(startPlan.request)",
+        "requestApi.bindRealGenerationClientContext(startPlan.request",
+        "generationRequestContextIsCurrent(requestContext)",
+        "state.api === requestApi",
+        "!REAL_GENERATION_ENABLED",
+    ):
+        assert marker in submit
+
+    for forbidden in (
+        "currentApprovedGenerationSpecContext",
+        "ensurePreparedGenerationSpecForPaidStart",
+        "generationStrategyRuntimeContext(",
+        "generationSkuForForm",
+        "startRealGeneration",
+    ):
+        assert forbidden not in submit
+
+    built = submit.index("generationStrategyRuntimeStartRequest(")
+    reserved = submit.index(
+        "type: GENERATION_STRATEGY_RUNTIME_ACTIONS.startRequested", built
+    )
+    transported = submit.index(
+        "requestApi.startGenerationStrategy(startPlan.request)", reserved
+    )
+    verified = submit.index("const verified = reduceGenerationStrategyRuntimeState(")
+    committed = submit.index("setGenerationStrategyRuntime(sourceMediaId, runtimeState)", verified)
+    assert built < reserved < transported < verified < committed
+    assert submit.count("requestApi.startGenerationStrategy(startPlan.request)") == 1
+
+
+def test_single_product_swap_paid_review_uses_only_server_confirmation() -> None:
+    readiness = _source_slice(
+        APP,
+        "function syncGenerationStrategySingleFormReadiness",
+        "function syncGenerationStrategyFormReadiness",
+    )
+    unsupported = _top_level_function(
+        APP, "syncUnsupportedGenerationStrategyFormReadiness"
+    )
+    reset = _source_slice(
+        APP,
+        "function resetGenerationStrategyQueueState",
+        "function generationStrategyQueueProjection",
+    )
+
+    for marker in (
+        'sourceProjection?.strategy_id === "viral_product_swap"',
+        "sourceProjection.required_count === 1",
+        "sourceProjection.selected_count === 1",
+        "sourceProjection.exact_required_selected === true",
+        "sourceProjection.all_selected_ready === true",
+        'selections[0]?.selection?.strategy_id === "viral_product_swap"',
+        "generationStrategyReceiptIsFresh(runtimeState)",
+        "runtimeProjection.readiness.launch_enabled === true",
+        "runtimeProjection.price.spend_confirmation",
+        "confirmation.value === runtimeProjection?.price?.spend_confirmation",
+        "REAL_GENERATION_ENABLED",
+    ):
+        assert marker in readiness
+    assert "GENERATION_STRATEGY_EXACT_10" not in readiness
+    assert 'strategyId === "viral_avatar_ugc"' in unsupported
+    assert "Character Performance пока закрыт feature gate" in unsupported
+    assert "generationStrategyHasPaidAuthority()" in reset
+
+
+def test_single_expired_receipt_refresh_preserves_binding_and_other_paid_authority() -> None:
+    submit = _source_slice(
+        APP,
+        "async function submitGenerationStrategy(",
+        "async function pollGenerationStrategyStatuses",
+    )
+
+    assert "generationStrategySingleHasOtherPaidAuthority(sourceMediaId)" in submit
+    assert "createGenerationStrategyRuntimeFingerprint(context)" in submit
+    selected = submit.index('if (runtimeState.phase === "selected")')
+    bind_key = submit.index("generationStrategyRequestIdempotencyKey(", selected)
+    bind_call = submit.index("requestApi.bindGenerationStrategy(bindPlan.request)")
+    refresh = submit.index(
+        "type: GENERATION_STRATEGY_RUNTIME_ACTIONS.preflightRefreshRequested"
+    )
+    preflight = submit.index("requestApi.preflightGenerationStrategy(", refresh)
+    assert selected < bind_key < bind_call < refresh < preflight
+    assert "createGenerationStrategyRuntimeFingerprint(liveContext)" in submit
+    assert "liveRuntime === expectedRuntime" in submit
+    assert 'refreshRequested.phase !== "bound"' in submit
+    assert "refreshRequested.bind?.binding?.id !== runtimeState.bind?.binding?.id" in submit
+    assert "type: GENERATION_STRATEGY_RUNTIME_ACTIONS.reset" not in submit
+    assert "state.generationStrategyRequestKeys.delete(key)" not in submit
+
+
+def test_status_poll_validates_off_copy_before_preserving_paid_state() -> None:
+    poll = _top_level_function(APP, "pollGenerationStrategyStatuses")
+
+    reduced = poll.index("const candidate = reduceGenerationStrategyRuntimeState(")
+    guarded = poll.index('if (candidate?.phase !== "status")', reduced)
+    queue_reduced = poll.index("const updated = updateGenerationStrategyQueueRow(", guarded)
+    queue_committed = poll.index("state.generationStrategyQueue = updated.queue", queue_reduced)
+    single_committed = poll.index("setGenerationStrategyRuntime(sourceMediaId, candidate)")
+    assert reduced < guarded < queue_reduced < queue_committed
+    assert guarded < single_committed
+    assert "applyGenerationStrategyQueueRow(sourceMediaId, action)" not in poll
+    assert "Последнее подтверждённое состояние и блокировка сохранены" in poll
+    assert "повторный POST запрещён" in poll
 
 
 def test_paid_strategy_reserves_runtime_start_before_network_and_never_rekeys() -> None:
@@ -375,7 +533,10 @@ def test_exact_ten_paid_gate_requires_fresh_receipts_and_real_generation() -> No
     assert "receiptWindowReady" in readiness
     assert "&& REAL_GENERATION_ENABLED" in readiness
     assert "Обновить 10 точных цен" in readiness
-    assert "resetGenerationStrategyQueueState({ clearSpecs: false })" in submit
+    assert "resetGenerationStrategyQueueState({ clearSpecs: false })" not in submit
+    assert "generationStrategyQueueReviewPreflightRefreshTargets()" in submit
+    assert "refreshGenerationStrategyQueuePreflights(" in submit
+    assert "state.generationStrategyQueueReview = refreshedReview.review" in submit
     assert "prepareGenerationStrategyQueueFree(form, selections, projectId)" in submit
 
 
@@ -411,17 +572,19 @@ def test_paid_resume_refreshes_only_unstarted_receipts_before_more_starts() -> N
         "Promise.allSettled",
         "generationRequestContextIsCurrent(requestContext)",
         "state.generationStrategyQueueSourceRevision !== sourceRevision",
-        'live?.phase !== "human_confirmed"',
-        "reduceGenerationStrategyRuntimeState(live, resolvedAction)",
-        'verified.phase !== "human_confirmed"',
+        "live?.phase !== operation.priorPhase",
+        "reduceGenerationStrategyRuntimeState(",
+        "operation.requestState",
+        'const expectedPhase = paidRefresh',
+        'verified.phase !== expectedPhase',
         "verified.start_context_fingerprint === live.start_context_fingerprint",
         "applyGenerationStrategyQueueRow(",
         "clearGenerationStrategyRequestIdempotencyKey(operation.idempotency.key)",
     ):
         assert marker in refresh
-    assert refresh.index("reduceGenerationStrategyRuntimeState(live, resolvedAction)") < refresh.index(
-        "applyGenerationStrategyQueueRow("
-    )
+    verified = refresh.index("const verified = reduceGenerationStrategyRuntimeState(")
+    committed = refresh.index("applyGenerationStrategyQueueRow(", verified)
+    assert verified < committed
     assert "GENERATION_STRATEGY_RUNTIME_ACTIONS.humanConfirmed" not in refresh
     assert "startGenerationStrategy" not in refresh
 

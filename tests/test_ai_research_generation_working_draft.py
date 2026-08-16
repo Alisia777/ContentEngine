@@ -14,6 +14,12 @@ MIGRATION_PATH = (
     / "migrations"
     / "202608110006_ai_research_generation_working_draft.sql"
 )
+CONFLICT_HOTFIX_PATH = (
+    ROOT
+    / "supabase"
+    / "migrations"
+    / "202608160001_stop_working_draft_conflict_retry_storm.sql"
+)
 PGTAP_PATH = (
     ROOT
     / "supabase"
@@ -21,6 +27,7 @@ PGTAP_PATH = (
     / "ai_research_generation_working_draft_test.sql"
 )
 MIGRATION = MIGRATION_PATH.read_text(encoding="utf-8")
+CONFLICT_HOTFIX = CONFLICT_HOTFIX_PATH.read_text(encoding="utf-8")
 PGTAP = PGTAP_PATH.read_text(encoding="utf-8")
 GENERATION = (
     ROOT / "web" / "app" / "workspace-generation-research-recommendations.js"
@@ -40,6 +47,7 @@ BOOTSTRAP = (
 
 def test_sql_and_executable_pgtap_parse() -> None:
     assert parse_sql(MIGRATION)
+    assert parse_sql(CONFLICT_HOTFIX)
     assert parse_sql(PGTAP)
 
 
@@ -123,6 +131,10 @@ def test_working_rpc_has_cas_idempotency_and_project_acl() -> None:
     assert "current_row.last_mutation_id = mutation_id_value" in MIGRATION
     assert "coalesce(current_row.revision, 0) <> expected_revision_value" in MIGRATION
     assert "generation_ai_research_working_draft_revision_conflict" in MIGRATION
+    assert "errcode = 'PT409'" in MIGRATION
+    assert "errcode = '40001'" not in MIGRATION
+    assert "retryable_fragment constant text := 'errcode = ''40001'''" in CONFLICT_HOTFIX
+    assert "terminal_fragment constant text := 'errcode = ''PT409'''" in CONFLICT_HOTFIX
     assert "revision = draft.revision + 1" in MIGRATION
     assert "from public, anon;" in MIGRATION
     assert "to authenticated, service_role;" in MIGRATION
@@ -134,6 +146,27 @@ def test_working_rpc_has_cas_idempotency_and_project_acl() -> None:
         "public.contentengine_generation_research_recommendation(", snapshot_start
     )
     assert "for share" not in MIGRATION[snapshot_start:snapshot_end].lower()
+
+
+def test_client_conflicts_are_terminal_until_authoritative_rehydration() -> None:
+    stop_start = GENERATION.index("function stopWorkingDraftConflictRetries()")
+    stop_end = GENERATION.index("function selectedVerifiedMediaProduct", stop_start)
+    stop_block = GENERATION[stop_start:stop_end]
+    assert "runtime.workingDraftConflict = true" in stop_block
+    assert "runtime.workingDraftSavePending = false" in stop_block
+    assert "window.clearTimeout(runtime.workingDraftSaveTimer)" in stop_block
+
+    schedule_start = GENERATION.index("function scheduleWorkingDraftSave()")
+    schedule_end = GENERATION.index("async function clearWorkingDraft()", schedule_start)
+    schedule_block = GENERATION[schedule_start:schedule_end]
+    assert "if (runtime.workingDraftConflict)" in schedule_block
+    assert "return;" in schedule_block
+
+    hydrate_start = GENERATION.index("async function hydrateSharedWorkingDraft")
+    hydrate_end = GENERATION.index("function briefControl", hydrate_start)
+    hydrate_block = GENERATION[hydrate_start:hydrate_end]
+    assert 'setWorkingDraftAuthority(context.projectId, "verified")' in hydrate_block
+    assert "runtime.workingDraftConflict = false" in hydrate_block
 
 
 def test_ai_center_cta_carries_only_server_selection_and_position() -> None:

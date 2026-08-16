@@ -232,32 +232,79 @@ def _dump_exact_width_dock_probe(
                     ),
                 },
             )
-            deadline = time.monotonic() + 10
+            wait_for_activation = (
+                shell_query is not None and "activate=shortcut" in shell_query
+            )
+            wait_for_logout = (
+                shell_query is not None and "probe=logout" in shell_query
+            )
+            # Activation includes the hashchange-owned mount and an explicit
+            # fixture flush. It can be CPU-starved when several Chrome probes
+            # run concurrently, so reserve a bounded real-time allowance for
+            # that multi-event path only.
+            if wait_for_activation:
+                ready_timeout = 30
+            else:
+                ready_timeout = 10
+            required_markers = ["fixtureReady=true"]
+            if wait_for_activation:
+                required_markers.append("fixtureAfterActionWindowCount=1")
+            if wait_for_logout:
+                required_markers.append("fixtureLogoutLeakPassed=true")
+            deadline = time.monotonic() + ready_timeout
+            attempts = 0
+            last_state: dict[str, object] = {"probe": "not evaluated"}
             while time.monotonic() < deadline:
                 probe = cdp(
                     "Runtime.evaluate",
                     {
                         "expression": (
-                            'JSON.stringify({width: innerWidth, ready: document.body?.dataset.'
+                            'JSON.stringify({width: innerWidth, readyState: document.readyState, '
+                            'href: window.location.href, ready: document.body?.dataset.'
                             'fixtureReady || "", mount: document.body?.dataset.'
                             'fixtureDockMountCount || "", overflow: document.body?.dataset.'
-                            'fixtureDockOverflowNavigationCount || ""})'
+                            'fixtureDockOverflowNavigationCount || "", afterAction: '
+                            'document.body?.dataset.fixtureAfterActionWindowCount || "", logout: '
+                            'document.body?.dataset.fixtureLogoutLeakPassed || ""})'
                         ),
                         "returnByValue": True,
                     },
                 )
-                value = (
+                raw_state = (
                     probe.get("result", {})
                     .get("result", {})
                     .get("value", "")
                 )
-                dock_ready = '"mount":"1"' in value and '"overflow":"1"' in value
-                shell_ready = '"ready":"true"' in value
-                if f'"width":{width}' in value and (shell_ready if shell_query is not None else dock_ready):
+                try:
+                    state = json.loads(raw_state) if isinstance(raw_state, str) else raw_state
+                except json.JSONDecodeError:
+                    state = {"raw": raw_state}
+                last_state = state if isinstance(state, dict) else {"raw": state}
+                attempts += 1
+                dock_ready = (
+                    last_state.get("mount") == "1"
+                    and last_state.get("overflow") == "1"
+                )
+                shell_ready = (
+                    last_state.get("ready") == "true"
+                    and (
+                        not wait_for_activation
+                        or last_state.get("afterAction") == "1"
+                    )
+                    and (not wait_for_logout or last_state.get("logout") == "true")
+                )
+                if last_state.get("width") == width and (
+                    shell_ready if shell_query is not None else dock_ready
+                ):
                     break
                 time.sleep(0.04)
             else:
-                raise AssertionError("Exact-width Dock probe did not finish")
+                raise AssertionError(
+                    "Exact-width Dock probe did not finish "
+                    f"after {ready_timeout}s and {attempts} samples; expected width={width} "
+                    f"and {', '.join(required_markers)}; last CDP state: "
+                    f"{json.dumps(last_state, ensure_ascii=False, sort_keys=True)}"
+                )
             result = cdp(
                 "Runtime.evaluate",
                 {"expression": "document.documentElement.outerHTML", "returnByValue": True},
@@ -357,7 +404,11 @@ def test_home_route_is_a_visible_desktop_with_zero_windows_at_exact_widths(
 
 
 def test_desktop_object_activation_opens_the_original_dom_in_one_window() -> None:
-    html = _dump_shell_harness("route=home&activate=shortcut")
+    html = _dump_exact_width_dock_probe(
+        1280,
+        800,
+        shell_query="route=home&activate=shortcut",
+    )
 
     assert 'data-fixture-desktop-window-count="0"' in html
     assert 'data-fixture-after-action-window-count="1"' in html
@@ -466,7 +517,11 @@ def test_window_contract_remains_pure_and_harness_proves_node_identity() -> None
 
 
 def test_shell_runtime_preserves_dom_focus_selection_and_existing_handlers() -> None:
-    html = _dump_shell_harness()
+    html = _dump_exact_width_dock_probe(
+        1280,
+        800,
+        shell_query="",
+    )
 
     for marker in (
         'data-fixture-ready="true"',
@@ -482,7 +537,11 @@ def test_shell_runtime_preserves_dom_focus_selection_and_existing_handlers() -> 
 
 
 def test_logout_never_rehomes_detached_project_dom_into_login() -> None:
-    html = _dump_shell_harness("probe=logout")
+    html = _dump_exact_width_dock_probe(
+        1280,
+        800,
+        shell_query="probe=logout",
+    )
 
     assert 'data-fixture-logout-leak-passed="true"' in html
     assert '<h1>Вход</h1>' in html

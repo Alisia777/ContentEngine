@@ -81,7 +81,10 @@ function normalizeCandidate(asset, strategyId) {
     || asset?.mime_type !== "video/mp4"
     || asset?.status !== "ready"
     || asset?.rights_confirmed !== true
-    || asset?.exact_youtube_attached !== true
+    || (
+      asset?.exact_youtube_attached !== true
+      && asset?.direct_mp4_attached !== true
+    )
   ) return null;
   const eligibility = generationStrategyAssetEligibility(
     asset,

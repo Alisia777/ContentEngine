@@ -81,6 +81,7 @@ const runtime = {
   catalogSignals: null,
   catalogStatus: "idle",
   catalogRequest: 0,
+  catalogRetryCount: 0,
   recommendationState: null,
   applyingModel: false,
   modelFilter: "relevant",
@@ -90,6 +91,7 @@ const runtime = {
   strategyCatalog: null,
   strategyCatalogStatus: "idle",
   strategyCatalogRequest: 0,
+  strategyCatalogRetryCount: 0,
   strategyState: null,
   pendingStrategyRestore: null,
   strategyAssetPage: null,
@@ -100,6 +102,7 @@ const runtime = {
   strategySourcePicker: null,
   strategyMechanicsDrafts: new Map(),
   strategyViewRoots: new WeakSet(),
+  intakeHandoff: null,
 };
 
 const LEGACY_MODEL_BY_MODE = Object.freeze({
@@ -2616,22 +2619,45 @@ function renderModelAdvisor(form) {
   });
 
   if (!runtime.catalog || !Array.isArray(runtime.catalog.models)) {
-    grid.replaceChildren();
+    const failed = runtime.catalogStatus === "error";
+    if (failed) {
+      const retry = element(
+        "button",
+        "btn ce-v4-model-catalog-retry",
+        "Повторить загрузку каталога",
+      );
+      retry.type = "button";
+      retry.dataset.ceV4ModelCatalogRetry = "";
+      grid.replaceChildren(retry);
+    } else {
+      grid.replaceChildren();
+    }
     recommendation.hidden = true;
     syncModelLaunchGuard(form, "");
     const summary = q("[data-ce-v4-model-selection-summary-body]", form);
     if (summary) {
-      summary.dataset.state = runtime.catalogStatus === "error" ? "blocked" : "loading";
-      summary.replaceChildren(
-        element("strong", "ce-v4-model-selection-summary__title", runtime.catalogStatus === "error"
+      summary.dataset.state = failed ? "blocked" : "loading";
+      const summaryChildren = [
+        element("strong", "ce-v4-model-selection-summary__title", failed
           ? "Каталог моделей не ответил"
           : "Загружаем точный каталог…"),
         element("p", "ce-v4-model-selection-summary__note", "Исходный режим формы сохранён. Мы не выдумываем модель, цену или готовность без ответа сервера."),
-      );
+      ];
+      if (failed) {
+        const summaryRetry = element(
+          "button",
+          "btn ce-v4-model-catalog-retry",
+          "Повторить загрузку каталога",
+        );
+        summaryRetry.type = "button";
+        summaryRetry.dataset.ceV4ModelCatalogRetry = "";
+        summaryChildren.push(summaryRetry);
+      }
+      summary.replaceChildren(...summaryChildren);
     }
-    status.dataset.state = runtime.catalogStatus === "error" ? "error" : "loading";
-    status.textContent = runtime.catalogStatus === "error"
-      ? "Каталог моделей сейчас недоступен. Текущий режим формы сохранён; платный запуск не изменён."
+    status.dataset.state = failed ? "error" : "loading";
+    status.textContent = failed
+      ? "Каталог моделей сейчас недоступен. Повторите загрузку — форма и платный запуск не изменены."
       : "Загружаем доступные модели…";
     return;
   }
@@ -2699,6 +2725,27 @@ function renderModelAdvisor(form) {
       : "Выберите доступную модель. Рекомендация ИИ носит только советующий характер.";
 }
 
+// Однократная ошибка каталога больше не превращается в мёртвую страницу до
+// F5: сначала автоматические повторы с нарастающей паузой, затем явная кнопка.
+const CATALOG_RETRY_DELAYS_MS = Object.freeze([2_000, 5_000, 15_000]);
+
+function scheduleCatalogRetry(kind) {
+  const countKey = kind === "strategy"
+    ? "strategyCatalogRetryCount"
+    : "catalogRetryCount";
+  const statusKey = kind === "strategy" ? "strategyCatalogStatus" : "catalogStatus";
+  const attempt = runtime[countKey];
+  if (attempt >= CATALOG_RETRY_DELAYS_MS.length) return;
+  runtime[countKey] = attempt + 1;
+  window.setTimeout(() => {
+    const form = runtime.form;
+    if (!form?.isConnected || runtime[statusKey] !== "error") return;
+    runtime[statusKey] = "idle";
+    if (kind === "strategy") void loadStrategyCatalog(form);
+    else void loadModelCatalog(form);
+  }, CATALOG_RETRY_DELAYS_MS[attempt]);
+}
+
 async function loadModelCatalog(form) {
   if (runtime.catalog) {
     renderModelAdvisor(form);
@@ -2724,6 +2771,7 @@ async function loadModelCatalog(form) {
     runtime.catalog = catalog;
     runtime.catalogSignals = response?.signals || response?.recommendation_context || null;
     runtime.catalogStatus = "ready";
+    runtime.catalogRetryCount = 0;
     runtime.recommendationState = null;
     window.ContentEngineWorkspaceRuntime?.setGenerationModelCatalog?.(catalog);
     const targetForm = form.isConnected ? form : runtime.form;
@@ -2740,6 +2788,7 @@ async function loadModelCatalog(form) {
   } catch {
     if (request !== runtime.catalogRequest) return;
     runtime.catalogStatus = "error";
+    scheduleCatalogRetry("model");
     const targetForm = form.isConnected ? form : runtime.form;
     if (targetForm?.isConnected) renderModelAdvisor(targetForm);
   }
@@ -2774,6 +2823,7 @@ async function loadStrategyCatalog(form) {
     }
     runtime.strategyCatalog = catalog;
     runtime.strategyCatalogStatus = "ready";
+    runtime.strategyCatalogRetryCount = 0;
     runtime.strategyState = strategyState;
     const targetForm = form.isConnected ? form : runtime.form;
     if (!targetForm?.isConnected) return;
@@ -2785,6 +2835,7 @@ async function loadStrategyCatalog(form) {
   } catch {
     if (request !== runtime.strategyCatalogRequest) return;
     runtime.strategyCatalogStatus = "error";
+    scheduleCatalogRetry("strategy");
     runtime.strategyState = createGenerationStrategyViewState(null);
     const targetForm = form.isConnected ? form : runtime.form;
     if (targetForm?.isConnected) renderStrategyView(targetForm);
@@ -3004,7 +3055,11 @@ function contentFor(form, key) {
 function organizeOriginalNodes(form, shell, originalNodes, submit) {
   let currentKey = "mode";
   originalNodes.forEach((node) => {
-    if (node === shell || node === submit) return;
+    if (
+      node === shell
+      || node === submit
+      || node.matches?.("[data-generation-intake-v4]")
+    ) return;
     currentKey = classifyNode(node, currentKey);
     (contentFor(form, currentKey) || contentFor(form, "mode"))?.append(node);
   });
@@ -3025,7 +3080,10 @@ function exposeProviderReadinessControl(form) {
 }
 
 function adoptDirectChildren(form, shell) {
-  const loose = [...form.children].filter((node) => node !== shell);
+  const loose = [...form.children].filter((node) => (
+    node !== shell
+    && !node.matches?.("[data-generation-intake-v4]")
+  ));
   loose.forEach((node) => {
     if (node.id === "generation-submit") {
       const current = q("#generation-submit", shell);
@@ -3701,6 +3759,28 @@ function handleFormClick(event) {
     void loadGenerationStrategyAssets(form);
     return;
   }
+  const modelCatalogRetry = event.target.closest("[data-ce-v4-model-catalog-retry]");
+  if (modelCatalogRetry) {
+    event.preventDefault();
+    runtime.catalogRetryCount = 0;
+    if (runtime.catalogStatus !== "loading") {
+      runtime.catalogStatus = "idle";
+      void loadModelCatalog(form);
+    }
+    return;
+  }
+  const strategyCatalogRetry = event.target.closest(
+    "[data-generation-strategy-catalog-retry]",
+  );
+  if (strategyCatalogRetry) {
+    event.preventDefault();
+    runtime.strategyCatalogRetryCount = 0;
+    if (runtime.strategyCatalogStatus !== "loading") {
+      runtime.strategyCatalogStatus = "idle";
+      void loadStrategyCatalog(form);
+    }
+    return;
+  }
   const loadMoreStrategyAssets = event.target.closest(
     "[data-generation-strategy-assets-load-more]",
   );
@@ -3915,8 +3995,158 @@ function setupForm(form, { initialSync = true } = {}) {
   if (runtime.strategyAssetStatus === "idle") {
     void loadGenerationStrategyAssets(form);
   }
+  consumeIntakeHandoff(form);
   return shell;
 }
+
+// --- Консьюмер handoff-контракта компактной формы (intake-v4) ---------------
+// Компактные маршруты пишут handoff тремя каналами: скрытые поля
+// generation_intake_* в форме, sessionStorage `generation-intake-mp4-v4:<project>`
+// и событие contentengine:generation-strategy-handoff. Гид читает все три,
+// предзаполняет «Замысел» после перезагрузки и показывает происхождение
+// (источник-ссылку, происхождение рекомендации), чтобы данные не терялись.
+
+const INTAKE_HANDOFF_EVENT = "contentengine:generation-strategy-handoff";
+const INTAKE_HANDOFF_STORAGE_PREFIX = "generation-intake-mp4-v4:";
+
+const INTAKE_RECOMMENDATION_SOURCE_LABELS = Object.freeze({
+  ai_center: "проверенная рекомендация ИИ-центра",
+  ai_center_edited: "рекомендация ИИ-центра, отредактированная сотрудником",
+  ai_center_unverified: "непроверенный черновик ИИ-центра",
+  operator: "текст сотрудника",
+});
+
+function normalizeIntakeHandoff(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const textOf = (value, limit) => String(value ?? "").trim().slice(0, limit);
+  const handoff = {
+    route: textOf(raw.route, 40),
+    source_url: textOf(raw.source_url, 1_000),
+    description: textOf(raw.description, 1_200),
+    recommendation_source: textOf(raw.recommendation_source, 60),
+    requested_model: textOf(raw.requested_model, 160),
+  };
+  const meaningful = handoff.source_url
+    || handoff.description
+    || (handoff.recommendation_source && handoff.recommendation_source !== "empty")
+    || handoff.requested_model;
+  return meaningful ? handoff : null;
+}
+
+function intakeHandoffFromHiddenFields(form) {
+  const read = (name) => String(form?.elements?.[name]?.value || "");
+  if (!read("generation_intake_version").trim()) return null;
+  return normalizeIntakeHandoff({
+    route: read("generation_intake_route"),
+    source_url: read("generation_intake_source_url"),
+    description: read("generation_intake_description"),
+    recommendation_source: read("generation_intake_recommendation_source"),
+    requested_model: read("generation_intake_model"),
+  });
+}
+
+function intakeHandoffFromSession() {
+  try {
+    const hash = String(window.location.hash || "");
+    const projectMatch = /[?&]project_id=([0-9a-fA-F-]{36})/u.exec(hash);
+    const preferred = projectMatch
+      ? `${INTAKE_HANDOFF_STORAGE_PREFIX}${projectMatch[1].toLowerCase()}`
+      : "";
+    const keys = [];
+    for (let index = 0; index < sessionStorage.length; index += 1) {
+      const key = sessionStorage.key(index);
+      if (key && key.startsWith(INTAKE_HANDOFF_STORAGE_PREFIX)) keys.push(key);
+    }
+    const key = keys.includes(preferred)
+      ? preferred
+      : (!preferred && keys.length === 1 ? keys[0] : "");
+    if (!key) return null;
+    return normalizeIntakeHandoff(
+      JSON.parse(sessionStorage.getItem(key) || "null"),
+    );
+  } catch {
+    return null;
+  }
+}
+
+function applyIntakeHandoffBrief(form, handoff) {
+  const brief = form?.elements?.brief;
+  if (
+    brief instanceof HTMLTextAreaElement
+    && handoff.description
+    && !String(brief.value || "").trim()
+  ) {
+    brief.value = handoff.description;
+    brief.dispatchEvent(new Event("input", { bubbles: true }));
+    brief.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+}
+
+function renderIntakeHandoffProvenance(form, handoff) {
+  const content = q('[data-ce-v4-generation-content="brief"]', form);
+  if (!content) return;
+  const existing = q("[data-ce-v4-intake-provenance]", content);
+  const recommendationLabel = handoff.recommendation_source
+    && handoff.recommendation_source !== "empty"
+    ? (INTAKE_RECOMMENDATION_SOURCE_LABELS[handoff.recommendation_source]
+      || handoff.recommendation_source)
+    : "";
+  if (!handoff.source_url && !recommendationLabel && !handoff.requested_model) {
+    existing?.remove();
+    return;
+  }
+  const note = existing
+    || element("p", "ce-v4-generation-guided__intake-provenance");
+  note.dataset.ceV4IntakeProvenance = "";
+  note.replaceChildren(element("strong", "", "Из компактной формы: "));
+  const fragments = [];
+  if (handoff.source_url) {
+    const wrap = document.createDocumentFragment();
+    wrap.append(document.createTextNode("источник ролика — "));
+    if (/^https?:\/\//iu.test(handoff.source_url)) {
+      const link = element("a", "", handoff.source_url);
+      link.href = handoff.source_url;
+      link.target = "_blank";
+      link.rel = "noreferrer noopener";
+      wrap.append(link);
+    } else {
+      wrap.append(document.createTextNode(handoff.source_url));
+    }
+    fragments.push(wrap);
+  }
+  if (recommendationLabel) {
+    fragments.push(document.createTextNode(`происхождение замысла — ${recommendationLabel}`));
+  }
+  if (handoff.requested_model) {
+    fragments.push(document.createTextNode(`запрошенная модель — ${handoff.requested_model}`));
+  }
+  fragments.forEach((fragment, index) => {
+    if (index > 0) note.append(document.createTextNode(" · "));
+    note.append(fragment);
+  });
+  if (note.parentElement !== content) content.prepend(note);
+}
+
+function consumeIntakeHandoff(form) {
+  const handoff = intakeHandoffFromHiddenFields(form)
+    || intakeHandoffFromSession()
+    || runtime.intakeHandoff;
+  if (!handoff) return;
+  runtime.intakeHandoff = handoff;
+  applyIntakeHandoffBrief(form, handoff);
+  renderIntakeHandoffProvenance(form, handoff);
+}
+
+window.addEventListener(INTAKE_HANDOFF_EVENT, (event) => {
+  const handoff = normalizeIntakeHandoff(event?.detail);
+  if (!handoff) return;
+  runtime.intakeHandoff = handoff;
+  const form = runtime.form;
+  if (form?.isConnected) {
+    applyIntakeHandoffBrief(form, handoff);
+    renderIntakeHandoffProvenance(form, handoff);
+  }
+});
 
 function mount() {
   if (routePath() !== ROUTE) {
@@ -3934,6 +4164,10 @@ function mount() {
   if (!form) return;
   const formChanged = runtime.form !== form;
   if (formChanged) {
+    if (runtime.catalogStatus === "error") runtime.catalogStatus = "idle";
+    if (runtime.strategyCatalogStatus === "error") {
+      runtime.strategyCatalogStatus = "idle";
+    }
     runtime.recommendationState = null;
     runtime.modelFilter = "relevant";
     runtime.externalSelectionActive = false;
@@ -3946,6 +4180,7 @@ function mount() {
     runtime.strategyAssetError = "";
     runtime.strategySourcePicker = null;
     runtime.strategyMechanicsDrafts.clear();
+    runtime.intakeHandoff = null;
   }
   runtime.form = form;
   document.body.classList.add("ce-v4-generation-guided-route");

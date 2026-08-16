@@ -20,8 +20,8 @@ select is(
   (select provolatile::text
    from pg_proc
    where oid = 'public.creator_validate_notification_action(jsonb)'::regprocedure),
-  's',
-  'validator is stable and read-only by contract'
+  'v',
+  'validator opens a writable transaction for authenticated profile sync'
 );
 select ok(
   (select prosecdef

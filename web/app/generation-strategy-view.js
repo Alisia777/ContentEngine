@@ -897,6 +897,11 @@ export function generationStrategyViewMarkup(state) {
           <strong>Стратегии генерации временно недоступны.</strong>
           <span>Серверный каталог не прошёл строгую проверку. Ничего не выбрано и не применяется.</span>
           <small>Код: ${escapeHtml(code)}</small>
+          <button
+            type="button"
+            class="btn"
+            data-generation-strategy-catalog-retry
+          >Повторить загрузку</button>
         </div>
       </section>
     `;

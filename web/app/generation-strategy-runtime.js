@@ -15,6 +15,7 @@ export const GENERATION_STRATEGY_RUNTIME_ACTIONS = Object.freeze({
   select: "SELECT",
   bindResolved: "BIND_RESOLVED",
   preflightResolved: "PREFLIGHT_RESOLVED",
+  preflightRefreshRequested: "PREFLIGHT_REFRESH_REQUESTED",
   humanConfirmed: "HUMAN_CONFIRMED",
   startRequested: "START_REQUESTED",
   startResolved: "START_RESOLVED",
@@ -2188,6 +2189,37 @@ export function reduceGenerationStrategyRuntimeState(state, action) {
         ...state,
         phase: "bound",
         bind: normalized.value,
+        error: null,
+      });
+    } catch {
+      return invalidState(state, "runtime_action_invalid", "action");
+    }
+  }
+  if (
+    action.type ===
+      GENERATION_STRATEGY_RUNTIME_ACTIONS.preflightRefreshRequested
+  ) {
+    try {
+      const source = exactObject(
+        action,
+        ["type", "fingerprint", "receipt_id", "receipt_hash"],
+        "action",
+      );
+      if (
+        state.phase !== "preflight_ready" ||
+        exactSha256(source.fingerprint, "action.fingerprint") !==
+          state.fingerprint ||
+        exactUuid(source.receipt_id, "action.receipt_id") !==
+          state.preflight?.receipt?.id ||
+        exactSha256(source.receipt_hash, "action.receipt_hash") !==
+          state.preflight?.receipt?.receipt_hash
+      ) {
+        return invalidState(state, "runtime_response_stale", "action.receipt_id");
+      }
+      return deepFreeze({
+        ...state,
+        phase: "bound",
+        preflight: null,
         error: null,
       });
     } catch {

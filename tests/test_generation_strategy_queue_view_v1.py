@@ -243,9 +243,9 @@ def _evaluate(expression: str) -> object:
 
 def test_view_pins_all_frozen_authorities_and_has_no_side_effect_channel() -> None:
     expected_hashes = {
-        RUNTIME_MODULE: "70387d40a78f9fd4ec5401fbe3ca558f8969afc7bfc12511c743e653ba961ced",
-        QUEUE_MODULE: "b4c8d6739233ae73dc81d7c0881089cb4ebd55bca1fc6df237b926829f6eff31",
-        SOURCE_PICKER_MODULE: "06179c4c9507122f243fd4c4cf80eb42d882836122eb6fa9caa353bce845ce79",
+        RUNTIME_MODULE: "3588c5ac08d78a91062e52ebda87d1cf34988e584e1f238b07a944964e16956c",
+        QUEUE_MODULE: "4b34f77a7c439214104e9a6d4adcc34b980f0e7de47b9ca7b27ade96eab47713",
+        SOURCE_PICKER_MODULE: "2c3912a5705dddab42ad5ccf919b76fb7b65d3d4f4181fc59d304f5727771ebf",
     }
     for path, expected in expected_hashes.items():
         canonical_bytes = path.read_bytes().replace(b"\r\n", b"\n")

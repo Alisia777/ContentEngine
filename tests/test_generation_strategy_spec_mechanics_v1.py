@@ -143,12 +143,13 @@ def test_dynamic_compiler_patch_is_crlf_normalized_exact_and_fail_closed() -> No
 
     assert "replace(\n    pg_catalog.pg_get_functiondef(" in patch
     assert "E'\\r\\n', E'\\n'" in patch
-    # Four replacements each assert old=1/new=0 before mutation and
-    # old=0/new=1 afterwards; three final authority markers are exact-once.
-    assert patch.count("length(patched_definition) - length(replace(") == 19
-    assert patch.count("/ length(old_fragment) <> 1") == 4
+    # Four whitespace-tolerant replacements each assert one old target before
+    # mutation and zero afterwards. New fragments and three final authority
+    # markers remain literal exact-count checks.
+    assert patch.count("regexp_count(patched_definition, old_pattern)") == 8
+    assert patch.count("patched_definition := regexp_replace(") == 4
+    assert patch.count("length(patched_definition) - length(replace(") == 11
     assert patch.count("/ length(new_fragment) <> 0") == 4
-    assert patch.count("/ length(old_fragment) <> 0") == 4
     assert patch.count("/ length(new_fragment) <> 1") == 4
     for marker in (
         "generation_strategy_spec_patch_owner_invalid",
@@ -198,17 +199,29 @@ def test_dynamic_patch_targets_exact_post_130002_compiler_shape_once() -> None:
         "$patch_generation_strategy_spec_v1$;", v3_start
     )
     v3_pairs = re.findall(
-        r"old_fragment := \$old\$(.*?)\$old\$;\s*"
+        r"old_pattern :=\s*'(.*?)';\s*"
         r"new_fragment := \$new\$(.*?)\$new\$;",
         migration[v3_start:v3_end],
         re.DOTALL,
     )
     assert len(v3_pairs) == 4
-    for old, new in v3_pairs:
-        assert installed_shape.count(old) == 1
+    for sql_pattern, new in v3_pairs:
+        old_pattern = sql_pattern.replace("''", "'")
+        for source, target in (
+            ("[[:space:]]", r"\s"),
+            ("[.]", r"\."),
+            ("[(]", r"\("),
+            ("[)]", r"\)"),
+            ("[?]", r"\?"),
+        ):
+            old_pattern = old_pattern.replace(source, target)
+        assert len(re.findall(old_pattern, installed_shape)) == 1
         assert installed_shape.count(new) == 0
-        installed_shape = installed_shape.replace(old, new)
-        assert installed_shape.count(old) == 0
+        installed_shape, replacements = re.subn(
+            old_pattern, lambda _match: new, installed_shape
+        )
+        assert replacements == 1
+        assert not re.search(old_pattern, installed_shape)
         assert installed_shape.count(new) == 1
     assert "generation_strategy_spec_scope_v1" in installed_shape
     assert "exact_scope_value ->> 'recipe'" in installed_shape

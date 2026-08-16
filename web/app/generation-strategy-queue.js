@@ -13,7 +13,7 @@ import {
   generationStrategyRuntimeSafeProjection,
   invalidateGenerationStrategyRuntimeState,
   reduceGenerationStrategyRuntimeState,
-} from "./generation-strategy-runtime.js?v=20260814.os4.41";
+} from "./generation-strategy-runtime.js?v=20260816.paid-runtime-refresh.1";
 
 export const GENERATION_STRATEGY_QUEUE_VERSION = "2026-08-14.v1";
 export const GENERATION_STRATEGY_QUEUE_SIZE = 10;

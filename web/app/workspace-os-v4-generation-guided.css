@@ -204,6 +204,23 @@ body.ce-v4-generation-guided-route .generation-launch-card > #mock-batch-form {
   line-height: 1.5;
 }
 
+.ce-v4-generation-guided__intake-provenance {
+  max-width: 72ch;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--guided-muted) 9%, transparent);
+  color: var(--guided-muted);
+  font-size: var(--ce-v4-font-control, 14px);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.ce-v4-generation-guided__intake-provenance a {
+  color: inherit;
+  text-decoration: underline;
+}
+
 .ce-v4-generation-guided__panel-content {
   max-height: none;
   display: grid;

@@ -26,12 +26,12 @@ def test_academy_uses_the_single_v44_interface_graph() -> None:
     for asset in (
         "interface-system.css",
         "workspace-os-v4.css",
-        "workspace-os-v4-loader.js",
         "workspace-build-guard.js",
     ):
         assert f'./{asset}?v={BUILD}' in ACTIVE_INDEX
 
-    assert f'./app.js?v={BUILD}' in ACTIVE_INDEX
+    assert './workspace-os-v4-loader.js?v=20260816.adaptive.4' in ACTIVE_INDEX
+    assert './app.js?v=20260816.adaptive.4' in ACTIVE_INDEX
 
     for retired_asset in (
         "learning-premium.css",

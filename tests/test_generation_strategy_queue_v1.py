@@ -398,10 +398,10 @@ def _evaluate(expression: str) -> object:
 def test_queue_imports_frozen_runtime_and_is_pure_planning_only() -> None:
     canonical_runtime = RUNTIME_MODULE.read_bytes().replace(b"\r\n", b"\n")
     assert hashlib.sha256(canonical_runtime).hexdigest() == (
-        "70387d40a78f9fd4ec5401fbe3ca558f8969afc7bfc12511c743e653ba961ced"
+        "3588c5ac08d78a91062e52ebda87d1cf34988e584e1f238b07a944964e16956c"
     )
     assert (
-        'from "./generation-strategy-runtime.js?v=20260814.os4.41";'
+        'from "./generation-strategy-runtime.js?v=20260816.paid-runtime-refresh.1";'
         in QUEUE_SOURCE
     )
     for forbidden in (
@@ -630,6 +630,57 @@ def test_safe_projection_and_aggregate_review_are_redacted_display_only() -> Non
         + ["preflight_ready"] * 6,
     }
     assert result["underlyingPhases"] == ["preflight_ready"] * 10
+
+
+def test_unconfirmed_receipt_refresh_keeps_queue_binding_and_request_keys() -> None:
+    result = _evaluate(
+        """
+        (() => {
+          const ready = readyAll();
+          const before = ready.rows.get(sourceId(0));
+          const receipt = before.runtime_state.preflight.receipt;
+          const updated = queueContract.updateGenerationStrategyQueueRow(
+            ready,
+            sourceId(0),
+            {
+              type: runtime.GENERATION_STRATEGY_RUNTIME_ACTIONS.preflightRefreshRequested,
+              fingerprint: before.runtime_state.fingerprint,
+              receipt_id: receipt.id,
+              receipt_hash: receipt.receipt_hash,
+            },
+          );
+          const after = updated.queue.rows.get(sourceId(0));
+          return {
+            ok: updated.ok,
+            phase: after.runtime_state.phase,
+            fingerprint: after.runtime_state.fingerprint,
+            bindingId: after.runtime_state.bind?.binding.id,
+            bindingHash: after.runtime_state.bind?.binding.binding_hash,
+            beforeFingerprint: before.runtime_state.fingerprint,
+            beforeBindingId: before.runtime_state.bind.binding.id,
+            beforeBindingHash: before.runtime_state.bind.binding.binding_hash,
+            sameKeys: JSON.stringify(after.idempotency_keys) ===
+              JSON.stringify(before.idempotency_keys),
+            bindKey: after.idempotency_keys.bind,
+            phases: [...updated.queue.rows.values()].map((row) =>
+              row.runtime_state.phase),
+          };
+        })()
+        """
+    )
+    assert result == {
+        "ok": True,
+        "phase": "bound",
+        "fingerprint": result["beforeFingerprint"],
+        "bindingId": result["beforeBindingId"],
+        "bindingHash": result["beforeBindingHash"],
+        "beforeFingerprint": result["beforeFingerprint"],
+        "beforeBindingId": result["beforeBindingId"],
+        "beforeBindingHash": result["beforeBindingHash"],
+        "sameKeys": True,
+        "bindKey": "strategy.bind:row-1",
+        "phases": ["bound"] + ["preflight_ready"] * 9,
+    }
 
 
 def test_free_work_plan_is_ordered_descriptor_only_and_hard_capped_at_three() -> None:

@@ -277,5 +277,5 @@ def test_release_versions_bind_the_mode_prompt_contract() -> None:
     assert "./product-research-view.js?v=20260814.os4.41" in APP
     assert "./content-generation-handoff.js?v=20260814.os4.41" in APP
     assert "./supabase-api.js?v=20260814.os4.41" in APP
-    assert "./app.js?v=20260814.os4.41" in INDEX
+    assert "./app.js?v=20260816.adaptive.4" in INDEX
     assert "generation_mode_prompt_binding_invalid" in API

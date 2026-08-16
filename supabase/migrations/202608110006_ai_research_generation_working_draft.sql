@@ -688,7 +688,10 @@ begin
   end if;
   if coalesce(current_row.revision, 0) <> expected_revision_value then
     raise exception using
-      errcode = '40001',
+      -- 40001 is reserved for serialization failures and is retried by the
+      -- PostgREST transaction runner. A stale optimistic-concurrency token is
+      -- a terminal HTTP conflict, so it must never enter that retry loop.
+      errcode = 'PT409',
       message = 'generation_ai_research_working_draft_revision_conflict',
       detail = jsonb_build_object(
         'expected_revision', expected_revision_value,

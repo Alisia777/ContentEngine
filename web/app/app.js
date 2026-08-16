@@ -145,6 +145,7 @@ import {
 } from "./generation-form-readiness.js?v=20260805.1";
 import {
   GENERATION_STRATEGY_RUNTIME_ACTIONS,
+  createGenerationStrategyRuntimeFingerprint,
   createGenerationStrategyRuntimeState,
   generationStrategyRuntimeBindRequest,
   generationStrategyRuntimePreflightRequest,
@@ -155,7 +156,7 @@ import {
   invalidateGenerationStrategyRuntimeState,
   normalizeGenerationStrategyProbeResponse,
   reduceGenerationStrategyRuntimeState,
-} from "./generation-strategy-runtime.js?v=20260814.os4.41";
+} from "./generation-strategy-runtime.js?v=20260816.paid-runtime-refresh.1";
 import {
   createGenerationStrategyQueue,
   generationStrategyQueueAggregateReview,
@@ -20791,6 +20792,34 @@ async function handleClick(event) {
   if (!control) return;
   const action = control.dataset.action;
 
+  if (action === "finder-mode") {
+    event.preventDefault();
+    const mode = control.dataset.ceV4FinderMode === "organize" ? "organize" : "browse";
+    const query = new URLSearchParams(state.route.query);
+    query.set("view", mode);
+    query.delete("create");
+    navigate(`/workspace/board?${query.toString()}`);
+    return;
+  }
+
+  if (action === "finder-view") {
+    event.preventDefault();
+    window.ContentEngineFinderV4?.setView?.(control.dataset.ceV4FinderView, control);
+    return;
+  }
+
+  if (action === "finder-quicklook") {
+    event.preventDefault();
+    if (!control.disabled) void window.ContentEngineFinderV4?.openSelected?.(control);
+    return;
+  }
+
+  if (action === "finder-upload") {
+    event.preventDefault();
+    navigate("/workspace/media");
+    return;
+  }
+
   if (action === "refresh-admin-people") {
     if (!canManageTeam() || state.adminPeople.busyKey) return;
     state.adminPeople.notice = "";
@@ -23087,6 +23116,10 @@ function handleChange(event) {
     syncGenerationSpecUi(form);
     return;
   }
+  if (event.target.matches('[data-action="finder-sort"]')) {
+    window.ContentEngineFinderV4?.setSort?.(event.target.value, event.target);
+    return;
+  }
   handleFormActivity(event);
 
   if (event.target.matches("[data-project-access-project]")) {
@@ -23396,9 +23429,9 @@ function handleFormActivity(event) {
         )
       );
       if (strategyContextChanged) {
-        if (generationStrategyQueueHasPaidAuthority()) {
+        if (generationStrategyHasPaidAuthority()) {
           toast(
-            "После подтверждения первой строки исходники и ТЗ этой очереди заблокированы. Статусы десяти задач сохранены.",
+            "После платного подтверждения исходники и ТЗ заблокированы. Статусы созданных задач сохранены.",
             "info",
           );
           syncGenerationStrategyFormReadiness(form);
@@ -27352,7 +27385,14 @@ function generationStrategySourceMediaId(selection) {
 function generationStrategySelectionsForForm(form) {
   const value = globalThis.ContentEngineGenerationGuidedV4
     ?.getStrategySelections?.(form);
-  return Array.isArray(value) && value.length === 10 ? value : null;
+  const requiredCount = Number(
+    generationStrategySourceProjectionForForm(form)?.required_count || 0,
+  );
+  return Array.isArray(value)
+    && [1, 10].includes(requiredCount)
+    && value.length === requiredCount
+    ? value
+    : null;
 }
 
 function generationStrategySourceProjectionForForm(form) {
@@ -27367,6 +27407,36 @@ function generationStrategyQueueHasPaidAuthority(queue = state.generationStrateg
     "start_once",
     "status",
   ].includes(row?.runtime_state?.phase));
+}
+
+function generationStrategySingleHasPaidAuthority(
+  runtimes = state.generationStrategyRuntimes,
+) {
+  if (!(runtimes instanceof Map)) return false;
+  return [...runtimes.values()].some((runtimeState) => [
+    "human_confirmed",
+    "start_once",
+    "status",
+  ].includes(runtimeState?.phase));
+}
+
+function generationStrategySingleHasOtherPaidAuthority(
+  sourceMediaId,
+  runtimes = state.generationStrategyRuntimes,
+) {
+  const normalizedSourceMediaId = String(sourceMediaId || "").trim().toLowerCase();
+  if (!(runtimes instanceof Map) || !contentReviewUuid(normalizedSourceMediaId)) {
+    return false;
+  }
+  return [...runtimes.entries()].some(([runtimeSourceMediaId, runtimeState]) => (
+    runtimeSourceMediaId !== normalizedSourceMediaId
+    && ["human_confirmed", "start_once", "status"].includes(runtimeState?.phase)
+  ));
+}
+
+function generationStrategyHasPaidAuthority() {
+  return generationStrategyQueueHasPaidAuthority()
+    || generationStrategySingleHasPaidAuthority();
 }
 
 function generationStrategyReceiptIsFresh(runtimeState, minimumRemainingMs = 0) {
@@ -27414,6 +27484,21 @@ function generationStrategyQueuePreflightRefreshTargets() {
   return targets;
 }
 
+function generationStrategyQueueReviewPreflightRefreshTargets() {
+  const queue = state.generationStrategyQueue;
+  if (!(queue?.rows instanceof Map)) return [];
+  const minimumRemainingMs = generationStrategyReceiptWindowMs(
+    queue.source_order.length,
+  );
+  return queue.source_order.flatMap((sourceMediaId) => {
+    const runtimeState = queue.rows.get(sourceMediaId)?.runtime_state;
+    return runtimeState?.phase === "preflight_ready"
+      && !generationStrategyReceiptIsFresh(runtimeState, minimumRemainingMs)
+      ? [{ sourceMediaId, minimumRemainingMs }]
+      : [];
+  });
+}
+
 function generationStrategyQueuePaidReceiptsNeedRefresh() {
   return generationStrategyQueuePreflightRefreshTargets().length > 0;
 }
@@ -27422,7 +27507,7 @@ function resetGenerationStrategyQueueState({
   clearSpecs = true,
   allowPaidAuthority = false,
 } = {}) {
-  if (!allowPaidAuthority && generationStrategyQueueHasPaidAuthority()) {
+  if (!allowPaidAuthority && generationStrategyHasPaidAuthority()) {
     return false;
   }
   state.generationStrategyQueue = null;
@@ -27681,7 +27766,54 @@ function generationStrategySpecMechanicsMarkup(spec, entry) {
     </section>`;
 }
 
+function generationStrategySingleSpecReviewMarkup(entry) {
+  if (!entry || !contentReviewUuid(entry.source_media_id)) return "";
+  const record = state.generationStrategySpecs.get(entry.source_media_id);
+  const header = `<header class="generation-strategy-spec-review__header">
+      <p class="eyebrow">Бесплатная проверка Product Swap</p>
+      <h3>Точное ТЗ одного ролика</h3>
+      <p class="muted tiny">Проверьте неизменяемый набор ассетов и точный prompt. На этом шаге платный запрос не выполняется.</p>
+    </header>`;
+  if (!record?.draft) {
+    return `${header}<article class="generation-strategy-spec-review__row" data-source-media-id="${escapeHtml(entry.source_media_id)}">
+      <p class="eyebrow">Product Swap · ТЗ ещё не подготовлено</p>
+      <h4>${escapeHtml(entry.filename)}</h4>
+      <p class="muted tiny">Сначала подготовим серверное ТЗ без запуска провайдера.</p>
+    </article>`;
+  }
+  const projection = generationStrategySpecSafeProjection(
+    record.approved || record.draft,
+  );
+  const spec = record.draft.generationSpec;
+  const approved = Boolean(record.approvedContext);
+  const titleId = "generation-strategy-spec-review-title-product-swap";
+  const confirmationId = "generation-strategy-spec-review-confirmation-product-swap";
+  return `${header}<article class="generation-strategy-spec-review__row" data-source-media-id="${escapeHtml(entry.source_media_id)}" data-status="${approved ? "approved" : "draft"}" aria-labelledby="${titleId}">
+      <p class="eyebrow">Product Swap · ${approved ? "ТЗ одобрено" : "нужно одобрение"}</p>
+      <h4 id="${titleId}">${escapeHtml(entry.filename)}</h4>
+      <dl class="generation-strategy-spec-review__meta">
+        <div><dt>Recipe</dt><dd>${escapeHtml(projection?.identity?.recipe || "—")}</dd></div>
+        <div><dt>Spec</dt><dd>${escapeHtml(String(projection?.identity?.spec_version || "—"))}</dd></div>
+        <div><dt>Исходник</dt><dd><code>${escapeHtml(entry.source_media_id.slice(0, 8))}…</code></dd></div>
+      </dl>
+      <details class="generation-strategy-spec-review__prompt" ${approved ? "" : "open"}>
+        <summary>Прочитать точный prompt Product Swap — ${escapeHtml(entry.filename)}</summary>
+        <pre>${escapeHtml(spec.compiled_prompt)}</pre>
+      </details>
+      ${generationStrategySpecMechanicsMarkup(spec, entry)}
+      ${approved
+        ? '<p class="badge badge-info">Одобрено человеком · автозапуск запрещён</p>'
+        : `<label class="option generation-strategy-spec-review__confirmation">
+            <input type="checkbox" name="generation_strategy_spec_approval" data-generation-strategy-spec-approval-source="${escapeHtml(entry.source_media_id)}" aria-labelledby="${titleId} ${confirmationId}" />
+            <span id="${confirmationId}">Я прочитал(а) точное ТЗ Product Swap и одобряю именно эту версию.</span>
+          </label>`}
+    </article>`;
+}
+
 function generationStrategySpecReviewMarkup(form, selections) {
+  if (Array.isArray(selections) && selections.length === 1) {
+    return generationStrategySingleSpecReviewMarkup(selections[0]);
+  }
   if (!Array.isArray(selections) || selections.length !== 10) return "";
   const rows = selections.map((entry) => {
     const record = state.generationStrategySpecs.get(entry.source_media_id);
@@ -27754,6 +27886,7 @@ async function prepareGenerationStrategySpecs(form, selections, projectId) {
     form.elements?.product_category?.value || "",
   ).trim();
   const editableIntent = String(form.elements?.brief?.value || "").trim();
+  const exactTen = selections.length === 10;
   const plans = [];
   for (const entry of selections) {
     if (state.generationStrategySpecs.get(entry.source_media_id)?.draft) continue;
@@ -27767,12 +27900,16 @@ async function prepareGenerationStrategySpecs(form, selections, projectId) {
       proposed_prompt: editableIntent,
       mechanics_summary: entry.mechanics_summary,
       confirmation: true,
-      reason: `Пользователь подготовил отдельное ТЗ для исходника ${entry.position} из 10.`,
+      reason: exactTen
+        ? `Пользователь подготовил отдельное ТЗ для исходника ${entry.position} из 10.`
+        : "Пользователь подготовил точное ТЗ для одного Product Swap.",
       idempotency_key: generationStrategySpecRequestKey(entry.source_media_id),
     });
     if (!plan.ok) {
       throw new CreatorApiError(
-        "Проверьте замысел и разбор механики для каждого из 10 роликов.",
+        exactTen
+          ? "Проверьте замысел и разбор механики для каждого из 10 роликов."
+          : "Проверьте рекомендацию и точный набор ассетов Product Swap.",
         { code: plan.error?.code || "generation_strategy_spec_prepare_invalid" },
       );
     }
@@ -27821,7 +27958,9 @@ function generationStrategyAllDraftsReviewed(form, selections) {
 async function approveGenerationStrategySpecs(form, selections, projectId) {
   if (!generationStrategyAllDraftsReviewed(form, selections)) {
     throw new CreatorApiError(
-      "Прочитайте и отдельно отметьте все 10 точных ТЗ.",
+      selections.length === 10
+        ? "Прочитайте и отдельно отметьте все 10 точных ТЗ."
+        : "Прочитайте и отдельно отметьте точное ТЗ Product Swap.",
       { code: "generation_strategy_spec_human_review_required" },
     );
   }
@@ -27832,7 +27971,9 @@ async function approveGenerationStrategySpecs(form, selections, projectId) {
       project_id: projectId,
       draft: record.draft,
       human_confirmation: true,
-      reason: `Пользователь прочитал и явно одобрил ТЗ для ролика ${entry.position} из 10.`,
+      reason: selections.length === 10
+        ? `Пользователь прочитал и явно одобрил ТЗ для ролика ${entry.position} из 10.`
+        : "Пользователь прочитал и явно одобрил точное ТЗ Product Swap.",
     });
     if (!plan.ok) {
       throw new CreatorApiError(
@@ -27987,8 +28128,11 @@ async function prepareGenerationStrategyQueueFree(form, selections, projectId) {
   return reviewed.review;
 }
 
-async function refreshGenerationStrategyQueuePreflights(form, projectId) {
-  const targets = generationStrategyQueuePreflightRefreshTargets();
+async function refreshGenerationStrategyQueuePreflights(
+  form,
+  projectId,
+  targets = generationStrategyQueuePreflightRefreshTargets(),
+) {
   if (!targets.length) return 0;
   const requestContext = captureGenerationRequestContext(form, projectId);
   const requestApi = state.api;
@@ -28002,16 +28146,44 @@ async function refreshGenerationStrategyQueuePreflights(form, projectId) {
   let refreshed = 0;
   for (let index = 0; index < targets.length; index += 3) {
     const chunk = targets.slice(index, index + 3);
-    const operations = chunk.map(({ sourceMediaId }) => {
+    const operations = chunk.map(({ sourceMediaId, minimumRemainingMs = 0 }) => {
       const runtimeState = generationStrategyQueueRuntime(sourceMediaId);
       const oldReceipt = runtimeState?.preflight?.receipt;
+      const priorPhase = runtimeState?.phase;
       if (
-        runtimeState?.phase !== "human_confirmed"
+        !["preflight_ready", "human_confirmed"].includes(priorPhase)
         || !contentReviewUuid(oldReceipt?.id)
         || !String(oldReceipt?.receipt_hash || "").trim()
       ) {
-        throw new CreatorApiError("Оставшаяся строка потеряла серверную квитанцию.", {
+        throw new CreatorApiError("Строка потеряла серверную квитанцию.", {
           code: "generation_strategy_preflight_refresh_state_invalid",
+        });
+      }
+      const refreshRequestedAction = priorPhase === "preflight_ready"
+        ? {
+            type: GENERATION_STRATEGY_RUNTIME_ACTIONS.preflightRefreshRequested,
+            fingerprint: runtimeState.fingerprint,
+            receipt_id: oldReceipt.id,
+            receipt_hash: oldReceipt.receipt_hash,
+          }
+        : null;
+      const requestState = refreshRequestedAction
+        ? reduceGenerationStrategyRuntimeState(
+            runtimeState,
+            refreshRequestedAction,
+          )
+        : runtimeState;
+      if (
+        requestState?.phase !== (
+          priorPhase === "human_confirmed" ? "human_confirmed" : "bound"
+        )
+        || requestState.fingerprint !== runtimeState.fingerprint
+        || requestState.bind?.binding?.id !== runtimeState.bind?.binding?.id
+        || requestState.bind?.binding?.binding_hash
+          !== runtimeState.bind?.binding?.binding_hash
+      ) {
+        throw new CreatorApiError("Не удалось сохранить точную привязку строки.", {
+          code: "generation_strategy_preflight_refresh_transition_invalid",
         });
       }
       const idempotency = generationStrategyRequestIdempotencyKey(
@@ -28020,13 +28192,17 @@ async function refreshGenerationStrategyQueuePreflights(form, projectId) {
         oldReceipt.receipt_hash,
       );
       const plan = generationStrategyRuntimePreflightRequest(
-        runtimeState,
+        requestState,
         idempotency.value,
       );
       if (
         !plan.ok
         || plan.fingerprint !== runtimeState.fingerprint
-        || plan.start_context_fingerprint !== runtimeState.start_context_fingerprint
+        || plan.start_context_fingerprint !== (
+          priorPhase === "human_confirmed"
+            ? runtimeState.start_context_fingerprint
+            : null
+        )
       ) {
         throw new CreatorApiError("Не удалось собрать точное бесплатное обновление строки.", {
           code: plan.error?.code || "generation_strategy_preflight_refresh_plan_invalid",
@@ -28035,7 +28211,11 @@ async function refreshGenerationStrategyQueuePreflights(form, projectId) {
       return {
         sourceMediaId,
         runtimeState,
+        requestState,
+        priorPhase,
+        minimumRemainingMs,
         oldReceipt,
+        refreshRequestedAction,
         idempotency,
         plan,
       };
@@ -28052,15 +28232,18 @@ async function refreshGenerationStrategyQueuePreflights(form, projectId) {
         continue;
       }
       const live = generationStrategyQueueRuntime(operation.sourceMediaId);
+      const paidRefresh = operation.priorPhase === "human_confirmed";
       if (
         !generationRequestContextIsCurrent(requestContext)
         || state.api !== requestApi
         || state.generationStrategyQueueSourceRevision !== sourceRevision
-        || live?.phase !== "human_confirmed"
+        || live?.phase !== operation.priorPhase
         || live.fingerprint !== operation.runtimeState.fingerprint
-        || live.start_context_fingerprint
-          !== operation.runtimeState.start_context_fingerprint
-        || live.campaign_id !== operation.runtimeState.campaign_id
+        || (paidRefresh && (
+          live.start_context_fingerprint
+            !== operation.runtimeState.start_context_fingerprint
+          || live.campaign_id !== operation.runtimeState.campaign_id
+        ))
         || live.preflight?.receipt?.id !== operation.oldReceipt.id
         || live.preflight?.receipt?.receipt_hash !== operation.oldReceipt.receipt_hash
       ) {
@@ -28072,16 +28255,34 @@ async function refreshGenerationStrategyQueuePreflights(form, projectId) {
       }
       const resolvedAction = {
         type: GENERATION_STRATEGY_RUNTIME_ACTIONS.preflightResolved,
-        fingerprint: live.fingerprint,
+        fingerprint: operation.requestState.fingerprint,
         response: result.value,
       };
-      const verified = reduceGenerationStrategyRuntimeState(live, resolvedAction);
+      const verified = reduceGenerationStrategyRuntimeState(
+        operation.requestState,
+        resolvedAction,
+      );
+      const expectedPhase = paidRefresh
+        ? "human_confirmed"
+        : "preflight_ready";
       if (
         !verified
-        || verified.phase !== "human_confirmed"
+        || verified.phase !== expectedPhase
         || verified.fingerprint !== live.fingerprint
-        || verified.campaign_id !== live.campaign_id
-        || verified.start_context_fingerprint === live.start_context_fingerprint
+        || verified.bind?.binding?.id !== live.bind?.binding?.id
+        || verified.bind?.binding?.binding_hash !== live.bind?.binding?.binding_hash
+        || !generationStrategyReceiptIsFresh(
+          verified,
+          operation.minimumRemainingMs,
+        )
+        || (paidRefresh && (
+          verified.campaign_id !== live.campaign_id
+          || verified.start_context_fingerprint === live.start_context_fingerprint
+        ))
+        || (!paidRefresh && (
+          verified.campaign_id !== null
+          || verified.start_context_fingerprint !== null
+        ))
         || verified.preflight?.receipt?.id === operation.oldReceipt.id
         || verified.preflight?.receipt?.receipt_hash === operation.oldReceipt.receipt_hash
       ) {
@@ -28094,15 +28295,40 @@ async function refreshGenerationStrategyQueuePreflights(form, projectId) {
         );
         continue;
       }
+      if (operation.refreshRequestedAction) {
+        const refreshRequested = applyGenerationStrategyQueueRow(
+          operation.sourceMediaId,
+          operation.refreshRequestedAction,
+        );
+        if (
+          !refreshRequested
+          || refreshRequested.phase !== "bound"
+          || refreshRequested.fingerprint !== live.fingerprint
+          || refreshRequested.bind?.binding?.id !== live.bind?.binding?.id
+        ) {
+          firstFailure ||= new CreatorApiError(
+            "Точная привязка строки не сохранилась перед обновлением.",
+            { code: "generation_strategy_preflight_refresh_transition_invalid" },
+          );
+          continue;
+        }
+      }
       const committed = applyGenerationStrategyQueueRow(
         operation.sourceMediaId,
         resolvedAction,
       );
       if (
         !committed
-        || committed.phase !== "human_confirmed"
-        || committed.start_context_fingerprint !== verified.start_context_fingerprint
-        || committed.campaign_id !== live.campaign_id
+        || committed.phase !== expectedPhase
+        || committed.fingerprint !== verified.fingerprint
+        || committed.preflight?.receipt?.id !== verified.preflight?.receipt?.id
+        || committed.preflight?.receipt?.receipt_hash
+          !== verified.preflight?.receipt?.receipt_hash
+        || (paidRefresh && (
+          committed.start_context_fingerprint
+            !== verified.start_context_fingerprint
+          || committed.campaign_id !== live.campaign_id
+        ))
       ) {
         firstFailure ||= new CreatorApiError(
           "Новая квитанция не закрепилась в точной строке очереди.",
@@ -28341,9 +28567,9 @@ function handleGenerationStrategySourcesChanged(event) {
   const form = event?.target?.closest?.("#mock-batch-form");
   if (!form) return;
   const projection = generationStrategySourceProjectionForForm(form);
-  if (generationStrategyQueueHasPaidAuthority()) {
+  if (generationStrategyHasPaidAuthority()) {
     toast(
-      "Состав очереди уже подтверждён. Нельзя заменить исходник, пока сохраняются статусы созданных задач.",
+      "Состав запуска уже подтверждён. Нельзя заменить исходник, пока сохраняются статусы созданных задач.",
       "info",
     );
     syncGenerationStrategyQueueUi(form);
@@ -28371,30 +28597,14 @@ function handleGenerationStrategySourcesChanged(event) {
 }
 
 function selectedGenerationStrategySourceMediaId(form) {
+  const projectedMediaId = String(
+    generationStrategySourceProjectionForForm(form)?.selected?.[0]
+      ?.source_media_id || "",
+  ).trim().toLowerCase();
+  if (contentReviewUuid(projectedMediaId)) return projectedMediaId;
   const selected = form?.elements?.generation_strategy_source_video_id;
   const mediaId = String(selected?.value || "").trim().toLowerCase();
   return contentReviewUuid(mediaId) ? mediaId : "";
-}
-
-function generationStrategyRuntimeContext(form, selection, projectId) {
-  const spec = currentApprovedGenerationSpecContext(form);
-  const organizationId = String(
-    state.api?.organizationId || state.bootstrap?.organization?.id || "",
-  ).trim().toLowerCase();
-  if (
-    !selection
-    || !contentReviewUuid(organizationId)
-    || !contentReviewUuid(projectId)
-    || !spec
-  ) return null;
-  return {
-    organization_id: organizationId,
-    project_id: String(projectId).toLowerCase(),
-    spec_id: spec.spec_id,
-    spec_version: spec.spec_version,
-    spec_hash: spec.spec_hash,
-    generation_strategy: selection,
-  };
 }
 
 function generationStrategyRuntimeForSource(sourceMediaId) {
@@ -28456,7 +28666,7 @@ function generationStrategyRuntimeProjection(form) {
 }
 
 function syncGenerationStrategyPaidControlLock(form) {
-  const locked = generationStrategyQueueHasPaidAuthority();
+  const locked = generationStrategyHasPaidAuthority();
   if (!locked) {
     delete form.dataset.generationStrategyPaidLocked;
     return false;
@@ -28488,6 +28698,237 @@ function syncGenerationStrategyPaidControlLock(form) {
   return true;
 }
 
+function syncUnsupportedGenerationStrategyFormReadiness(
+  form,
+  strategyId,
+  sourceProjection,
+) {
+  const characterPerformance = strategyId === "viral_avatar_ugc";
+  const blocker = characterPerformance
+    ? "Character Performance пока закрыт feature gate: подтверждённого provider adapter нет."
+    : "Эта стратегия не подключена к безопасному runtime creator-generate.";
+  form.dataset.generationStrategyConfirmationReady = "false";
+  const campaignField = form.querySelector("#generation-campaign-field");
+  const campaign = form.elements?.campaign_id;
+  if (campaignField instanceof HTMLElement) campaignField.hidden = true;
+  if (campaign instanceof HTMLSelectElement) {
+    campaign.disabled = true;
+    campaign.required = false;
+  }
+  const confirmationPanel = form.querySelector("#real-generation-confirmation");
+  const confirmation = form.elements?.real_spend_confirmation;
+  if (confirmationPanel instanceof HTMLElement) confirmationPanel.hidden = true;
+  if (confirmation instanceof HTMLInputElement) {
+    confirmation.disabled = true;
+    confirmation.required = false;
+    confirmation.checked = false;
+    confirmation.value = "";
+  }
+  const price = form.querySelector("#real-generation-price");
+  if (price) price.textContent = blocker;
+  const submit = form.querySelector("#generation-submit");
+  if (submit instanceof HTMLButtonElement) {
+    submit.disabled = true;
+    submit.dataset.launchBlocker = blocker;
+    submit.dataset.launchPhase = characterPerformance
+      ? "strategy_character_performance_feature_gated"
+      : "strategy_unsupported";
+    submit.textContent = characterPerformance
+      ? "Character Performance пока недоступен"
+      : "Стратегия пока недоступна";
+  }
+  syncGenerationStrategySpecReviewUi(form, []);
+  const queueMount = form.querySelector("[data-generation-strategy-queue-mount]");
+  queueMount?.replaceChildren();
+  return { sourceProjection, queueProjection: null, review: null };
+}
+
+function syncGenerationStrategySingleFormReadiness(
+  form,
+  sourceProjection,
+  selections,
+) {
+  const selectedSources = Array.isArray(sourceProjection?.selected)
+    ? sourceProjection.selected
+    : [];
+  const sourceMediaId = String(
+    selectedSources[0]?.source_media_id || "",
+  ).trim().toLowerCase();
+  const exactSourceReady = Boolean(
+    sourceProjection?.strategy_id === "viral_product_swap"
+    && sourceProjection.required_count === 1
+    && sourceProjection.selected_count === 1
+    && sourceProjection.exact_required_selected === true
+    && sourceProjection.all_selected_ready === true
+    && contentReviewUuid(sourceMediaId),
+  );
+  const entry = Array.isArray(selections) && selections.length === 1
+    && selections[0]?.source_media_id === sourceMediaId
+    && selections[0]?.selection?.strategy_id === "viral_product_swap"
+    ? selections[0]
+    : null;
+  const specRecord = sourceMediaId
+    ? state.generationStrategySpecs.get(sourceMediaId)
+    : null;
+  const runtimeState = sourceMediaId
+    ? state.generationStrategyRuntimes.get(sourceMediaId) || null
+    : null;
+  const runtimeProjection = runtimeState
+    ? generationStrategyRuntimeSafeProjection(runtimeState)
+    : null;
+  const phase = runtimeProjection?.phase || "idle";
+  const receiptFresh = phase === "preflight_ready"
+    && generationStrategyReceiptIsFresh(runtimeState);
+  const preflightReady = Boolean(
+    receiptFresh
+    && runtimeProjection?.readiness?.ready === true
+    && runtimeProjection.readiness.launch_enabled === true
+    && runtimeProjection?.price?.spend_confirmation,
+  );
+  const confirmationReady = Boolean(
+    exactSourceReady
+    && entry
+    && specRecord?.approvedContext
+    && preflightReady
+    && REAL_GENERATION_ENABLED
+    && !generationStrategyHasPaidAuthority(),
+  );
+  form.dataset.generationStrategyConfirmationReady = confirmationReady
+    ? "true"
+    : "false";
+
+  const campaignField = form.querySelector("#generation-campaign-field");
+  const campaign = form.elements?.campaign_id;
+  if (campaignField instanceof HTMLElement) campaignField.hidden = !preflightReady;
+  if (campaign instanceof HTMLSelectElement) {
+    campaign.disabled = !confirmationReady;
+    campaign.required = confirmationReady;
+  }
+  const confirmationPanel = form.querySelector("#real-generation-confirmation");
+  const confirmation = form.elements?.real_spend_confirmation;
+  if (confirmationPanel instanceof HTMLElement) confirmationPanel.hidden = !preflightReady;
+  if (confirmation instanceof HTMLInputElement) {
+    confirmation.disabled = !confirmationReady;
+    confirmation.required = confirmationReady;
+    confirmation.value = confirmationReady
+      ? runtimeProjection.price.spend_confirmation
+      : "";
+    if (!confirmationReady) confirmation.checked = false;
+  }
+
+  const price = form.querySelector("#real-generation-price");
+  const confirmationTitle = form.querySelector(
+    "#real-generation-confirmation-title",
+  );
+  const confirmationCopy = form.querySelector(
+    "#real-generation-confirmation-copy",
+  );
+  const priceCopy = Number.isSafeInteger(
+    runtimeProjection?.price?.estimated_cost_minor,
+  )
+    ? formatGenerationUsd(runtimeProjection.price.estimated_cost_minor)
+    : "";
+  if (price) {
+    price.textContent = preflightReady && priceCopy
+      ? `Точная серверная цена одного Product Swap — ${priceCopy}.`
+      : "Сначала бесплатно проверим точное ТЗ, ассеты, сервис и цену одного Product Swap. Провайдер не запускается.";
+  }
+  if (confirmationTitle) {
+    confirmationTitle.textContent = "Подтверждаю один платный Product Swap";
+  }
+  if (confirmationCopy) {
+    confirmationCopy.textContent = preflightReady && priceCopy
+      ? `${priceCopy} за один запуск · точные spec, selection, price и receipt подтверждены сервером`
+      : "Серверная цена и одноразовая квитанция ещё не получены.";
+  }
+
+  const paidAuthorityActive = syncGenerationStrategyPaidControlLock(form);
+  const submit = form.querySelector("#generation-submit");
+  if (!(submit instanceof HTMLButtonElement)) {
+    syncGenerationStrategySpecReviewUi(form, selections);
+    return { sourceProjection, runtimeProjection, review: null };
+  }
+  const busy = state.generationStrategyStartInFlight
+    || state.generationStrategyQueueBusy
+    || form.dataset.busy === "true";
+  const probeRequired = Boolean(
+    sourceProjection?.probe_required_source_ids?.length,
+  );
+  const draftReviewed = entry
+    ? generationStrategyAllDraftsReviewed(form, [entry])
+    : false;
+  const campaignReady = contentReviewUuid(String(campaign?.value || ""));
+  const confirmationMatches = confirmationReady
+    && confirmation?.checked === true
+    && confirmation.value === runtimeProjection?.price?.spend_confirmation;
+  let blocker = "";
+  let label = "Подготовить Product Swap бесплатно";
+  if (paidAuthorityActive) {
+    if (phase === "status") {
+      blocker = "Один платный запуск уже создан; его статус сохранён.";
+      label = runtimeProjection?.job?.status
+        ? `Статус Product Swap: ${runtimeProjection.job.status}`
+        : "Product Swap уже запущен";
+    } else if (phase === "start_once") {
+      blocker = "Платный старт уже зарезервирован; повторный provider POST запрещён.";
+      label = "Ожидаем фиксацию Product Swap";
+    } else {
+      blocker = "Платный контекст уже подтверждён и заблокирован от изменений.";
+      label = "Product Swap подтверждён";
+    }
+  } else if (!exactSourceReady) {
+    blocker = `Выберите один исходный MP4: сейчас ${sourceProjection?.selected_count || 0} из 1.`;
+    label = `Выбрано ${sourceProjection?.selected_count || 0} из 1 ролика`;
+  } else if (probeRequired) {
+    blocker = "Сначала бесплатно проверьте длительность выбранного MP4.";
+    label = "Проверить MP4 бесплатно";
+  } else if (!entry) {
+    blocker = "Заполните точные ассеты Product Swap, звук и обязательные подтверждения.";
+    label = "Заполните ассеты Product Swap";
+  } else if (!specRecord?.draft) {
+    label = "Подготовить точное ТЗ бесплатно";
+  } else if (!specRecord.approvedContext) {
+    if (!draftReviewed) {
+      blocker = "Прочитайте точный prompt Product Swap и отметьте одобрение версии.";
+      label = "Прочитайте и одобрите точное ТЗ";
+    } else {
+      label = "Одобрить точное ТЗ бесплатно";
+    }
+  } else if (phase === "invalid") {
+    blocker = "Контекст Product Swap изменился. Обновите один из входных параметров и повторите бесплатную проверку.";
+    label = "Контекст Product Swap изменился";
+  } else if (phase === "preflight_ready" && !receiptFresh) {
+    label = "Обновить точную цену бесплатно";
+  } else if (preflightReady && !REAL_GENERATION_ENABLED) {
+    blocker = "Платная генерация отключена в конфигурации.";
+    label = "Платные старты отключены";
+  } else if (!preflightReady) {
+    label = "Проверить ассеты и цену бесплатно";
+  } else {
+    label = `Запустить один Product Swap${priceCopy ? " · " + priceCopy : ""}`;
+    if (!campaignReady) blocker = "Выберите активную кампанию.";
+    else if (!confirmationMatches) {
+      blocker = "Проверьте точную цену и явно подтвердите один платный запуск.";
+    }
+  }
+  submit.disabled = busy || Boolean(blocker);
+  submit.dataset.launchBlocker = blocker;
+  submit.dataset.launchPhase = paidAuthorityActive
+    ? "strategy_product_swap_paid_locked"
+    : confirmationReady
+      ? "strategy_product_swap_paid_review"
+      : specRecord?.approvedContext
+        ? "strategy_product_swap_free_preflight"
+        : specRecord?.draft
+          ? "strategy_product_swap_spec_review"
+          : "strategy_product_swap_prepare";
+  submit.textContent = busy ? "Проверяем Product Swap — не повторяйте" : label;
+  syncGenerationStrategySpecReviewUi(form, selections);
+  const queueMount = form.querySelector("[data-generation-strategy-queue-mount]");
+  queueMount?.replaceChildren();
+  return { sourceProjection, runtimeProjection, review: null };
+}
+
 function syncGenerationStrategyFormReadiness(form) {
   if (!form) return null;
   const strategyId = String(
@@ -28496,6 +28937,20 @@ function syncGenerationStrategyFormReadiness(form) {
   if (!strategyId) return null;
   const sourceProjection = generationStrategySourceProjectionForForm(form);
   const selections = generationStrategySelectionsForForm(form);
+  if (strategyId === "viral_product_swap") {
+    return syncGenerationStrategySingleFormReadiness(
+      form,
+      sourceProjection,
+      selections,
+    );
+  }
+  if (strategyId !== "viral_rebuild") {
+    return syncUnsupportedGenerationStrategyFormReadiness(
+      form,
+      strategyId,
+      sourceProjection,
+    );
+  }
   const selectedSources = sourceProjection?.selected || [];
   const preparedCount = selectedSources.filter((entry) => (
     state.generationStrategySpecs.get(entry.source_media_id)?.draft
@@ -28923,16 +29378,40 @@ async function submitGenerationStrategyExactTen(
         generationStrategyReceiptWindowMs(selections.length),
       )
     ) {
-      resetGenerationStrategyQueueState({ clearSpecs: false });
-      state.generationStrategyQueueSourceRevision = sourceProjection.revision;
+      const refreshTargets = generationStrategyQueueReviewPreflightRefreshTargets();
+      if (!refreshTargets.length) {
+        throw new CreatorApiError(
+          "Точная очередь изменилась перед бесплатным обновлением цен.",
+          { code: "generation_strategy_queue_preflight_refresh_state_invalid" },
+        );
+      }
       if (form.elements?.real_spend_confirmation) {
         form.elements.real_spend_confirmation.checked = false;
         form.elements.real_spend_confirmation.value = "";
       }
       setFormBusy(form, true, "Обновляем 10 точных цен и проверок без списания…");
-      await prepareGenerationStrategyQueueFree(form, selections, projectId);
+      const refreshed = await refreshGenerationStrategyQueuePreflights(
+        form,
+        projectId,
+        refreshTargets,
+      );
+      const refreshedReview = generationStrategyQueueAggregateReview(
+        state.generationStrategyQueue,
+        null,
+      );
+      if (!refreshedReview.ok || !refreshedReview.review?.ready) {
+        throw new CreatorApiError(
+          "Не все 10 строк получили свежую точную цену.",
+          {
+            code: refreshedReview.error?.code
+              || "generation_strategy_queue_review_not_ready",
+          },
+        );
+      }
+      state.generationStrategyQueueReview = refreshedReview.review;
+      syncGenerationStrategyQueueUi(form);
       toast(
-        "Серверные проверки и цены обновлены. Снова сверьте сумму и подтвердите десять запусков.",
+        `Обновлены ${refreshed} серверных проверок и цен без новой привязки исходников. Снова сверьте сумму и подтвердите десять запусков.`,
         "info",
       );
       return;
@@ -29001,63 +29480,125 @@ async function submitGenerationStrategyExactTen(
   }
 }
 
-async function submitGenerationStrategy(form, values, selection, projectId) {
+async function submitGenerationStrategy(form, values, entry, projectId) {
+  const sourceProjection = generationStrategySourceProjectionForForm(form);
+  const selections = generationStrategySelectionsForForm(form);
+  const currentEntry = Array.isArray(selections) && selections.length === 1
+    ? selections[0]
+    : null;
+  const selection = currentEntry?.selection || null;
   const sourceMediaId = generationStrategySourceMediaId(selection);
   const confirmation = form.elements?.real_spend_confirmation;
-  if (!sourceMediaId) {
-    toast("Выберите один точный исходный MP4 для этой стратегии.", "error");
+  if (
+    sourceProjection?.strategy_id !== "viral_product_swap"
+    || sourceProjection.required_count !== 1
+    || sourceProjection.all_selected_ready !== true
+    || !currentEntry
+    || currentEntry.source_media_id !== entry?.source_media_id
+    || selection?.strategy_id !== "viral_product_swap"
+    || !sourceMediaId
+    || sourceMediaId !== currentEntry.source_media_id
+  ) {
+    toast("Выберите один готовый исходный MP4 и точные ассеты Product Swap.", "error");
     return;
   }
-  if (state.generationStrategyStartInFlight || state.realGenerationStartInFlight) {
-    toast("Платный запуск уже проверяется. Не повторяйте запрос.", "info");
+  if (generationStrategyQueueHasPaidAuthority()) {
+    toast("Сначала завершите уже подтверждённую очередь из 10 роликов.", "info");
+    return;
+  }
+  if (generationStrategySingleHasOtherPaidAuthority(sourceMediaId)) {
+    toast(
+      "Другой Product Swap уже имеет платное подтверждение или созданную задачу. Новый платный контекст заблокирован.",
+      "info",
+    );
+    return;
+  }
+  if (
+    state.generationStrategyStartInFlight
+    || state.realGenerationStartInFlight
+    || form.dataset.busy === "true"
+  ) {
+    toast("Проверка или платный запуск уже идёт. Не повторяйте запрос.", "info");
     return;
   }
 
-  let spec = currentApprovedGenerationSpecContext(form);
-  if (!spec) {
-    setFormBusy(form, true, "Готовим точное ТЗ без списания…");
+  let specRecord = state.generationStrategySpecs.get(sourceMediaId);
+  if (!specRecord?.draft) {
+    setFormBusy(form, true, "Готовим точное ТЗ Product Swap без списания…");
     try {
-      const prepared = await ensurePreparedGenerationSpecForPaidStart(form);
-      spec = prepared?.approvedContext || null;
-      if (!spec) {
-        setFormBusy(form, false);
-        syncGenerationStrategyFormReadiness(form);
-        openGenerationSpecApprovalReview(form);
-        toast(
-          "Точное ТЗ подготовлено без списания. Прочитайте и отдельно одобрите его; после этого портал зафиксирует исходники и цену стратегии.",
-          "info",
-        );
-        return;
-      }
+      await prepareGenerationStrategySpecs(form, [currentEntry], projectId);
+      toast(
+        "Точное ТЗ Product Swap подготовлено бесплатно. Прочитайте prompt и отдельно одобрите именно эту версию.",
+        "success",
+      );
+      globalThis.ContentEngineGenerationGuidedV4?.goToStep?.("media");
+      const review = form.querySelector("[data-generation-strategy-spec-review]");
+      scrollElementIntoView(review, "start");
+      review?.querySelector("[data-generation-strategy-spec-approval-source]")
+        ?.focus({ preventScroll: true });
     } catch (error) {
-      setFormBusy(form, false);
-      syncGenerationStrategyFormReadiness(form);
-      toast(`Стратегия не подготовлена: ${actionErrorMessage(error)}`, "error");
+      toast(`Product Swap не подготовлен: ${actionErrorMessage(error)}`, "error");
+    } finally {
+      if (form.isConnected) {
+        setFormBusy(form, false);
+        syncGenerationStrategySpecReviewUi(form, [currentEntry]);
+        syncGenerationStrategyFormReadiness(form);
+      }
+    }
+    return;
+  }
+
+  if (!specRecord.approvedContext) {
+    if (!generationStrategyAllDraftsReviewed(form, [currentEntry])) {
+      syncGenerationStrategySpecReviewUi(form, [currentEntry]);
+      const review = form.querySelector("[data-generation-strategy-spec-review]");
+      scrollElementIntoView(review, "start");
+      review?.querySelector("[data-generation-strategy-spec-approval-source]")
+        ?.focus({ preventScroll: true });
+      toast("Прочитайте точный prompt и отдельно отметьте одобрение этой версии.", "info");
       return;
     }
-  }
-
-  const context = generationStrategyRuntimeContext(
-    form,
-    selection,
-    projectId,
-  );
-  if (!context) {
-    toast("Одобренное ТЗ или точный контекст стратегии изменились.", "error");
+    setFormBusy(form, true, "Фиксируем одобренное ТЗ без списания…");
+    try {
+      await approveGenerationStrategySpecs(form, [currentEntry], projectId);
+      toast(
+        "ТЗ Product Swap одобрено человеком. Следующий шаг бесплатно проверит ассеты, сервис и точную цену.",
+        "success",
+      );
+      globalThis.ContentEngineGenerationGuidedV4?.goToStep?.("launch");
+    } catch (error) {
+      toast(`ТЗ Product Swap не одобрено: ${actionErrorMessage(error)}`, "error");
+    } finally {
+      if (form.isConnected) {
+        setFormBusy(form, false);
+        syncGenerationStrategySpecReviewUi(form, [currentEntry]);
+        syncGenerationStrategyFormReadiness(form);
+      }
+    }
     return;
   }
-  const bindKey = generationStrategyRequestIdempotencyKey(
-    sourceMediaId,
-    "bind",
-    context.spec_hash,
+
+  specRecord = state.generationStrategySpecs.get(sourceMediaId);
+  const context = generationStrategyRuntimeContextForApprovedSpec(
+    selection,
+    projectId,
+    specRecord?.approvedContext || null,
   );
-  const bindPlan = generationStrategyRuntimeBindRequest(context, bindKey.value);
-  if (!bindPlan.ok) {
-    toast("Точный набор исходников стратегии не прошёл локальную проверку.", "error");
+  if (!context) {
+    toast("Одобренное ТЗ или точный контекст Product Swap изменились.", "error");
+    return;
+  }
+  const contextFingerprint = createGenerationStrategyRuntimeFingerprint(context);
+  if (!contextFingerprint.ok) {
+    toast("Точный набор исходников Product Swap не прошёл локальную проверку.", "error");
     return;
   }
   let runtimeState = generationStrategyRuntimeForSource(sourceMediaId);
-  if (runtimeState.fingerprint !== bindPlan.fingerprint) {
+  if (runtimeState.fingerprint !== contextFingerprint.fingerprint) {
+    if (["human_confirmed", "start_once", "status"].includes(runtimeState.phase)) {
+      toast("Платный контекст Product Swap уже зафиксирован и не может быть заменён.", "error");
+      return;
+    }
     runtimeState = reduceGenerationStrategyRuntimeState(runtimeState, {
       type: GENERATION_STRATEGY_RUNTIME_ACTIONS.select,
       context,
@@ -29065,27 +29606,120 @@ async function submitGenerationStrategy(form, values, selection, projectId) {
     setGenerationStrategyRuntime(sourceMediaId, runtimeState);
   }
   if (runtimeState.phase === "invalid") {
-    toast("Контекст стратегии изменился. Проверьте строку заново.", "error");
+    toast("Контекст Product Swap изменился. Обновите входные данные и проверьте его заново.", "error");
+    return;
+  }
+
+  const requestContext = captureGenerationRequestContext(form, projectId);
+  const requestApi = state.api;
+  const sourceRevision = sourceProjection.revision;
+  const exactContextIsCurrent = (expectedRuntime, expectedPhases) => {
+    const liveProjection = generationStrategySourceProjectionForForm(form);
+    const liveEntry = generationStrategySelectionsForForm(form)?.[0] || null;
+    const liveSpec = state.generationStrategySpecs.get(sourceMediaId);
+    const liveContext = generationStrategyRuntimeContextForApprovedSpec(
+      liveEntry?.selection,
+      projectId,
+      liveSpec?.approvedContext || null,
+    );
+    const liveFingerprint = liveContext
+      ? createGenerationStrategyRuntimeFingerprint(liveContext)
+      : null;
+    const liveRuntime = state.generationStrategyRuntimes.get(sourceMediaId);
+    return generationRequestContextIsCurrent(requestContext)
+      && state.api === requestApi
+      && liveProjection?.strategy_id === "viral_product_swap"
+      && liveProjection.required_count === 1
+      && liveProjection.revision === sourceRevision
+      && liveEntry?.source_media_id === sourceMediaId
+      && liveFingerprint?.fingerprint === contextFingerprint.fingerprint
+      && liveRuntime === expectedRuntime
+      && liveRuntime?.fingerprint === expectedRuntime?.fingerprint
+      && expectedPhases.includes(liveRuntime?.phase);
+  };
+  if (!requestApi || !exactContextIsCurrent(runtimeState, [runtimeState.phase])) {
+    toast("Проект, пользователь или точный контекст Product Swap изменились.", "error");
     return;
   }
 
   try {
+    let refreshingExpiredReceipt = false;
+    let expiredReceipt = null;
     if (runtimeState.phase === "selected") {
+      const bindKey = generationStrategyRequestIdempotencyKey(
+        sourceMediaId,
+        "bind",
+        context.spec_hash,
+      );
+      const bindPlan = generationStrategyRuntimeBindRequest(
+        context,
+        bindKey.value,
+      );
+      if (
+        !bindPlan.ok
+        || bindPlan.fingerprint !== contextFingerprint.fingerprint
+      ) {
+        throw new CreatorApiError(
+          "Точный набор исходников Product Swap не прошёл локальную проверку.",
+          { code: bindPlan.error?.code || "generation_strategy_bind_invalid" },
+        );
+      }
       setFormBusy(form, true, "Фиксируем исходники без запуска провайдера…");
-      const rawBind = await state.api.bindGenerationStrategy(bindPlan.request);
-      runtimeState = reduceGenerationStrategyRuntimeState(runtimeState, {
+      const rawBind = await requestApi.bindGenerationStrategy(bindPlan.request);
+      if (!exactContextIsCurrent(runtimeState, ["selected"])) {
+        throw new CreatorApiError("Контекст изменился во время привязки ассетов.", {
+          code: "generation_strategy_single_bind_context_stale",
+        });
+      }
+      const nextRuntime = reduceGenerationStrategyRuntimeState(runtimeState, {
         type: GENERATION_STRATEGY_RUNTIME_ACTIONS.bindResolved,
         fingerprint: bindPlan.fingerprint,
         context,
         response: rawBind,
       });
-      setGenerationStrategyRuntime(sourceMediaId, runtimeState);
-      if (runtimeState.phase !== "bound") {
+      if (nextRuntime.phase !== "bound") {
         throw new CreatorApiError("Сервер не подтвердил точную привязку исходников.", {
-          code: runtimeState.error?.code || "generation_strategy_bind_invalid",
+          code: nextRuntime.error?.code || "generation_strategy_bind_invalid",
         });
       }
+      runtimeState = nextRuntime;
+      setGenerationStrategyRuntime(sourceMediaId, runtimeState);
       clearGenerationStrategyRequestIdempotencyKey(bindKey.key);
+    }
+
+    if (
+      runtimeState.phase === "preflight_ready"
+      && !generationStrategyReceiptIsFresh(runtimeState)
+    ) {
+      const oldReceipt = runtimeState.preflight?.receipt;
+      const refreshRequested = reduceGenerationStrategyRuntimeState(
+        runtimeState,
+        {
+          type: GENERATION_STRATEGY_RUNTIME_ACTIONS.preflightRefreshRequested,
+          fingerprint: runtimeState.fingerprint,
+          receipt_id: oldReceipt?.id,
+          receipt_hash: oldReceipt?.receipt_hash,
+        },
+      );
+      if (
+        refreshRequested.phase !== "bound"
+        || refreshRequested.fingerprint !== runtimeState.fingerprint
+        || refreshRequested.bind?.binding?.id !== runtimeState.bind?.binding?.id
+        || refreshRequested.bind?.binding?.binding_hash
+          !== runtimeState.bind?.binding?.binding_hash
+      ) {
+        throw new CreatorApiError(
+          "Истёкшая квитанция не отделилась от точной привязки Product Swap.",
+          {
+            code: refreshRequested.error?.code
+              || "generation_strategy_preflight_refresh_transition_invalid",
+          },
+        );
+      }
+      runtimeState = refreshRequested;
+      setGenerationStrategyRuntime(sourceMediaId, runtimeState);
+      refreshingExpiredReceipt = true;
+      expiredReceipt = oldReceipt;
     }
 
     if (runtimeState.phase === "bound") {
@@ -29099,30 +29733,46 @@ async function submitGenerationStrategy(form, values, selection, projectId) {
         preflightKey.value,
       );
       if (!preflightPlan.ok) {
-        throw new CreatorApiError("Не удалось собрать бесплатную проверку стратегии.", {
+        throw new CreatorApiError("Не удалось собрать бесплатную проверку Product Swap.", {
           code: preflightPlan.error?.code || "generation_strategy_preflight_invalid",
         });
       }
       setFormBusy(form, true, "Проверяем сервис и точную цену без списания…");
-      const rawPreflight = await state.api.preflightGenerationStrategy(
+      const rawPreflight = await requestApi.preflightGenerationStrategy(
         preflightPlan.request,
       );
-      runtimeState = reduceGenerationStrategyRuntimeState(runtimeState, {
+      if (!exactContextIsCurrent(runtimeState, ["bound"])) {
+        throw new CreatorApiError("Контекст изменился во время бесплатной проверки.", {
+          code: "generation_strategy_single_preflight_context_stale",
+        });
+      }
+      const nextRuntime = reduceGenerationStrategyRuntimeState(runtimeState, {
         type: GENERATION_STRATEGY_RUNTIME_ACTIONS.preflightResolved,
         fingerprint: runtimeState.fingerprint,
         response: rawPreflight,
       });
-      setGenerationStrategyRuntime(sourceMediaId, runtimeState);
-      if (runtimeState.phase !== "preflight_ready") {
-        throw new CreatorApiError("Сервер не подтвердил готовность стратегии.", {
-          code: runtimeState.error?.code || "generation_strategy_preflight_invalid",
+      if (
+        nextRuntime.phase !== "preflight_ready"
+        || !generationStrategyReceiptIsFresh(nextRuntime)
+        || (refreshingExpiredReceipt && (
+          nextRuntime.preflight?.receipt?.id === expiredReceipt?.id
+          || nextRuntime.preflight?.receipt?.receipt_hash
+            === expiredReceipt?.receipt_hash
+        ))
+      ) {
+        throw new CreatorApiError("Сервер не подтвердил готовность Product Swap.", {
+          code: nextRuntime.error?.code || "generation_strategy_preflight_invalid",
         });
       }
+      runtimeState = nextRuntime;
+      setGenerationStrategyRuntime(sourceMediaId, runtimeState);
       clearGenerationStrategyRequestIdempotencyKey(preflightKey.key);
       setFormBusy(form, false);
       syncGenerationStrategyFormReadiness(form);
       toast(
-        "Исходники и точная цена подтверждены без списания. Выберите кампанию, проверьте цену и отдельно подтвердите один платный запуск.",
+        refreshingExpiredReceipt
+          ? "Свежая серверная квитанция и цена получены без новой привязки исходников и без списания. Снова проверьте цену и подтвердите один платный запуск."
+          : "Ассеты и точная цена подтверждены без списания. Выберите кампанию, проверьте цену и отдельно подтвердите один платный запуск.",
         "success",
       );
       return;
@@ -29130,17 +29780,10 @@ async function submitGenerationStrategy(form, values, selection, projectId) {
 
     if (runtimeState.phase === "preflight_ready") {
       const projection = generationStrategyRuntimeSafeProjection(runtimeState);
-      if (
-        !Number.isFinite(Date.parse(projection?.readiness?.expires_at || ""))
-        || Date.parse(projection.readiness.expires_at) <= Date.now()
-      ) {
-        invalidateGenerationStrategyRuntimeForSource(
-          sourceMediaId,
-          "generation_strategy_receipt_expired",
-        );
-        syncGenerationStrategyFormReadiness(form);
-        toast("Срок бесплатной квитанции истёк. Получите свежую цену; списания не было.", "info");
-        return;
+      if (!REAL_GENERATION_ENABLED) {
+        throw new CreatorApiError("Платная генерация отключена в конфигурации.", {
+          code: "real_generation_disabled",
+        });
       }
       const campaignId = String(values.get("campaign_id") || "")
         .trim().toLowerCase();
@@ -29156,13 +29799,24 @@ async function submitGenerationStrategy(form, values, selection, projectId) {
         toast("Проверьте точную цену и отдельно подтвердите один платный запуск.", "error");
         return;
       }
-      runtimeState = reduceGenerationStrategyRuntimeState(runtimeState, {
+      if (!exactContextIsCurrent(runtimeState, ["preflight_ready"])) {
+        throw new CreatorApiError("Контекст изменился после проверки цены.", {
+          code: "generation_strategy_single_confirmation_context_stale",
+        });
+      }
+      const nextRuntime = reduceGenerationStrategyRuntimeState(runtimeState, {
         type: GENERATION_STRATEGY_RUNTIME_ACTIONS.humanConfirmed,
         fingerprint: runtimeState.fingerprint,
         campaign_id: campaignId,
         spend_confirmation: projection.price.spend_confirmation,
         confirmation: true,
       });
+      if (nextRuntime.phase !== "human_confirmed") {
+        throw new CreatorApiError("Серверная цена или подтверждение изменились.", {
+          code: nextRuntime.error?.code || "generation_strategy_confirmation_invalid",
+        });
+      }
+      runtimeState = nextRuntime;
       setGenerationStrategyRuntime(sourceMediaId, runtimeState);
     }
 
@@ -29182,70 +29836,72 @@ async function submitGenerationStrategy(form, values, selection, projectId) {
           code: startPlan.error?.code || "generation_strategy_start_invalid",
         });
       }
-      runtimeState = reduceGenerationStrategyRuntimeState(runtimeState, {
+      const reserved = reduceGenerationStrategyRuntimeState(runtimeState, {
         type: GENERATION_STRATEGY_RUNTIME_ACTIONS.startRequested,
         fingerprint: runtimeState.fingerprint,
         start_context_fingerprint: runtimeState.start_context_fingerprint,
         campaign_id: runtimeState.campaign_id,
         idempotency_key: startKey.value,
       });
-      setGenerationStrategyRuntime(sourceMediaId, runtimeState);
-      if (runtimeState.phase !== "start_once") {
+      setGenerationStrategyRuntime(sourceMediaId, reserved);
+      if (reserved.phase !== "start_once") {
         throw new CreatorApiError("Повторный платный запуск заблокирован.", {
-          code: runtimeState.error?.code || "generation_strategy_start_reserved",
+          code: reserved.error?.code || "generation_strategy_start_reserved",
         });
       }
       const actorId = String(state.user?.id || "").trim().toLowerCase();
-      const expectedFingerprint = runtimeState.fingerprint;
-      state.api.bindRealGenerationClientContext(startPlan.request, {
+      requestApi.bindRealGenerationClientContext(startPlan.request, {
         expectedActorId: actorId,
-        isContextCurrent: () => {
-          const currentSelection = globalThis.ContentEngineGenerationGuidedV4
-            ?.getStrategySelection?.(form) || null;
-          const currentContext = generationStrategyRuntimeContext(
-            form,
-            currentSelection,
-            projectId,
-          );
-          const currentPlan = currentContext
-            ? generationStrategyRuntimeBindRequest(currentContext, bindKey.value)
-            : null;
-          return form.isConnected
-            && state.user?.id === actorId
-            && currentPlan?.fingerprint === expectedFingerprint;
-        },
+        isContextCurrent: () => exactContextIsCurrent(reserved, ["start_once"])
+          && String(state.user?.id || "").trim().toLowerCase() === actorId
+          && state.generationStrategyRuntimes.get(sourceMediaId)
+            ?.start_context_fingerprint === reserved.start_context_fingerprint
+          && state.generationStrategyRuntimes.get(sourceMediaId)
+            ?.campaign_id === reserved.campaign_id,
       });
       state.generationStrategyStartInFlight = true;
       state.generationStrategyRequestId += 1;
-      setFormBusy(form, true, "Отправляем один подтверждённый запуск…");
-      const rawStart = await state.api.startGenerationStrategy(startPlan.request);
-      runtimeState = reduceGenerationStrategyRuntimeState(runtimeState, {
+      setFormBusy(form, true, "Отправляем один подтверждённый Product Swap…");
+      const rawStart = await requestApi.startGenerationStrategy(startPlan.request);
+      const resolvedAction = {
         type: GENERATION_STRATEGY_RUNTIME_ACTIONS.startResolved,
-        fingerprint: runtimeState.fingerprint,
-        start_context_fingerprint: runtimeState.start_context_fingerprint,
+        fingerprint: reserved.fingerprint,
+        start_context_fingerprint: reserved.start_context_fingerprint,
         idempotency_key: startKey.value,
         response: rawStart,
-      });
-      setGenerationStrategyRuntime(sourceMediaId, runtimeState);
-      if (runtimeState.phase !== "status") {
-        throw new CreatorApiError("Сервер не вернул безопасный статус задачи.", {
-          code: runtimeState.error?.code || "generation_strategy_status_invalid",
-        });
+      };
+      const verified = reduceGenerationStrategyRuntimeState(
+        reserved,
+        resolvedAction,
+      );
+      if (verified.phase !== "status") {
+        throw new CreatorApiError(
+          "Сервер не вернул безопасный статус. Резерв старта сохранён; повторный POST запрещён.",
+          { code: verified.error?.code || "generation_strategy_status_invalid" },
+        );
       }
+      if (!exactContextIsCurrent(reserved, ["start_once"])) {
+        throw new CreatorApiError(
+          "Контекст изменился после старта. Резерв сохранён для ручной сверки; повторный POST запрещён.",
+          { code: "generation_strategy_single_start_response_stale" },
+        );
+      }
+      runtimeState = verified;
+      setGenerationStrategyRuntime(sourceMediaId, runtimeState);
       clearGenerationStrategyRequestIdempotencyKey(startKey.key);
       const projection = generationStrategyRuntimeSafeProjection(runtimeState);
       state.lastRealGenerationJobId = projection.job.id;
       if (confirmation instanceof HTMLInputElement) confirmation.checked = false;
-      toast("Ролик поставлен в отдельную очередь. Повторный provider POST запрещён сервером.", "success");
+      toast("Product Swap поставлен в отдельную очередь. Повторный provider POST запрещён сервером.", "success");
       scheduleGenerationStrategyPolling(1_000);
     } else if (runtimeState.phase === "start_once") {
-      toast("Запуск уже зарезервирован. Дождитесь серверной сверки; не повторяйте оплату.", "info");
+      toast("Запуск уже зарезервирован. Нужна серверная сверка; повторный POST запрещён.", "info");
     } else if (runtimeState.phase === "status") {
       scheduleGenerationStrategyPolling(0);
-      toast("Этот ролик уже имеет отдельную задачу; обновляем её статус.", "info");
+      toast("Product Swap уже имеет отдельную задачу; обновляем её статус.", "info");
     }
   } catch (error) {
-    toast(`Стратегия не запущена: ${actionErrorMessage(error)}`, "error");
+    toast(`Product Swap не запущен: ${actionErrorMessage(error)}`, "error");
   } finally {
     state.generationStrategyStartInFlight = false;
     if (form.isConnected) {
@@ -29259,21 +29915,34 @@ async function pollGenerationStrategyStatuses() {
   if (state.generationStrategyPollInFlight) return;
   state.generationStrategyPollInFlight = true;
   let shouldContinue = false;
+  let statusContractErrorShown = false;
   try {
-    const runtimeEntries = state.generationStrategyQueue
-      ? state.generationStrategyQueue.source_order.map((sourceMediaId) => [
+    const requestApi = state.api;
+    const queueAtStart = state.generationStrategyQueue;
+    const runtimeEntries = queueAtStart
+      ? queueAtStart.source_order.map((sourceMediaId) => [
           sourceMediaId,
           generationStrategyQueueRuntime(sourceMediaId),
         ])
       : [...state.generationStrategyRuntimes.entries()];
     for (const [sourceMediaId, current] of runtimeEntries) {
       const projection = generationStrategyRuntimeSafeProjection(current);
-      if (current.phase !== "status" || !projection?.can_poll) continue;
-      shouldContinue = true;
+      if (!requestApi || current?.phase !== "status" || !projection?.can_poll) {
+        continue;
+      }
       const plan = generationStrategyRuntimeStatusRequest(current);
-      if (!plan.ok) continue;
+      if (!plan.ok) {
+        if (!statusContractErrorShown) {
+          statusContractErrorShown = true;
+          toast(
+            "Не удалось собрать точный запрос статуса. Платная задача и блокировка сохранены; повторный POST запрещён.",
+            "error",
+          );
+        }
+        continue;
+      }
       try {
-        const raw = await state.api.generationStrategyStatus(plan.request);
+        const raw = await requestApi.generationStrategyStatus(plan.request);
         const action = {
           type: GENERATION_STRATEGY_RUNTIME_ACTIONS.statusResolved,
           fingerprint: current.fingerprint,
@@ -29281,11 +29950,54 @@ async function pollGenerationStrategyStatuses() {
           generation_job_id: current.status.job.id,
           response: raw,
         };
-        const next = state.generationStrategyQueue
-          ? applyGenerationStrategyQueueRow(sourceMediaId, action)
-          : reduceGenerationStrategyRuntimeState(current, action);
-        if (!state.generationStrategyQueue) {
-          setGenerationStrategyRuntime(sourceMediaId, next);
+        const candidate = reduceGenerationStrategyRuntimeState(current, action);
+        if (candidate?.phase !== "status") {
+          if (!statusContractErrorShown) {
+            statusContractErrorShown = true;
+            toast(
+              "Серверный статус не совпал с оплаченной задачей. Последнее подтверждённое состояние и блокировка сохранены; повторный POST запрещён.",
+              "error",
+            );
+          }
+          continue;
+        }
+        const queueIsCurrent = Boolean(queueAtStart)
+          === Boolean(state.generationStrategyQueue);
+        const live = queueAtStart
+          ? generationStrategyQueueRuntime(sourceMediaId)
+          : state.generationStrategyRuntimes.get(sourceMediaId);
+        if (state.api !== requestApi || !queueIsCurrent || live !== current) {
+          const liveProjection = generationStrategyRuntimeSafeProjection(live);
+          if (live?.phase === "status" && liveProjection?.can_poll) {
+            shouldContinue = true;
+          }
+          continue;
+        }
+        let next = candidate;
+        if (queueAtStart) {
+          const updated = updateGenerationStrategyQueueRow(
+            state.generationStrategyQueue,
+            sourceMediaId,
+            action,
+          );
+          const queueCandidate = updated.ok
+            ? updated.queue?.rows?.get(sourceMediaId)?.runtime_state
+            : null;
+          if (queueCandidate?.phase !== "status") {
+            if (!statusContractErrorShown) {
+              statusContractErrorShown = true;
+              toast(
+                "Статус не закрепился в точной строке оплаченной очереди. Последнее подтверждённое состояние и блокировка сохранены.",
+                "error",
+              );
+            }
+            continue;
+          }
+          state.generationStrategyQueue = updated.queue;
+          state.generationStrategyRuntimes.set(sourceMediaId, queueCandidate);
+          next = queueCandidate;
+        } else {
+          setGenerationStrategyRuntime(sourceMediaId, candidate);
         }
         const nextProjection = generationStrategyRuntimeSafeProjection(next);
         if (nextProjection?.can_poll) shouldContinue = true;
@@ -29315,27 +30027,61 @@ function scheduleGenerationStrategyPolling(delay = 5_000) {
 }
 
 async function submitGenerationBatch(form) {
-  if (!requireWorkspaceProjectId()) return;
+  const projectId = requireWorkspaceProjectId();
+  if (!projectId) return;
   const values = new FormData(form);
   const strategyControl = form.elements.generation_strategy_id;
   const strategyId = String(strategyControl?.value || "").trim();
   if (strategyId) {
     const strategySelections = generationStrategySelectionsForForm(form);
     const sourceProjection = generationStrategySourceProjectionForForm(form);
-    if (!strategySelections || !sourceProjection?.all_selected_ready) {
-      toast(
-        "Выберите и бесплатно проверьте ровно 10 MP4, затем заполните общие ассеты, параметры и механику каждого ролика.",
-        "error",
+    const projectionMatchesStrategy = sourceProjection?.strategy_id === strategyId;
+    if (
+      strategyId === "viral_product_swap"
+      && projectionMatchesStrategy
+      && sourceProjection.required_count === 1
+      && sourceProjection.all_selected_ready === true
+      && strategySelections?.length === 1
+    ) {
+      await submitGenerationStrategy(
+        form,
+        values,
+        strategySelections[0],
+        projectId,
       );
-      window.ContentEngineGenerationGuidedV4?.goToStep?.("media");
       return;
     }
-    await submitGenerationStrategyExactTen(
-      form,
-      values,
-      strategySelections,
-      requireWorkspaceProjectId(),
+    if (
+      strategyId === "viral_rebuild"
+      && projectionMatchesStrategy
+      && sourceProjection.required_count === 10
+      && sourceProjection.all_selected_ready === true
+      && strategySelections?.length === 10
+    ) {
+      await submitGenerationStrategyExactTen(
+        form,
+        values,
+        strategySelections,
+        projectId,
+      );
+      return;
+    }
+    if (strategyId === "viral_avatar_ugc") {
+      toast(
+        "Character Performance пока закрыт feature gate: подтверждённого provider adapter нет, платный запуск запрещён.",
+        "info",
+      );
+      return;
+    }
+    toast(
+      strategyId === "viral_product_swap"
+        ? "Для Product Swap нужен один бесплатно проверенный MP4 и точный набор обязательных ассетов."
+        : strategyId === "viral_rebuild"
+          ? "Выберите и бесплатно проверьте ровно 10 MP4, затем заполните общие ассеты, параметры и механику каждого ролика."
+          : "Эта стратегия не подключена к безопасному runtime creator-generate.",
+      "error",
     );
+    window.ContentEngineGenerationGuidedV4?.goToStep?.("media");
     return;
   }
   const mode = String(values.get("generation_mode") || "").trim();
@@ -35332,9 +36078,29 @@ async function track(eventName, properties = {}) {
   }
 }
 
+function isAllowedSupabaseOrigin(config) {
+  const value = String(config.SUPABASE_URL || "").trim();
+  if (/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(value)) return true;
+  if (config.LOCAL_DEVELOPMENT !== true) return false;
+  const localOrigin = String(config.LOCAL_SUPABASE_ORIGIN || "").trim();
+  if (!localOrigin || value !== localOrigin) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:"
+      && url.origin === localOrigin
+      && !url.username
+      && !url.password
+      && url.pathname === "/"
+      && !url.search
+      && !url.hash;
+  } catch {
+    return false;
+  }
+}
+
 function validateConfig(config) {
   const problems = [];
-  if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(String(config.SUPABASE_URL || ""))) {
+  if (!isAllowedSupabaseOrigin(config)) {
     problems.push("Укажите HTTPS URL проекта Supabase.");
   }
   const key = String(config.SUPABASE_PUBLISHABLE_KEY || "");
@@ -35351,6 +36117,16 @@ function validateConfig(config) {
   }
   if (!config.STORAGE_BUCKET || String(config.STORAGE_BUCKET).toLowerCase().includes("public")) {
     problems.push("Укажите имя приватного Storage bucket.");
+  }
+  if (
+    config.LOCAL_DEVELOPMENT === true
+    && (
+      config.REAL_GENERATION_ENABLED !== false
+      || config.ALLOW_REAL_SPEND !== false
+      || config.CREATOR_GENERATE_MOCK_ONLY !== true
+    )
+  ) {
+    problems.push("Локальный режим обязан блокировать реальные provider-вызовы и расходы.");
   }
   return problems;
 }

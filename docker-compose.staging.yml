@@ -1,0 +1,11 @@
+name: contentengine-staging-workbench
+
+services:
+  staging-web:
+    image: nginx:1.27-alpine
+    ports:
+      - "127.0.0.1:8768:80"
+    restart: unless-stopped
+    volumes:
+      - ./.local/staging/site:/usr/share/nginx/html:ro
+      - ./dev/nginx.staging.conf:/etc/nginx/conf.d/default.conf:ro

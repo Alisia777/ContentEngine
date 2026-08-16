@@ -208,6 +208,17 @@ body.ce-v4-finder-route .workspace-board__content {
 .ce-v4-finder-toolbar__title { display: grid; gap: 2px; }
 .ce-v4-finder-toolbar__title small { color: var(--ce-v4-copper-bright); font-size: 12px; font-weight: 800; letter-spacing: .12em; }
 .ce-v4-finder-toolbar__title strong { color: var(--ce-v4-text); font-size: 14px; }
+.ce-v4-finder-control-status {
+  width: fit-content;
+  margin-top: 3px;
+  padding: 4px 8px;
+  border: 1px solid rgba(236,136,75,.24);
+  border-radius: 999px;
+  color: var(--ce-v4-copper-bright);
+  background: rgba(236,136,75,.07);
+  font: 700 12px/1.2 system-ui;
+  white-space: nowrap;
+}
 .ce-v4-finder-toolbar__controls {
   display: flex;
   align-items: center;
@@ -239,6 +250,9 @@ body.ce-v4-finder-route .workspace-board__content {
 .ce-v4-finder-sidebar-toggle { display: none; }
 .ce-v4-finder-mode.is-active,
 .ce-v4-finder-view.is-active,
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="grid"] [data-ce-v4-finder-view="grid"],
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] [data-ce-v4-finder-view="list"],
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] [data-ce-v4-finder-view="columns"],
 .ce-v4-finder-quicklook:hover:not(:disabled),
 .ce-v4-finder-upload:hover { color: var(--ce-v4-text); border-color: rgba(236,136,75,.26); background: rgba(236,136,75,.09); }
 .ce-v4-finder-quicklook:disabled { opacity: .48; cursor: not-allowed; }
@@ -627,6 +641,12 @@ body.ce-v4-finder-route :is(
 
 body.ce-v4-finder-route .workspace-board-pagination { padding: 10px 12px; border-top: 1px solid var(--ce-v4-line); }
 body.ce-v4-finder-route .workspace-board__empty { align-self: center; justify-self: center; max-width: 440px; padding: 30px; text-align: center; }
+body.ce-v4-finder-route .workspace-board__empty .ce-v4-finder-empty-mode {
+  margin-top: 8px;
+  color: var(--ce-v4-copper-bright);
+  font-size: 13px;
+  font-weight: 700;
+}
 
 /* Quick Look replaces Finder content inside the same workspace surface. */
 body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__layout {
@@ -677,6 +697,24 @@ body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__q
 body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__move-panel { grid-column: 2; }
 body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__drawer-preview { grid-column: 1; grid-row: 2 / span 5; min-height: 60svh; }
 body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__drawer-close { display: none !important; }
+
+@container ce-v4-finder-host (max-width: 1180px) {
+  .ce-v4-finder-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+  .ce-v4-finder-toolbar__title {
+    grid-template-columns: auto auto minmax(0, 1fr);
+    align-items: center;
+    column-gap: 8px;
+  }
+  .ce-v4-finder-control-status { margin-top: 0; }
+  .ce-v4-finder-toolbar__controls {
+    width: 100%;
+    padding-bottom: 2px;
+    overflow-x: auto;
+  }
+}
 
 @container ce-v4-finder-host (max-width: 1080px) {
   body.ce-v4-finder-route .workspace-board__layout { grid-template-columns: minmax(190px,230px) minmax(0,1fr) !important; }
@@ -733,6 +771,17 @@ body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__d
   }
   body.ce-v4-finder-route .workspace-board__content { grid-column: 1; }
   .ce-v4-finder-toolbar { grid-template-columns: 1fr; }
+  .ce-v4-finder-toolbar__title {
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+  .ce-v4-finder-toolbar__title > * { min-width: 0; }
+  .ce-v4-finder-control-status {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
   .ce-v4-finder-toolbar__controls { overflow-x: auto; }
   .ce-v4-finder-batch { grid-template-columns: 1fr 1fr; }
   .ce-v4-finder-batch__summary,

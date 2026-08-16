@@ -89,11 +89,11 @@ def test_release_entry_assets_use_current_cache_versions() -> None:
     assert './styles.css?v=20260730.4' in INDEX
     assert './config.js?v=20260729.1' in INDEX
     assert f'<meta name="contentengine-build" content="{BUILD_ID}"' in INDEX
-    assert f'./app.js?v={BUILD_ID}' in INDEX
+    assert './app.js?v=20260816.adaptive.4' in INDEX
+    assert './workspace-os-v4-loader.js?v=20260816.adaptive.4' in INDEX
     for asset in (
         "interface-system.css",
         "workspace-os-v4.css",
-        "workspace-os-v4-loader.js",
         "workspace-build-guard.js",
     ):
         assert f'./{asset}?v={BUILD_ID}' in INDEX

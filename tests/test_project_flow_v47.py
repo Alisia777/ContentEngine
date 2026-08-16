@@ -710,10 +710,10 @@ def test_v47_assets_share_one_release_key() -> None:
     build = "20260814.os4.41"
     assert f'const BUILD = "{build}"' in LOADER
     assert f'const BUILD = "{build}"' in CORE
+    assert './workspace-os-v4-loader.js?v=20260816.adaptive.4' in INDEX
+    assert './app.js?v=20260816.adaptive.4' in INDEX
     for asset in (
         "workspace-os-v4.css",
-        "workspace-os-v4-loader.js",
-        "app.js",
         "workspace-build-guard.js",
         "training-journey.css",
     ):

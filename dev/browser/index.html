@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ContentEngine Local Workbench</title>
+    <link rel="stylesheet" href="./workbench.css" />
+  </head>
+  <body>
+    <header>
+      <div><span class="eyebrow">LOCAL · MOCK ONLY</span><h1>ContentEngine Workbench</h1></div>
+      <span id="spend-gate" class="safe">Real spend: blocked</span>
+    </header>
+    <nav aria-label="Workbench routes">
+      <a href="#/copy" data-route-link="copy">Copy</a>
+      <a href="#/avatar" data-route-link="avatar">Avatar</a>
+      <a href="#/strategy" data-route-link="strategy">Strategy</a>
+    </nav>
+    <main id="app" aria-live="polite"></main>
+    <script src="../config.js"></script>
+    <script type="module" src="./workbench.js"></script>
+  </body>
+</html>

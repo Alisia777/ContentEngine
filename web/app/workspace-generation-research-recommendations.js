@@ -1293,6 +1293,13 @@ function workingDraftConflict(error) {
   ].filter(Boolean).join(" "));
 }
 
+function stopWorkingDraftConflictRetries() {
+  runtime.workingDraftConflict = true;
+  runtime.workingDraftSavePending = false;
+  window.clearTimeout(runtime.workingDraftSaveTimer);
+  runtime.workingDraftSaveTimer = 0;
+}
+
 function selectedVerifiedMediaProduct(form, expectedProductId) {
   const selectedMedia = Array.from(
     form?.querySelectorAll?.('input[name="media_id"]') || [],
@@ -1593,7 +1600,7 @@ async function saveWorkingDraft() {
     );
     console.warn("Generation AI research working draft save failed", error);
     if (workingDraftConflict(error)) {
-      runtime.workingDraftConflict = true;
+      stopWorkingDraftConflictRetries();
       setStatus(
         "Другой участник уже обновил общий черновик. Ваши поля не перезаписаны: обновите страницу и решите, какую версию оставить.",
         "danger",
@@ -1616,6 +1623,12 @@ async function saveWorkingDraft() {
 }
 
 function scheduleWorkingDraftSave() {
+  if (runtime.workingDraftConflict) {
+    runtime.workingDraftSavePending = false;
+    window.clearTimeout(runtime.workingDraftSaveTimer);
+    runtime.workingDraftSaveTimer = 0;
+    return;
+  }
   runtime.workingDraftSavePending = true;
   window.clearTimeout(runtime.workingDraftSaveTimer);
   runtime.workingDraftSaveTimer = window.setTimeout(() => {
@@ -1663,6 +1676,7 @@ async function clearWorkingDraft() {
     }
   } catch (error) {
     console.warn("Generation AI research working draft clear failed", error);
+    if (workingDraftConflict(error)) stopWorkingDraftConflictRetries();
     if (
       routePath() === ROUTE
       && runtime.form === originForm
@@ -1825,6 +1839,7 @@ async function hydrateSharedWorkingDraft(form, context) {
     ) return;
     const authoritative = authoritativeWorkingDraft(context, shared);
     setWorkingDraftAuthority(context.projectId, "verified");
+    runtime.workingDraftConflict = false;
     if (!generationResearchWorkingDraftHydrationUnchanged(form, hydrationSnapshot)) {
       setStatus(
         "Вы уже изменили товар или параметры запуска. Поздний общий черновик не применён, ваши поля сохранены.",

@@ -269,6 +269,7 @@ def test_runtime_is_pure_and_has_no_legacy_model_or_side_effect_channel() -> Non
         "bindResolved": "BIND_RESOLVED",
         "humanConfirmed": "HUMAN_CONFIRMED",
         "invalidate": "INVALIDATE",
+        "preflightRefreshRequested": "PREFLIGHT_REFRESH_REQUESTED",
         "preflightResolved": "PREFLIGHT_RESOLVED",
         "reset": "RESET",
         "select": "SELECT",
@@ -976,6 +977,75 @@ def test_human_confirmed_preflight_refresh_rotates_only_receipt_authority() -> N
         "phase": "start_once",
         "key": "strategy.start:fixed-key-1",
     }
+
+
+def test_unconfirmed_preflight_refresh_returns_to_bound_without_rebinding() -> None:
+    result = _evaluate(
+        """
+        (() => {
+          const ready = stateThroughPreflight();
+          const receipt = ready.preflight.receipt;
+          const requested = runtime.reduceGenerationStrategyRuntimeState(ready, {
+            type: runtime.GENERATION_STRATEGY_RUNTIME_ACTIONS.preflightRefreshRequested,
+            fingerprint: ready.fingerprint,
+            receipt_id: receipt.id,
+            receipt_hash: receipt.receipt_hash,
+          });
+          const plan = runtime.generationStrategyRuntimePreflightRequest(
+            requested, 'strategy.preflight.refresh:unconfirmed-key-1',
+          );
+          const wrongReceipt = runtime.reduceGenerationStrategyRuntimeState(ready, {
+            type: runtime.GENERATION_STRATEGY_RUNTIME_ACTIONS.preflightRefreshRequested,
+            fingerprint: ready.fingerprint,
+            receipt_id: ids.otherCampaign,
+            receipt_hash: receipt.receipt_hash,
+          });
+          return {
+            requested: {
+              phase: requested.phase,
+              fingerprint: requested.fingerprint,
+              bindingId: requested.bind?.binding.id,
+              bindingHash: requested.bind?.binding.binding_hash,
+              preflight: requested.preflight,
+              campaign: requested.campaign_id,
+              startContext: requested.start_context_fingerprint,
+            },
+            prior: {
+              phase: ready.phase,
+              fingerprint: ready.fingerprint,
+              bindingId: ready.bind.binding.id,
+              bindingHash: ready.bind.binding.binding_hash,
+              receiptId: ready.preflight.receipt.id,
+            },
+            plan: {
+              ok: plan.ok,
+              action: plan.request?.action,
+              bindingId: plan.request?.binding_id,
+              idempotency: plan.request?.idempotency_key,
+            },
+            wrongReceipt,
+          };
+        })()
+        """
+    )
+    assert result["requested"] == {
+        "phase": "bound",
+        "fingerprint": result["prior"]["fingerprint"],
+        "bindingId": result["prior"]["bindingId"],
+        "bindingHash": result["prior"]["bindingHash"],
+        "preflight": None,
+        "campaign": None,
+        "startContext": None,
+    }
+    assert result["prior"]["phase"] == "preflight_ready"
+    assert result["plan"] == {
+        "ok": True,
+        "action": "strategy_preflight",
+        "bindingId": result["prior"]["bindingId"],
+        "idempotency": "strategy.preflight.refresh:unconfirmed-key-1",
+    }
+    assert result["wrongReceipt"]["phase"] == "invalid"
+    assert result["wrongReceipt"]["bind"] is None
 
 
 @pytest.mark.parametrize(

@@ -109,6 +109,34 @@ return {one,after:generationStrategySourcePickerProjection(state),selection:gene
     assert result["after"]["error"] == "source_limit_reached"
 
 
+def test_product_swap_accepts_direct_mp4_and_rejects_unattached_video() -> None:
+    result = _run(
+        """
+const direct={
+  ...candidate(1,'viral_product_swap'),
+  exact_youtube_attached:false,
+  direct_mp4_attached:true,
+};
+const unattached={
+  ...candidate(2,'viral_product_swap'),
+  exact_youtube_attached:false,
+  direct_mp4_attached:false,
+};
+let state=createGenerationStrategySourcePicker('viral_product_swap',[direct,unattached]);
+state=reduceGenerationStrategySourcePicker(state,{type:A.toggle,source_media_id:uuid(1)});
+return {
+  projection:generationStrategySourcePickerProjection(state),
+  candidateIds:state.candidates.map((item)=>item.id),
+  selection:generationStrategySourcePickerSelection(state),
+};
+"""
+    )
+    assert result["candidateIds"] == ["00000001-1111-4111-8111-000000000001"]
+    assert result["projection"]["exact_required_selected"] is True
+    assert result["projection"]["all_selected_ready"] is True
+    assert result["selection"] == ["00000001-1111-4111-8111-000000000001"]
+
+
 def test_probe_required_is_selectable_but_cannot_authorize_queue() -> None:
     result = _run(
         """

@@ -16,7 +16,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260815.mp4.6",
+  "./generation-strategy-intake-v4.css?v=20260816.adaptive.4",
   import.meta.url,
 ).href;
 const UUID_PATTERN =
@@ -26,7 +26,20 @@ const MIN_COPY_DURATION = 4;
 const MAX_AVATAR_DURATION = 30;
 const MAX_STRATEGY_FILES = 10;
 const MAX_MP4_BYTES = 32 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 16 * 1024 * 1024;
+const MIN_PRODUCT_IMAGES = 3;
+const MAX_PRODUCT_IMAGES = 5;
 const STORYBOARD_FRAME_COUNT = 8;
+const BRIEF_LIMIT = 800;
+const PRODUCT_IMAGE_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+const DEFAULT_RECOMMENDATIONS = Object.freeze({
+  copy_video: "Сохранить последовательность сцен, движение камеры, темп и монтаж исходного ролика. Заменить только исходный товар на товар с выбранных фото: точно сохранить форму, материал, цвет, упаковку и логотип. Не добавлять новые объекты или надписи.",
+  avatar_video: "Сохранить сцены, тайминг, камеру и композицию исходного ролика. Встроить выбранного аватара естественно: согласовать масштаб, свет, тени, взгляд и движения с кадром. Не менять товар и фон без необходимости.",
+});
 const formStates = new WeakMap();
 let mountQueued = false;
 
@@ -115,10 +128,15 @@ function ensureContractFields(form) {
     "generation_intake_route",
     "generation_intake_source_media_id",
     "generation_intake_original_product_media_id",
+    "generation_intake_avatar_media_id",
+    "generation_intake_avatar_mode",
     "generation_intake_product_media_ids",
     "generation_intake_reference_media_ids",
     "generation_intake_source_url",
     "generation_intake_description",
+    "generation_intake_model",
+    "generation_intake_audio",
+    "generation_intake_recommendation_source",
     "generation_strategy_prefill_assets",
   ].forEach((name) => ensureHidden(form, name));
 }
@@ -144,23 +162,6 @@ function optionalSourceUrl() {
     "Источник публикации — по желанию",
     "Ссылка хранится как происхождение ролика. Система анализирует загруженный MP4, а не страницу соцсети.",
     input,
-  );
-}
-
-function descriptionField(route) {
-  const textarea = document.createElement("textarea");
-  textarea.rows = 4;
-  textarea.maxLength = 1_200;
-  textarea.placeholder = route === "copy_video"
-    ? "Оставьте пустым для максимально близкого повторения механики ролика."
-    : "Можно уточнить голос, характер, одежду или ограничения.";
-  textarea.dataset.generationIntakeField = "description";
-  return field(
-    "Дополнительное описание — по желанию",
-    route === "copy_video"
-      ? "По умолчанию сохраняются действия, ракурсы, темп, монтаж и исходный звук; меняется товар."
-      : "Основные движения и темп берутся из MP4.",
-    textarea,
   );
 }
 
@@ -255,19 +256,283 @@ function storyboardNode() {
   return section;
 }
 
+function imageInput({ multiple = false, purpose = "product" } = {}) {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp";
+  input.multiple = multiple;
+  input.dataset.generationIntakeImage = purpose;
+  return input;
+}
+
 function productSlot() {
   const section = el("section", "generation-intake-v4__product");
   section.dataset.generationIntakeProductSlot = "";
+  const input = imageInput({ multiple: true, purpose: "product" });
+  input.id = "generation-intake-copy-product-images";
+  const upload = el("label", "generation-intake-v4__drop generation-intake-v4__drop--compact");
+  upload.htmlFor = input.id;
+  upload.append(
+    el("strong", "", "Загрузить 3–5 фото товара"),
+    el("span", "", "JPG, PNG или WEBP · один товар с разных ракурсов"),
+    input,
+  );
+  const count = el("p", "generation-intake-v4__selection-count", "Выбрано: 0 из 3–5");
+  count.dataset.generationIntakeProductCount = "";
   section.append(
-    el("h4", "", "Фото вашего товара *"),
+    el("h4", "", "3–5 фото товара, который нужно подставить *"),
     el(
       "p",
       "muted tiny",
-      "Можно выбрать до 10 точных ракурсов одного товара. Они передаются как newProductImages Product Swap.",
+      "Можно загрузить новые фото или выбрать уже проверенные фотографии этого же товара ниже.",
     ),
+    upload,
+    count,
     el("div", "generation-intake-v4__product-items"),
   );
   return section;
+}
+
+function executionControls() {
+  const section = el("section", "generation-intake-v4__execution");
+  const model = document.createElement("select");
+  model.dataset.generationIntakeField = "model";
+  model.dataset.generationIntakeServerOwned = "";
+  model.setAttribute("aria-readonly", "true");
+  model.append(new Option(
+    "Runway · Product Swap (серверный recipe)",
+    "runway:product_swap",
+  ));
+  model.value = "runway:product_swap";
+  model.disabled = true;
+  const audio = document.createElement("select");
+  audio.dataset.generationIntakeField = "audio";
+  audio.required = true;
+  audio.append(
+    new Option("Выберите звук", ""),
+    new Option("Со звуком", "true"),
+    new Option("Без звука", "false"),
+  );
+  audio.value = "";
+  section.append(
+    field(
+      "Модель генерации видео",
+      "Product Swap использует подтверждённый серверный recipe. Другую модель нельзя подставить так, чтобы незаметно изменить цену или платный запуск провайдера.",
+      model,
+    ),
+    field(
+      "Звук",
+      "Выберите явно: сохранить звуковую часть маршрута или подготовить результат без звука.",
+      audio,
+    ),
+  );
+  return section;
+}
+
+function recommendationSlot(route) {
+  const section = el("section", "generation-intake-v4__recommendation");
+  section.dataset.generationIntakeRecommendation = route;
+  const header = el("div", "generation-intake-v4__recommendation-head");
+  header.append(
+    el("h4", "", route === "copy_video"
+      ? "Рекомендация: что сохранить и как заменить"
+      : "Рекомендация для ролика с аватаром"),
+    (() => {
+      const badge = el("span", "badge", "Можно исправить");
+      badge.dataset.generationIntakeRecommendationSource = "";
+      return badge;
+    })(),
+  );
+  const slot = el("div", "generation-intake-v4__recommendation-field");
+  slot.dataset.generationIntakeBriefSlot = route;
+  const fallback = el("div", "generation-intake-v4__recommendation-fallback");
+  fallback.dataset.generationIntakeRecommendationFallback = route;
+  fallback.append(
+    el("p", "", DEFAULT_RECOMMENDATIONS[route]),
+    (() => {
+      const button = el("button", "btn btn-secondary", "Использовать эту рекомендацию");
+      button.type = "button";
+      button.dataset.action = "generation-intake-apply-recommendation";
+      button.dataset.route = route;
+      return button;
+    })(),
+  );
+  const meta = el("small", "generation-intake-v4__recommendation-meta", `0 / ${BRIEF_LIMIT}`);
+  meta.dataset.generationIntakeBriefMeta = route;
+  section.append(header, slot, fallback, meta);
+  return section;
+}
+
+function rightsConfirmation(route) {
+  const label = el("label", "generation-intake-v4__confirmation");
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.dataset.generationIntakeRights = route;
+  label.append(
+    input,
+    el(
+      "span",
+      "",
+      route === "copy_video"
+        ? "У команды есть право использовать исходный ролик и фотографии товара."
+        : "У команды есть право использовать исходный ролик.",
+    ),
+  );
+  return label;
+}
+
+function avatarIdentityChooser() {
+  const section = el("fieldset", "generation-intake-v4__avatar");
+  section.append(el("legend", "", "Как задать аватара *"));
+  const choices = el("div", "generation-intake-v4__avatar-choices");
+  [
+    ["photo", "Фото аватара"],
+    ["description", "Описание аватара"],
+  ].forEach(([value, title], index) => {
+    const label = el("label", "generation-intake-v4__choice");
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = "generation_intake_avatar_input_mode";
+    input.value = value;
+    input.dataset.generationIntakeAvatarMode = value;
+    input.checked = index === 0;
+    label.append(input, el("span", "", title));
+    choices.append(label);
+  });
+
+  const photoPanel = el("div", "generation-intake-v4__avatar-mode");
+  photoPanel.dataset.generationIntakeAvatarModePanel = "photo";
+  const photo = imageInput({ purpose: "avatar" });
+  photo.id = "generation-intake-avatar-image";
+  const upload = el("label", "generation-intake-v4__drop generation-intake-v4__drop--compact");
+  upload.htmlFor = photo.id;
+  upload.append(
+    el("strong", "", "Загрузить одно фото аватара"),
+    el("span", "", "Лицо хорошо видно · JPG, PNG или WEBP"),
+    photo,
+  );
+  const existing = document.createElement("select");
+  existing.dataset.generationIntakeExistingAvatar = "";
+  existing.append(new Option("Не выбрано фото из проекта", ""));
+  const consent = el("label", "generation-intake-v4__confirmation");
+  const consentInput = document.createElement("input");
+  consentInput.type = "checkbox";
+  consentInput.dataset.generationIntakeAvatarConsent = "";
+  consent.append(
+    consentInput,
+    el("span", "", "Есть согласие на использование внешности и создание этого видео."),
+  );
+  photoPanel.append(
+    upload,
+    field(
+      "Или выбрать фото из проекта",
+      "Подходят только доступные текущему проекту creator reference или фотографии с подтверждёнными правами.",
+      existing,
+    ),
+    consent,
+  );
+
+  const descriptionPanel = el("div", "generation-intake-v4__avatar-mode");
+  descriptionPanel.dataset.generationIntakeAvatarModePanel = "description";
+  descriptionPanel.hidden = true;
+  const wishes = document.createElement("textarea");
+  wishes.rows = 5;
+  wishes.maxLength = 1_200;
+  wishes.placeholder = "Например: уверенная девушка 25–30 лет, тёмные волосы, лаконичная одежда, спокойная живая мимика…";
+  wishes.dataset.generationIntakeField = "avatar_wishes";
+  descriptionPanel.append(field(
+    "Описание аватара",
+    "Внешность, возрастной образ, одежда и характер. Технический промпт не нужен.",
+    wishes,
+  ));
+
+  section.append(choices, photoPanel, descriptionPanel);
+  return section;
+}
+
+const PRODUCT_CATEGORY_OPTIONS = Object.freeze([
+  ["", "Выберите один раз"],
+  ["cosmetics", "Косметика и уход"],
+  ["baa", "БАД — зарегистрированный БАД"],
+  ["sports_food", "Протеин и спортивное питание"],
+  ["food", "Еда и напитки"],
+  ["household", "Товары для дома"],
+  ["apparel", "Одежда и аксессуары"],
+  ["electronics", "Электроника"],
+  ["other", "Другая категория"],
+]);
+
+function productIdentityFields() {
+  const wrap = el("div", "generation-intake-v4__identity");
+  wrap.dataset.generationIntakeIdentity = "";
+  const sku = el("input");
+  sku.type = "text";
+  sku.maxLength = 120;
+  sku.autocomplete = "off";
+  sku.placeholder = "Например: BB-GRANOLA-40";
+  sku.dataset.generationIntakeField = "sku";
+  const name = el("input");
+  name.type = "text";
+  name.maxLength = 180;
+  name.autocomplete = "off";
+  name.placeholder = "Например: Батончик Bombbar 40 г";
+  name.dataset.generationIntakeField = "product_name";
+  const category = el("select");
+  category.dataset.generationIntakeField = "product_category";
+  category.replaceChildren(...PRODUCT_CATEGORY_OPTIONS.map(
+    ([value, label]) => new Option(label, value),
+  ));
+  wrap.append(
+    field(
+      "Артикул (SKU) вашего товара",
+      "Нужен при загрузке новых фотографий: они привяжутся к точному товару.",
+      sku,
+    ),
+    field(
+      "Название товара",
+      "Как в карточке товара. Вместе с артикулом делает фото пригодными для запуска.",
+      name,
+    ),
+    field(
+      "Категория товара",
+      "Нужна серверному ТЗ: определяет правила безопасности и допустимые обещания.",
+      category,
+    ),
+  );
+  return wrap;
+}
+
+function identityInput(state, fieldName) {
+  return q(
+    `[data-generation-intake-identity] [data-generation-intake-field="${CSS.escape(fieldName)}"]`,
+    state.shell,
+  );
+}
+
+function prefillIdentityFields(form, state) {
+  ["sku", "product_name", "product_category"].forEach((fieldName) => {
+    const target = identityInput(state, fieldName);
+    const source = form.elements?.[fieldName];
+    if (
+      !(target instanceof HTMLInputElement)
+      && !(target instanceof HTMLSelectElement)
+    ) return;
+    const value = String(source?.value || "");
+    if (value && !target.value) target.value = value;
+  });
+}
+
+function syncIdentityToForm(form, fieldName, value) {
+  const control = form.elements?.[fieldName];
+  if (
+    !(control instanceof HTMLInputElement)
+    && !(control instanceof HTMLTextAreaElement)
+    && !(control instanceof HTMLSelectElement)
+  ) return;
+  if (control.value === value) return;
+  control.value = value;
+  control.dispatchEvent(new Event("input", { bubbles: true }));
+  control.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
 function copyPanel() {
@@ -292,8 +557,10 @@ function copyPanel() {
     ),
     sourceChooser("copy_video"),
     productSlot(),
-    optionalSourceUrl(),
-    descriptionField("copy_video"),
+    productIdentityFields(),
+    executionControls(),
+    recommendationSlot("copy_video"),
+    rightsConfirmation("copy_video"),
     storyboardNode(),
     statusNode(),
     actions,
@@ -305,12 +572,6 @@ function avatarPanel() {
   const panel = el("section", "generation-intake-v4__panel");
   panel.dataset.generationIntakePanel = "avatar_video";
   panel.hidden = true;
-  const wishes = document.createElement("textarea");
-  wishes.rows = 5;
-  wishes.maxLength = 1_200;
-  wishes.required = true;
-  wishes.placeholder = "Например: уверенная девушка 25–30 лет, тёмные волосы, чёрный лаконичный образ, спокойная живая мимика…";
-  wishes.dataset.generationIntakeField = "avatar_wishes";
   const actions = el("div", "generation-intake-v4__actions");
   const analyze = el("button", "btn", "Разобрать MP4");
   analyze.type = "button";
@@ -324,18 +585,18 @@ function avatarPanel() {
     routeHeader(
       "ОТДЕЛЬНАЯ ФОРМА",
       "Сделать с аватаром",
-      "Создаём героя по описанию и переносим на него движения исходного MP4.",
+      "Добавляем аватара из фотографии или описания в выбранный исходный MP4.",
       "Character Performance",
     ),
-    field(
-      "Каким должен быть аватар *",
-      "Внешность, возрастной образ, одежда, настроение и манера движения. Технический промпт не нужен.",
-      wishes,
-    ),
     sourceChooser("avatar_video"),
-    optionalSourceUrl(),
-    descriptionField("avatar_video"),
-    storyboardNode(),
+    avatarIdentityChooser(),
+    recommendationSlot("avatar_video"),
+    rightsConfirmation("avatar_video"),
+    el(
+      "p",
+      "generation-intake-v4__gate-note",
+      "Форма и mock-подготовка работают локально. Платный Character Performance останется закрыт до подтверждения точного provider-adapter — он не подменяется Product UGC.",
+    ),
     statusNode(),
     actions,
   );
@@ -404,7 +665,17 @@ function shellNode() {
 function collectProductNodes(form) {
   const seen = new Set();
   return qa('input[name="media_id"]', form)
-    .filter((input) => !String(input.dataset.mimeType || "").startsWith("video/"))
+    .filter((input) => {
+      const container = input.closest("label, article, li, [data-media-card]") || input;
+      const mime = String(
+        input.dataset.mimeType
+        || container.dataset.mimeType
+        || container.getAttribute?.("data-mime-type")
+        || "",
+      ).toLowerCase();
+      const text = cleanText(container.textContent, 240);
+      return !mime.startsWith("video/") && !/\bmp4\b|исходное видео/iu.test(text);
+    })
     .map((input) => input.closest("label, article, li") || input.parentElement)
     .filter((node) => {
       if (!node || seen.has(node)) return false;
@@ -417,14 +688,17 @@ function moveProductNodes(form, state, active) {
   const slot = q(".generation-intake-v4__product-items", state.shell);
   if (!slot) return;
   if (active) {
-    if (!state.productNodes.length) {
-      collectProductNodes(form).forEach((node) => {
+    const tracked = new Set(state.productNodes.map(({ node }) => node));
+    collectProductNodes(form).forEach((node) => {
+      if (!tracked.has(node)) {
         const marker = document.createComment("generation-intake-v4-product-origin");
         node.before(marker);
         state.productNodes.push({ node, marker });
-      });
-    }
-    state.productNodes.forEach(({ node }) => slot.append(node));
+      }
+    });
+    state.productNodes.forEach(({ node }) => {
+      if (node.parentElement !== slot) slot.append(node);
+    });
     if (!state.productNodes.length && !q("[data-generation-intake-empty-product]", slot)) {
       const warning = el("div", "alert alert-warning", "В проекте пока нет доступных фотографий товара.");
       warning.dataset.generationIntakeEmptyProduct = "";
@@ -433,7 +707,7 @@ function moveProductNodes(form, state, active) {
     return;
   }
   state.productNodes.forEach(({ node, marker }) => {
-    if (marker.isConnected) marker.replaceWith(node);
+    if (marker.isConnected && node.previousSibling !== marker) marker.after(node);
   });
 }
 
@@ -477,8 +751,39 @@ function collectProjectVideos(form) {
   return [...result.entries()].map(([id, label]) => ({ id, label }));
 }
 
+function collectProjectImages(form) {
+  const result = new Map();
+  qa('input[name="media_id"], [data-media-id]', form).forEach((node) => {
+    const mediaId = mediaIdFromNode(node);
+    if (!mediaId) return;
+    const container = node.closest?.("label, article, li, [data-media-card]") || node;
+    const mime = String(
+      node.dataset?.mimeType
+      || container.dataset?.mimeType
+      || container.getAttribute?.("data-mime-type")
+      || "",
+    ).toLowerCase();
+    const text = cleanText(container.textContent, 180);
+    if (mime.startsWith("video/") || /\bmp4\b|исходное видео/iu.test(text)) return;
+    result.set(mediaId, text || `Фото ${mediaId.slice(0, 8)}`);
+  });
+  return [...result.entries()].map(([id, label]) => ({ id, label }));
+}
+
 function refreshVideoSelects(form, state) {
-  const videos = collectProjectVideos(form);
+  const nativeSource = form.elements?.generation_strategy_source_video_id;
+  const nativeVideos = nativeSource instanceof HTMLSelectElement
+    ? [...nativeSource.options]
+      .map((option) => ({
+        id: String(option.value || "").trim().toLowerCase(),
+        label: cleanText(option.textContent, 180),
+      }))
+      .filter(({ id }) => UUID_PATTERN.test(id))
+    : [];
+  const videos = [...new Map([
+    ...collectProjectVideos(form),
+    ...nativeVideos,
+  ].map((item) => [item.id, item])).values()];
   qa("[data-generation-intake-existing-video]", state.shell).forEach((select) => {
     const current = select.value;
     const desired = [
@@ -499,6 +804,38 @@ function refreshVideoSelects(form, state) {
   });
 }
 
+function refreshAvatarSelect(form, state) {
+  const select = q("[data-generation-intake-existing-avatar]", state.shell);
+  if (!(select instanceof HTMLSelectElement)) return;
+  const nativeAvatar = form.elements?.generation_strategy_avatar_media_id;
+  const nativeImages = nativeAvatar instanceof HTMLSelectElement
+    ? [...nativeAvatar.options]
+      .map((option) => ({
+        id: String(option.value || "").trim().toLowerCase(),
+        label: cleanText(option.textContent, 180),
+      }))
+      .filter(({ id }) => UUID_PATTERN.test(id))
+    : [];
+  const images = [...new Map([
+    ...collectProjectImages(form),
+    ...nativeImages,
+  ].map((item) => [item.id, item])).values()];
+  const current = select.value;
+  const desired = [
+    { id: "", label: "Не выбрано фото из проекта" },
+    ...images,
+  ];
+  const unchanged = select.options.length === desired.length
+    && desired.every(({ id, label }, index) => (
+      select.options[index]?.value === id
+      && select.options[index]?.text === label
+    ));
+  if (!unchanged) {
+    select.replaceChildren(...desired.map(({ id, label }) => new Option(label, id)));
+  }
+  if (images.some(({ id }) => id === current)) select.value = current;
+}
+
 function selectedProductMediaIds(form) {
   const result = [];
   const seen = new Set();
@@ -509,7 +846,52 @@ function selectedProductMediaIds(form) {
     seen.add(id);
     result.push(id);
   });
-  return result.slice(0, 10);
+  return result.slice(0, MAX_PRODUCT_IMAGES + 1);
+}
+
+function selectedProductFiles(panel) {
+  const input = q('input[data-generation-intake-image="product"]', panel);
+  return [...(input?.files || [])];
+}
+
+function selectedAvatarFile(panel) {
+  const input = q('input[data-generation-intake-image="avatar"]', panel);
+  return input?.files?.[0] instanceof File ? input.files[0] : null;
+}
+
+function selectedAvatarMediaId(panel) {
+  const value = String(
+    q("[data-generation-intake-existing-avatar]", panel)?.value || "",
+  ).trim().toLowerCase();
+  return UUID_PATTERN.test(value) ? value : "";
+}
+
+function avatarInputMode(panel) {
+  return String(
+    q('input[data-generation-intake-avatar-mode]:checked', panel)?.value
+    || "photo",
+  );
+}
+
+function productSelectionCount(form, panel) {
+  return selectedProductMediaIds(form).length + selectedProductFiles(panel).length;
+}
+
+function refreshProductSelectionCount(form, state) {
+  pruneSyntheticProductOptions(form);
+  const panel = panelFor(state, "copy_video");
+  const target = q("[data-generation-intake-product-count]", panel);
+  if (!target) return;
+  const count = productSelectionCount(form, panel);
+  setNodeText(
+    target,
+    `Выбрано: ${count} из ${MIN_PRODUCT_IMAGES}–${MAX_PRODUCT_IMAGES}`,
+  );
+  target.dataset.state = count >= MIN_PRODUCT_IMAGES && count <= MAX_PRODUCT_IMAGES
+    ? "ready"
+    : count > MAX_PRODUCT_IMAGES
+      ? "error"
+      : "neutral";
 }
 
 async function sha256Hex(blob) {
@@ -517,6 +899,28 @@ async function sha256Hex(blob) {
   return [...new Uint8Array(digest)]
     .map((value) => value.toString(16).padStart(2, "0"))
     .join("");
+}
+
+async function assertImage(file) {
+  if (!(file instanceof File) || file.size < 32) throw new Error("image_required");
+  if (file.size > MAX_IMAGE_BYTES) throw new Error("image_too_large");
+  if (!PRODUCT_IMAGE_TYPES.has(String(file.type || "").toLowerCase())) {
+    throw new Error("image_type_invalid");
+  }
+  const head = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+  const jpeg = head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
+  const png = head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e
+    && head[3] === 0x47;
+  const riff = new TextDecoder("latin1").decode(head.slice(0, 4)) === "RIFF";
+  const webp = new TextDecoder("latin1").decode(head.slice(8, 12)) === "WEBP";
+  if (!(jpeg || png || (riff && webp))) throw new Error("image_signature_invalid");
+  const bitmap = await createImageBitmap(file);
+  const dimensions = { width: bitmap.width, height: bitmap.height };
+  bitmap.close();
+  if (dimensions.width < 256 || dimensions.height < 256) {
+    throw new Error("image_dimensions_too_small");
+  }
+  return dimensions;
 }
 
 async function assertMp4(file, maximumDuration) {
@@ -787,7 +1191,14 @@ async function attachDirectMp4(api, mediaId) {
   return normalizeDirectMp4Attachment(response, mediaId);
 }
 
-async function registerUploadedMedia(api, file, objectKey, kind, sha256) {
+async function registerUploadedMedia(
+  api,
+  file,
+  objectKey,
+  kind,
+  sha256,
+  productIdentity = null,
+) {
   if (typeof api.registerMedia !== "function") {
     throw new Error("register_media_unavailable");
   }
@@ -800,6 +1211,7 @@ async function registerUploadedMedia(api, file, objectKey, kind, sha256) {
     size_bytes: file.size,
     sha256,
     kind,
+    ...(productIdentity || {}),
     rights_confirmed: true,
   });
   const mediaId = findUuid(response);
@@ -807,7 +1219,7 @@ async function registerUploadedMedia(api, file, objectKey, kind, sha256) {
   return mediaId;
 }
 
-async function uploadProjectMedia(file, kind) {
+async function uploadProjectMedia(file, kind, productIdentity = null) {
   const api = await apiRuntime();
   if (typeof api.uploadPrivateObject !== "function") {
     throw new Error("private_upload_unavailable");
@@ -817,7 +1229,14 @@ async function uploadProjectMedia(file, kind) {
   await api.uploadPrivateObject(objectKey, file);
   let mediaId = "";
   try {
-    mediaId = await registerUploadedMedia(api, file, objectKey, kind, sha256);
+    mediaId = await registerUploadedMedia(
+      api,
+      file,
+      objectKey,
+      kind,
+      sha256,
+      productIdentity,
+    );
   } catch (error) {
     if (typeof api.removePrivateObject === "function") {
       await Promise.resolve(api.removePrivateObject(objectKey)).catch(() => {});
@@ -844,15 +1263,214 @@ function currentAvatarWishes(panel) {
   return cleanText(q('[data-generation-intake-field="avatar_wishes"]', panel)?.value, 1_200);
 }
 
+function currentRecommendation(form) {
+  return cleanText(form.elements?.brief?.value, 1_200);
+}
+
+function recommendationSource(form) {
+  const brief = form.elements?.brief;
+  const active = form.dataset.researchRecommendationLineage === "active";
+  const verified = form.dataset.researchRecommendationVerificationState === "verified";
+  const applied = Boolean(brief?.dataset?.researchRecommendationApplied);
+  const edited = brief?.dataset?.researchRecommendationEdited === "true";
+  if (active && verified && applied) return edited ? "ai_center_edited" : "ai_center";
+  if (active || applied) return "ai_center_unverified";
+  return currentRecommendation(form) ? "operator" : "empty";
+}
+
+function currentRequestedModel(panel) {
+  return cleanText(
+    q('[data-generation-intake-field="model"]', panel)?.value,
+    160,
+  );
+}
+
+function currentAudio(panel) {
+  const value = String(
+    q('[data-generation-intake-field="audio"]', panel)?.value || "",
+  );
+  return value === "true" ? true : value === "false" ? false : null;
+}
+
+function currentProductIdentity(form) {
+  const sku = cleanText(form.elements?.sku?.value, 120);
+  const productName = cleanText(form.elements?.product_name?.value, 180);
+  return sku && productName ? { sku, product_name: productName } : null;
+}
+
+function refreshModelSelects(form, state) {
+  qa('[data-generation-intake-field="model"]', state.shell).forEach((select) => {
+    const desired = [{
+      value: "runway:product_swap",
+      label: "Runway · Product Swap (серверный recipe)",
+    }];
+    const unchanged = select.options.length === desired.length
+      && desired.every((item, index) => (
+        select.options[index]?.value === item.value
+        && select.options[index]?.text === item.label
+      ));
+    if (!unchanged) {
+      select.replaceChildren(...desired.map(
+        (item) => new Option(item.label, item.value),
+      ));
+    }
+    select.value = desired[0].value;
+    select.disabled = true;
+    state.requestedModel = desired[0].value;
+  });
+}
+
+function moveSharedBrief(form, state, route) {
+  if (!(state.briefField instanceof HTMLElement) || !state.briefOrigin) return;
+  if (route === "strategy_video") {
+    if (state.briefField.previousSibling !== state.briefOrigin) {
+      state.briefOrigin.after(state.briefField);
+    }
+    const label = q("#generation-brief-label", state.briefField);
+    const hint = q("#generation-brief-hint", state.briefField);
+    setNodeText(label, state.briefOriginal?.label || "Замысел нового ролика");
+    setNodeText(hint, state.briefOriginal?.hint || "Опишите задачу для генерации.");
+    if (state.briefControl instanceof HTMLTextAreaElement) {
+      state.briefControl.placeholder = state.briefOriginal?.placeholder || "";
+      if (
+        Number.isInteger(state.briefOriginal?.maxLength)
+        && state.briefOriginal.maxLength >= 0
+      ) {
+        state.briefControl.maxLength = state.briefOriginal.maxLength;
+      }
+    }
+    return;
+  }
+  const slot = q(
+    `[data-generation-intake-brief-slot="${CSS.escape(route)}"]`,
+    state.shell,
+  );
+  if (slot && state.briefField.parentElement !== slot) slot.append(state.briefField);
+}
+
+function setNodeText(node, value) {
+  if (node && node.textContent !== value) node.textContent = value;
+}
+
+function refreshRecommendationUi(form, state) {
+  const route = state.route;
+  if (!DEFAULT_RECOMMENDATIONS[route]) return;
+  moveSharedBrief(form, state, route);
+  const brief = form.elements?.brief;
+  if (!(brief instanceof HTMLTextAreaElement)) return;
+  const label = q("#generation-brief-label", state.briefField);
+  const hint = q("#generation-brief-hint", state.briefField);
+  if (label) {
+    setNodeText(label, route === "copy_video"
+      ? "Что сохранить и как заменить товар"
+      : "Как встроить аватара в ролик");
+  }
+  if (hint) {
+    setNodeText(
+      hint,
+      "Это единый редактируемый замысел проекта. Проверенная рекомендация ИИ‑центра появляется здесь же и не перезаписывает ваши правки.",
+    );
+  }
+  brief.placeholder = "Напишите свою рекомендацию или примените базовый вариант ниже.";
+  brief.maxLength = BRIEF_LIMIT;
+  const value = String(brief.value || "");
+  const source = recommendationSource(form);
+  const badge = q(
+    `[data-generation-intake-recommendation="${CSS.escape(route)}"] [data-generation-intake-recommendation-source]`,
+    state.shell,
+  );
+  if (badge) {
+    badge.dataset.source = source;
+    setNodeText(badge, source === "ai_center"
+      ? "Из ИИ‑центра"
+      : source === "ai_center_edited"
+        ? "ИИ‑центр + ваша правка"
+        : source === "ai_center_unverified"
+          ? "ИИ‑черновик требует проверки"
+          : value
+            ? "Ваш текст"
+            : "Базовая рекомендация");
+  }
+  const fallback = q(
+    `[data-generation-intake-recommendation-fallback="${CSS.escape(route)}"]`,
+    state.shell,
+  );
+  if (fallback) fallback.hidden = Boolean(value);
+  const meta = q(
+    `[data-generation-intake-brief-meta="${CSS.escape(route)}"]`,
+    state.shell,
+  );
+  if (meta) {
+    meta.dataset.state = value.length > BRIEF_LIMIT ? "error" : "neutral";
+    setNodeText(meta, value.length > BRIEF_LIMIT
+      ? `${value.length} / ${BRIEF_LIMIT} · текст не обрезан: сократите его перед preflight`
+      : `${value.length} / ${BRIEF_LIMIT}`);
+  }
+}
+
+function syncAvatarMode(panel) {
+  const active = avatarInputMode(panel);
+  qa("[data-generation-intake-avatar-mode-panel]", panel).forEach((node) => {
+    const selected = node.dataset.generationIntakeAvatarModePanel === active;
+    node.hidden = !selected;
+    qa("input, select, textarea", node).forEach((control) => {
+      control.disabled = !selected;
+    });
+  });
+}
+
+function setPanelControlsActive(panel, active) {
+  qa("input, select, textarea", panel)
+    .filter((control) => control.name !== "media_id")
+    .forEach((control) => {
+      if (control.hasAttribute("data-generation-intake-server-owned")) {
+        control.disabled = true;
+      } else {
+        control.disabled = !active;
+      }
+    });
+  if (active && panel.dataset.generationIntakePanel === "avatar_video") {
+    syncAvatarMode(panel);
+  }
+}
+
+function clearSpendConfirmation(form) {
+  const confirmation = form.elements?.real_spend_confirmation;
+  if (!(confirmation instanceof HTMLInputElement)) return;
+  const changed = confirmation.checked || Boolean(confirmation.value);
+  confirmation.checked = false;
+  confirmation.value = "";
+  if (changed) {
+    confirmation.dispatchEvent(new Event("input", { bubbles: true }));
+    confirmation.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+}
+
+function applyCompactPreferences(form, handoff) {
+  const audio = form.elements?.generation_strategy_audio;
+  if (audio instanceof HTMLSelectElement && typeof handoff.audio === "boolean") {
+    audio.value = String(handoff.audio);
+    audio.dispatchEvent(new Event("input", { bubbles: true }));
+    audio.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  // requested_model is advisory metadata only. Product Swap's provider/recipe
+  // remains server-owned and must never be switched through the generic model UI.
+}
+
 function persistHandoff(form, handoff) {
   setHidden(form, "generation_intake_version", HANDOFF_VERSION);
   setHidden(form, "generation_intake_route", handoff.route);
   setHidden(form, "generation_intake_source_media_id", handoff.source_media_id || "");
   setHidden(form, "generation_intake_original_product_media_id", handoff.original_product_media_id || "");
+  setHidden(form, "generation_intake_avatar_media_id", handoff.avatar_media_id || "");
+  setHidden(form, "generation_intake_avatar_mode", handoff.avatar_mode || "");
   setHidden(form, "generation_intake_product_media_ids", handoff.product_media_ids || []);
   setHidden(form, "generation_intake_reference_media_ids", handoff.reference_media_ids || []);
   setHidden(form, "generation_intake_source_url", handoff.source_url || "");
   setHidden(form, "generation_intake_description", handoff.description || "");
+  setHidden(form, "generation_intake_model", handoff.requested_model || "");
+  setHidden(form, "generation_intake_audio", typeof handoff.audio === "boolean" ? String(handoff.audio) : "");
+  setHidden(form, "generation_intake_recommendation_source", handoff.recommendation_source || "");
   setHidden(form, "generation_strategy_prefill_assets", handoff.assets || []);
   try {
     sessionStorage.setItem(
@@ -866,6 +1484,13 @@ function persistHandoff(form, handoff) {
     detail: handoff,
   }));
 }
+
+const ASSET_ROLE_LABELS = Object.freeze({
+  source_video: "исходный MP4",
+  original_product_image: "кадр исходного товара",
+  new_product_image: "фото нового товара",
+  avatar_image: "фото аватара",
+});
 
 function strategyButton(form, strategyId) {
   return q(
@@ -882,6 +1507,77 @@ function selectStrategy(form, strategyId) {
   return true;
 }
 
+function existingMediaCheckbox(form, mediaId) {
+  return q(`input[name="media_id"][value="${CSS.escape(mediaId)}"]`, form);
+}
+
+function ensureProductCheckbox(form, state, mediaId, identity, filename) {
+  const existing = existingMediaCheckbox(form, mediaId);
+  if (existing instanceof HTMLInputElement) {
+    if (!existing.disabled && !existing.checked) {
+      existing.checked = true;
+      existing.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    return existing;
+  }
+  // Фото уже зарегистрировано на сервере (registerMedia с sku/названием и
+  // подтверждёнными правами), но список материалов app.js ещё не обновился.
+  // Локальная карточка честно отражает серверное состояние; при следующем
+  // обновлении раздела её заменит серверная (см. pruneSyntheticProductOptions),
+  // а привязка всё равно перепроверяется сервером на bind/preflight.
+  const slot = q(".generation-intake-v4__product-items", state.shell);
+  const host = slot
+    || existingMediaCheckbox(form, "")?.closest?.(".options")
+    || q(".generation-intake-v4__panels", state.shell)
+    || form;
+  const option = el("div", "option generation-media-option");
+  option.dataset.paidReady = "true";
+  option.dataset.generationIntakeSynthetic = "true";
+  const label = el("label", "generation-media-option__select");
+  const input = el("input");
+  input.type = "checkbox";
+  input.name = "media_id";
+  input.value = mediaId;
+  input.checked = true;
+  input.dataset.mediaIdentityVerified = "true";
+  input.dataset.mediaRightsConfirmed = "true";
+  input.dataset.mediaSku = identity?.sku || "";
+  input.dataset.mediaProductName = identity?.product_name || "";
+  const text = el("span");
+  const caption = [identity?.sku, identity?.product_name]
+    .filter(Boolean).join(" · ");
+  text.append(
+    el("strong", "", cleanText(filename, 120) || "Новое фото товара"),
+    document.createElement("br"),
+    el("small", "muted", `фото товара${caption ? ` · ${caption}` : ""} · загружено только что`),
+  );
+  label.append(input, text);
+  option.append(label);
+  host.append(option);
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+  return input;
+}
+
+function pruneSyntheticProductOptions(form) {
+  qa('[data-generation-intake-synthetic] input[name="media_id"]', form)
+    .forEach((input) => {
+      const value = String(input.value || "");
+      const real = qa(
+        `input[name="media_id"][value="${CSS.escape(value)}"]`,
+        form,
+      ).find((candidate) => (
+        candidate !== input
+        && !candidate.closest("[data-generation-intake-synthetic]")
+      ));
+      if (!real) return;
+      if (input.checked && !real.disabled && !real.checked) {
+        real.checked = true;
+        real.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      input.closest("[data-generation-intake-synthetic]")?.remove();
+    });
+}
+
 function bindRoleAsset(form, role, mediaId) {
   const escapedRole = CSS.escape(role);
   const escapedMedia = CSS.escape(mediaId);
@@ -892,6 +1588,9 @@ function bindRoleAsset(form, role, mediaId) {
     `input[name*="${escapedRole}"][value="${escapedMedia}"]`,
     `option[data-generation-strategy-role="${escapedRole}"][value="${escapedMedia}"]`,
     `input[name="generation_strategy_source_selection"][value="${escapedMedia}"]`,
+    ...(role === "new_product_image" || role === "product_image"
+      ? [`input[name="media_id"][value="${escapedMedia}"]`]
+      : []),
   ];
   let changed = false;
   selectors.forEach((selector) => {
@@ -917,13 +1616,39 @@ function bindRoleAsset(form, role, mediaId) {
 }
 
 async function openNativeLaunch(form, handoff) {
+  const state = formStates.get(form);
+  if (state) state.phase = "review";
   form.dataset.generationIntakeV4Mode = "full";
+  form.dataset.generationIntakeV4Phase = "review";
+  form.dataset.generationIntakeV4Route = handoff.route;
+  moveProductNodes(form, state, false);
+  moveSharedBrief(form, state, "strategy_video");
   selectStrategy(form, handoff.strategy_id);
   await window.ContentEngineGenerationGuidedV4
     ?.refreshStrategyAssets?.(form);
-  handoff.assets.forEach(({ role, media_id: mediaId }) => {
-    bindRoleAsset(form, role, mediaId);
-  });
+  applyCompactPreferences(form, handoff);
+  let missing = handoff.assets.filter(
+    ({ role, media_id: mediaId }) => !bindRoleAsset(form, role, mediaId),
+  );
+  if (missing.length) {
+    // Кандидаты могли дорисоваться асинхронно после refreshStrategyAssets —
+    // одна повторная попытка с небольшой паузой.
+    await new Promise((resolve) => { setTimeout(resolve, 700); });
+    missing = missing.filter(
+      ({ role, media_id: mediaId }) => !bindRoleAsset(form, role, mediaId),
+    );
+  }
+  // Серверное ТЗ требует «Главное фото» (primary_media_id); компактная форма
+  // выбирает его автоматически — первое фото нового товара.
+  const firstProduct = handoff.assets.find(
+    ({ role }) => role === "new_product_image",
+  );
+  if (firstProduct) {
+    const primary = qa('input[name="primary_media_id"]', form).find(
+      (radio) => radio.value === firstProduct.media_id,
+    );
+    if (primary && !primary.checked && !primary.disabled) primary.click();
+  }
   q('[data-ce-v4-generation-target="media"]', form)?.click?.();
   requestAnimationFrame(() => {
     q(".generation-strategy-view", form)?.scrollIntoView?.({
@@ -931,6 +1656,7 @@ async function openNativeLaunch(form, handoff) {
       block: "start",
     });
   });
+  return missing.map(({ role }) => role);
 }
 
 function frameAsFile(frame, route) {
@@ -978,20 +1704,24 @@ async function analyzeRoute(form, route) {
     if (route === "copy_video" && metadata.duration < MIN_COPY_DURATION - 0.05) {
       throw new Error("mp4_duration_too_short");
     }
-    const storyboard = await captureStoryboard(file);
+    const storyboard = route === "copy_video"
+      ? await captureStoryboard(file)
+      : null;
     state.routes[route] = {
       ...state.routes[route],
       sourceFile: file,
       sourceMediaId: "",
       metadata,
       storyboard,
-      selectedFrameIndex: storyboard.recommendedIndex,
+      selectedFrameIndex: storyboard?.recommendedIndex ?? null,
     };
-    renderStoryboard(panel, storyboard, state.routes[route]);
+    if (storyboard) renderStoryboard(panel, storyboard, state.routes[route]);
     q(`[data-action="generation-intake-prepare-${route === "copy_video" ? "copy" : "avatar"}"]`, panel).disabled = false;
     setStatus(
       panel,
-      `${metadata.duration.toFixed(1)} с · ${metadata.width}×${metadata.height} · ${STORYBOARD_FRAME_COUNT} кадров. Выберите лучший кадр товара и продолжайте.`,
+      route === "copy_video"
+        ? `${metadata.duration.toFixed(1)} с · ${metadata.width}×${metadata.height} · ${STORYBOARD_FRAME_COUNT} кадров. Проверьте предложенный кадр исходного товара и продолжайте.`
+        : `${metadata.duration.toFixed(1)} с · ${metadata.width}×${metadata.height}. Исходный ролик готов; теперь задайте аватара фотографией или описанием.`,
       "ready",
     );
   } catch (error) {
@@ -1029,15 +1759,83 @@ async function prepareCopy(form) {
   const route = state?.routes.copy_video;
   const panel = panelFor(state, "copy_video");
   if (!state || !route || !panel || state.busy) return;
-  const productMediaIds = selectedProductMediaIds(form);
-  if (!productMediaIds.length) {
-    setStatus(panel, "Выберите хотя бы одно точное фото вашего товара.", "error");
+  const existingProductMediaIds = selectedProductMediaIds(form);
+  const productFiles = selectedProductFiles(panel);
+  const productCount = existingProductMediaIds.length + productFiles.length;
+  const recommendation = currentRecommendation(form);
+  const audio = currentAudio(panel);
+  const rights = q('[data-generation-intake-rights="copy_video"]', panel)?.checked === true;
+  const productIdentity = currentProductIdentity(form);
+  if (productCount < MIN_PRODUCT_IMAGES || productCount > MAX_PRODUCT_IMAGES) {
+    setStatus(
+      panel,
+      `Нужно выбрать от ${MIN_PRODUCT_IMAGES} до ${MAX_PRODUCT_IMAGES} фотографий одного товара. Сейчас: ${productCount}.`,
+      "error",
+    );
+    return;
+  }
+  if (!rights) {
+    setStatus(panel, "Подтвердите право использовать ролик и фотографии товара.", "error");
+    return;
+  }
+  if (!recommendation) {
+    setStatus(panel, "Добавьте рекомендацию или явно примените предложенный базовый вариант.", "error");
+    return;
+  }
+  if (recommendation.length > BRIEF_LIMIT) {
+    setStatus(panel, `Сократите рекомендацию до ${BRIEF_LIMIT} символов. Текст не был обрезан.`, "error");
+    return;
+  }
+  if (audio === null) {
+    setStatus(panel, "Явно выберите: со звуком или без звука.", "error");
+    return;
+  }
+  if (productFiles.length && !productIdentity) {
+    setStatus(
+      panel,
+      "Для новых фотографий товара нужны точные артикул и название текущего товара. Заполните поля «Артикул (SKU) вашего товара» и «Название товара» в этой форме.",
+      "error",
+    );
     return;
   }
   state.busy = true;
-  setStatus(panel, "Загружаем MP4 и готовим original-product reference…", "busy");
+  setStatus(panel, "Проверяем фотографии, загружаем MP4 и готовим кадр исходного товара…", "busy");
   try {
+    const fileHashes = [];
+    for (const file of productFiles) {
+      await assertImage(file);
+      fileHashes.push(await sha256Hex(file));
+    }
+    if (new Set(fileHashes).size !== fileHashes.length) {
+      throw new Error("duplicate_product_images");
+    }
     const sourceMediaId = await ensureSourceMedia(route);
+    const uploadedProductMediaIds = [];
+    for (let index = 0; index < productFiles.length; index += 1) {
+      setStatus(
+        panel,
+        `Загружаем фото товара ${index + 1} из ${productFiles.length}…`,
+        "busy",
+      );
+      uploadedProductMediaIds.push(await uploadProjectMedia(
+        productFiles[index],
+        "product_photo",
+        productIdentity,
+      ));
+    }
+    uploadedProductMediaIds.forEach((mediaId, index) => {
+      ensureProductCheckbox(
+        form,
+        state,
+        mediaId,
+        productIdentity,
+        productFiles[index]?.name,
+      );
+    });
+    const productMediaIds = [
+      ...existingProductMediaIds,
+      ...uploadedProductMediaIds,
+    ];
     let originalProductMediaId = "";
     if (route.storyboard && Number.isInteger(route.selectedFrameIndex)) {
       const frame = route.storyboard.frames.find((item) => item.index === route.selectedFrameIndex);
@@ -1068,31 +1866,60 @@ async function prepareCopy(form) {
       product_media_ids: productMediaIds,
       reference_media_ids: [],
       source_url: currentSourceUrl(panel),
-      description: currentDescription(panel),
-      preserve: ["actions", "camera", "timing", "editing", "audio"],
+      description: recommendation,
+      recommendation_source: recommendationSource(form),
+      requested_model: currentRequestedModel(panel),
+      audio,
+      preserve: [
+        "actions",
+        "camera",
+        "timing",
+        "editing",
+        ...(audio ? ["audio"] : []),
+      ],
       replace: ["product"],
       assets,
       launch_enabled: Boolean(originalProductMediaId),
     };
     persistHandoff(form, handoff);
-    if (originalProductMediaId) {
+    const missingRoles = await openNativeLaunch(form, handoff);
+    const missingLabels = [...new Set(missingRoles || [])]
+      .map((role) => ASSET_ROLE_LABELS[role] || role);
+    if (missingLabels.length) {
+      setStatus(
+        panel,
+        `Материалы загружены, но не привязались автоматически: ${missingLabels.join(", ")}. Отметьте их вручную в шаге «Исходники» — без этого запуск заблокирован.`,
+        "warning",
+      );
+    } else if (originalProductMediaId) {
       setStatus(
         panel,
         "Product Swap подготовлен. Проверьте привязанные материалы, стоимость и запустите через действующий creator-generate.",
         "success",
       );
-      await openNativeLaunch(form, handoff);
     } else {
       setStatus(
         panel,
         "MP4 и товар загружены. В полном Product Swap выберите отдельное фото исходного товара — без него платный запуск заблокирован.",
         "warning",
       );
-      await openNativeLaunch(form, handoff);
     }
   } catch (error) {
     console.warn("Copy Product Swap preparation failed", error);
-    setStatus(panel, "Не удалось подготовить материалы. Ничего не запущено и не оплачено.", "error");
+    const messages = {
+      duplicate_product_images: "Удалите повторяющиеся фотографии товара: нужны разные ракурсы.",
+      image_required: "Выберите корректные фотографии товара.",
+      image_too_large: "Одна из фотографий больше 16 МБ.",
+      image_type_invalid: "Поддерживаются только JPG, PNG и WEBP.",
+      image_signature_invalid: "Расширение одной из фотографий не совпадает с её содержимым.",
+      image_dimensions_too_small: "Фотография должна быть не меньше 256×256 пикселей.",
+      source_media_required: "Сначала выберите и разберите исходный MP4.",
+    };
+    setStatus(
+      panel,
+      messages[error?.message] || "Не удалось подготовить материалы. Ничего не запущено и не оплачено.",
+      "error",
+    );
   } finally {
     state.busy = false;
   }
@@ -1103,15 +1930,45 @@ async function prepareAvatar(form) {
   const route = state?.routes.avatar_video;
   const panel = panelFor(state, "avatar_video");
   if (!state || !route || !panel || state.busy) return;
-  const avatarWishes = currentAvatarWishes(panel);
-  if (avatarWishes.length < 10) {
+  const mode = avatarInputMode(panel);
+  const avatarWishes = mode === "description" ? currentAvatarWishes(panel) : "";
+  const avatarFile = mode === "photo" ? selectedAvatarFile(panel) : null;
+  const existingAvatarMediaId = mode === "photo" ? selectedAvatarMediaId(panel) : "";
+  const recommendation = currentRecommendation(form);
+  const rights = q('[data-generation-intake-rights="avatar_video"]', panel)?.checked === true;
+  const likenessConsent = q("[data-generation-intake-avatar-consent]", panel)?.checked === true;
+  if (!rights) {
+    setStatus(panel, "Подтвердите право использовать исходный ролик.", "error");
+    return;
+  }
+  if (!recommendation) {
+    setStatus(panel, "Добавьте рекомендацию или явно примените предложенный базовый вариант.", "error");
+    return;
+  }
+  if (recommendation.length > BRIEF_LIMIT) {
+    setStatus(panel, `Сократите рекомендацию до ${BRIEF_LIMIT} символов. Текст не был обрезан.`, "error");
+    return;
+  }
+  if (mode === "photo" && Boolean(avatarFile) === Boolean(existingAvatarMediaId)) {
+    setStatus(panel, "Выберите ровно одно фото аватара: новое или уже сохранённое в проекте.", "error");
+    return;
+  }
+  if (mode === "photo" && !likenessConsent) {
+    setStatus(panel, "Подтвердите согласие на использование внешности.", "error");
+    return;
+  }
+  if (mode === "description" && avatarWishes.length < 10) {
     setStatus(panel, "Опишите аватара хотя бы одним понятным предложением.", "error");
     return;
   }
   state.busy = true;
-  setStatus(panel, "Сохраняем MP4 и подготовку аватара…", "busy");
+  setStatus(panel, "Проверяем аватара и сохраняем подготовку…", "busy");
   try {
+    if (avatarFile) await assertImage(avatarFile);
     const sourceMediaId = await ensureSourceMedia(route);
+    const avatarMediaId = avatarFile
+      ? await uploadProjectMedia(avatarFile, "creator_reference")
+      : existingAvatarMediaId;
     const handoff = {
       version: HANDOFF_VERSION,
       route: "avatar_video",
@@ -1119,12 +1976,20 @@ async function prepareAvatar(form) {
       strategy_id: "character_performance",
       source_media_id: sourceMediaId,
       original_product_media_id: "",
+      avatar_media_id: avatarMediaId,
+      avatar_mode: mode,
       product_media_ids: [],
-      reference_media_ids: [],
+      reference_media_ids: avatarMediaId ? [avatarMediaId] : [],
       source_url: currentSourceUrl(panel),
-      description: currentDescription(panel),
+      description: recommendation,
+      recommendation_source: recommendationSource(form),
       avatar_wishes: avatarWishes,
-      assets: [{ role: "source_video", media_id: sourceMediaId }],
+      assets: [
+        { role: "source_video", media_id: sourceMediaId },
+        ...(avatarMediaId
+          ? [{ role: "avatar_image", media_id: avatarMediaId }]
+          : []),
+      ],
       provider_feature_flag: CHARACTER_PERFORMANCE_FEATURE,
       launch_enabled: false,
     };
@@ -1136,7 +2001,19 @@ async function prepareAvatar(form) {
     );
   } catch (error) {
     console.warn("Avatar preparation failed", error);
-    setStatus(panel, "Не удалось сохранить подготовку аватара. Ничего не запущено и не оплачено.", "error");
+    const messages = {
+      image_required: "Выберите корректное фото аватара.",
+      image_too_large: "Фото аватара больше 16 МБ.",
+      image_type_invalid: "Фото аватара должно быть JPG, PNG или WEBP.",
+      image_signature_invalid: "Расширение фото не совпадает с его содержимым.",
+      image_dimensions_too_small: "Фото аватара должно быть не меньше 256×256 пикселей.",
+      source_media_required: "Сначала выберите и разберите исходный MP4.",
+    };
+    setStatus(
+      panel,
+      messages[error?.message] || "Не удалось сохранить подготовку аватара. Ничего не запущено и не оплачено.",
+      "error",
+    );
   } finally {
     state.busy = false;
   }
@@ -1202,7 +2079,12 @@ async function uploadStrategySources(form) {
 }
 
 function setRoute(form, state, route) {
+  if (!DEFAULT_RECOMMENDATIONS[route] && route !== "strategy_video") return;
   state.route = route;
+  state.phase = "edit";
+  form.dataset.generationIntakeV4Route = route;
+  form.dataset.generationIntakeV4Phase = "edit";
+  clearSpendConfirmation(form);
   qa("[data-generation-intake-route]", state.shell).forEach((button) => {
     const selected = button.dataset.generationIntakeRoute === route;
     button.classList.toggle("is-selected", selected);
@@ -1216,10 +2098,20 @@ function setRoute(form, state, route) {
   const compact = route !== "strategy_video";
   form.dataset.generationIntakeV4Mode = compact ? "compact" : "full";
   moveProductNodes(form, state, route === "copy_video");
-  if (route === "strategy_video") {
-    selectStrategy(form, STRATEGY_AUTHORITY_STRATEGY);
-  }
+  moveSharedBrief(form, state, route);
+  qa("[data-generation-intake-panel]", state.shell).forEach((panel) => {
+    setPanelControlsActive(panel, panel.dataset.generationIntakePanel === route);
+  });
+  // Переключение вкладки маршрута не выбирает стратегию: выбор необратим и
+  // происходит только по кнопкам «Подготовить…» (openNativeLaunch) или
+  // загрузки исходников стратегии. Так dry-run остаётся доступным, а платная
+  // стратегия не активируется случайным кликом по вкладке.
+  if (route === "copy_video") prefillIdentityFields(form, state);
   refreshVideoSelects(form, state);
+  refreshAvatarSelect(form, state);
+  refreshModelSelects(form, state);
+  refreshProductSelectionCount(form, state);
+  refreshRecommendationUi(form, state);
 }
 
 function bind(form, state) {
@@ -1235,6 +2127,20 @@ function bind(form, state) {
     if (action === "generation-intake-prepare-copy") void prepareCopy(form);
     if (action === "generation-intake-prepare-avatar") void prepareAvatar(form);
     if (action === "generation-intake-upload-strategy") void uploadStrategySources(form);
+    if (action === "generation-intake-apply-recommendation") {
+      const route = String(event.target.closest?.("[data-route]")?.dataset.route || state.route);
+      const brief = form.elements?.brief;
+      if (
+        brief instanceof HTMLTextAreaElement
+        && !String(brief.value || "").trim()
+        && DEFAULT_RECOMMENDATIONS[route]
+      ) {
+        brief.value = DEFAULT_RECOMMENDATIONS[route];
+        brief.dispatchEvent(new Event("input", { bubbles: true }));
+        brief.dispatchEvent(new Event("change", { bubbles: true }));
+        refreshRecommendationUi(form, state);
+      }
+    }
     const frameButton = event.target.closest?.("[data-frame-index]");
     if (frameButton) {
       const route = state.route;
@@ -1250,6 +2156,13 @@ function bind(form, state) {
     if (input) {
       const route = input.closest("[data-generation-intake-panel]")?.dataset.generationIntakePanel;
       if (route && state.routes[route]) {
+        const existing = q(
+          `[data-generation-intake-existing-video="${CSS.escape(route)}"]`,
+          panelFor(state, route),
+        );
+        if (input.files?.length && existing instanceof HTMLSelectElement) {
+          existing.value = "";
+        }
         state.routes[route] = {
           sourceFile: null,
           sourceMediaId: "",
@@ -1261,9 +2174,78 @@ function bind(form, state) {
           ? "generation-intake-prepare-copy"
           : "generation-intake-prepare-avatar";
         q(`[data-action="${prepareAction}"]`, panelFor(state, route)).disabled = true;
-        q("[data-generation-intake-storyboard]", panelFor(state, route)).hidden = true;
+        const storyboard = q("[data-generation-intake-storyboard]", panelFor(state, route));
+        if (storyboard) storyboard.hidden = true;
         setStatus(panelFor(state, route), "MP4 выбран. Нажмите «Разобрать MP4».", "neutral");
       }
+    }
+
+    const existingVideo = event.target.closest?.("[data-generation-intake-existing-video]");
+    if (existingVideo instanceof HTMLSelectElement) {
+      const route = existingVideo.dataset.generationIntakeExistingVideo;
+      const panel = panelFor(state, route);
+      const fileInput = q('input[data-generation-intake-mp4="single"]', panel);
+      if (existingVideo.value && fileInput instanceof HTMLInputElement) fileInput.value = "";
+      if (route && state.routes[route]) {
+        state.routes[route] = {
+          sourceFile: null,
+          sourceMediaId: "",
+          metadata: null,
+          storyboard: null,
+          selectedFrameIndex: null,
+        };
+        const prepareAction = route === "copy_video"
+          ? "generation-intake-prepare-copy"
+          : "generation-intake-prepare-avatar";
+        q(`[data-action="${prepareAction}"]`, panel).disabled = true;
+        const storyboard = q("[data-generation-intake-storyboard]", panel);
+        if (storyboard) storyboard.hidden = true;
+        setStatus(
+          panel,
+          existingVideo.value
+            ? "Ролик проекта выбран. Нажмите «Разобрать MP4»."
+            : "Выберите исходный MP4.",
+          "neutral",
+        );
+      }
+    }
+
+    if (event.target.closest?.('[data-generation-intake-image="product"], input[name="media_id"]')) {
+      refreshProductSelectionCount(form, state);
+    }
+
+    const avatarMode = event.target.closest?.("[data-generation-intake-avatar-mode]");
+    if (avatarMode) syncAvatarMode(panelFor(state, "avatar_video"));
+
+    const avatarFile = event.target.closest?.('[data-generation-intake-image="avatar"]');
+    if (avatarFile instanceof HTMLInputElement && avatarFile.files?.length) {
+      const select = q("[data-generation-intake-existing-avatar]", panelFor(state, "avatar_video"));
+      if (select instanceof HTMLSelectElement) select.value = "";
+    }
+    const existingAvatar = event.target.closest?.("[data-generation-intake-existing-avatar]");
+    if (existingAvatar instanceof HTMLSelectElement && existingAvatar.value) {
+      const file = q('[data-generation-intake-image="avatar"]', panelFor(state, "avatar_video"));
+      if (file instanceof HTMLInputElement) file.value = "";
+    }
+
+    const model = event.target.closest?.('[data-generation-intake-field="model"]');
+    if (model instanceof HTMLSelectElement) state.requestedModel = model.value;
+
+    if (event.target === form.elements?.brief) refreshRecommendationUi(form, state);
+  });
+
+  state.shell.addEventListener("input", (event) => {
+    if (event.target === form.elements?.brief) refreshRecommendationUi(form, state);
+    const identityField = event.target?.dataset?.generationIntakeField;
+    if (identityField === "sku" || identityField === "product_name") {
+      syncIdentityToForm(
+        form,
+        identityField,
+        cleanText(event.target.value, identityField === "sku" ? 120 : 180),
+      );
+    }
+    if (identityField === "product_category") {
+      syncIdentityToForm(form, "product_category", String(event.target.value || ""));
     }
   });
 }
@@ -1272,7 +2254,22 @@ function mount(form) {
   if (!(form instanceof HTMLFormElement)) return;
   const existing = formStates.get(form);
   if (existing?.shell?.isConnected) {
+    if (existing.shell.parentElement !== form) {
+      const guidedShell = q("[data-ce-v4-generation-guided-shell]", form);
+      if (guidedShell?.parentElement === form) guidedShell.before(existing.shell);
+      else form.prepend(existing.shell);
+    }
     refreshVideoSelects(form, existing);
+    refreshAvatarSelect(form, existing);
+    refreshModelSelects(form, existing);
+    refreshProductSelectionCount(form, existing);
+    if (form.dataset.generationIntakeV4Mode === "compact") {
+      refreshRecommendationUi(form, existing);
+      if (existing.route === "copy_video") moveProductNodes(form, existing, true);
+    } else if (existing.phase === "review") {
+      moveProductNodes(form, existing, false);
+      moveSharedBrief(form, existing, "strategy_video");
+    }
     return;
   }
   ensureStyle();
@@ -1280,15 +2277,33 @@ function mount(form) {
   q("[data-generation-intake-v2]", form)?.remove();
   q("[data-generation-intake-v3]", form)?.remove();
   const shell = shellNode();
-  const strategyView = q(".generation-strategy-view", form);
-  const modePanel = q('[data-ce-v4-generation-panel="mode"]', form) || strategyView?.parentElement || form;
-  if (strategyView) strategyView.before(shell);
-  else modePanel.prepend(shell);
+  const guidedShell = q("[data-ce-v4-generation-guided-shell]", form);
+  if (guidedShell?.parentElement === form) guidedShell.before(shell);
+  else form.prepend(shell);
+  const briefControl = form.elements?.brief;
+  const briefField = briefControl instanceof HTMLTextAreaElement
+    ? briefControl.closest("label.field") || briefControl.parentElement
+    : null;
+  const briefOrigin = document.createComment("generation-intake-v4-brief-origin");
+  if (briefField instanceof HTMLElement) briefField.before(briefOrigin);
   const state = {
     shell,
     route: "copy_video",
+    phase: "edit",
     busy: false,
+    requestedModel: "",
     productNodes: [],
+    briefControl,
+    briefField,
+    briefOrigin: briefField instanceof HTMLElement ? briefOrigin : null,
+    briefOriginal: briefField instanceof HTMLElement
+      ? {
+        label: q("#generation-brief-label", briefField)?.textContent || "",
+        hint: q("#generation-brief-hint", briefField)?.textContent || "",
+        placeholder: briefControl?.placeholder || "",
+        maxLength: briefControl?.maxLength,
+      }
+      : null,
     routes: {
       copy_video: {
         sourceFile: null,
@@ -1325,6 +2340,8 @@ function scheduleMount() {
 
 window.addEventListener("hashchange", scheduleMount);
 window.addEventListener("contentengine:rendered", scheduleMount);
+window.addEventListener("contentengine:generation-research-preset-applied", scheduleMount);
+window.addEventListener("contentengine:generation-research-preset-opt-out", scheduleMount);
 new MutationObserver(scheduleMount).observe(document.documentElement, {
   childList: true,
   subtree: true,

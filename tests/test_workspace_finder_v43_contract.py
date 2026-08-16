@@ -52,6 +52,33 @@ def test_finder_text_and_controls_remain_readable_and_clickable() -> None:
         assert marker in STYLES
 
 
+def test_finder_toolbar_commands_navigate_explicitly_and_report_empty_view_state() -> None:
+    toolbar = _between(SCRIPT, "function buildToolbar()", "function buildFolderSearch()")
+    app_script = (APP / "app.js").read_text(encoding="utf-8")
+    status = _between(SCRIPT, "function syncFinderControlStatus()", "function applyMode()")
+    for marker in (
+        'browse.dataset.ceV4FinderMode = "browse"',
+        'organize.dataset.ceV4FinderMode = "organize"',
+        'browse.dataset.action = "finder-mode"',
+        'organize.dataset.action = "finder-mode"',
+        'list.dataset.action = "finder-view"',
+        'upload.dataset.action = "finder-upload"',
+        'upload.dataset.ceV4FinderUpload = "true"',
+    ):
+        assert marker in toolbar
+    assert "setView: (value, control = null)" in SCRIPT
+    assert "window.requestAnimationFrame(settle)" in SCRIPT
+    assert 'window.ContentEngineFinderV4?.setView?.(control.dataset.ceV4FinderView, control)' in app_script
+    assert 'if (action === "finder-mode")' in app_script
+    assert 'if (action === "finder-upload")' in app_script
+    assert 'controlStatus.setAttribute("aria-live", "polite")' in toolbar
+    assert 'q(".workspace-board__empty", runtime.board)' in status
+    assert "Организация включена" in status
+    assert "ce-v4-finder-control-status" in STYLES
+    assert "ce-v4-finder-empty-mode" in STYLES
+    assert '.workspace-board[data-ce-v4-finder-view="list"] [data-ce-v4-finder-view="list"]' in STYLES
+
+
 def test_mobile_sidebar_has_an_accessible_toggle_and_close_contract() -> None:
     for marker in (
         'create("button", "ce-v4-finder-sidebar-toggle"',
@@ -116,6 +143,7 @@ def test_finder_inline_surfaces_do_not_overflow_a_320px_viewport() -> None:
         "max-width: 100%",
         ".workspace-board__layout > * { max-width: 100%; }",
         ".ce-v4-finder-toolbar__controls { overflow-x: auto; }",
+        "@container ce-v4-finder-host (max-width: 1180px)",
         "overflow-wrap: anywhere",
         "@container ce-v4-finder-host (max-width: 480px)",
         "grid-template-columns: 1fr !important",

@@ -23,9 +23,11 @@ def test_finder_columns_uses_the_existing_selection_and_open_owner() -> None:
     assert 'const FINDER_VIEWS = new Set(["grid", "list", "columns"])' in FINDER
     toolbar = _between(FINDER, "function buildToolbar()", "\nfunction buildFolderSearch()")
     assert 'columns.dataset.ceV4FinderView = "columns"' in toolbar
+    assert toolbar.count('dataset.action = "finder-view"') == 3
     assert 'columns.textContent = "Колонки"' in toolbar
     assert 'quickLook.dataset.ceV4FinderQuicklook = "true"' in toolbar
-    assert "rememberFinderView(button.dataset.ceV4FinderView)" in toolbar
+    assert "setView: (value, control = null)" in FINDER
+    assert "rememberFinderView(value)" in FINDER
 
     selection = _between(FINDER, "function selectCard(", "\nfunction finderCardTitle(")
     assert "syncSelectionDom();" in selection
