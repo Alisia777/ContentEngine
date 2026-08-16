@@ -907,6 +907,126 @@ def test_safe_nonterminal_status_advances_polling_independently_but_ambiguity_ha
     )
 
 
+def test_resolved_reconciliation_unblocks_sequential_starts_without_second_post() -> None:
+    result = _evaluate(
+        """
+        (() => {
+          const makeAmbiguous = () => {
+            const reserved = reserveStart(confirmAll(), 0);
+            const state = reserved.rows.get(sourceId(0)).runtime_state;
+            return update(reserved, 0, {
+              type: runtime.GENERATION_STRATEGY_RUNTIME_ACTIONS.startResolved,
+              fingerprint: state.fingerprint,
+              start_context_fingerprint: state.start_context_fingerprint,
+              idempotency_key: reserved.rows.get(sourceId(0))
+                .idempotency_keys.start,
+              response: reconciliationRequiredResponse(0),
+            });
+          };
+          const resolveIncident = (queue, response) => {
+            const state = queue.rows.get(sourceId(0)).runtime_state;
+            return update(queue, 0, {
+              type: runtime.GENERATION_STRATEGY_RUNTIME_ACTIONS.statusResolved,
+              fingerprint: state.fingerprint,
+              start_context_fingerprint: state.start_context_fingerprint,
+              generation_job_id: state.status.job.id,
+              response,
+            });
+          };
+
+          const attachedResponse = reconciliationRequiredResponse(0);
+          attachedResponse.job.status = 'submitted';
+          attachedResponse.job.provider_status = 'submitted';
+          attachedResponse.job.provider_task_id = 'runway-task-reconciled-1';
+          attachedResponse.job.actual_cost_minor = 192;
+          attachedResponse.job.updated_at = '2026-08-14T08:05:00.000Z';
+          attachedResponse.reconciliation = {
+            required: false,
+            incident_id: uuid(65, 0),
+            resolution: 'provider_task_attached',
+            reconciled_at: '2026-08-14T08:05:00.000Z',
+          };
+          attachedResponse.contract.poll_provider_allowed = true;
+
+          const notSubmittedResponse = reconciliationRequiredResponse(0);
+          notSubmittedResponse.job.status = 'failed';
+          notSubmittedResponse.job.updated_at = '2026-08-14T08:05:00.000Z';
+          notSubmittedResponse.error = {
+            code: 'provider_submission_not_created',
+            provider_billing_outcome: 'unknown',
+          };
+          notSubmittedResponse.reconciliation = {
+            required: false,
+            incident_id: uuid(65, 0),
+            resolution: 'confirmed_not_submitted',
+            reconciled_at: '2026-08-14T08:05:00.000Z',
+          };
+
+          const unresolvedOnlyResponse = reconciliationRequiredResponse(0);
+          unresolvedOnlyResponse.reconciliation = null;
+          const unresolvedReserved = reserveStart(confirmAll(), 0);
+          const unresolvedState = unresolvedReserved.rows.get(sourceId(0))
+            .runtime_state;
+          const unresolvedOnly = update(unresolvedReserved, 0, {
+            type: runtime.GENERATION_STRATEGY_RUNTIME_ACTIONS.startResolved,
+            fingerprint: unresolvedState.fingerprint,
+            start_context_fingerprint: unresolvedState.start_context_fingerprint,
+            idempotency_key: unresolvedReserved.rows.get(sourceId(0))
+              .idempotency_keys.start,
+            response: unresolvedOnlyResponse,
+          });
+
+          const blockedBefore =
+            queueContract.planGenerationStrategyQueueSequentialStarts(
+              makeAmbiguous(),
+            );
+          const attached = resolveIncident(makeAmbiguous(), attachedResponse);
+          const attachedPlan =
+            queueContract.planGenerationStrategyQueueSequentialStarts(attached);
+          const notSubmitted = resolveIncident(
+            makeAmbiguous(),
+            notSubmittedResponse,
+          );
+          const notSubmittedPlan =
+            queueContract.planGenerationStrategyQueueSequentialStarts(
+              notSubmitted,
+            );
+          const unresolvedPlan =
+            queueContract.planGenerationStrategyQueueSequentialStarts(
+              unresolvedOnly,
+            );
+          return {
+            blockedBefore,
+            attachedPlan,
+            notSubmittedPlan,
+            unresolvedPlan,
+            attachedStatus: attached.rows.get(sourceId(0)).runtime_state.status,
+            notSubmittedStatus: notSubmitted.rows.get(sourceId(0))
+              .runtime_state.status,
+          };
+        })()
+        """
+    )
+    assert result["blockedBefore"]["plan"]["blocker"] == "reconciliation_required"
+    # An ambiguous dispatch with no incident record yet stays frozen.
+    assert result["unresolvedPlan"]["plan"]["blocker"] == "reconciliation_required"
+    # A resolved incident (either verdict) releases the queue for the next
+    # sequential start while the ambiguous dispatch record stays immutable.
+    for plan_name in ("attachedPlan", "notSubmittedPlan"):
+        plan = result[plan_name]["plan"]
+        assert plan["state"] == "ready"
+        assert plan["blocker"] is None
+        assert plan["next"]["idempotency_key"] == "strategy.start:row-2"
+    assert result["attachedStatus"]["dispatch"]["outcome"] == "ambiguous"
+    assert result["attachedStatus"]["reconciliation"]["required"] is False
+    assert result["attachedStatus"]["reconciliation"]["resolution"] == (
+        "provider_task_attached"
+    )
+    assert result["notSubmittedStatus"]["reconciliation"]["resolution"] == (
+        "confirmed_not_submitted"
+    )
+
+
 def test_wrong_start_key_invalidates_only_target_and_never_reserves_another_row() -> None:
     result = _evaluate(
         """

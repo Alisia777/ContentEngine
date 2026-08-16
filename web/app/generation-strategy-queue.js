@@ -670,8 +670,12 @@ function sequentialStartPlan(queue) {
   }
   const reconciliationBlocked = queue.source_order.find((sourceMediaId) => {
     const status = queue.rows.get(sourceMediaId).runtime_state.status;
+    // Ambiguous dispatch keeps the queue frozen only while the incident is
+    // unresolved: a reconciliation record with required === false is the
+    // owner/admin verdict that settles the sole paid POST for this row.
     return status?.reconciliation?.required === true ||
-      status?.dispatch?.outcome === "ambiguous";
+      (status?.dispatch?.outcome === "ambiguous" &&
+        status?.reconciliation?.required !== false);
   });
   if (reconciliationBlocked) {
     return deepFreeze({

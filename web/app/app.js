@@ -1170,6 +1170,7 @@ const state = {
   realGenerationResults: new Map(),
   generationStrategyRuntimes: new Map(),
   generationStrategyRequestKeys: new Map(),
+  generationStrategyStartRetries: new Map(),
   generationStrategyActiveSourceMediaId: "",
   generationStrategyStartInFlight: false,
   generationStrategyRequestId: 0,
@@ -15205,7 +15206,7 @@ function generationActionsMarkup(details) {
       ? "Например: Google operations, 16.07 14:35"
       : "Например: Runway dashboard, 16.07 14:35";
     return `
-      <form class="generation-reconciliation-form" data-job-id="${escapeHtml(details.jobId)}" data-incident-id="${escapeHtml(details.reconciliationIncidentId)}" data-provider="${provider}" novalidate>
+      <form class="generation-reconciliation-form" data-job-id="${escapeHtml(details.jobId)}" data-incident-id="${escapeHtml(details.reconciliationIncidentId)}" data-provider="${provider}"${details.strategy ? ' data-strategy-job="true"' : ""} novalidate>
         <div class="generation-reconciliation-heading">
           <strong>Сверить с панелью ${providerLabel}</strong>
           <span>Проверяйте только ${operationLabel}, созданный рядом со временем этого запуска. Портал дополнительно сверит ID, статус и createdAt через API.</span>
@@ -15235,6 +15236,18 @@ function generationActionsMarkup(details) {
     `;
   }
   if (["succeeded", "completed"].includes(details.status)) {
+    // Готовые стратегии выдают MP4 только через защищённое хранилище:
+    // легаси-действие 'status' у Edge отвечает 503 на recipe-модель, поэтому
+    // карточка стратегии никогда не рендерит легаси-кнопки.
+    if (details.strategy) {
+      return `
+        <div class="generation-result-actions">
+          <button class="btn btn-secondary btn-small" type="button" data-action="check-generation-strategy" data-output-action="preview" data-job-id="${escapeHtml(details.jobId)}">Показать видео</button>
+          <button class="btn btn-small" type="button" data-action="check-generation-strategy" data-output-action="download" data-job-id="${escapeHtml(details.jobId)}">Скачать MP4</button>
+          <a class="btn btn-secondary btn-small" href="#/workspace/review">Проверить контент</a>
+        </div>
+      `;
+    }
     const reviewAction = details.photo
       ? '<a class="btn btn-secondary btn-small" href="#/workspace/review">Проверить контент</a>'
       : "";
@@ -15251,6 +15264,9 @@ function generationActionsMarkup(details) {
     return canRepeat
       ? `<div class="generation-result-actions"><button class="btn btn-secondary btn-small" type="button" data-action="repeat-real-generation" data-job-id="${escapeHtml(details.jobId)}">Создать новый вариант</button></div>`
       : "";
+  }
+  if (details.strategy) {
+    return `<div class="generation-result-actions"><button class="btn btn-secondary btn-small" type="button" data-action="check-generation-strategy" data-output-action="status" data-job-id="${escapeHtml(details.jobId)}">Проверить сейчас</button></div>`;
   }
   return `<div class="generation-result-actions"><button class="btn btn-secondary btn-small" type="button" data-action="check-real-generation" data-output-action="status" data-job-id="${escapeHtml(details.jobId)}">Проверить сейчас</button></div>`;
 }
@@ -15280,6 +15296,9 @@ function realGenerationJobsFromBatches(batches = listFrom(state.sections.generat
     .filter((details) =>
       details.real
       && details.jobId
+      // Строки стратегий опрашиваются только бесплатным strategy_status:
+      // легаси-действие 'status' отвечает на них 503 generation_unavailable.
+      && !details.strategy
       && !details.reconciliationRequired
       && REAL_GENERATION_ACTIVE_STATUSES.has(details.status)
     );
@@ -15292,6 +15311,7 @@ function realGenerationJobsFromBatches(batches = listFrom(state.sections.generat
       !job
       || !jobId
       || knownJobIds.has(jobId)
+      || cached?.strategy === true
       || cachedProjectId !== projectId
       || normalizeBoolean(job.reconciliation_required)
       || !REAL_GENERATION_ACTIVE_STATUSES.has(status)
@@ -15421,6 +15441,9 @@ function resumeGeneratedVideoQaRecovery() {
   ).map(generationBatchDetails).filter((details) => (
     details.real
     && !details.photo
+    // Легаси-восстановление статуса не касается стратегий: их результат
+    // читается через strategy_status и защищённое хранилище, а не 'status'.
+    && !details.strategy
     && ["succeeded", "completed"].includes(details.status)
     && contentReviewUuid(details.jobId)
     && !state.realGenerationResults.has(details.jobId)
@@ -15638,6 +15661,118 @@ function trustedCachedGenerationUrl(jobId) {
   return isTrustedGenerationDownload(cached.signedUrl) ? cached.signedUrl : "";
 }
 
+function generationStrategyArchiveStatusRequest(jobId, projectId) {
+  const organizationId = String(
+    state.api?.organizationId || state.bootstrap?.organization?.id || "",
+  ).trim().toLowerCase();
+  if (
+    !contentReviewUuid(jobId)
+    || !contentReviewUuid(projectId)
+    || !contentReviewUuid(organizationId)
+  ) return null;
+  return {
+    action: "strategy_status",
+    organization_id: organizationId,
+    project_id: projectId,
+    generation_job_id: jobId,
+  };
+}
+
+async function requestGenerationStrategyArchiveStatus(jobId) {
+  const normalizedJobId = String(jobId || "").trim().toLowerCase();
+  const projectId = currentWorkspaceProjectId();
+  const request = generationStrategyArchiveStatusRequest(
+    normalizedJobId,
+    projectId,
+  );
+  if (!request || !state.api) {
+    throw new CreatorApiError("Не удалось определить платную задачу стратегии. Обновите раздел генерации.", {
+      code: "generation_strategy_status_request_invalid",
+    });
+  }
+  // Бесплатный strategy_status — единственный опрос для стратегий: легаси
+  // 'status' построен на модели каталога и отвечает 503 на recipe-задачи.
+  const raw = await state.api.generationStrategyStatus(request);
+  applyGenerationStrategyArchiveStatus(normalizedJobId, raw, { projectId });
+  return raw;
+}
+
+function applyGenerationStrategyArchiveStatus(jobId, raw, options = {}) {
+  const job = raw?.job && typeof raw.job === "object" ? raw.job : null;
+  if (!job || String(job.id || "") !== String(jobId || "")) return;
+  const reconciliation = raw.reconciliation && typeof raw.reconciliation === "object"
+    ? raw.reconciliation
+    : null;
+  const output = raw.output && typeof raw.output === "object" ? raw.output : null;
+  const previous = state.realGenerationResults.get(jobId);
+  state.realGenerationResults.set(jobId, {
+    strategy: true,
+    job: {
+      id: String(job.id),
+      batch_id: String(job.batch_id || ""),
+      project_id: String(job.project_id || ""),
+      status: String(job.status || "queued"),
+      provider: "runway",
+      estimated_cost_minor: job.estimated_cost_minor,
+      actual_cost_minor: job.actual_cost_minor,
+      output_media_id: String(output?.media_id || ""),
+      failure_code: String(raw.error?.code || ""),
+      reconciliation_required: reconciliation?.required === true,
+      reconciliation_incident_id: String(reconciliation?.incident_id || ""),
+      reconciliation_required_at: String(reconciliation?.required_at || ""),
+      reconciliation_reason_code: String(reconciliation?.reason_code || ""),
+      reconciliation_resolution: String(reconciliation?.resolution || ""),
+      can_reconcile: ["owner", "admin"].includes(
+        state.bootstrap?.membership?.role,
+      ),
+    },
+    dispatchResultId: String(raw.dispatch?.result_id || ""),
+    outputMimeType: String(output?.mime_type || ""),
+    projectId: String(options.projectId || job.project_id || "")
+      .trim().toLowerCase(),
+    signedUrl: previous?.signedUrl || "",
+    signedUrlIssuedAt: previous?.signedUrlIssuedAt || 0,
+    checkedAt: new Date().toISOString(),
+    transientError: "",
+  });
+  if (state.route.path === "/workspace/generation") {
+    renderGenerationBackgroundUpdate();
+  }
+}
+
+async function resolveGenerationStrategyOutputObjectName(outputMediaId) {
+  const normalizedMediaId = String(outputMediaId || "").trim().toLowerCase();
+  if (!contentReviewUuid(normalizedMediaId)) {
+    throw new CreatorApiError(
+      "Сервер ещё не подтвердил готовый MP4 этой стратегии. Нажмите «Проверить сейчас» немного позже.",
+      { code: "generation_strategy_output_media_missing" },
+    );
+  }
+  const raw = await withUiTimeout(
+    state.api.contentReviewCatalog({
+      limit: 50,
+      projectId: currentWorkspaceProjectId(),
+    }),
+    WORKSPACE_REQUEST_TIMEOUT_MS,
+    "content_review_catalog_timeout",
+  );
+  const catalog = normalizeContentReviewCatalog(raw?.data ?? raw ?? {});
+  const media = catalog.media.find((item) => item.id === normalizedMediaId);
+  if (
+    !media
+    || !media.isVideo
+    || media.kind !== "generated_video"
+    || String(media.mimeType || "").trim().toLowerCase() !== "video/mp4"
+    || !String(media.objectName || "").trim()
+  ) {
+    throw new CreatorApiError(
+      "Готовый MP4 стратегии не найден в защищённом каталоге. Откройте раздел «Проверка» — ролик доступен в задаче проверки.",
+      { code: "generation_strategy_output_object_unavailable" },
+    );
+  }
+  return String(media.objectName).trim();
+}
+
 function generationFailureMessage(code) {
   const messages = {
     provider_configuration_error: "Видеосервис временно не настроен. Списание не подтверждено; перед новым запуском обратитесь к руководителю.",
@@ -15741,10 +15876,13 @@ async function downloadGenerationOutput(url, jobId, photo = false) {
   if (!response.ok) {
     throw new Error("Защищённый файл временно недоступен для скачивания.");
   }
-  const blob = await response.blob();
+  deliverGenerationOutputBlob(await response.blob(), jobId, photo);
+}
+
+function deliverGenerationOutputBlob(blob, jobId, photo = false) {
   const expectedType = photo ? "image/png" : "video/mp4";
   if (
-    !blob.size
+    !blob?.size
     || (
       blob.type
       && blob.type !== expectedType
@@ -22653,6 +22791,16 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "retry-generation-strategy-start") {
+    const form = control.closest("#mock-batch-form");
+    const sourceMediaId = String(control.dataset.sourceMediaId || "")
+      .trim().toLowerCase();
+    if (form instanceof HTMLFormElement && contentReviewUuid(sourceMediaId)) {
+      await retryGenerationStrategyReservedStart(form, sourceMediaId);
+    }
+    return;
+  }
+
   if (action === "repeat-real-generation") {
     restoreRealGenerationDraft(control.dataset.jobId);
     return;
@@ -22686,6 +22834,72 @@ async function handleClick(event) {
       model: "video",
       output_media_id: mediaId,
     }, trustedCachedGenerationUrl(jobId), { force: true });
+    return;
+  }
+
+  if (action === "check-generation-strategy") {
+    const jobId = String(control.dataset.jobId || "").trim().toLowerCase();
+    const outputAction = String(control.dataset.outputAction || "status");
+    control.disabled = true;
+    const originalLabel = control.textContent;
+    control.textContent = outputAction === "download" ? "Готовим файл…" : "Проверяем…";
+    try {
+      // Только бесплатный strategy_status: легаси 'status' отвечает 503 на
+      // recipe-задачи и никогда не вызывается из карточки стратегии.
+      const result = await requestGenerationStrategyArchiveStatus(jobId);
+      const status = String(result?.job?.status || "processing").toLowerCase();
+      if (
+        ["succeeded", "completed"].includes(status)
+        && ["preview", "download"].includes(outputAction)
+      ) {
+        // strategy_status по контракту не возвращает подписанные ссылки
+        // (signed_urls_returned: false): MP4 читается напрямую из
+        // защищённого хранилища по object key каталога проверки.
+        const objectName = await resolveGenerationStrategyOutputObjectName(
+          result?.output?.media_id,
+        );
+        if (outputAction === "download") {
+          const blob = await withUiTimeout(
+            state.api.downloadPrivateObject(objectName),
+            90_000,
+            "generation_strategy_output_download_timeout",
+          );
+          deliverGenerationOutputBlob(blob, jobId, false);
+          toast("Ролик готов. Браузеру передан свежий MP4-файл из защищённого хранилища.", "success");
+        } else {
+          const signedUrls = await state.api.signedPrivateObjectUrls([objectName]);
+          const signedUrl = String(signedUrls.get(objectName) || "");
+          if (!signedUrl || !isTrustedGenerationDownload(signedUrl)) {
+            throw new Error("Защищённая ссылка на готовый ролик временно не создана. Повторите чуть позже.");
+          }
+          const cached = state.realGenerationResults.get(jobId);
+          if (cached) {
+            state.realGenerationResults.set(jobId, {
+              ...cached,
+              signedUrl,
+              signedUrlIssuedAt: Date.now(),
+            });
+          }
+          toast("Ролик готов — предпросмотр открыт в карточке запуска.", "success");
+          if (state.route.path === "/workspace/generation") {
+            renderGenerationBackgroundUpdate();
+          }
+        }
+      } else if (result?.reconciliation?.required === true) {
+        toast("Нужна ручная сверка Runway. Форма сверки открыта в этой карточке запуска.", "info");
+      } else if (status === "failed") {
+        toast(generationFailureMessage(result?.error?.code), "error");
+      } else {
+        toast(`Текущий статус генерации: ${humanGenerationStatus(status)}.`, "info");
+      }
+    } catch (error) {
+      toast(actionErrorMessage(error), "error");
+    } finally {
+      if (control.isConnected) {
+        control.disabled = false;
+        control.textContent = originalLabel;
+      }
+    }
     return;
   }
 
@@ -27515,6 +27729,7 @@ function resetGenerationStrategyQueueState({
   state.generationStrategyQueueSourceRevision = null;
   state.generationStrategyRuntimes.clear();
   state.generationStrategyRequestKeys.clear();
+  state.generationStrategyStartRetries.clear();
   state.generationStrategyActiveSourceMediaId = "";
   state.generationStrategyQueueBusy = false;
   if (clearSpecs) {
@@ -27683,7 +27898,40 @@ function syncGenerationStrategyQueueUi(form) {
     queueProjection,
     review,
   );
+  appendGenerationStrategyStartRetryActions(mount);
   return { sourceProjection, queueProjection, review };
+}
+
+function generationStrategyPendingStartRetries() {
+  const pending = [];
+  for (const [sourceMediaId, record] of state.generationStrategyStartRetries) {
+    const runtimeState = generationStrategyQueueRuntime(sourceMediaId)
+      || state.generationStrategyRuntimes.get(sourceMediaId)
+      || null;
+    if (
+      runtimeState?.phase === "start_once"
+      && runtimeState.fingerprint === record.fingerprint
+      && runtimeState.start_attempt_idempotency_key === record.idempotency_key
+    ) {
+      pending.push({ sourceMediaId, record, runtimeState });
+    } else {
+      state.generationStrategyStartRetries.delete(sourceMediaId);
+    }
+  }
+  return pending;
+}
+
+function appendGenerationStrategyStartRetryActions(mount) {
+  if (!mount) return;
+  const pending = generationStrategyPendingStartRetries();
+  if (!pending.length) return;
+  const markup = pending.map(({ sourceMediaId }) => (
+    `<section class="generation-strategy-start-retry" role="alert" data-source-media-id="${escapeHtml(sourceMediaId)}">
+      <p><strong>Сеть прервала платный старт этой строки.</strong> Резерв, её idempotency key и серверная квитанция сохранены. Повтор отправит тот же самый запрос, и сервер вернёт уже созданную задачу без второго списания.</p>
+      <button class="btn btn-secondary btn-small" type="button" data-action="retry-generation-strategy-start" data-source-media-id="${escapeHtml(sourceMediaId)}">Повторить тот же платный старт</button>
+    </section>`
+  )).join("");
+  mount.insertAdjacentHTML("beforeend", markup);
 }
 
 function generationStrategySpecRequestKey(sourceMediaId) {
@@ -28431,7 +28679,7 @@ async function startGenerationStrategyQueueSequentially(
     if (planned.plan.state !== "ready" || !planned.plan.next) {
       const blocker = planned.plan.blocker;
       const message = blocker === "reconciliation_required"
-        ? "Один запрос имеет неопределённый исход. Новые платные старты остановлены до ручной сверки."
+        ? "Один запрос имеет неопределённый исход. Новые платные старты остановлены до ручной сверки в карточке этого запуска в архиве."
         : "Предыдущий платный старт ещё не зафиксирован сервером.";
       throw new CreatorApiError(message, {
         code: `generation_strategy_queue_${blocker || "blocked"}`,
@@ -28495,7 +28743,7 @@ async function startGenerationStrategyQueueSequentially(
     const actorId = String(state.user?.id || "").trim().toLowerCase();
     const sourceRevision = state.generationStrategyQueueSourceRevision;
     const expectedFingerprint = reserved.fingerprint;
-    requestApi.bindRealGenerationClientContext(startPlan.request, {
+    const bindStartClientContext = () => requestApi.bindRealGenerationClientContext(startPlan.request, {
       expectedActorId: actorId,
       isContextCurrent: () => {
         const currentSelection = generationStrategySelectionsForForm(form)
@@ -28525,7 +28773,19 @@ async function startGenerationStrategyQueueSequentially(
           && currentRuntime.campaign_id === reserved.campaign_id;
       },
     });
-    const raw = await requestApi.startGenerationStrategy(startPlan.request);
+    bindStartClientContext();
+    let raw;
+    try {
+      raw = await requestApi.startGenerationStrategy(startPlan.request);
+    } catch (startError) {
+      raw = await retryGenerationStrategyStartAfterTransportFailure(startError, {
+        sourceMediaId,
+        requestApi,
+        reserved,
+        request: startPlan.request,
+        bindClientContext: bindStartClientContext,
+      });
+    }
     const resolvedAction = {
       type: GENERATION_STRATEGY_RUNTIME_ACTIONS.startResolved,
       fingerprint: reserved.fingerprint,
@@ -29065,7 +29325,7 @@ function syncGenerationStrategyFormReadiness(form) {
       blocker = "10 отдельных задач уже созданы или безопасно остановлены.";
       label = "Очередь из 10 роликов создана";
     } else if (paidBlocker === "reconciliation_required") {
-      blocker = "Один старт требует ручной сверки; остальные платные старты остановлены.";
+      blocker = "Один старт требует ручной сверки; остальные платные старты остановлены. Форма сверки — в карточке этого запуска в архиве ниже.";
       label = "Нужна сверка неопределённого старта";
     } else if (paidBlocker === "start_once_in_flight") {
       blocker = "Сервер ещё фиксирует предыдущий старт; повторный POST запрещён.";
@@ -29329,9 +29589,20 @@ async function submitGenerationStrategyExactTen(
       }
       if (paidPlan.plan.state !== "ready") {
         const blocker = paidPlan.plan.blocker;
+        if (
+          blocker === "start_once_in_flight"
+          && state.generationStrategyStartRetries.has(
+            paidPlan.plan.blocking_source_media_id,
+          )
+        ) {
+          throw new CreatorApiError(
+            "Сеть прервала предыдущий платный старт. Нажмите «Повторить тот же платный старт» в очереди — ключ и квитанция сохранены, второго списания не будет.",
+            { code: "generation_strategy_queue_start_retry_available" },
+          );
+        }
         throw new CreatorApiError(
           blocker === "reconciliation_required"
-            ? "Один старт требует ручной сверки. Остальные платные старты пока остановлены."
+            ? "Один старт требует ручной сверки. Остальные платные старты пока остановлены; форма сверки — в карточке этого запуска в архиве ниже."
             : "Предыдущий старт ещё не зафиксирован сервером. Повторный POST запрещён.",
           { code: `generation_strategy_queue_${blocker || "blocked"}` },
         );
@@ -29850,7 +30121,7 @@ async function submitGenerationStrategy(form, values, entry, projectId) {
         });
       }
       const actorId = String(state.user?.id || "").trim().toLowerCase();
-      requestApi.bindRealGenerationClientContext(startPlan.request, {
+      const bindStartClientContext = () => requestApi.bindRealGenerationClientContext(startPlan.request, {
         expectedActorId: actorId,
         isContextCurrent: () => exactContextIsCurrent(reserved, ["start_once"])
           && String(state.user?.id || "").trim().toLowerCase() === actorId
@@ -29859,10 +30130,22 @@ async function submitGenerationStrategy(form, values, entry, projectId) {
           && state.generationStrategyRuntimes.get(sourceMediaId)
             ?.campaign_id === reserved.campaign_id,
       });
+      bindStartClientContext();
       state.generationStrategyStartInFlight = true;
       state.generationStrategyRequestId += 1;
       setFormBusy(form, true, "Отправляем один подтверждённый Product Swap…");
-      const rawStart = await requestApi.startGenerationStrategy(startPlan.request);
+      let rawStart;
+      try {
+        rawStart = await requestApi.startGenerationStrategy(startPlan.request);
+      } catch (startError) {
+        rawStart = await retryGenerationStrategyStartAfterTransportFailure(startError, {
+          sourceMediaId,
+          requestApi,
+          reserved,
+          request: startPlan.request,
+          bindClientContext: bindStartClientContext,
+        });
+      }
       const resolvedAction = {
         type: GENERATION_STRATEGY_RUNTIME_ACTIONS.startResolved,
         fingerprint: reserved.fingerprint,
@@ -29895,7 +30178,14 @@ async function submitGenerationStrategy(form, values, entry, projectId) {
       toast("Product Swap поставлен в отдельную очередь. Повторный provider POST запрещён сервером.", "success");
       scheduleGenerationStrategyPolling(1_000);
     } else if (runtimeState.phase === "start_once") {
-      toast("Запуск уже зарезервирован. Нужна серверная сверка; повторный POST запрещён.", "info");
+      if (state.generationStrategyStartRetries.has(sourceMediaId)) {
+        toast(
+          "Сеть прервала платный старт. Нажмите «Повторить тот же платный старт» — ключ и квитанция сохранены, второго списания не будет.",
+          "info",
+        );
+      } else {
+        toast("Запуск уже зарезервирован. Нужна серверная сверка; повторный POST запрещён.", "info");
+      }
     } else if (runtimeState.phase === "status") {
       scheduleGenerationStrategyPolling(0);
       toast("Product Swap уже имеет отдельную задачу; обновляем её статус.", "info");
@@ -29906,6 +30196,7 @@ async function submitGenerationStrategy(form, values, entry, projectId) {
     state.generationStrategyStartInFlight = false;
     if (form.isConnected) {
       setFormBusy(form, false);
+      syncGenerationStrategyQueueUi(form);
       syncGenerationStrategyFormReadiness(form);
     }
   }
@@ -29927,7 +30218,7 @@ async function pollGenerationStrategyStatuses() {
       : [...state.generationStrategyRuntimes.entries()];
     for (const [sourceMediaId, current] of runtimeEntries) {
       const projection = generationStrategyRuntimeSafeProjection(current);
-      if (!requestApi || current?.phase !== "status" || !projection?.can_poll) {
+      if (!requestApi || !generationStrategyStatusPollNeeded(current, projection)) {
         continue;
       }
       const plan = generationStrategyRuntimeStatusRequest(current);
@@ -29968,7 +30259,7 @@ async function pollGenerationStrategyStatuses() {
           : state.generationStrategyRuntimes.get(sourceMediaId);
         if (state.api !== requestApi || !queueIsCurrent || live !== current) {
           const liveProjection = generationStrategyRuntimeSafeProjection(live);
-          if (live?.phase === "status" && liveProjection?.can_poll) {
+          if (generationStrategyStatusPollNeeded(live, liveProjection)) {
             shouldContinue = true;
           }
           continue;
@@ -30000,7 +30291,9 @@ async function pollGenerationStrategyStatuses() {
           setGenerationStrategyRuntime(sourceMediaId, candidate);
         }
         const nextProjection = generationStrategyRuntimeSafeProjection(next);
-        if (nextProjection?.can_poll) shouldContinue = true;
+        if (generationStrategyStatusPollNeeded(next, nextProjection)) {
+          shouldContinue = true;
+        }
       } catch {
         shouldContinue = true;
       }
@@ -30024,6 +30317,241 @@ function scheduleGenerationStrategyPolling(delay = 5_000) {
     state.generationStrategyPollTimer = null;
     void pollGenerationStrategyStatuses();
   }, Math.max(0, delay));
+}
+
+const GENERATION_STRATEGY_TERMINAL_JOB_STATUSES = new Set([
+  "succeeded",
+  "failed",
+  "cancelled",
+]);
+
+function generationStrategyStatusPollNeeded(runtimeState, projection) {
+  if (runtimeState?.phase !== "status") return false;
+  const jobStatus = projection?.job?.status;
+  if (!jobStatus) return false;
+  // Бесплатный strategy_status разрешён серверу для любой созданной задачи.
+  // Провайдера по-прежнему опрашивает только сервер по poll_provider_allowed,
+  // но клиент обязан опрашивать и строки queued/starting: без этого они
+  // навсегда остались бы «Запускается» до ручного обновления страницы.
+  return projection.can_poll
+    || !GENERATION_STRATEGY_TERMINAL_JOB_STATUSES.has(jobStatus);
+}
+
+const GENERATION_STRATEGY_START_TRANSPORT_ERROR_CODES = new Set([
+  "real_generation_request_failed",
+  "generation_unavailable",
+]);
+const GENERATION_STRATEGY_START_RETRY_DELAY_MS = 1_500;
+
+function generationStrategyStartFailureIsTransport(error) {
+  const code = String(error?.code || "").trim();
+  // Типизированные отказы сервера (generation_strategy_*) детерминированы и
+  // не повторяются. Повторять можно только транспортные сбои, чей исход
+  // серверу известен: replay того же idempotency key вернёт ту же задачу.
+  if (code.startsWith("generation_strategy_")) return false;
+  return GENERATION_STRATEGY_START_TRANSPORT_ERROR_CODES.has(code);
+}
+
+function rememberGenerationStrategyStartTransportFailure(
+  sourceMediaId,
+  reserved,
+  request,
+  error,
+) {
+  if (!contentReviewUuid(sourceMediaId) || reserved?.phase !== "start_once") {
+    return;
+  }
+  state.generationStrategyStartRetries.set(sourceMediaId, Object.freeze({
+    code: String(error?.code || "real_generation_request_failed"),
+    failed_at: Date.now(),
+    fingerprint: reserved.fingerprint,
+    start_context_fingerprint: reserved.start_context_fingerprint,
+    idempotency_key: reserved.start_attempt_idempotency_key,
+    request,
+  }));
+}
+
+async function retryGenerationStrategyStartAfterTransportFailure(error, {
+  sourceMediaId,
+  requestApi,
+  reserved,
+  request,
+  bindClientContext,
+}) {
+  if (
+    !generationStrategyStartFailureIsTransport(error)
+    || request?.idempotency_key !== reserved?.start_attempt_idempotency_key
+  ) {
+    throw error;
+  }
+  rememberGenerationStrategyStartTransportFailure(
+    sourceMediaId,
+    reserved,
+    request,
+    error,
+  );
+  await new Promise((resolve) => {
+    window.setTimeout(resolve, GENERATION_STRATEGY_START_RETRY_DELAY_MS);
+  });
+  try {
+    // Повторно отправляется тот же самый запрос: тот же idempotency key, та же
+    // квитанция и то же ценовое подтверждение. Новый ключ не создаётся никогда;
+    // сервер обязан вернуть replay уже созданной задачи, а не вторую задачу.
+    bindClientContext();
+    const raw = await requestApi.startGenerationStrategy(request);
+    state.generationStrategyStartRetries.delete(sourceMediaId);
+    return raw;
+  } catch (retryError) {
+    if (generationStrategyStartFailureIsTransport(retryError)) {
+      rememberGenerationStrategyStartTransportFailure(
+        sourceMediaId,
+        reserved,
+        request,
+        retryError,
+      );
+    } else {
+      state.generationStrategyStartRetries.delete(sourceMediaId);
+    }
+    throw retryError;
+  }
+}
+
+async function retryGenerationStrategyReservedStart(form, sourceMediaId) {
+  const pending = state.generationStrategyStartRetries.get(sourceMediaId) || null;
+  const requestApi = state.api;
+  if (!pending || !requestApi) {
+    toast("Для этой строки нет сохранённого платного запроса. Обновите раздел генерации.", "error");
+    return;
+  }
+  if (state.generationStrategyStartInFlight || form?.dataset.busy === "true") {
+    toast("Платный запуск уже идёт. Не повторяйте запрос.", "info");
+    return;
+  }
+  const fromQueue = Boolean(
+    state.generationStrategyQueue?.rows?.get(sourceMediaId),
+  );
+  const reserved = fromQueue
+    ? generationStrategyQueueRuntime(sourceMediaId)
+    : state.generationStrategyRuntimes.get(sourceMediaId) || null;
+  if (reserved?.phase === "status") {
+    state.generationStrategyStartRetries.delete(sourceMediaId);
+    if (form) syncGenerationStrategyQueueUi(form);
+    scheduleGenerationStrategyPolling(0);
+    toast("Задача этой строки уже создана; обновляем её статус.", "info");
+    return;
+  }
+  if (
+    reserved?.phase !== "start_once"
+    || reserved.fingerprint !== pending.fingerprint
+    || reserved.start_context_fingerprint !== pending.start_context_fingerprint
+    || reserved.start_attempt_idempotency_key !== pending.idempotency_key
+    || pending.request?.idempotency_key !== pending.idempotency_key
+    || pending.request?.receipt_id !== reserved.preflight?.receipt?.id
+  ) {
+    state.generationStrategyStartRetries.delete(sourceMediaId);
+    if (form) syncGenerationStrategyQueueUi(form);
+    toast("Резерв этой строки изменился. Повтор без серверной сверки запрещён.", "error");
+    return;
+  }
+  const actorId = String(state.user?.id || "").trim().toLowerCase();
+  const liveReserved = () => (
+    state.generationStrategyQueue?.rows?.get(sourceMediaId)?.runtime_state
+      || state.generationStrategyRuntimes.get(sourceMediaId)
+      || null
+  );
+  state.generationStrategyStartInFlight = true;
+  if (form) setFormBusy(form, true, "Повторяем тот же платный запрос без нового ключа…");
+  try {
+    // Повторная отправка того же самого запроса: тот же idempotency key и та же
+    // серверная квитанция. Сервер вернёт replay уже созданной задачи; новый
+    // ключ или новая квитанция здесь не создаются никогда.
+    requestApi.bindRealGenerationClientContext(pending.request, {
+      expectedActorId: actorId,
+      isContextCurrent: () => {
+        const live = liveReserved();
+        return state.api === requestApi
+          && String(state.user?.id || "").trim().toLowerCase() === actorId
+          && live?.phase === "start_once"
+          && live.fingerprint === pending.fingerprint
+          && live.start_context_fingerprint === pending.start_context_fingerprint
+          && live.start_attempt_idempotency_key === pending.idempotency_key;
+      },
+    });
+    const raw = await requestApi.startGenerationStrategy(pending.request);
+    const live = liveReserved();
+    if (
+      state.api !== requestApi
+      || live?.phase !== "start_once"
+      || live.fingerprint !== pending.fingerprint
+      || live.start_attempt_idempotency_key !== pending.idempotency_key
+    ) {
+      throw new CreatorApiError(
+        "Контекст изменился во время повторного старта. Резерв сохранён для ручной сверки.",
+        { code: "generation_strategy_start_retry_context_stale" },
+      );
+    }
+    const resolvedAction = {
+      type: GENERATION_STRATEGY_RUNTIME_ACTIONS.startResolved,
+      fingerprint: live.fingerprint,
+      start_context_fingerprint: live.start_context_fingerprint,
+      idempotency_key: live.start_attempt_idempotency_key,
+      response: raw,
+    };
+    const verified = reduceGenerationStrategyRuntimeState(live, resolvedAction);
+    if (verified?.phase !== "status") {
+      throw new CreatorApiError(
+        "Сервер не вернул безопасный статус повторного старта. Резерв и ключ сохранены; повторный POST запрещён.",
+        {
+          code: verified?.error?.code
+            || "generation_strategy_start_retry_response_invalid",
+        },
+      );
+    }
+    const committed = fromQueue
+      ? applyGenerationStrategyQueueRow(sourceMediaId, resolvedAction)
+      : (setGenerationStrategyRuntime(sourceMediaId, verified) ? verified : null);
+    if (committed?.phase !== "status") {
+      throw new CreatorApiError(
+        "Сервер не подтвердил итог повторного старта в точной строке. Резерв сохранён.",
+        {
+          code: committed?.error?.code
+            || "generation_strategy_start_retry_response_invalid",
+        },
+      );
+    }
+    state.generationStrategyStartRetries.delete(sourceMediaId);
+    state.lastRealGenerationJobId =
+      generationStrategyRuntimeSafeProjection(committed)?.job?.id
+        || state.lastRealGenerationJobId;
+    toast(
+      "Тот же платный запрос подтверждён сервером: задача создана один раз, второго списания нет.",
+      "success",
+    );
+    scheduleGenerationStrategyPolling(1_000);
+  } catch (error) {
+    if (generationStrategyStartFailureIsTransport(error)) {
+      rememberGenerationStrategyStartTransportFailure(
+        sourceMediaId,
+        reserved,
+        pending.request,
+        error,
+      );
+      toast(
+        "Сеть снова прервала повторный старт. Тот же запрос можно отправить ещё раз — ключ и квитанция сохранены.",
+        "error",
+      );
+    } else {
+      state.generationStrategyStartRetries.delete(sourceMediaId);
+      toast(`Повторный старт отклонён: ${actionErrorMessage(error)}`, "error");
+    }
+  } finally {
+    state.generationStrategyStartInFlight = false;
+    if (form?.isConnected) {
+      setFormBusy(form, false);
+      syncGenerationStrategyQueueUi(form);
+      syncGenerationStrategyFormReadiness(form);
+    }
+  }
 }
 
 async function submitGenerationBatch(form) {
@@ -30713,6 +31241,7 @@ async function submitRealGenerationReconciliation(form, submitter) {
   const values = new FormData(form);
   const jobId = String(form.dataset.jobId || "");
   const incidentId = String(form.dataset.incidentId || "");
+  const strategyJob = form.dataset.strategyJob === "true";
   const provider = String(form.dataset.provider || "").trim().toLowerCase();
   const providerLabel = provider === "google" ? "Google" : "Runway";
   const operationLabel = provider === "google" ? "operation" : "task";
@@ -30744,21 +31273,58 @@ async function submitRealGenerationReconciliation(form, submitter) {
   const requestEpoch = state.dataEpoch;
   const requestUserId = state.user?.id;
   try {
-    const result = await state.api.reconcileRealGeneration(jobId, {
-      project_id: projectId,
-      provider,
-      incident_id: incidentId,
-      resolution,
-      provider_task_id: providerTaskId,
-      evidence_reference: evidenceReference,
-      reason,
-    });
+    let result;
+    if (strategyJob) {
+      // Стратегии сверяются только через strategy_reconcile: легаси
+      // 'reconcile' построен на модели каталога и отвечает 503 на recipe.
+      let dispatchResultId = String(
+        state.realGenerationResults.get(jobId)?.dispatchResultId || "",
+      );
+      if (!contentReviewUuid(dispatchResultId)) {
+        const current = await requestGenerationStrategyArchiveStatus(jobId);
+        if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id) return;
+        dispatchResultId = String(current?.dispatch?.result_id || "");
+      }
+      if (!contentReviewUuid(dispatchResultId)) {
+        throw new CreatorApiError(
+          "Сервер не подтвердил зафиксированный исход платного POST. Обновите карточку и повторите сверку.",
+          { code: "generation_strategy_reconciliation_not_current" },
+        );
+      }
+      result = await state.api.reconcileGenerationStrategy(jobId, {
+        project_id: projectId,
+        dispatch_result_id: dispatchResultId,
+        incident_id: incidentId,
+        resolution,
+        provider_task_id: providerTaskId,
+        evidence_reference: evidenceReference,
+        reason,
+      });
+    } else {
+      result = await state.api.reconcileRealGeneration(jobId, {
+        project_id: projectId,
+        provider,
+        incident_id: incidentId,
+        resolution,
+        provider_task_id: providerTaskId,
+        evidence_reference: evidenceReference,
+        reason,
+      });
+    }
     if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id) return;
-    applyRealGenerationResult(jobId, result, {
-      renderNow: false,
-      source: "manual",
-      projectId,
-    });
+    if (strategyJob) {
+      // Ответ strategy_reconcile — это уже обновлённый strategy_status:
+      // обновляем карточку и просим очередь перечитать свои строки, чтобы
+      // блокировка «Нужна ручная сверка» снялась без перезагрузки.
+      applyGenerationStrategyArchiveStatus(jobId, result, { projectId });
+      scheduleGenerationStrategyPolling(0);
+    } else {
+      applyRealGenerationResult(jobId, result, {
+        renderNow: false,
+        source: "manual",
+        projectId,
+      });
+    }
     state.sections.generation.status = "idle";
     state.sections.tasks.status = "idle";
     if (resolution === "attach_existing_task") {
@@ -36278,6 +36844,7 @@ function clearAuthenticatedState() {
   state.generationStrategyRequestId += 1;
   state.generationStrategyRuntimes.clear();
   state.generationStrategyRequestKeys.clear();
+  state.generationStrategyStartRetries.clear();
   state.generationStrategyActiveSourceMediaId = "";
   state.generationVideoReferenceLineage.clear();
   state.realGenerationDrafts.clear();

@@ -289,12 +289,14 @@ const GENERATION_STRATEGY_EDGE_ACTIONS = Object.freeze(new Set([
   "strategy_preflight",
   "strategy_start",
   "strategy_status",
+  "strategy_reconcile",
 ]));
 const GENERATION_STRATEGY_IDEMPOTENT_ACTIONS = Object.freeze(new Set([
   "strategy_media_probe",
   "strategy_bind",
   "strategy_preflight",
   "strategy_start",
+  "strategy_reconcile",
 ]));
 const GENERATION_STRATEGY_IDEMPOTENCY_PATTERN =
   /^[A-Za-z0-9._:-]{8,180}$/u;
@@ -364,7 +366,29 @@ const GENERATION_STRATEGY_REQUEST_KEYS = Object.freeze({
     "project_id",
     "generation_job_id",
   ]),
+  // Mirrors readGenerationStrategyReconcilePayload in the Edge function:
+  // strategy jobs are runway-recipe only, provider_task_id is appended
+  // exclusively for attach_existing_task.
+  strategy_reconcile: Object.freeze([
+    "action",
+    "organization_id",
+    "project_id",
+    "generation_job_id",
+    "dispatch_result_id",
+    "incident_id",
+    "resolution",
+    "confirmation",
+    "evidence_reference",
+    "reason",
+    "idempotency_key",
+  ]),
 });
+const GENERATION_STRATEGY_RECONCILE_ATTACH_REQUEST_KEYS = Object.freeze([
+  ...GENERATION_STRATEGY_REQUEST_KEYS.strategy_reconcile,
+  "provider_task_id",
+]);
+const GENERATION_STRATEGY_RUNWAY_TASK_ID_PATTERN =
+  /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
 const GENERATION_STRATEGY_RESPONSE_CONTRACTS = Object.freeze({
   strategy_catalog: Object.freeze({
     keys: Object.freeze([
@@ -423,6 +447,22 @@ const GENERATION_STRATEGY_RESPONSE_CONTRACTS = Object.freeze({
     ]),
   }),
   strategy_status: Object.freeze({
+    version: "generation-strategy-status-response-v1",
+    keys: Object.freeze([
+      "ok",
+      "version",
+      "job",
+      "strategy",
+      "selection",
+      "price",
+      "dispatch",
+      "reconciliation",
+      "output",
+      "error",
+      "contract",
+    ]),
+  }),
+  strategy_reconcile: Object.freeze({
     version: "generation-strategy-status-response-v1",
     keys: Object.freeze([
       "ok",
@@ -6015,6 +6055,70 @@ export class CreatorApi {
     });
   }
 
+  reconcileGenerationStrategy(jobId, details = {}) {
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const normalizedJobId = String(jobId || "").trim();
+    const incidentId = String(details.incident_id || "").trim();
+    const dispatchResultId = String(details.dispatch_result_id || "").trim();
+    const resolution = String(details.resolution || "").trim();
+    const evidenceReference = String(details.evidence_reference || "").trim();
+    const reason = String(details.reason || "").trim();
+    const providerTaskId = String(details.provider_task_id || "").trim();
+    const projectId = requiredProjectId(details.project_id ?? details.projectId);
+    const attachExistingTask = resolution === "attach_existing_task";
+    const confirmNoSubmission = resolution === "confirm_no_submission";
+
+    if (
+      !uuidPattern.test(normalizedJobId)
+      || !uuidPattern.test(incidentId)
+      || !uuidPattern.test(dispatchResultId)
+    ) {
+      throw new CreatorApiError("Не удалось определить инцидент платного запуска стратегии. Обновите карточку и повторите сверку.", {
+        code: "generation_reconciliation_incident_invalid",
+      });
+    }
+    if (!attachExistingTask && !confirmNoSubmission) {
+      throw new CreatorApiError("Выберите результат ручной сверки платного запуска.", {
+        code: "generation_reconciliation_resolution_invalid",
+      });
+    }
+    if (
+      evidenceReference.length < 8
+      || evidenceReference.length > 500
+      || reason.length < 20
+      || reason.length > 1_000
+    ) {
+      throw new CreatorApiError("Добавьте проверяемое основание и подробную причину ручной сверки.", {
+        code: "generation_reconciliation_evidence_invalid",
+      });
+    }
+    if (
+      attachExistingTask
+      && !GENERATION_STRATEGY_RUNWAY_TASK_ID_PATTERN.test(providerTaskId)
+    ) {
+      throw new CreatorApiError("Укажите точный Runway task ID из панели видеосервиса.", {
+        code: "generation_reconciliation_task_id_invalid",
+      });
+    }
+
+    return this.invokeRealGeneration("strategy_reconcile", {
+      action: "strategy_reconcile",
+      organization_id: this.organizationId,
+      project_id: projectId,
+      generation_job_id: normalizedJobId,
+      dispatch_result_id: dispatchResultId,
+      incident_id: incidentId,
+      resolution,
+      confirmation: attachExistingTask
+        ? "RUNWAY_TASK_ID_VERIFIED"
+        : "RUNWAY_NO_TASK_VERIFIED",
+      evidence_reference: evidenceReference,
+      reason,
+      idempotency_key: `strategy-reconcile:${incidentId}:${resolution}`,
+      ...(attachExistingTask ? { provider_task_id: providerTaskId } : {}),
+    });
+  }
+
   async invokeRealGeneration(action, payload = {}) {
     const legacyAction = new Set([
       "model_catalog",
@@ -7118,7 +7222,10 @@ function assertGenerationStrategySpecPrepareRequest(request, organizationId) {
 }
 
 function assertGenerationStrategyRuntimeRequest(action, request, organizationId) {
-  const keys = GENERATION_STRATEGY_REQUEST_KEYS[action];
+  const keys = action === "strategy_reconcile"
+    && request?.resolution === "attach_existing_task"
+    ? GENERATION_STRATEGY_RECONCILE_ATTACH_REQUEST_KEYS
+    : GENERATION_STRATEGY_REQUEST_KEYS[action];
   const organization = String(organizationId || "");
   const uuidFields = {
     strategy_media_probe: ["organization_id", "project_id", "media_id"],
@@ -7138,6 +7245,13 @@ function assertGenerationStrategyRuntimeRequest(action, request, organizationId)
       "campaign_id",
     ],
     strategy_status: ["organization_id", "project_id", "generation_job_id"],
+    strategy_reconcile: [
+      "organization_id",
+      "project_id",
+      "generation_job_id",
+      "dispatch_result_id",
+      "incident_id",
+    ],
   }[action] || [];
   const hashFields = {
     strategy_bind: ["spec_hash"],
@@ -7160,7 +7274,11 @@ function assertGenerationStrategyRuntimeRequest(action, request, organizationId)
     "strategy_preflight",
     "strategy_start",
   ].includes(action);
-  const hasConfirmation = !["strategy_catalog", "strategy_status"].includes(action);
+  const hasConfirmation = ![
+    "strategy_catalog",
+    "strategy_status",
+    "strategy_reconcile",
+  ].includes(action);
   const hasSpendConfirmation = [
     "strategy_preflight",
     "strategy_start",
@@ -7195,6 +7313,20 @@ function assertGenerationStrategyRuntimeRequest(action, request, organizationId)
       typeof request.spend_confirmation !== "string"
       || !/^RUNWAY_(?:PRODUCT_UGC|PRODUCT_SWAP|PRODUCT_AD)_(?:[4-9]|1[0-5])S_(?:720P|1080P)_(?:AUDIO|SILENT)_USD_[0-9]{1,4}[.][0-9]{2}$/u
         .test(request.spend_confirmation)
+    ))
+    || (action === "strategy_reconcile" && (
+      !["attach_existing_task", "confirm_no_submission"]
+        .includes(request.resolution)
+      || request.confirmation !== (
+        request.resolution === "attach_existing_task"
+          ? "RUNWAY_TASK_ID_VERIFIED"
+          : "RUNWAY_NO_TASK_VERIFIED"
+      )
+      || !generationStrategyExactBoundedText(request.evidence_reference, 8, 500)
+      || !generationStrategyExactBoundedText(request.reason, 20, 1_000)
+      || (request.resolution === "attach_existing_task"
+        && !GENERATION_STRATEGY_RUNWAY_TASK_ID_PATTERN
+          .test(String(request.provider_task_id || "")))
     ))
   ) {
     throw new CreatorApiError(
@@ -8582,6 +8714,9 @@ function toFriendlyMessage(error) {
     generation_reconciliation_task_mismatch: "Задача сервиса не совпадает со временем этого запуска. Не прикрепляйте чужую задачу.",
     generation_reconciliation_wait_required: "Для подтверждения отсутствия задачи сервиса подождите две минуты после фиксации инцидента.",
     generation_reconciliation_rejected: "Состояние запуска изменилось. Обновите очередь перед ручной сверкой.",
+    generation_strategy_reconciliation_not_current: "Состояние сверки этого запуска изменилось. Обновите карточку: возможно, сверка уже выполнена.",
+    generation_strategy_reconciliation_task_mismatch: "Runway не подтвердил этот task ID для данного запуска. Проверьте точный ID и время создания task в панели Runway.",
+    generation_strategy_reconciliation_rejected: "Сервер отклонил ручную сверку стратегии. Обновите карточку запуска и проверьте данные ещё раз.",
     real_generation_reconciliation_required: "Новый платный запуск временно закрыт: сначала владелец или администратор должен завершить ручную сверку предыдущего запроса к сервису генерации.",
     generation_learning_context_required: "Восстановите безопасное авто-ТЗ и дождитесь бесплатной проверки обучения.",
     generation_learning_policy_category_invalid: "Выберите категорию товара для отдельного контура обучения.",

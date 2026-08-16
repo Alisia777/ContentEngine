@@ -244,7 +244,7 @@ def _evaluate(expression: str) -> object:
 def test_view_pins_all_frozen_authorities_and_has_no_side_effect_channel() -> None:
     expected_hashes = {
         RUNTIME_MODULE: "3588c5ac08d78a91062e52ebda87d1cf34988e584e1f238b07a944964e16956c",
-        QUEUE_MODULE: "4b34f77a7c439214104e9a6d4adcc34b980f0e7de47b9ca7b27ade96eab47713",
+        QUEUE_MODULE: "a2133fe6d64ec8bfc82e782f1c1e69c8731ccf15f822c39eb0f9253961f639e7",
         SOURCE_PICKER_MODULE: "2c3912a5705dddab42ad5ccf919b76fb7b65d3d4f4181fc59d304f5727771ebf",
     }
     for path, expected in expected_hashes.items():

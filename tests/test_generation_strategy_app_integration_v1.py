@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -11,6 +12,11 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
+API_PATH = ROOT / "web/app/supabase-api.js"
+API = API_PATH.read_text(encoding="utf-8")
+EDGE = (ROOT / "supabase/functions/creator-generate/index.ts").read_text(
+    encoding="utf-8"
+)
 GUIDED = (ROOT / "web/app/workspace-os-v4-generation-guided.js").read_text(
     encoding="utf-8"
 )
@@ -730,3 +736,403 @@ def test_strategy_disables_blank_required_legacy_mode_without_model_proxy() -> N
     assert 'model.model === "seedance2_fast"' not in GUIDED
     assert "const proxyModel" not in GUIDED
     assert 'advisor.dataset.strategyAdvisoryOnly = strategySelected ? "true" : "false"' in visibility
+
+
+def test_status_poll_keeps_non_terminal_jobs_alive_without_provider_poll() -> None:
+    poll = _top_level_function(APP, "pollGenerationStrategyStatuses")
+    helper = _top_level_function(APP, "generationStrategyStatusPollNeeded")
+    terminal = _source_slice(
+        APP,
+        "const GENERATION_STRATEGY_TERMINAL_JOB_STATUSES",
+        "function generationStrategyStatusPollNeeded",
+    )
+
+    # Free strategy_status polling must keep every non-terminal job alive even
+    # when the provider-poll contract (can_poll) is false, e.g. queued/starting
+    # rows whose dispatch is still driven server-side.
+    assert poll.count("generationStrategyStatusPollNeeded(") == 3
+    assert "!projection?.can_poll" not in poll
+    assert "liveProjection?.can_poll" not in poll
+    assert "nextProjection?.can_poll" not in poll
+    assert "if (shouldContinue) scheduleGenerationStrategyPolling(5_000)" in poll
+
+    assert 'runtimeState?.phase !== "status"' in helper
+    assert "projection.can_poll" in helper
+    assert "!GENERATION_STRATEGY_TERMINAL_JOB_STATUSES.has(jobStatus)" in helper
+    for status in ('"succeeded"', '"failed"', '"cancelled"'):
+        assert status in terminal
+    for status in ('"queued"', '"starting"', '"submitted"', '"processing"'):
+        assert status not in terminal
+
+
+def test_transport_failed_start_keeps_key_and_replays_identical_request() -> None:
+    sequential = _source_slice(
+        APP,
+        "async function startGenerationStrategyQueueSequentially",
+        "function handleGenerationStrategySourcesChanged",
+    )
+    single = _source_slice(
+        APP,
+        "async function submitGenerationStrategy(form,",
+        "async function pollGenerationStrategyStatuses",
+    )
+    auto_retry = _source_slice(
+        APP,
+        "async function retryGenerationStrategyStartAfterTransportFailure",
+        "async function retryGenerationStrategyReservedStart",
+    )
+    manual_retry = _source_slice(
+        APP,
+        "async function retryGenerationStrategyReservedStart",
+        "async function submitGenerationBatch",
+    )
+    remember = _top_level_function(
+        APP, "rememberGenerationStrategyStartTransportFailure"
+    )
+
+    # Both paid start flows route a thrown strategy_start into the
+    # identical-replay path instead of stranding the start_once reservation.
+    assert sequential.count("retryGenerationStrategyStartAfterTransportFailure(") == 1
+    assert single.count("retryGenerationStrategyStartAfterTransportFailure(") == 1
+    assert "request: startPlan.request" in sequential
+    assert "request: startPlan.request" in single
+
+    # The automatic retry re-sends the exact same request object with the same
+    # idempotency key and never mints a replacement key.
+    assert "requestApi.startGenerationStrategy(request)" in auto_retry
+    assert (
+        "request?.idempotency_key !== reserved?.start_attempt_idempotency_key"
+        in auto_retry
+    )
+    assert "bindClientContext();" in auto_retry
+    assert "GENERATION_STRATEGY_START_RETRY_DELAY_MS" in auto_retry
+    assert "crypto.randomUUID" not in auto_retry
+    assert "crypto.randomUUID" not in manual_retry
+
+    # The stored reservation pins the reserved key and receipt for the manual
+    # retry, which replays the frozen original request byte for byte.
+    assert "state.generationStrategyStartRetries.set(sourceMediaId, Object.freeze({" in remember
+    assert "idempotency_key: reserved.start_attempt_idempotency_key" in remember
+    assert (
+        "reserved.start_attempt_idempotency_key !== pending.idempotency_key"
+        in manual_retry
+    )
+    assert "pending.request?.idempotency_key !== pending.idempotency_key" in manual_retry
+    assert "pending.request?.receipt_id !== reserved.preflight?.receipt?.id" in manual_retry
+    assert "requestApi.startGenerationStrategy(pending.request)" in manual_retry
+    assert "idempotency_key: live.start_attempt_idempotency_key" in manual_retry
+
+    # The retry is visible in the queue UI and wired to the click dispatcher.
+    queue_ui = _source_slice(
+        APP,
+        "function syncGenerationStrategyQueueUi",
+        "function generationStrategySpecRequestKey",
+    )
+    assert "appendGenerationStrategyStartRetryActions(mount)" in queue_ui
+    assert 'data-action="retry-generation-strategy-start"' in queue_ui
+    assert "Повторить тот же платный старт" in queue_ui
+    click_handler = _source_slice(
+        APP,
+        "async function handleClick(event)",
+        "async function handleSubmit(event)",
+    )
+    assert 'action === "retry-generation-strategy-start"' in click_handler
+    assert "retryGenerationStrategyReservedStart(form, sourceMediaId)" in click_handler
+
+
+def test_archive_strategy_card_never_invokes_legacy_status_or_reconcile() -> None:
+    actions = _source_slice(
+        APP,
+        "function generationActionsMarkup",
+        "function generationCostMarkup",
+    )
+    strategy_branch = _source_slice(
+        actions,
+        "if (details.strategy) {",
+        "const reviewAction = details.photo",
+    )
+    assert 'data-action="check-generation-strategy"' in strategy_branch
+    assert 'data-output-action="preview"' in strategy_branch
+    assert 'data-output-action="download"' in strategy_branch
+    assert "check-real-generation" not in strategy_branch
+    assert 'data-strategy-job="true"' in actions
+    # The strategy «Проверить сейчас» branch renders before — and instead of —
+    # the legacy status button that 503s on recipe jobs.
+    assert actions.index(
+        'data-action="check-generation-strategy" data-output-action="status"'
+    ) < actions.index(
+        'data-action="check-real-generation" data-output-action="status"'
+    )
+
+    handler = _source_slice(
+        APP,
+        'if (action === "check-generation-strategy")',
+        'if (action === "check-real-generation")',
+    )
+    assert "requestGenerationStrategyArchiveStatus(jobId)" in handler
+    for forbidden in (
+        "waitForRealGenerationStatus",
+        "state.api.realGenerationStatus",
+        "requestRealGenerationStatus",
+        "api.reconcileRealGeneration",
+    ):
+        assert forbidden not in handler
+    # Preview and download of a succeeded strategy job go through the
+    # storage signing path — strategy_status never returns signed URLs.
+    for required in (
+        "resolveGenerationStrategyOutputObjectName",
+        "state.api.downloadPrivateObject(objectName)",
+        "state.api.signedPrivateObjectUrls([objectName])",
+        "deliverGenerationOutputBlob(blob, jobId, false)",
+        "isTrustedGenerationDownload(signedUrl)",
+    ):
+        assert required in handler
+
+    status_request = _top_level_function(
+        APP, "requestGenerationStrategyArchiveStatus"
+    )
+    assert "state.api.generationStrategyStatus(request)" in status_request
+    assert "realGenerationStatus" not in status_request
+    builder = _top_level_function(APP, "generationStrategyArchiveStatusRequest")
+    assert '"strategy_status"' in builder
+
+    resolver = _top_level_function(
+        APP, "resolveGenerationStrategyOutputObjectName"
+    )
+    assert "normalizeContentReviewCatalog" in resolver
+    assert 'media.kind !== "generated_video"' in resolver
+    assert "media.objectName" in resolver
+
+    jobs = _source_slice(
+        APP,
+        "function realGenerationJobsFromBatches",
+        "function realGenerationReconciliationJobsFromBatches",
+    )
+    assert "&& !details.strategy" in jobs
+    assert "cached?.strategy === true" in jobs
+    recovery = _top_level_function(APP, "resumeGeneratedVideoQaRecovery")
+    assert "!details.strategy" in recovery
+
+
+def test_strategy_reconciliation_form_submits_through_strategy_reconcile() -> None:
+    submit = _source_slice(
+        APP,
+        "async function submitRealGenerationReconciliation",
+        "async function submitRealGeneration(form",
+    )
+    assert 'form.dataset.strategyJob === "true"' in submit
+    assert "state.api.reconcileGenerationStrategy(jobId" in submit
+    assert "requestGenerationStrategyArchiveStatus(jobId)" in submit
+    assert "dispatch_result_id: dispatchResultId" in submit
+    assert "applyGenerationStrategyArchiveStatus(jobId, result, { projectId })" in submit
+    assert "scheduleGenerationStrategyPolling(0)" in submit
+    strategy_branch = _source_slice(submit, "if (strategyJob) {", "} else {")
+    assert "reconcileRealGeneration" not in strategy_branch
+    # Legacy catalog-model launches keep the legacy reconcile path untouched.
+    assert "state.api.reconcileRealGeneration(jobId" in submit
+
+
+def test_strategy_reconcile_action_is_allowlisted_with_edge_exact_payload() -> None:
+    allowlist = _source_slice(
+        API,
+        "const GENERATION_STRATEGY_EDGE_ACTIONS",
+        "const GENERATION_STRATEGY_IDEMPOTENT_ACTIONS",
+    )
+    assert '"strategy_reconcile"' in allowlist
+    idempotent = _source_slice(
+        API,
+        "const GENERATION_STRATEGY_IDEMPOTENT_ACTIONS",
+        "const GENERATION_STRATEGY_IDEMPOTENCY_PATTERN",
+    )
+    assert '"strategy_reconcile"' in idempotent
+
+    edge_parser = _source_slice(
+        EDGE,
+        "function readGenerationStrategyReconcilePayload",
+        "function readStrategySpendConfirmation",
+    )
+    edge_required = re.findall(
+        r'"([a-z_]+)"',
+        _source_slice(edge_parser, "const required = [", "] as const"),
+    )
+    api_required = re.findall(
+        r'"([a-z_]+)"',
+        _source_slice(API, "strategy_reconcile: Object.freeze([", "])"),
+    )
+    assert api_required == edge_required
+    assert '[...required, "provider_task_id"]' in edge_parser
+    attach_keys = _source_slice(
+        API,
+        "const GENERATION_STRATEGY_RECONCILE_ATTACH_REQUEST_KEYS",
+        ";",
+    )
+    assert '"provider_task_id"' in attach_keys
+
+    method = _source_slice(
+        API,
+        "  reconcileGenerationStrategy(jobId, details = {})",
+        "  async invokeRealGeneration",
+    )
+    for token in (
+        'this.invokeRealGeneration("strategy_reconcile"',
+        '"RUNWAY_TASK_ID_VERIFIED"',
+        '"RUNWAY_NO_TASK_VERIFIED"',
+        "dispatch_result_id",
+        "generation_reconciliation_incident_invalid",
+        "generation_reconciliation_resolution_invalid",
+        "generation_reconciliation_evidence_invalid",
+        "generation_reconciliation_task_id_invalid",
+        "GENERATION_STRATEGY_RUNWAY_TASK_ID_PATTERN",
+    ):
+        assert token in method
+    # Strategy jobs are runway-recipe only: no google branch exists.
+    assert "GOOGLE_" not in method
+    assert "google" not in method
+
+
+def test_strategy_reconcile_bridge_sends_exact_payload_without_random_keys() -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is required for strategy reconcile bridge contracts")
+    script = (
+        "import assert from 'node:assert/strict';\n"
+        + "const { CreatorApi } = await import("
+        + json.dumps(API_PATH.as_uri())
+        + ");\n"
+        + r"""
+globalThis.window = {
+  sessionStorage: { getItem() { return null; }, setItem() {} },
+};
+const actor = '11111111-1111-4111-8111-111111111111';
+const organization = '22222222-2222-4222-8222-222222222222';
+const project = '33333333-3333-4333-8333-333333333333';
+const job = '44444444-4444-4444-8444-444444444444';
+const dispatchResult = '55555555-5555-4555-8555-555555555555';
+const incident = '66666666-6666-4666-8666-666666666666';
+const response = {
+  ok: true, version: 'generation-strategy-status-response-v1',
+  job: {}, strategy: {}, selection: {}, price: {}, dispatch: {},
+  reconciliation: {}, output: null, error: null, contract: {},
+};
+const calls = [];
+const supabase = {
+  schema() { return {rpc() {}}; },
+  auth: {async getSession() {
+    return {data: {session: {access_token: 'token', user: {id: actor}}}, error: null};
+  }},
+  functions: {async invoke(name, options) {
+    assert.equal(name, 'creator-generate');
+    calls.push(options.body);
+    return {data: structuredClone(response), error: null};
+  }},
+};
+const api = new CreatorApi(supabase, {
+  RPC_SCHEMA: 'public', STORAGE_BUCKET: 'media', REAL_GENERATION_ENABLED: true,
+});
+api.organizationId = organization;
+
+assert.throws(
+  () => api.reconcileGenerationStrategy(job, {
+    project_id: project,
+    dispatch_result_id: 'not-a-uuid',
+    incident_id: incident,
+    resolution: 'attach_existing_task',
+    provider_task_id: 'runway-task-77',
+    evidence_reference: 'Runway dashboard, 16.08 14:35',
+    reason: 'Task создан в 14:32 рядом со стартом этого товара.',
+  }),
+  (error) => error?.code === 'generation_reconciliation_incident_invalid',
+);
+assert.equal(calls.length, 0);
+
+const attach = await api.reconcileGenerationStrategy(job, {
+  project_id: project,
+  dispatch_result_id: dispatchResult,
+  incident_id: incident,
+  resolution: 'attach_existing_task',
+  provider_task_id: 'runway-task-77',
+  evidence_reference: 'Runway dashboard, 16.08 14:35',
+  reason: 'Task создан в 14:32 рядом со стартом этого товара.',
+});
+assert.deepEqual(attach, response);
+assert.deepEqual(calls[0], {
+  action: 'strategy_reconcile',
+  organization_id: organization,
+  project_id: project,
+  generation_job_id: job,
+  dispatch_result_id: dispatchResult,
+  incident_id: incident,
+  resolution: 'attach_existing_task',
+  confirmation: 'RUNWAY_TASK_ID_VERIFIED',
+  evidence_reference: 'Runway dashboard, 16.08 14:35',
+  reason: 'Task создан в 14:32 рядом со стартом этого товара.',
+  idempotency_key: 'strategy-reconcile:' + incident + ':attach_existing_task',
+  provider_task_id: 'runway-task-77',
+});
+
+await api.reconcileGenerationStrategy(job, {
+  project_id: project,
+  dispatch_result_id: dispatchResult,
+  incident_id: incident,
+  resolution: 'confirm_no_submission',
+  evidence_reference: 'Runway dashboard, 16.08 14:40',
+  reason: 'В панели Runway нет task рядом со временем этого старта.',
+});
+assert.equal(calls.length, 2);
+assert.equal(calls[1].confirmation, 'RUNWAY_NO_TASK_VERIFIED');
+assert.equal(
+  calls[1].idempotency_key,
+  'strategy-reconcile:' + incident + ':confirm_no_submission',
+);
+assert.ok(!('provider_task_id' in calls[1]));
+assert.deepEqual(api.mutationKeys, {});
+"""
+    )
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        path = Path(temporary_directory) / "strategy-reconcile.mjs"
+        path.write_text(script, encoding="utf-8")
+        result = subprocess.run(
+            [node, str(path)],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=20,
+            check=False,
+        )
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
+def test_typed_generation_strategy_rejections_are_never_auto_retried() -> None:
+    guard = _top_level_function(APP, "generationStrategyStartFailureIsTransport")
+    auto_retry = _source_slice(
+        APP,
+        "async function retryGenerationStrategyStartAfterTransportFailure",
+        "async function retryGenerationStrategyReservedStart",
+    )
+    manual_retry = _source_slice(
+        APP,
+        "async function retryGenerationStrategyReservedStart",
+        "async function submitGenerationBatch",
+    )
+    transport_codes = _source_slice(
+        APP,
+        "const GENERATION_STRATEGY_START_TRANSPORT_ERROR_CODES",
+        "function generationStrategyStartFailureIsTransport",
+    )
+
+    # Only transport-level failures with an unknown outcome may replay the
+    # identical request; deterministic typed rejections never do.
+    assert 'startsWith("generation_strategy_")' in guard
+    assert "return false" in guard
+    assert '"real_generation_request_failed"' in transport_codes
+    assert '"generation_unavailable"' in transport_codes
+    assert '"real_generation_response_invalid"' not in transport_codes
+
+    first_guard = auto_retry.index("!generationStrategyStartFailureIsTransport(error)")
+    throw_original = auto_retry.index("throw error;", first_guard)
+    transported = auto_retry.index("requestApi.startGenerationStrategy(request)")
+    assert first_guard < throw_original < transported
+    assert "if (generationStrategyStartFailureIsTransport(retryError))" in auto_retry
+    assert "state.generationStrategyStartRetries.delete(sourceMediaId)" in auto_retry
+    assert "if (generationStrategyStartFailureIsTransport(error))" in manual_retry
+    assert "state.generationStrategyStartRetries.delete(sourceMediaId)" in manual_retry
