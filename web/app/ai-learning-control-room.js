@@ -1052,7 +1052,7 @@ function knowledgeMarkup(category, control, { canAddLink, canUploadFile, busy })
       <h3>Добавить ссылку</h3>
       <p>Публичная карточка товара, обзор, документация или проверяемый материал.</p>
       <label><span>URL источника</span><input type="url" name="source_url" inputmode="url" maxlength="2000" placeholder="https://…" required ${disabledLink} /></label>
-      <label><span>Название</span><input type="text" name="title" minlength="2" maxlength="160" placeholder="Что содержит источник" required ${disabledLink} /></label>
+      <label><span>Название</span><input type="text" name="source_title" minlength="2" maxlength="160" placeholder="Что содержит источник" required ${disabledLink} /></label>
       <label><span>Заметка <small>(необязательно)</small></span><textarea name="note" maxlength="1000" placeholder="Что важно проверить в этом материале" ${disabledLink}></textarea></label>
       <label class="ai-learning-rights"><input type="checkbox" name="rights_confirmed" required ${disabledLink} /><span>У команды есть право хранить и анализировать этот источник.</span></label>
       <button type="submit" ${disabledLink}>${busy ? "Сохраняем…" : "Зарегистрировать источник"}</button>
@@ -1064,7 +1064,7 @@ function knowledgeMarkup(category, control, { canAddLink, canUploadFile, busy })
       <h3>Загрузить файл</h3>
       <p>PDF, DOCX, XLSX, CSV, Markdown или TXT с подтверждаемым происхождением, до 25 МБ.</p>
       <label class="ai-learning-file-field"><span>Выберите файл</span><input id="ai-knowledge-file" type="file" name="file" accept=".pdf,.docx,.xlsx,.csv,.md,.txt" required ${disabledFile} /><small data-ai-file-summary aria-live="polite">Файл не выбран</small></label>
-      <label><span>Название</span><input type="text" name="title" minlength="2" maxlength="160" placeholder="Кратко о содержимом" required ${disabledFile} /></label>
+      <label><span>Название</span><input type="text" name="source_title" minlength="2" maxlength="160" placeholder="Кратко о содержимом" required ${disabledFile} /></label>
       <label><span>Заметка <small>(необязательно)</small></span><textarea name="note" maxlength="1000" placeholder="Что важно извлечь и проверить" ${disabledFile}></textarea></label>
       <label class="ai-learning-rights"><input type="checkbox" name="rights_confirmed" required ${disabledFile} /><span>У команды есть право хранить и анализировать этот файл.</span></label>
       <button type="submit" ${disabledFile}>${busy ? "Загружаем…" : "Сохранить в базе знаний"}</button>
@@ -2456,6 +2456,13 @@ function normalizeCapabilities(raw, actor) {
       source,
       ["can_decide_research_inbox", "canDecideResearchInbox"],
       false,
+    ),
+    // Fail closed: an older server that does not announce the reopened
+    // legacy intake keeps the read-only archive stance.
+    legacyIntakeReadOnly: capability(
+      source,
+      ["legacy_intake_read_only", "legacyIntakeReadOnly"],
+      true,
     ),
     canViewHistory: capability(
       source,

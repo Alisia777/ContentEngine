@@ -11,7 +11,7 @@ import { workspaceActionKey } from "./workspace-action-key.js?v=20260814.os4.41"
 
 const BUILD = "20260814.os4.41";
 const GENERATION_HOTFIX_BUILD = `${BUILD}.adaptive-intake-1`;
-const GENERATION_INTAKE_BUILD = "20260816.adaptive.4";
+const GENERATION_INTAKE_BUILD = "20260819.cascade.1";
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;

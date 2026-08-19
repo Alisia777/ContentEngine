@@ -835,6 +835,51 @@ return {
     }
 
 
+def test_normalize_capabilities_maps_server_driven_legacy_intake_stance() -> None:
+    result = _run_module(
+        VIEW_PATH,
+        AI_CONTROL_ROOM_FIXTURE
+        + r"""
+const normalize = (capabilities) => subject.normalizeAiLearningControlRoom(
+  capabilities === undefined
+    ? envelope
+    : { ...envelope, capabilities: { ...envelope.capabilities, ...capabilities } },
+  { category: "cosmetics" },
+);
+return {
+  open: normalize({ legacy_intake_read_only: false })
+    .capabilities.legacyIntakeReadOnly,
+  locked: normalize({ legacy_intake_read_only: true })
+    .capabilities.legacyIntakeReadOnly,
+  camelOpen: normalize({ legacyIntakeReadOnly: false })
+    .capabilities.legacyIntakeReadOnly,
+  absentFailClosed: normalize(undefined).capabilities.legacyIntakeReadOnly,
+  nonBooleanFailClosed: normalize({ legacy_intake_read_only: "false" })
+    .capabilities.legacyIntakeReadOnly,
+};
+""",
+    )
+
+    assert result == {
+        "open": False,
+        "locked": True,
+        "camelOpen": False,
+        "absentFailClosed": True,
+        "nonBooleanFailClosed": True,
+    }
+
+
+def test_render_ai_learning_uses_snapshot_driven_legacy_read_only() -> None:
+    app = _read(APP_PATH)
+    render = _js_function(app, "renderAiLearningSection")
+    assert "legacyReadOnly: true," not in render
+    assert (
+        "legacyReadOnly: snapshot"
+        " ? snapshot.capabilities.legacyIntakeReadOnly === true : true,"
+        in render
+    )
+
+
 def test_ai_signals_use_plain_russian_and_offer_one_decision_at_a_time() -> None:
     view = _read(VIEW_PATH)
     labels_match = re.search(

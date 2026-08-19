@@ -18,6 +18,39 @@ export const GENERATION_STRATEGY_CATALOG_VERSION = "2026-08-14.v1";
 export const RUNWAY_RECIPE_VERSION = "2026-06";
 export const RUNWAY_RECIPE_PRICING_VERSION =
   "runway-recipe-credits-2026-08-14.v1";
+export const FAL_RECIPE_PRICING_VERSION = "fal-usd-per-run-2026-08-18.v1";
+// Посекундная ставка не может жить под именем «за ролик»: имя входит в
+// хеш-подпись строки привязки, и совпадение имён означало бы подпись,
+// утверждающую не то, что было посчитано.
+export const FAL_PER_SECOND_PRICING_VERSION =
+  "fal-usd-per-second-2026-08-18.v1";
+
+// Версия прайса — свойство маршрута, а не константа стратегии: у Runway она
+// считается ступенями кредитов, у fal — фиксированной ценой за ролик либо
+// ставкой за секунду. Набор повторяет ограничение базы на колонку
+// pricing_version, поэтому расшириться он может только вместе с ней.
+export const GENERATION_STRATEGY_PRICING_VERSIONS = Object.freeze([
+  RUNWAY_RECIPE_PRICING_VERSION,
+  FAL_RECIPE_PRICING_VERSION,
+  FAL_PER_SECOND_PRICING_VERSION,
+]);
+
+export function isKnownStrategyPricingVersion(value) {
+  return typeof value === "string" &&
+    GENERATION_STRATEGY_PRICING_VERSIONS.includes(value);
+}
+
+// Провайдеры, которым разрешено исполнять стратегию. Тот же набор стоит в
+// ограничении базы на колонку provider таблицы квитанций готовности.
+export const GENERATION_STRATEGY_PROVIDERS = Object.freeze([
+  "runway",
+  "fal",
+]);
+
+export function isKnownStrategyProvider(value) {
+  return typeof value === "string" &&
+    GENERATION_STRATEGY_PROVIDERS.includes(value);
+}
 
 export const GENERATION_STRATEGY_IDS = Object.freeze({
   avatarUgc: "viral_avatar_ugc",
@@ -256,7 +289,11 @@ const RAW_CATALOG = [
       audio: { required_explicit_boolean: true, provider_default: true },
     },
     server: {
-      provider_path: "/v1/recipes/product_swap",
+      // Runway has no /v1/recipes/* endpoints (verified in the live Request
+      // History filter). Product Swap runs on the real video_to_video API
+      // (Gen-4 Aleph): edit the confirmed source MP4 by prompt with image
+      // references. Pricing stays the internal spend-contour authority.
+      provider_path: "/v1/video_to_video",
       pricing: pricing(212, 228),
     },
   },
@@ -678,7 +715,10 @@ function exactExecutionCapability(entry, capabilities) {
     capability.recipe === entry.recipe &&
     capability.recipe_version === entry.recipe_version &&
     capability.provider_path === entry.server.provider_path &&
-    capability.pricing_version === entry.pricing_version
+    // Версия прайса приходит от действующего маршрута, а не из статического
+    // описания стратегии: у Runway и у fal она разная, и сверять её с
+    // константой каталога значило бы гасить стратегию при смене движка.
+    isKnownStrategyPricingVersion(capability.pricing_version)
   );
 }
 

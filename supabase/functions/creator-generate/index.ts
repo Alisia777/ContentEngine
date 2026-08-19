@@ -26,12 +26,15 @@ import {
   GENERATION_STRATEGY_CATALOG,
   GENERATION_STRATEGY_CATALOG_VERSION,
   generationStrategyCatalogEntry,
+  isKnownStrategyPricingVersion,
+  isKnownStrategyProvider,
   publicGenerationStrategyCatalog,
   RUNWAY_RECIPE_PRICING_VERSION,
   RUNWAY_RECIPE_VERSION,
   validateGenerationStrategySelection,
 } from "../_shared/generation-strategy-catalog.js";
 import {
+  buildFalRecipeRequest,
   buildRunwayRecipeRequest,
 } from "../_shared/generation-recipe-adapters.js";
 import {
@@ -52,6 +55,9 @@ import {
   readGenerationStrategyReadiness,
   readGenerationStrategyReconciliationResult,
   readGenerationStrategyStartClaim,
+  falStrategyProviderStatus,
+  parseCreatedFalRequest,
+  readFalResultVideoUrl,
   readPublicGenerationStrategyStatus,
   runwayStrategyProviderStatus,
 } from "../_shared/generation-strategy-edge-contract.js";
@@ -79,6 +85,27 @@ const GENERATED_TEXT_GUARD =
 const SEEDANCE_RUSSIAN_DICTION_GUARD =
   "Русская дикция: чётко, без акцента/лишних гласных; все слова/окончания; числа/градусы/названия точно; чёткие паузы.";
 const RUNWAY_OUTPUT_HOST = "dnznrvs05pmza.cloudfront.net";
+const FAL_QUEUE_ORIGIN = "https://queue.fal.run";
+// Pika Swaps просит назвать заменяемую область словами. Фраза выводится из
+// категории товара — она уже проверена сервером, тогда как свободный текст
+// оператора не может управлять тем, что именно вырежут из кадра.
+const FAL_SWAP_REGION_BY_CATEGORY: Record<string, string> = {
+  cosmetics: "the cosmetic product bottle or jar shown in the video",
+  baa: "the supplement package shown in the video",
+  sports_food: "the sports nutrition package shown in the video",
+  food: "the food package shown in the video",
+  household: "the home appliance shown in the video",
+  apparel: "the garment shown in the video",
+  electronics: "the electronic device shown in the video",
+  other: "the product shown in the video",
+};
+// Результат скачивается только с известных хостов провайдера: ссылка приходит
+// извне, и без белого списка ею можно было бы увести загрузку куда угодно.
+const FAL_OUTPUT_HOSTS = new Set([
+  "fal.media",
+  "v2.fal.media",
+  "v3.fal.media",
+]);
 const STORAGE_BUCKET = "contentengine-private";
 const MAX_BODY_BYTES = 16_384;
 const MAX_PROVIDER_JSON_BYTES = 65_536;
@@ -713,6 +740,7 @@ type GenerationStrategyCatalogPolicy = {
   executionCapabilities: Record<string, unknown>;
   selectEnabled: boolean;
   preflightEnabled: boolean;
+  providerRoutes: Record<string, unknown> | null;
 };
 type GenerationStrategyPayload =
   | {
@@ -2356,18 +2384,22 @@ function readStrategySpendConfirmation(value: unknown): {
   strategyId: GenerationStrategyId;
   recipe: RunwayRecipe;
   estimatedCredits: number;
+  provider: string;
 } | null {
   if (typeof value !== "string") return null;
+  // Префикс называет провайдера, потому что цена и списание принадлежат
+  // конкретному движку: строка подтверждения обязана быть однозначной.
   const match = value.match(
-    /^RUNWAY_(PRODUCT_UGC|PRODUCT_SWAP|PRODUCT_AD)_([4-9]|1[0-5])S_(720P|1080P)_(AUDIO|SILENT)_USD_([0-9]{1,4})[.]([0-9]{2})$/u,
+    /^(RUNWAY|FAL)_(PRODUCT_UGC|PRODUCT_SWAP|PRODUCT_AD)_([1-9]|1[0-5])S_(720P|1080P)_(AUDIO|SILENT)_USD_([0-9]{1,4})[.]([0-9]{2})$/u,
   );
   if (match === null) return null;
-  const recipe = match[1].toLocaleLowerCase("en-US") as RunwayRecipe;
+  const provider = match[1].toLocaleLowerCase("en-US");
+  const recipe = match[2].toLocaleLowerCase("en-US") as RunwayRecipe;
   const entry = GENERATION_STRATEGY_CATALOG.find((candidate: {
     recipe: string;
     strategy_id: string;
   }) => candidate.recipe === recipe);
-  const estimatedCredits = Number(match[5]) * 100 + Number(match[6]);
+  const estimatedCredits = Number(match[6]) * 100 + Number(match[7]);
   if (
     entry === undefined || !Number.isSafeInteger(estimatedCredits) ||
     estimatedCredits <= 0
@@ -2376,6 +2408,7 @@ function readStrategySpendConfirmation(value: unknown): {
     strategyId: entry.strategy_id as GenerationStrategyId,
     recipe,
     estimatedCredits,
+    provider,
   };
 }
 
@@ -2450,11 +2483,76 @@ function readGenerationProviderPolicy(
   };
 }
 
+// Строгая сверка ключей остаётся правилом; необязательное поле снимается с
+// объекта до неё, чтобы «нет поля» и «поле есть» проверялись одинаково строго.
+function withoutOptionalKeys(value: unknown, keys: string[]): unknown {
+  if (!isRecord(value)) return value;
+  const copy = { ...value } as Record<string, unknown>;
+  for (const key of keys) delete copy[key];
+  return copy;
+}
+
+const GENERATION_ROUTE_PROVIDERS = new Set(["runway", "google", "fal"]);
+const GENERATION_ROUTE_TIERS = new Set(["cheap", "medium", "premium"]);
+const GENERATION_ROUTE_PRICE_KINDS = new Set([
+  "runway_credit_tiers",
+  "usd_minor_per_second",
+  "usd_minor_per_run",
+]);
+
+// Каталог маршрутов приходит из базы и попадает в браузер, поэтому проверяется
+// как чужой ввод: точный набор ключей, известные значения, ставка обязана
+// присутствовать ровно у тех видов тарификации, где она есть смысл.
+function generationStrategyProviderRoutesValid(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!isRecord(value)) return false;
+  for (const [strategyId, routes] of Object.entries(value)) {
+    if (!GENERATION_STRATEGY_CATALOG.some((entry: { strategy_id: string }) =>
+      entry.strategy_id === strategyId
+    )) return false;
+    if (!Array.isArray(routes) || routes.length === 0 || routes.length > 8) {
+      return false;
+    }
+    let recommended = 0;
+    for (const route of routes) {
+      if (
+        !hasExactKeys(route, [
+          "provider",
+          "model_key",
+          "tier",
+          "price_kind",
+          "price_rate_minor",
+          "recommended",
+          "enabled",
+        ]) ||
+        !GENERATION_ROUTE_PROVIDERS.has(route.provider as string) ||
+        typeof route.model_key !== "string" ||
+        route.model_key.length < 2 || route.model_key.length > 120 ||
+        !GENERATION_ROUTE_TIERS.has(route.tier as string) ||
+        !GENERATION_ROUTE_PRICE_KINDS.has(route.price_kind as string) ||
+        typeof route.recommended !== "boolean" ||
+        typeof route.enabled !== "boolean"
+      ) return false;
+      const rateRequired = route.price_kind !== "runway_credit_tiers";
+      const rate = route.price_rate_minor;
+      if (rateRequired) {
+        if (!isIntegerInRange(rate, 1, 10_000)) return false;
+      } else if (rate !== null) return false;
+      if (route.recommended) recommended += 1;
+    }
+    if (recommended > 1) return false;
+  }
+  return true;
+}
+
 function readGenerationStrategyCatalogPolicy(
   value: unknown,
 ): GenerationStrategyCatalogPolicy | null {
+  // provider_routes появляется, когда в реестре у стратегии больше одного
+  // движка. Ключ необязательный: миграция базы и деплой функции не атомарны,
+  // поэтому обе стороны обязаны переживать отсутствие и наличие поля.
   if (
-    !hasExactKeys(value, [
+    !hasExactKeys(withoutOptionalKeys(value, ["provider_routes"]), [
       "ok",
       "version",
       "execution_capabilities",
@@ -2464,6 +2562,9 @@ function readGenerationStrategyCatalogPolicy(
       "paid_start_authorized",
       "contract",
     ]) || value.ok !== true ||
+    !generationStrategyProviderRoutesValid(
+      (value as { provider_routes?: unknown }).provider_routes,
+    ) ||
     value.version !== "generation-strategy-catalog-policy-response-v1" ||
     typeof value.select_enabled !== "boolean" ||
     typeof value.preflight_enabled !== "boolean" ||
@@ -2511,16 +2612,22 @@ function readGenerationStrategyCatalogPolicy(
       ]) || typeof capability.enabled !== "boolean" ||
       capability.catalog_version !== GENERATION_STRATEGY_CATALOG_VERSION ||
       capability.strategy_id !== entry.strategy_id ||
-      capability.provider !== "runway" || capability.recipe !== entry.recipe ||
+      // Провайдер приходит от действующего маршрута реестра, а не из
+      // статического описания стратегии: сверять его с одним именем значило бы
+      // гасить исполнение при смене движка.
+      !isKnownStrategyProvider(capability.provider) ||
+      capability.recipe !== entry.recipe ||
       capability.recipe_version !== RUNWAY_RECIPE_VERSION ||
       capability.provider_path !== entry.server.provider_path ||
-      capability.pricing_version !== RUNWAY_RECIPE_PRICING_VERSION
+      !isKnownStrategyPricingVersion(capability.pricing_version)
     ) return null;
   }
+  const routes = (value as { provider_routes?: unknown }).provider_routes;
   return {
     executionCapabilities: capabilities,
     selectEnabled: value.select_enabled,
     preflightEnabled: value.preflight_enabled,
+    providerRoutes: isRecord(routes) ? routes : null,
   };
 }
 
@@ -2650,13 +2757,26 @@ function generationStrategyPriceValid(
     strategyId,
     selection,
   );
+  // Ступени кредитов считает только Runway, и для него сверка с каноническим
+  // калькулятором остаётся обязательной. У fal цена фиксирована за ролик, и
+  // сверять её с рунвеевской арифметикой бессмысленно: там другой прайс.
+  // Поэтому для остальных маршрутов проверяется внутренняя согласованность
+  // снимка — что сумма, доналоговая сумма и «кредиты» описывают одни и те же
+  // деньги. Ослаблением это не является: расхождение по-прежнему отвергается.
+  const runwayCredits = value.provider === "runway";
+  const creditsConsistent = runwayCredits
+    ? (isRecord(expectedPrice) && expectedPrice.ok === true &&
+      value.estimated_credits === expectedPrice.estimated_credits &&
+      value.estimated_pre_tax_usd_minor ===
+        expectedPrice.estimated_pre_tax_usd_minor)
+    : (value.credit_unit_cost_minor === 1 &&
+      value.estimated_credits === value.estimated_cost_minor &&
+      value.estimated_pre_tax_usd_minor === value.estimated_cost_minor);
   if (
-    !isRecord(expectedPrice) || expectedPrice.ok !== true ||
-    value.estimated_credits !== expectedPrice.estimated_credits ||
-    value.estimated_pre_tax_usd_minor !==
-      expectedPrice.estimated_pre_tax_usd_minor ||
+    !creditsConsistent ||
     value.version !== "generation-strategy-price-snapshot-v1" ||
-    value.strategy_id !== strategyId || value.provider !== "runway" ||
+    value.strategy_id !== strategyId ||
+    !isKnownStrategyProvider(value.provider) ||
     value.recipe !== recipe ||
     value.input_mode !==
       (strategyId === "viral_avatar_ugc"
@@ -2673,7 +2793,7 @@ function generationStrategyPriceValid(
     value.estimated_cost_usd !== (estimatedCredits / 100).toFixed(2) ||
     value.currency !== "USD" || value.credit_unit_cost_minor !== 1 ||
     value.catalog_version !== GENERATION_STRATEGY_CATALOG_VERSION ||
-    value.pricing_version !== RUNWAY_RECIPE_PRICING_VERSION ||
+    !isKnownStrategyPricingVersion(value.pricing_version) ||
     value.recipe_version !== RUNWAY_RECIPE_VERSION ||
     typeof value.price_hash !== "string" ||
     !SHA256_PATTERN.test(value.price_hash)
@@ -2684,7 +2804,12 @@ function generationStrategyPriceValid(
         value.resolution !== selection.resolution
       : value.ratio !== selection.ratio
   ) return false;
-  const expectedConfirmation = `RUNWAY_${recipe.toUpperCase()}_${
+  // Провайдер стоит в самой строке подтверждения: она должна называть тот
+  // маршрут, по которому посчитаны деньги. Жёсткий префикс RUNWAY_ отвергал
+  // корректный снимок другого маршрута — и делал это молча, общим отказом.
+  const expectedConfirmation = `${
+    String(value.provider).toUpperCase()
+  }_${recipe.toUpperCase()}_${
     String(value.duration_seconds)
   }S_${String(value.resolution).toUpperCase()}_${
     value.audio ? "AUDIO" : "SILENT"
@@ -2729,7 +2854,7 @@ function readGenerationStrategyBindResult(
     entry === null || entry.recipe !== recipe ||
     value.selection.catalog_version !== GENERATION_STRATEGY_CATALOG_VERSION ||
     value.selection.recipe_version !== RUNWAY_RECIPE_VERSION ||
-    value.selection.pricing_version !== RUNWAY_RECIPE_PRICING_VERSION ||
+    !isKnownStrategyPricingVersion(value.selection.pricing_version) ||
     typeof value.selection.selection_hash !== "string" ||
     !SHA256_PATTERN.test(value.selection.selection_hash) ||
     !hasExactKeys(value.binding, [
@@ -4119,16 +4244,20 @@ function readStartJob(value: unknown): StartJob | null {
 }
 
 type ProviderRequestEnvelope = {
-  provider: "runway" | "google";
+  provider: "runway" | "google" | "fal";
   endpointPath: string;
   method: "POST";
   body: Record<string, Json>;
-  pollKind: "runway_task" | "google_long_running_operation";
+  pollKind: "runway_task" | "google_long_running_operation" | "fal_request";
 };
 
 export function buildGenerationStrategyProviderRequest(
   context: GenerationStrategyRecipeContext,
   signedRoleAssets: GenerationStrategySignedRoleAsset[],
+  // Маршрут и категория приходят из квитанции: обе величины уже подписаны
+  // сервером, поэтому указание для модели собирается только из проверенного.
+  routeProvider: string = "runway",
+  routeProductCategory: string = "other",
 ): ProviderRequestEnvelope | null {
   const entry = generationStrategyCatalogEntry(context.strategyId);
   if (
@@ -4209,8 +4338,55 @@ export function buildGenerationStrategyProviderRequest(
     durationSeconds: context.durationSeconds,
     audio: context.audio,
   };
+  // Движки просят принципиально разного. Aleph переписывает кадр целиком и
+  // ждёт описание всей сцены; Pika Swaps меняет только названную область и
+  // ждёт две вещи по отдельности: ЧТО заменить и НА ЧТО. Поэтому указание
+  // собирается под маршрут, а не переводится механически.
+  if (routeProvider === "fal" && context.recipe === "product_swap") {
+    const falSelection = {
+      ...commonSelection,
+      resolution: context.resolution,
+      modifyRegion: FAL_SWAP_REGION_BY_CATEGORY[routeProductCategory] ||
+        FAL_SWAP_REGION_BY_CATEGORY.other,
+      promptText: [
+        "Replace it with the exact product from the reference image,",
+        "keeping the surrounding scene, hands and lighting untouched.",
+        typeof context.productInfo === "string" ? context.productInfo : "",
+      ].join(" ").trim().slice(0, 1_000),
+    };
+    try {
+      const envelope = buildFalRecipeRequest(falSelection, mappedAssets);
+      if (
+        envelope?.provider !== "fal" || envelope.method !== "POST" ||
+        envelope.pollKind !== "fal_request" || !isRecord(envelope.body)
+      ) return null;
+      return envelope as ProviderRequestEnvelope;
+    } catch {
+      return null;
+    }
+  }
+
   const selection = context.recipe === "product_swap"
-    ? { ...commonSelection, resolution: context.resolution }
+    ? {
+      ...commonSelection,
+      resolution: context.resolution,
+      // video_to_video (Gen-4 Aleph) needs an explicit edit instruction.
+      // It is composed only from server-owned text: a fixed swap directive
+      // plus the receipt-frozen productInfo whose hash was just verified by
+      // strategyPromptHashesMatch. No browser prompt authority exists here.
+      // The lettering clause is load-bearing: without it the model invents a
+      // second wordmark on empty bezels and re-draws it differently every
+      // frame, which reads as a wobbling logo (paid run 18.08.2026).
+      promptText: [
+        "Replace the product in this video with the exact product shown in",
+        "the reference images. Preserve the original scene, actions, camera",
+        "motion, timing and editing.",
+        "Do not add any lettering, wordmark, badge or on-screen text that is",
+        "not already visible in the source frame, and keep every existing",
+        "label in its original position, spelling and size.",
+        typeof context.productInfo === "string" ? context.productInfo : "",
+      ].join(" ").trim().slice(0, 1_000),
+    }
     : {
       ...commonSelection,
       ratio: context.ratio,
@@ -4578,6 +4754,65 @@ function runwaySecret(): string | null {
   return value;
 }
 
+// Адреса очереди fal строятся по документированному образцу из идентификатора
+// модели и номера задачи. Их не приходится хранить, но в момент отправки мы
+// сверяем построенное с тем, что вернул провайдер: если образец разошёлся,
+// запуск отменяется. Лучше не начать, чем начать и не забрать результат.
+function falQueueUrls(
+  modelKey: string,
+  requestId: string,
+): { statusUrl: string; responseUrl: string } {
+  const base = `${FAL_QUEUE_ORIGIN}/${modelKey}/requests/${requestId}`;
+  return { statusUrl: `${base}/status`, responseUrl: base };
+}
+
+function falSecret(): string | null {
+  const value = Deno.env.get("FAL_KEY") ?? "";
+  if (
+    value.length < 16 || value.length > 512 || value !== value.trim() ||
+    hasForbiddenControl(value, false)
+  ) {
+    return null;
+  }
+  return value;
+}
+
+// Ключ, адрес и заголовки различаются у провайдеров, но выбираются в одном
+// месте: восемь вызовов по коду обращаются сюда, а не собирают их сами.
+function providerSecret(provider: string): string | null {
+  if (provider === "runway") return runwaySecret();
+  if (provider === "fal") return falSecret();
+  return null;
+}
+
+function providerRequestTarget(
+  provider: string,
+  endpointPath: string,
+  secret: string,
+): { url: string; headers: Record<string, string> } | null {
+  if (provider === "runway") {
+    return {
+      url: `${RUNWAY_API_ORIGIN}${endpointPath}`,
+      headers: {
+        authorization: `Bearer ${secret}`,
+        "content-type": "application/json",
+        "x-runway-version": RUNWAY_API_VERSION,
+      },
+    };
+  }
+  if (provider === "fal") {
+    // У очереди fal путь запроса и есть идентификатор модели.
+    return {
+      url: `${FAL_QUEUE_ORIGIN}/${endpointPath}`,
+      headers: {
+        authorization: `Key ${secret}`,
+        "content-type": "application/json",
+      },
+    };
+  }
+  return null;
+}
+
 function googleApiKey(): string | null {
   const value = Deno.env.get("GEMINI_API_KEY") ?? "";
   if (
@@ -4604,6 +4839,71 @@ type GenerationStrategyReadinessCheck = {
     | "provider_readiness_unavailable"
     | null;
 };
+
+// У провайдеров нет общего способа спросить «хватит ли денег»: Runway отдаёт
+// баланс кредитов, очередь fal — нет. Поэтому готовность спрашивается у своего
+// провайдера, но записывается в одну и ту же форму квитанции.
+async function checkStrategyReadiness(
+  provider: string,
+  estimatedCredits: number,
+): Promise<GenerationStrategyReadinessCheck> {
+  if (provider === "fal") return await checkFalStrategyReadiness(falSecret());
+  return await checkRunwayStrategyReadiness(runwaySecret(), estimatedCredits);
+}
+
+// fal не публикует баланс, поэтому подтверждаем то, что реально проверяемо:
+// ключ настроен и принят провайдером. Достаточность средств проверить нечем —
+// её честно сообщит сам провайдер отказом при создании задачи, и резерв тогда
+// вернётся обычной сверкой.
+async function checkFalStrategyReadiness(
+  secret: string | null,
+): Promise<GenerationStrategyReadinessCheck> {
+  if (secret === null) {
+    return {
+      credentialConfigured: false,
+      providerAuthenticationConfirmed: false,
+      balanceSufficient: false,
+      failureCode: "provider_configuration_error",
+    };
+  }
+  let response: ProviderJsonResult;
+  try {
+    response = await fetchProviderJsonWithDeadline(
+      `${FAL_QUEUE_ORIGIN}/fal-ai/pika/v2/pikaswaps/requests/${
+        crypto.randomUUID()
+      }/status`,
+      {
+        method: "GET",
+        redirect: "manual",
+        headers: { authorization: `Key ${secret}` },
+      },
+      PROVIDER_TIMEOUT_MS,
+    );
+  } catch {
+    return {
+      credentialConfigured: true,
+      providerAuthenticationConfirmed: false,
+      balanceSufficient: false,
+      failureCode: "provider_readiness_unavailable",
+    };
+  }
+  // Несуществующая задача — ожидаемый ответ: важно лишь, что ключ приняли.
+  // Отказ по авторизации отличается от «не нашлось» и означает плохой ключ.
+  if (response.status === 401 || response.status === 403) {
+    return {
+      credentialConfigured: true,
+      providerAuthenticationConfirmed: false,
+      balanceSufficient: false,
+      failureCode: "provider_authentication_failed",
+    };
+  }
+  return {
+    credentialConfigured: true,
+    providerAuthenticationConfirmed: true,
+    balanceSufficient: true,
+    failureCode: null,
+  };
+}
 
 async function checkRunwayStrategyReadiness(
   secret: string | null,
@@ -4669,12 +4969,23 @@ async function checkRunwayStrategyReadiness(
   };
 }
 
+const GENERATION_QUOTA_CODES = new Set([
+  "real_generation_user_daily_quota_exceeded",
+  "real_generation_organization_daily_quota_exceeded",
+  "real_generation_assignee_concurrency_exceeded",
+  "real_generation_organization_concurrency_exceeded",
+]);
+
 function readGenerationStrategyRpcError(value: unknown): {
   code: string;
   status: 403 | 409 | 422 | 503;
 } | null {
   if (!isRecord(value) || typeof value.message !== "string") return null;
   const code = value.message.trim();
+  // The claim RPC also raises the shared real-generation quota guards. They are
+  // an exact, non-sensitive allowlist: without them the portal only ever saw an
+  // opaque 503 and could not tell the operator that the daily window is full.
+  if (GENERATION_QUOTA_CODES.has(code)) return { code, status: 409 };
   if (!/^generation_strategy_[a-z0-9_]{3,110}$/u.test(code)) return null;
   if (code.endsWith("_access_required") || code.endsWith("_forbidden")) {
     return { code, status: 403 };
@@ -5219,8 +5530,19 @@ async function fetchProviderJsonWithDeadline(
     timeoutMs,
     async (response) => {
       if (!response.ok) {
-        await response.body?.cancel();
-        return { ok: false as const, status: response.status, value: null };
+        // Keep the provider's validation text: rejected dispatches must be
+        // diagnosable while the platform log backend is unavailable.
+        let rejectionText: string | null = null;
+        try {
+          rejectionText = (await response.text()).slice(0, 600);
+        } catch {
+          rejectionText = null;
+        }
+        return {
+          ok: false as const,
+          status: response.status,
+          value: rejectionText,
+        };
       }
       return {
         ok: true as const,
@@ -5313,11 +5635,26 @@ async function sha256Hex(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
 }
 
 function validateRunwayOutputUrl(value: unknown): string | null {
+  return validateProviderOutputUrl("runway", value);
+}
+
+// Ссылку на готовый файл отдаёт провайдер, поэтому она проверяется как чужой
+// ввод: только https, только известный хост этого провайдера, без порта и
+// встроенных учётных данных.
+function validateProviderOutputUrl(
+  provider: string,
+  value: unknown,
+): string | null {
   if (typeof value !== "string" || value.length > 2_048) return null;
   try {
     const url = new URL(value);
+    const hostAllowed = provider === "runway"
+      ? url.hostname === RUNWAY_OUTPUT_HOST
+      : provider === "fal"
+      ? FAL_OUTPUT_HOSTS.has(url.hostname)
+      : false;
     if (
-      url.protocol !== "https:" || url.hostname !== RUNWAY_OUTPUT_HOST ||
+      url.protocol !== "https:" || !hostAllowed ||
       (url.port !== "" && url.port !== "443") || url.username !== "" ||
       url.password !== ""
     ) {
@@ -6063,6 +6400,12 @@ async function handleCreatorGenerate(
             disabled_reason: strategy.disabled_reason,
           };
         }),
+        // Движки стратегий отдаются отдельным полем, а не внутри записи
+        // стратегии: форма проверяет запись стратегии по точному набору
+        // ключей, и лишнее поле внутри неё обрушило бы весь каталог.
+        // Выключенные маршруты тоже приходят — экран честно показывает,
+        // что движок существует, но пока недоступен.
+        strategyProviderRoutes: strategyCatalogPolicy.providerRoutes || {},
       },
     });
   }
@@ -6500,8 +6843,8 @@ async function handleCreatorGenerate(
     if (!isUuid(actorId) || spend === null) {
       return json(request, { ok: false, code: "invalid_payload" }, 400);
     }
-    const readiness = await checkRunwayStrategyReadiness(
-      runwaySecret(),
+    const readiness = await checkStrategyReadiness(
+      spend.provider,
       spend.estimatedCredits,
     );
     try {
@@ -8149,7 +8492,22 @@ async function handleCreatorGenerate(
         : { status: "failed", providerTaskId: null };
     };
 
-    const secret = runwaySecret();
+    // Провайдер берётся из квитанции: он подписан вместе с ценой, поэтому
+    // подменить движок после расчёта невозможно. Значение живёт в самой
+    // попытке отправки и уже проверено контрактом по набору известных
+    // движков, поэтому «runway по умолчанию» здесь больше не нужен: молчаливый
+    // возврат к Runway отправил бы к нему запуск, оплаченный по прайсу fal.
+    const routeProvider = typeof attemptRow.provider === "string"
+      ? attemptRow.provider
+      : null;
+    if (routeProvider === null) {
+      return await rejectBeforePost("input_asset_not_current");
+    }
+    const routeProductCategory =
+      typeof attemptRow.product_category === "string"
+        ? attemptRow.product_category
+        : "other";
+    const secret = providerSecret(routeProvider);
     if (secret === null) return await rejectBeforePost("input_signing_failed");
     const recipeContext = attempt.recipe_context as Record<string, unknown>;
     if (!(await strategyPromptHashesMatch(recipeContext))) {
@@ -8164,8 +8522,18 @@ async function handleCreatorGenerate(
     const providerRequest = buildGenerationStrategyProviderRequest(
       recipeContext as unknown as GenerationStrategyRecipeContext,
       signedAssets.assets,
+      routeProvider,
+      routeProductCategory,
     );
-    if (providerRequest === null) {
+    if (providerRequest === null || providerRequest.provider !== routeProvider) {
+      return await rejectBeforePost("input_asset_not_current");
+    }
+    const providerTarget = providerRequestTarget(
+      routeProvider,
+      providerRequest.endpointPath,
+      secret,
+    );
+    if (providerTarget === null) {
       return await rejectBeforePost("input_asset_not_current");
     }
     let serialized: string;
@@ -8182,27 +8550,57 @@ async function handleCreatorGenerate(
 
     let outcome: ReturnType<typeof classifyRunwayRecipeCreateOutcome>;
     let evidenceValue: unknown;
+    let providerRejectionText: string | null = null;
     try {
       // SQL C is the unique dispatch owner. This is the sole fetch call in this
       // continuation and providerPostStarted becomes true immediately before it.
       const response = await fetchProviderJsonWithDeadline(
-        `${RUNWAY_API_ORIGIN}${providerRequest.endpointPath}`,
+        providerTarget.url,
         {
           method: "POST",
           redirect: "manual",
-          headers: {
-            authorization: `Bearer ${secret}`,
-            "content-type": "application/json",
-            "x-runway-version": RUNWAY_API_VERSION,
-          },
+          headers: providerTarget.headers,
           body: serialized,
         },
         PROVIDER_TIMEOUT_MS,
       );
-      const task = response.ok ? parseCreatedRunwayTask(response.value) : null;
+      // Оба провайдера отвечают идентификатором задачи, но полями разной формы:
+      // Runway — task.id, очередь fal — request_id вместе с адресами статуса и
+      // результата, которые дальше используются как есть.
+      let task = !response.ok
+        ? null
+        : routeProvider === "fal"
+        ? parseCreatedFalRequest(response.value)
+        : parseCreatedRunwayTask(response.value);
+      if (task !== null && routeProvider === "fal") {
+        const created = task as {
+          id: string;
+          statusUrl: string;
+          responseUrl: string;
+        };
+        const expected = falQueueUrls(
+          providerRequest.endpointPath,
+          created.id,
+        );
+        // Адреса будут восстановлены при опросе по этому же образцу, поэтому
+        // расхождение здесь означает, что забрать результат мы не сможем.
+        if (
+          created.statusUrl !== expected.statusUrl ||
+          created.responseUrl !== expected.responseUrl
+        ) {
+          task = null;
+          providerRejectionText = "provider queue url shape changed";
+        }
+      }
+      if (!response.ok && typeof response.value === "string") {
+        // The provider's validation text belongs in the recorded evidence, not
+        // in a response the caller reads: it can quote signed asset URLs.
+        providerRejectionText =
+          `provider ${response.status}: ${response.value}`.slice(0, 400);
+      }
       evidenceValue = {
         status: response.status,
-        body: response.ok ? response.value : null,
+        body: response.value ?? null,
       };
       outcome = classifyRunwayRecipeCreateOutcome({
         kind: "response",
@@ -8210,13 +8608,21 @@ async function handleCreatorGenerate(
         providerTaskId: task?.id || null,
       });
     } catch (error) {
+      // The error class is preserved in the recorded failure_code so a dispatch
+      // that dies between provider_post_started and the result stays diagnosable
+      // from the reconciliation record alone.
       evidenceValue = {
         status: null,
         error: error instanceof ProviderResponseInvalidError
           ? "provider_response_invalid"
           : "provider_network_unknown",
       };
-      outcome = classifyRunwayRecipeCreateOutcome({ kind: "network" });
+      outcome = classifyRunwayRecipeCreateOutcome({
+        kind: "network",
+        errorName:
+          String((error as { name?: unknown })?.name ?? "unknown") ||
+          "unknown",
+      });
     }
     if (outcome === null) return null;
     const evidenceHash = await sha256Hex(new TextEncoder().encode(stableJson({
@@ -8284,33 +8690,92 @@ async function handleCreatorGenerate(
       actorId: string;
       generationJobId: string;
       providerTaskId: string;
+      provider?: string;
+      statusUrl?: string | null;
+      responseUrl?: string | null;
     },
   ): Promise<string | null> => {
-    const secret = runwaySecret();
+    const provider = identity.provider === "fal" ? "fal" : "runway";
+    const secret = providerSecret(provider);
     if (secret === null) return null;
+    // Модель нужна, чтобы восстановить адреса очереди: она хранится в реестре
+    // маршрутов, а не в наряде, поэтому читается здесь.
+    let falModelKey: string | null = null;
+    if (provider === "fal") {
+      try {
+        const { data } = await supabaseAdmin
+          .schema("content_factory")
+          .from("generation_strategy_provider_routes")
+          .select("model_key")
+          .eq("provider", "fal")
+          .eq("enabled", true)
+          .limit(1)
+          .maybeSingle();
+        const key = (data as { model_key?: unknown } | null)?.model_key;
+        falModelKey = typeof key === "string" && key.length > 1 ? key : null;
+      } catch {
+        falModelKey = null;
+      }
+      if (falModelKey === null) return null;
+    }
+    const falUrls = falModelKey === null
+      ? null
+      : falQueueUrls(falModelKey, identity.providerTaskId);
+    // Runway отвечает статусом и ссылкой на результат сразу; очередь fal
+    // сообщает только статус, а готовый ролик лежит по отдельному адресу,
+    // который провайдер вернул при создании задачи.
+    const statusUrl = provider === "fal"
+      ? falUrls?.statusUrl ?? null
+      : `${RUNWAY_API_ORIGIN}/v1/tasks/${identity.providerTaskId}`;
+    if (statusUrl === null) return null;
+    const statusHeaders = provider === "fal"
+      ? { authorization: `Key ${secret}` }
+      : {
+        authorization: `Bearer ${secret}`,
+        "x-runway-version": RUNWAY_API_VERSION,
+      };
     let response: ProviderJsonResult;
     try {
       response = await fetchProviderJsonWithDeadline(
-        `${RUNWAY_API_ORIGIN}/v1/tasks/${identity.providerTaskId}`,
-        {
-          method: "GET",
-          redirect: "manual",
-          headers: {
-            authorization: `Bearer ${secret}`,
-            "x-runway-version": RUNWAY_API_VERSION,
-          },
-        },
+        statusUrl,
+        { method: "GET", redirect: "manual", headers: statusHeaders },
         PROVIDER_TIMEOUT_MS,
       );
     } catch {
       return null;
     }
     if (!response.ok) return null;
-    const providerState = runwayStrategyProviderStatus(response.value);
+    let providerState = provider === "fal"
+      ? falStrategyProviderStatus(response.value)
+      : runwayStrategyProviderStatus(response.value);
     if (
       providerState === null || !isRecord(response.value) ||
-      response.value.id !== identity.providerTaskId
+      (provider === "runway" &&
+        response.value.id !== identity.providerTaskId)
     ) return null;
+    if (provider === "fal" && providerState.providerStatus === "succeeded") {
+      // Второй запрос за самим роликом: без него у нас нет ссылки на файл.
+      const responseUrl = falUrls?.responseUrl ?? null;
+      if (responseUrl === null) return null;
+      let resultResponse: ProviderJsonResult;
+      try {
+        resultResponse = await fetchProviderJsonWithDeadline(
+          responseUrl,
+          {
+            method: "GET",
+            redirect: "manual",
+            headers: { authorization: `Key ${secret}` },
+          },
+          PROVIDER_TIMEOUT_MS,
+        );
+      } catch {
+        return null;
+      }
+      if (!resultResponse.ok) return null;
+      const videoUrl = readFalResultVideoUrl(resultResponse.value);
+      if (videoUrl === null) return null;
+      providerState = { ...providerState, outputUrl: videoUrl };
+    }
     const evidenceHash = await sha256Hex(new TextEncoder().encode(stableJson({
       version: "generation-strategy-provider-status-evidence-v1",
       provider_task_id: identity.providerTaskId,
@@ -8318,7 +8783,10 @@ async function handleCreatorGenerate(
     })));
     let output: Record<string, Json> | null = null;
     if (providerState.providerStatus === "succeeded") {
-      const outputUrl = validateRunwayOutputUrl(providerState.outputUrl);
+      const outputUrl = validateProviderOutputUrl(
+        provider,
+        providerState.outputUrl,
+      );
       const outputObjectName = await generationStrategyOutputObjectName(
         identity.organizationId,
         identity.projectId,
@@ -8420,6 +8888,15 @@ async function handleCreatorGenerate(
     }
   };
 
+  // Diagnostic probe: same auth entry as strategy_status (authenticated
+  // browser actor), additionally restricted to active owner/admin. It POSTs
+  // the deliberately minimal body {"model":"gen4_aleph"} to the real
+  // video_to_video endpoint with the same helper, secret and headers as the
+  // paid dispatch. Runway answers 400 — the point is whether the request
+  // leaves this runtime and what comes back. Phase markers are collected as
+  // the probe progresses and returned even when the fetch throws, so the
+  // exact death point is visible without platform logs. Never paid: no
+  // claim, no budget, no task can start from this body.
   const handleGenerationStrategyStatus = async (
     payload: GenerationStrategyStatusPayload,
   ): Promise<Response> => {
@@ -8593,15 +9070,27 @@ async function handleCreatorGenerate(
       return json(request, { ok: false, code: "generation_unavailable" }, 503);
     }
     const claimRow = claim.claim as Record<string, unknown>;
-    const continued = await continueGenerationStrategyClaim({
-      organizationId: payload.organization_id,
-      projectId: payload.project_id,
-      actorId,
-      claimId: String(claimRow.id),
-      claimHash: String(claimRow.claim_hash),
-      generationJobId: String(claimRow.generation_job_id),
-      campaignId: payload.campaign_id,
-    });
+    // A continuation that throws between the claim and the provider POST must
+    // not take the response down with it: the reserve already exists and the
+    // caller needs the job id to reconcile it. Details stay in the log.
+    let continued: { status: string; providerTaskId: string | null } | null;
+    try {
+      continued = await continueGenerationStrategyClaim({
+        organizationId: payload.organization_id,
+        projectId: payload.project_id,
+        actorId,
+        claimId: String(claimRow.id),
+        claimHash: String(claimRow.claim_hash),
+        generationJobId: String(claimRow.generation_job_id),
+        campaignId: payload.campaign_id,
+      });
+    } catch {
+      return json(request, {
+        ok: false,
+        code: "generation_dispatch_state_unavailable",
+        generation_job_id: claimRow.generation_job_id,
+      }, 503);
+    }
     if (continued === null) {
       return json(request, {
         ok: false,

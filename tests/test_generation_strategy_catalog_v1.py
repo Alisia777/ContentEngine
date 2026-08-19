@@ -228,7 +228,9 @@ def test_recipe_routes_assets_and_reference_semantics_are_exact() -> None:
 
     swap = by_id["viral_product_swap"]
     assert swap["recipe"] == "product_swap"
-    assert swap["path"] == "/v1/recipes/product_swap"
+    # Runway has no /v1/recipes/product_swap; the real endpoint is
+    # video_to_video (Gen-4 Aleph).
+    assert swap["path"] == "/v1/video_to_video"
     assert swap["referenceMode"] == "provider_reference_video"
     assert swap["transformation"] == "product_swap_preserve_scene"
     assert [(r["role"], r["count"], r["providerField"]) for r in swap["roles"]] == [
@@ -596,5 +598,5 @@ def test_execution_validation_requires_exact_server_owned_capability_handshake()
     assert result["defaultResult"]["code"] == "strategy_execution_not_enabled"
     assert result["wrongPath"]["code"] == "strategy_execution_not_enabled"
     assert result["enabled"]["ok"] is True
-    assert result["enabled"]["provider_path"] == "/v1/recipes/product_swap"
+    assert result["enabled"]["provider_path"] == "/v1/video_to_video"
     assert result["enabled"]["estimated_credits"] == 468

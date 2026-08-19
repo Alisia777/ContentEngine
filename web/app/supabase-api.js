@@ -5857,12 +5857,29 @@ export class CreatorApi {
     if (
       !hasExactObjectKeys(data, ["ok", "catalog"])
       || data.ok !== true
-      || !hasExactObjectKeys(catalog, [
-        "strategyCatalogVersion",
-        "strategyRecipeVersion",
-        "strategyPricingVersion",
-        "strategies",
-      ])
+      // strategyProviderRoutes появляется, когда у стратегии больше одного
+      // движка. Поле необязательное: миграция базы и деплой функции не
+      // атомарны, поэтому каталог обязан читаться и с ним, и без него.
+      || !hasExactObjectKeys(
+        catalog && typeof catalog === "object" && !Array.isArray(catalog)
+          ? Object.fromEntries(
+            Object.entries(catalog).filter(
+              ([key]) => key !== "strategyProviderRoutes",
+            ),
+          )
+          : catalog,
+        [
+          "strategyCatalogVersion",
+          "strategyRecipeVersion",
+          "strategyPricingVersion",
+          "strategies",
+        ],
+      )
+      || (catalog.strategyProviderRoutes !== undefined && (
+        !catalog.strategyProviderRoutes
+        || typeof catalog.strategyProviderRoutes !== "object"
+        || Array.isArray(catalog.strategyProviderRoutes)
+      ))
       || typeof catalog.strategyCatalogVersion !== "string"
       || !catalog.strategyCatalogVersion.trim()
       || typeof catalog.strategyRecipeVersion !== "string"
@@ -7311,7 +7328,11 @@ function assertGenerationStrategyRuntimeRequest(action, request, organizationId)
     ))
     || (hasSpendConfirmation && (
       typeof request.spend_confirmation !== "string"
-      || !/^RUNWAY_(?:PRODUCT_UGC|PRODUCT_SWAP|PRODUCT_AD)_(?:[4-9]|1[0-5])S_(?:720P|1080P)_(?:AUDIO|SILENT)_USD_[0-9]{1,4}[.][0-9]{2}$/u
+      // Провайдер стоит в самой строке подтверждения, и нижняя граница
+      // длительности у маршрутов разная: рецепт Runway начинается с четырёх
+      // секунд, у fal ролик может быть короче. Эта проверка повторяет ту, что
+      // стоит в edge; расходиться им нельзя — иначе запрос молча не уйдёт.
+      || !/^(?:RUNWAY|FAL)_(?:PRODUCT_UGC|PRODUCT_SWAP|PRODUCT_AD)_(?:[1-9]|1[0-5])S_(?:720P|1080P)_(?:AUDIO|SILENT)_USD_[0-9]{1,4}[.][0-9]{2}$/u
         .test(request.spend_confirmation)
     ))
     || (action === "strategy_reconcile" && (
@@ -8631,6 +8652,12 @@ function toFriendlyMessage(error) {
     provider_configuration_error: "Доступ к выбранному сервису генерации не настроен. Платный запуск не создан.",
     provider_authentication_failed: "Сервис генерации отклонил ключ доступа. Платный запуск не создан.",
     provider_credits_unavailable: "В выбранном сервисе недостаточно средств для запуска. Деньги не списаны.",
+    provider_balance_insufficient: "На счёте сервиса генерации не хватает кредитов для этого запуска. Пополните баланс провайдера и снова нажмите «Показать цену» — деньги не списаны.",
+    provider_readiness_unavailable: "Сервис генерации не ответил на бесплатную проверку готовности. Платный запуск не создан, деньги не списаны.",
+    real_generation_user_daily_quota_exceeded: "Исчерпан суточный лимит платных запусков для вашей учётной записи (10 за 24 часа). Дождитесь освобождения окна и повторите — деньги не списаны.",
+    real_generation_organization_daily_quota_exceeded: "Исчерпан суточный лимит платных запусков организации (50 за 24 часа). Деньги не списаны.",
+    real_generation_assignee_concurrency_exceeded: "У вас уже есть незавершённый платный запуск. Дождитесь его результата — деньги не списаны.",
+    real_generation_organization_concurrency_exceeded: "В организации уже идут три платных запуска. Дождитесь их завершения — деньги не списаны.",
     provider_rate_limited: "Суточная квота выбранного сервиса исчерпана. Платный запуск не создан.",
     provider_request_rejected: "Выбранная модель сейчас недоступна в сервисе генерации. Платный запуск не создан.",
     provider_request_failed: "Сервис генерации не ответил на бесплатную проверку готовности. Платный запуск не создан.",
@@ -9045,7 +9072,7 @@ function toFriendlyMessage(error) {
     generated_video_review_start_payload_invalid: "Запрос запуска AI-проверки ролика устарел. Обновите генерацию.",
     generated_video_review_source_invalid: "Точный MP4 или его evidence изменились. Обновите генерацию и подготовьте кадры заново.",
     generated_video_review_platform_invalid: "Площадка ролика не подходит для безопасного автоматического QA.",
-    generated_video_review_category_required: "Сначала один раз подтвердите категорию товара в полной форме проверки; дальше портал будет подставлять её сам.",
+    generated_video_review_category_required: "Категория товара наследуется автоматически из платного запуска. Этот старый запуск сохранён без категории, поэтому один раз подтвердите её в полной форме проверки — дальше портал будет подставлять её сам.",
     generated_video_review_evidence_required: "Сначала дождитесь сохранения пяти evidence-изображений точного MP4.",
     generated_video_transcription_guard_failed: "Проверка остановлена: без отдельного разрешения транскрипция ролика должна оставаться выключенной.",
     generated_video_autopilot_input_invalid: "Сервер не подтвердил происхождение ролика для ускоренного QA. Откройте полную форму проверки.",

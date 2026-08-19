@@ -695,7 +695,6 @@ declare
   function_definition text;
   patched_definition text;
   old_fragment text;
-  old_pattern text;
   new_fragment text;
 begin
   select replace(
@@ -715,28 +714,30 @@ begin
   end if;
   patched_definition := function_definition;
 
-  -- pg_get_functiondef preserves the body but PostgreSQL versions may
-  -- normalize indentation around this multiline assignment differently.
-  -- Match only this exact call shape, still requiring exactly one target.
-  old_pattern :=
-    'normalized_scope[[:space:]]*:=[[:space:]]*content_factory_private[.]generation_spec_scope_v2[(][[:space:]]*exact_scope_value[[:space:]]*[)][[:space:]]*;';
+  old_fragment := $old$normalized_scope := content_factory_private.generation_spec_scope_v2(
+    exact_scope_value
+  );$old$;
   new_fragment := $new$normalized_scope := coalesce(
     content_factory_private.generation_spec_scope_v2(exact_scope_value),
     content_factory_private.generation_strategy_spec_scope_v1(
       exact_scope_value
     )
   );$new$;
-  if regexp_count(patched_definition, old_pattern) <> 1
+  if (length(patched_definition) - length(replace(
+       patched_definition, old_fragment, ''
+     ))) / length(old_fragment) <> 1
      or (length(patched_definition) - length(replace(
        patched_definition, new_fragment, ''
      ))) / length(new_fragment) <> 0 then
     raise exception using errcode = '55000',
       message = 'generation_strategy_spec_patch_scope_target_invalid';
   end if;
-  patched_definition := regexp_replace(
-    patched_definition, old_pattern, new_fragment
+  patched_definition := replace(
+    patched_definition, old_fragment, new_fragment
   );
-  if regexp_count(patched_definition, old_pattern) <> 0
+  if (length(patched_definition) - length(replace(
+       patched_definition, old_fragment, ''
+     ))) / length(old_fragment) <> 0
      or (length(patched_definition) - length(replace(
        patched_definition, new_fragment, ''
      ))) / length(new_fragment) <> 1 then
@@ -744,22 +745,25 @@ begin
       message = 'generation_strategy_spec_patch_scope_target_invalid';
   end if;
 
-  old_pattern :=
-    'model_value[[:space:]]*:=[[:space:]]*lower[(]btrim[(]coalesce[(]exact_scope_value[[:space:]]*->>[[:space:]]*''model''[[:space:]]*,[[:space:]]*''''[[:space:]]*[)][)][)][[:space:]]*;';
+  old_fragment := $old$model_value := lower(btrim(coalesce(exact_scope_value ->> 'model', '')));$old$;
   new_fragment := $new$model_value := lower(btrim(coalesce(
     exact_scope_value ->> 'model', exact_scope_value ->> 'recipe', ''
   )));$new$;
-  if regexp_count(patched_definition, old_pattern) <> 1
+  if (length(patched_definition) - length(replace(
+       patched_definition, old_fragment, ''
+     ))) / length(old_fragment) <> 1
      or (length(patched_definition) - length(replace(
        patched_definition, new_fragment, ''
      ))) / length(new_fragment) <> 0 then
     raise exception using errcode = '55000',
       message = 'generation_strategy_spec_patch_recipe_target_invalid';
   end if;
-  patched_definition := regexp_replace(
-    patched_definition, old_pattern, new_fragment
+  patched_definition := replace(
+    patched_definition, old_fragment, new_fragment
   );
-  if regexp_count(patched_definition, old_pattern) <> 0
+  if (length(patched_definition) - length(replace(
+       patched_definition, old_fragment, ''
+     ))) / length(old_fragment) <> 0
      or (length(patched_definition) - length(replace(
        patched_definition, new_fragment, ''
      ))) / length(new_fragment) <> 1 then
@@ -767,22 +771,25 @@ begin
       message = 'generation_strategy_spec_patch_recipe_target_invalid';
   end if;
 
-  old_pattern :=
-    'normalized_scope[[:space:]]*->>[[:space:]]*''model''[[:space:]]+is[[:space:]]+distinct[[:space:]]+from[[:space:]]+model_value';
+  old_fragment := $old$normalized_scope ->> 'model' is distinct from model_value$old$;
   new_fragment := $new$coalesce(
            normalized_scope ->> 'model', normalized_scope ->> 'recipe'
          ) is distinct from model_value$new$;
-  if regexp_count(patched_definition, old_pattern) <> 1
+  if (length(patched_definition) - length(replace(
+       patched_definition, old_fragment, ''
+     ))) / length(old_fragment) <> 1
      or (length(patched_definition) - length(replace(
        patched_definition, new_fragment, ''
      ))) / length(new_fragment) <> 0 then
     raise exception using errcode = '55000',
       message = 'generation_strategy_spec_patch_identity_target_invalid';
   end if;
-  patched_definition := regexp_replace(
-    patched_definition, old_pattern, new_fragment
+  patched_definition := replace(
+    patched_definition, old_fragment, new_fragment
   );
-  if regexp_count(patched_definition, old_pattern) <> 0
+  if (length(patched_definition) - length(replace(
+       patched_definition, old_fragment, ''
+     ))) / length(old_fragment) <> 0
      or (length(patched_definition) - length(replace(
        patched_definition, new_fragment, ''
      ))) / length(new_fragment) <> 1 then
@@ -790,24 +797,29 @@ begin
       message = 'generation_strategy_spec_patch_identity_target_invalid';
   end if;
 
-  old_pattern :=
-    '''schema_version''[[:space:]]*,[[:space:]]*case[[:space:]]+when[[:space:]]+normalized_scope[[:space:]]*[?][[:space:]]*''provider''[[:space:]]+then[[:space:]]+''generation-spec-v2''[[:space:]]+else[[:space:]]+''generation-spec-v1''[[:space:]]+end[[:space:]]*,';
+  old_fragment := $old$'schema_version', case
+      when normalized_scope ? 'provider' then 'generation-spec-v2'
+      else 'generation-spec-v1' end,$old$;
   new_fragment := $new$'schema_version', case
       when normalized_scope ->> 'authority_kind' = 'strategy_recipe'
         then 'generation-strategy-spec-v1'
       when normalized_scope ? 'provider' then 'generation-spec-v2'
       else 'generation-spec-v1' end,$new$;
-  if regexp_count(patched_definition, old_pattern) <> 1
+  if (length(patched_definition) - length(replace(
+       patched_definition, old_fragment, ''
+     ))) / length(old_fragment) <> 1
      or (length(patched_definition) - length(replace(
        patched_definition, new_fragment, ''
      ))) / length(new_fragment) <> 0 then
     raise exception using errcode = '55000',
       message = 'generation_strategy_spec_patch_hash_target_invalid';
   end if;
-  patched_definition := regexp_replace(
-    patched_definition, old_pattern, new_fragment
+  patched_definition := replace(
+    patched_definition, old_fragment, new_fragment
   );
-  if regexp_count(patched_definition, old_pattern) <> 0
+  if (length(patched_definition) - length(replace(
+       patched_definition, old_fragment, ''
+     ))) / length(old_fragment) <> 0
      or (length(patched_definition) - length(replace(
        patched_definition, new_fragment, ''
      ))) / length(new_fragment) <> 1 then

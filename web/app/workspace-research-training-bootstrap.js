@@ -16,8 +16,13 @@
       "20260814.os4.41",
     "workspace-ai-research-training.js":
       "20260814.os4.41",
+    // Styles and modules share one asset builder, so the recommendation panel
+    // must move as a pair: its stylesheet changed together with the module and
+    // has to leave the already released 20260814.os4.41 key behind.
+    "workspace-generation-research-recommendations.css":
+      "20260817.os4.42",
     "workspace-generation-research-recommendations.js":
-      "20260814.os4.41",
+      "20260817.os4.42",
     "workspace-research-failure-recovery.js":
       "20260814.os4.41",
   });

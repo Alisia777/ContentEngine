@@ -244,7 +244,7 @@ export function myWorkWorkspaceMarkup({
               }).join("")}
             </div>
             <form id="save-my-work-view-form" class="form-stack my-work-save-view" novalidate>
-              <label class="field"><span>Название текущего фильтра</span><input name="name" minlength="2" maxlength="80" required placeholder="Например: срочные публикации" /></label>
+              <label class="field"><span>Название текущего фильтра</span><input name="view_name" minlength="2" maxlength="80" required placeholder="Например: срочные публикации" /></label>
               <label class="check-row"><input type="checkbox" name="is_default" value="true" /><span>Открывать по умолчанию</span></label>
               <button class="btn btn-secondary btn-small" type="submit">Сохранить представление</button>
             </form>

@@ -32,7 +32,28 @@ const IDEMPOTENCY_PATTERN = /^[A-Za-z0-9._:-]{8,180}$/u;
 const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
 const CATALOG_VERSION = "2026-08-14.v1";
 const RECIPE_VERSION = "2026-06";
-const PRICING_VERSION = "runway-recipe-credits-2026-08-14.v1";
+// Версия прайса зависит от маршрута: у Runway это ступени кредитов, у fal —
+// фиксированная цена за ролик либо ставка за секунду. Набор повторяет
+// ограничение базы на колонку pricing_version, поэтому пополняется только
+// вместе с ним.
+const PRICING_VERSIONS = Object.freeze([
+  "runway-recipe-credits-2026-08-14.v1",
+  "fal-usd-per-run-2026-08-18.v1",
+  "fal-usd-per-second-2026-08-18.v1",
+]);
+
+function knownPricingVersion(value) {
+  return typeof value === "string" && PRICING_VERSIONS.includes(value);
+}
+
+// Тот же набор стоит в ограничении базы на колонку provider таблицы квитанций
+// и в контракте edge. Расходиться им нельзя: иначе одна из сторон молча
+// отвергает то, что другая считает верным.
+const STRATEGY_PROVIDERS = Object.freeze(["runway", "fal"]);
+
+function knownStrategyProvider(value) {
+  return typeof value === "string" && STRATEGY_PROVIDERS.includes(value);
+}
 const COMMON_ATTESTATION_KEYS = Object.freeze([
   "source_media_rights_confirmed",
   "transformative_use_confirmed",
@@ -1083,15 +1104,28 @@ function normalizePrice(value, identity, selection) {
     "bind.price.spend_confirmation",
     180,
   );
-  const expectedSpendConfirmation = `RUNWAY_${selection.recipe.toUpperCase()}_${
+  // Провайдер стоит в самой строке подтверждения: она обязана называть тот
+  // маршрут, по которому посчитаны деньги. Жёсткий префикс RUNWAY_ отвергал
+  // верный снимок другого маршрута, и отказ приходил без объяснения.
+  const priceProvider = String(source.provider || "");
+  const expectedSpendConfirmation = `${priceProvider.toUpperCase()}_${
+    selection.recipe.toUpperCase()
+  }_${
     identity.duration_seconds
   }S_${String(source.resolution).toUpperCase()}_${
     identity.audio ? "AUDIO" : "SILENT"
   }_USD_${costUsd}`;
+  // Ступени кредитов есть только у Runway, и для него сверка с канонической
+  // арифметикой остаётся обязательной. У маршрутов с ценой за ролик сверять
+  // нечего с чем: там другой прайс, и проверяется внутренняя согласованность
+  // снимка — она уже обеспечена равенствами ниже.
+  const creditsMatchRoute = priceProvider === "runway"
+    ? estimatedCredits === expectedCredits
+    : true;
   if (
     source.version !== "generation-strategy-price-snapshot-v1" ||
     source.strategy_id !== identity.strategy_id ||
-    source.provider !== "runway" ||
+    !knownStrategyProvider(priceProvider) ||
     source.recipe !== selection.recipe ||
     source.input_mode !== expectedInputMode ||
     source.duration_seconds !== identity.duration_seconds ||
@@ -1102,7 +1136,7 @@ function normalizePrice(value, identity, selection) {
       : source.resolution !== identity.dimension_value || source.ratio !== "source") ||
     estimatedCredits !== estimatedPreTax ||
     estimatedCredits !== estimatedCost ||
-    estimatedCredits !== expectedCredits ||
+    !creditsMatchRoute ||
     costUsd !== (estimatedCost / 100).toFixed(2) ||
     source.currency !== "USD" ||
     source.credit_unit_cost_minor !== 1 ||
@@ -1116,7 +1150,7 @@ function normalizePrice(value, identity, selection) {
   return {
     version: source.version,
     strategy_id: identity.strategy_id,
-    provider: "runway",
+    provider: priceProvider,
     recipe: selection.recipe,
     input_mode: exactCode(source.input_mode, "bind.price.input_mode"),
     duration_seconds: identity.duration_seconds,
@@ -1200,7 +1234,7 @@ function normalizeBindResponse(raw, expectedContext) {
     selection.catalog_version !== identity.catalog_version ||
     selection.recipe_version !== RECIPE_VERSION ||
     selection.recipe_version !== identity.recipe_version ||
-    selection.pricing_version !== PRICING_VERSION ||
+    !knownPricingVersion(selection.pricing_version) ||
     selection.recipe !== STRATEGY_RULES[identity.strategy_id]?.recipe
   ) {
     throw new RuntimeContractError("bind_identity_mismatch", "bind");

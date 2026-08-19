@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -154,7 +155,7 @@ def test_spend_snapshot_fails_closed_for_policy_blocker_and_escapes_campaign_cop
 
 
 def test_live_generation_form_is_fail_closed_but_keeps_mock_available() -> None:
-    assert 'from "./generation-spend-view.js?v=20260814.os4.41"' in APP
+    assert 'from "./generation-spend-view.js?v=20260817.os4.42"' in APP
     assert "generationSpend: {" in APP
     assert "async function loadGenerationSpendOverview" in APP
     assert "state.api.generationSpendOverview()" in APP
@@ -195,3 +196,62 @@ def test_cost_copy_is_provisional_and_budget_ui_is_theme_responsive_and_cache_bu
     assert './manager-dashboard.css?v=20260717.5' in INDEX
     assert './app.js?v=20260816.adaptive.4' in INDEX
     assert './supabase-api.js?v=20260814.os4.41' in APP
+
+
+def test_campaign_create_field_survives_desktop_sanitizer_dom_clobbering_pass() -> None:
+    # DOMPurify SANITIZE_DOM strips name attributes whose values collide with
+    # document/form properties (e.g. name="name" clobbers form.name), so the
+    # campaign name must travel under a non-clobbering field name.
+    result = _run_view(
+        """
+        const data = {
+          ok: true,
+          currency: "USD",
+          blocker_code: null,
+          policy: {
+            paid_generation_enabled: true,
+            daily_limit_minor: 2500,
+            monthly_limit_minor: 10000,
+            per_request_limit_minor: 232,
+            version: 1,
+          },
+          usage: {
+            day: { reserved_minor: 0, committed_minor: 0, remaining_minor: 2500 },
+            month: { reserved_minor: 0, committed_minor: 0, remaining_minor: 10000 },
+          },
+        };
+        return subject.managerGenerationSpendMarkup(
+          { status: "ready", data },
+          { canEdit: true, view: "new-campaign" },
+        );
+        """
+    )
+    assert 'name="campaign_name"' in result
+    assert 'name="name"' not in result
+    create = APP[
+        APP.index("async function submitGenerationCampaignCreate")
+        : APP.index("async function submitGenerationCampaignPolicy")
+    ]
+    assert 'values.get("campaign_name")' in create
+    assert 'values.get("name")' not in create
+
+
+def test_form_field_names_avoid_dom_clobbering_across_web_app() -> None:
+    # The desktop v4 window renderer sanitizes markup with a DOM-clobbering
+    # guard (DOMPurify SANITIZE_DOM): any name="..." value that exists as a
+    # property of document or of a form element is silently stripped, so the
+    # field never reaches FormData. Keep every field name outside that set.
+    clobbering = {
+        "name", "id", "title", "action", "method", "target", "elements",
+        "length", "submit", "reset", "style", "dir", "lang", "hidden",
+        "children", "attributes", "body", "head", "forms", "location",
+        "all", "cookie", "domain", "referrer", "dataset", "className",
+        "innerHTML", "innerText", "prefix", "slot", "part", "nonce",
+    }
+    offenders = []
+    for path in sorted(APP_DIR.glob("*.js")) + sorted(APP_DIR.glob("*.html")):
+        text = path.read_text(encoding="utf-8")
+        for match in re.finditer(r'name="([A-Za-z_][\w-]*)"', text):
+            if match.group(1) in clobbering:
+                offenders.append(f"{path.name}: name=\"{match.group(1)}\"")
+    assert offenders == []

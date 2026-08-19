@@ -131,8 +131,11 @@ def test_working_rpc_has_cas_idempotency_and_project_acl() -> None:
     assert "current_row.last_mutation_id = mutation_id_value" in MIGRATION
     assert "coalesce(current_row.revision, 0) <> expected_revision_value" in MIGRATION
     assert "generation_ai_research_working_draft_revision_conflict" in MIGRATION
-    assert "errcode = 'PT409'" in MIGRATION
-    assert "errcode = '40001'" not in MIGRATION
+    # 202608110006 применена в облако с sha256 в трекере и обязана оставаться
+    # байт-в-байт применённой формой (errcode 40001). Терминальный PT409
+    # приходит ТОЛЬКО хотфиксом 202608160001 — он и даёт финальное состояние.
+    assert "errcode = '40001'" in MIGRATION
+    assert "errcode = 'PT409'" not in MIGRATION
     assert "retryable_fragment constant text := 'errcode = ''40001'''" in CONFLICT_HOTFIX
     assert "terminal_fragment constant text := 'errcode = ''PT409'''" in CONFLICT_HOTFIX
     assert "revision = draft.revision + 1" in MIGRATION
@@ -148,25 +151,65 @@ def test_working_rpc_has_cas_idempotency_and_project_acl() -> None:
     assert "for share" not in MIGRATION[snapshot_start:snapshot_end].lower()
 
 
-def test_client_conflicts_are_terminal_until_authoritative_rehydration() -> None:
+def test_client_conflicts_stop_retries_and_offer_explicit_recovery() -> None:
     stop_start = GENERATION.index("function stopWorkingDraftConflictRetries()")
-    stop_end = GENERATION.index("function selectedVerifiedMediaProduct", stop_start)
+    stop_end = GENERATION.index(
+        "function scheduleWorkingDraftHydrateRetry", stop_start
+    )
     stop_block = GENERATION[stop_start:stop_end]
     assert "runtime.workingDraftConflict = true" in stop_block
     assert "runtime.workingDraftSavePending = false" in stop_block
     assert "window.clearTimeout(runtime.workingDraftSaveTimer)" in stop_block
+    assert 'renderWorkingDraftRecovery("conflict")' in stop_block
 
     schedule_start = GENERATION.index("function scheduleWorkingDraftSave()")
     schedule_end = GENERATION.index("async function clearWorkingDraft()", schedule_start)
     schedule_block = GENERATION[schedule_start:schedule_end]
     assert "if (runtime.workingDraftConflict)" in schedule_block
     assert "return;" in schedule_block
+    drop_branch = schedule_block[
+        schedule_block.index("if (runtime.workingDraftConflict)") :
+        schedule_block.index("return;")
+    ]
+    # A silently swallowed sync re-asserts the persistent banner instead.
+    assert 'renderWorkingDraftRecovery("conflict")' in drop_branch
 
     hydrate_start = GENERATION.index("async function hydrateSharedWorkingDraft")
     hydrate_end = GENERATION.index("function briefControl", hydrate_start)
     hydrate_block = GENERATION[hydrate_start:hydrate_end]
     assert 'setWorkingDraftAuthority(context.projectId, "verified")' in hydrate_block
     assert "runtime.workingDraftConflict = false" in hydrate_block
+
+    resolve_start = GENERATION.index(
+        "async function resolveWorkingDraftConflict("
+    )
+    resolve_end = GENERATION.index(
+        "function applySharedWorkingDraft(", resolve_start
+    )
+    resolve = GENERATION[resolve_start:resolve_end]
+    # Both strategies begin with an authoritative force re-read (no cache join)
+    # guarded against in-flight save/hydrate and cross-form/project races.
+    assert "{ force: true }" in resolve
+    assert "runtime.workingDraftSaving" in resolve
+    assert "runtime.workingDraftHydrating" in resolve
+    assert "runtime.form !== form" in resolve
+    assert "formContext(form).projectId !== context.projectId" in resolve
+    theirs_start = resolve.index('if (strategy === "theirs")')
+    mine_start = resolve.index("scheduleWorkingDraftSave()")
+    assert theirs_start < mine_start
+    assert "applySharedWorkingDraft(form, fresh)" in resolve[theirs_start:mine_start]
+    # Binding decision: a cleared tombstone is never silently re-created by
+    # "keep mine" — the fresh tombstone leaves only the take-theirs action.
+    tombstone_guard = resolve[
+        resolve.index('if (strategy === "mine" && freshTombstone)') :
+        resolve.index('if (strategy === "theirs")')
+    ]
+    assert 'renderWorkingDraftRecovery("conflict")' in tombstone_guard
+    assert "return;" in tombstone_guard
+    assert "authorizeTombstoneReplacement" not in resolve
+    assert resolve.index("runtime.workingDraftConflict = false") > resolve.index(
+        'if (strategy === "mine" && freshTombstone)'
+    )
 
 
 def test_ai_center_cta_carries_only_server_selection_and_position() -> None:
@@ -981,6 +1024,22 @@ def test_mutation_observer_mount_does_not_restart_settled_working_draft_hydratio
           authority: 'failed',
           hydrating: false,
         }}),
+        failedRetryDue: mod.shouldHydrateGenerationResearchWorkingDraft({{
+          formChanged: false,
+          authorityProjectId: projectId,
+          contextProjectId: projectId,
+          authority: 'failed',
+          hydrating: false,
+          hydrateRetryDue: true,
+        }}),
+        failedRetryDueWhileHydrating: mod.shouldHydrateGenerationResearchWorkingDraft({{
+          formChanged: false,
+          authorityProjectId: projectId,
+          contextProjectId: projectId,
+          authority: 'failed',
+          hydrating: true,
+          hydrateRetryDue: true,
+        }}),
         orphanedUnknown: mod.shouldHydrateGenerationResearchWorkingDraft({{
           formChanged: false,
           authorityProjectId: projectId,
@@ -1016,12 +1075,151 @@ def test_mutation_observer_mount_does_not_restart_settled_working_draft_hydratio
         "firstForm": True,
         "observerMutation": False,
         "settledVerified": False,
+        # The observer anti-loop invariant: a settled failure without an
+        # explicitly granted retry never restarts hydration on its own.
         "settledFailed": False,
+        "failedRetryDue": True,
+        "failedRetryDueWhileHydrating": False,
         "orphanedUnknown": True,
         "replacementForm": True,
         "projectSwitch": True,
         "unscoped": False,
     }
+
+
+def test_failed_working_draft_hydration_schedules_bounded_retry_and_manual_button() -> None:
+    assert (
+        "const WORKING_DRAFT_HYDRATE_RETRY_DELAYS_MS = "
+        "Object.freeze([2_000, 5_000, 15_000]);"
+        in GENERATION
+    )
+
+    retry_start = GENERATION.index("function scheduleWorkingDraftHydrateRetry(")
+    retry_end = GENERATION.index("function selectedVerifiedMediaProduct", retry_start)
+    retry = GENERATION[retry_start:retry_end]
+    # Bounded: after the third automatic attempt only the explicit button remains.
+    assert "if (attempt >= WORKING_DRAFT_HYDRATE_RETRY_DELAYS_MS.length)" in retry
+    assert 'renderWorkingDraftRecovery("hydrate_failed")' in retry
+    assert "runtime.workingDraftHydrateRetryCount = attempt + 1" in retry
+    assert "WORKING_DRAFT_HYDRATE_RETRY_DELAYS_MS[attempt]" in retry
+    # The timer only arms the one-shot due flag and re-mounts; it never calls
+    # hydrateSharedWorkingDraft directly, keeping mount() the single driver.
+    assert "runtime.workingDraftHydrateRetryDue = true" in retry
+    assert "scheduleMount()" in retry
+    assert "hydrateSharedWorkingDraft(" not in retry
+    assert 'runtime.workingDraftAuthority !== "failed"' in retry
+
+    hydrate_start = GENERATION.index("async function hydrateSharedWorkingDraft")
+    hydrate_end = GENERATION.index("function briefControl", hydrate_start)
+    hydrate = GENERATION[hydrate_start:hydrate_end]
+    failed = 'setWorkingDraftAuthority(context.projectId, "failed")'
+    assert hydrate.index(failed) < hydrate.index(
+        "scheduleWorkingDraftHydrateRetry(form, context)"
+    )
+    # A successful authoritative read resets the retry budget and the panel.
+    verified = 'setWorkingDraftAuthority(context.projectId, "verified")'
+    assert hydrate.index(verified) < hydrate.index(
+        "runtime.workingDraftHydrateRetryCount = 0"
+    )
+    assert "renderWorkingDraftRecovery(null)" in hydrate
+
+    click_start = GENERATION.index("function handleRootClick(event)")
+    click_end = GENERATION.index("function presetFieldForControl", click_start)
+    click = GENERATION[click_start:click_end]
+    retry_branch = click[
+        click.index("data-research-recommendation-working-draft-retry") :
+        click.index("data-research-recommendation-conflict-take-theirs")
+    ]
+    assert "runtime.workingDraftHydrateRetryCount = 0" in retry_branch
+    assert "runtime.workingDraftHydrateRetryDue = true" in retry_branch
+    assert "scheduleMount()" in retry_branch
+
+    mount_start = GENERATION.index("function mount()")
+    mount_end = GENERATION.index("function scheduleMount()", mount_start)
+    mount = GENERATION[mount_start:mount_end]
+    assert "hydrateRetryDue: runtime.workingDraftHydrateRetryDue" in mount
+    # One-shot consumption happens before the fresh authoritative read starts.
+    assert mount.index("runtime.workingDraftHydrateRetryDue = false") < mount.index(
+        'setWorkingDraftAuthority(context.projectId, "unknown")'
+    )
+
+    # A project/form switch starts a clean retry budget.
+    authority_start = GENERATION.index("function setWorkingDraftAuthority(")
+    authority_end = GENERATION.index(
+        "function workingDraftAuthorityVerified(", authority_start
+    )
+    authority = GENERATION[authority_start:authority_end]
+    assert "runtime.workingDraftHydrateRetryCount = 0" in authority
+    assert "runtime.workingDraftHydrateRetryDue = false" in authority
+    assert "window.clearTimeout(runtime.workingDraftHydrateRetryTimer)" in authority
+
+
+def test_working_draft_conflict_banner_persists_and_offers_explicit_resolution() -> None:
+    build_start = GENERATION.index("function buildRoot()")
+    build_end = GENERATION.index("function ensureRoot(", build_start)
+    build = GENERATION[build_start:build_end]
+    assert 'recovery.dataset.researchRecommendationRecovery = "true"' in build
+    assert (
+        "root.append(header, options, preview, recovery, status, actions)"
+        in build
+    )
+
+    # renderRecommendationPanel only clears options/preview/actions, so the
+    # persistent recovery banner survives every re-render and later edit.
+    render_start = GENERATION.index("function renderRecommendationPanel()")
+    render_end = GENERATION.index("function buildRoot()", render_start)
+    render = GENERATION[render_start:render_end]
+    assert "recovery" not in render
+    assert "data-research-recommendation-recovery" not in render
+
+    panel_start = GENERATION.index("function renderWorkingDraftRecovery(")
+    panel_end = GENERATION.index("function selectedEnvelope(", panel_start)
+    panel = GENERATION[panel_start:panel_end]
+    assert "researchRecommendationWorkingDraftRetry" in panel
+    assert "researchRecommendationConflictTakeTheirs" in panel
+    assert "researchRecommendationConflictKeepMine" in panel
+    assert "Взять версию коллеги" in panel
+    assert "Оставить мою" in panel
+    # Binding decision: over a cleared tombstone only take-theirs is offered.
+    assert "if (!clearedTombstone)" in panel
+    keep_mine_offer = panel[panel.index("if (!clearedTombstone)") :]
+    assert "researchRecommendationConflictKeepMine" in keep_mine_offer
+    tombstone_check = panel.index("authoritative?.draft === null")
+    assert tombstone_check < panel.index("researchRecommendationConflictTakeTheirs")
+
+    click_start = GENERATION.index("function handleRootClick(event)")
+    click_end = GENERATION.index("function presetFieldForControl", click_start)
+    click = GENERATION[click_start:click_end]
+    take_theirs_branch = click[
+        click.index("data-research-recommendation-conflict-take-theirs") :
+        click.index("data-research-recommendation-conflict-keep-mine")
+    ]
+    assert 'void resolveWorkingDraftConflict("theirs")' in take_theirs_branch
+    keep_mine_branch = click[
+        click.index("data-research-recommendation-conflict-keep-mine") :
+        click.index("data-recommendation-index")
+    ]
+    assert 'void resolveWorkingDraftConflict("mine")' in keep_mine_branch
+
+    # Keep-mine adopts the fresh revision first, then saves via revision CAS.
+    resolve_start = GENERATION.index("async function resolveWorkingDraftConflict(")
+    resolve_end = GENERATION.index("function applySharedWorkingDraft(", resolve_start)
+    resolve = GENERATION[resolve_start:resolve_end]
+    adopt = resolve.index(
+        "form.dataset.generationAiResearchWorkingRevision = String(fresh.revision)"
+    )
+    assert adopt < resolve.index("scheduleWorkingDraftSave()")
+    assert resolve.index("runtime.workingDraft = fresh") < resolve.index(
+        "scheduleWorkingDraftSave()"
+    )
+
+    # Edits made while the conflict is latched are labeled as not syncing.
+    edit_start = GENERATION.index("function markHumanEdit(")
+    edit_end = GENERATION.index("function optOutResearchRecommendation(", edit_start)
+    edit = GENERATION[edit_start:edit_end]
+    assert "if (runtime.workingDraftConflict)" in edit
+    assert "не синхронизируется" in edit
+    assert '"danger"' in edit
 
 
 def test_settled_mount_re_resolves_programmatically_restored_exact_selection() -> None:
@@ -1588,7 +1786,7 @@ def test_api_boundary_and_scoped_cache_edges_are_wired() -> None:
     assert "generationResearchRecommendation(input = {})" in API
     assert "generationAiResearchWorkingDraft(input = {})" in API
     assert '"workspace-ai-research-training.js":\n      "20260814.os4.41"' in BOOTSTRAP
-    assert '"workspace-generation-research-recommendations.js":\n      "20260814.os4.41"' in BOOTSTRAP
+    assert '"workspace-generation-research-recommendations.js":\n      "20260817.os4.42"' in BOOTSTRAP
     assert "generation-ai-research-working-draft.js?v=20260814.os4.41" in APP
     assert "generation-ai-research-working-draft.js?v=20260814.os4.41" in GENERATION
 

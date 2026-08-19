@@ -97,6 +97,9 @@ def test_recipe_adapter_is_pure_inert_and_exports_no_dispatch_capability() -> No
             "RUNWAY_RECIPE_BY_STRATEGY",
             "RUNWAY_RECIPE_ENDPOINTS",
             "RUNWAY_RECIPE_VERSION",
+            # Второй маршрут «Копии»: точечная замена объекта через fal.
+            # Экспорт такой же чистый — сборка тела запроса без сети.
+            "buildFalRecipeRequest",
             "buildRunwayRecipeRequest",
         ],
         "strategyVersion": "2026-08-14.v1",
@@ -108,7 +111,9 @@ def test_recipe_adapter_is_pure_inert_and_exports_no_dispatch_capability() -> No
         },
         "endpoints": {
             "product_ugc": "/v1/recipes/product_ugc",
-            "product_swap": "/v1/recipes/product_swap",
+            # Runway has no /v1/recipes/product_swap; Product Swap dispatches
+            # to the real video_to_video endpoint (Gen-4 Aleph).
+            "product_swap": "/v1/video_to_video",
             "product_ad": "/v1/recipes/product_ad",
         },
     }
@@ -144,6 +149,7 @@ def test_three_official_recipe_payloads_have_exact_body_parity() -> None:
             durationSeconds: 10,
             resolution: "1080p",
             audio: true,
+            promptText: "Replace the product with the referenced exact product.",
           }, [
             signed("source_video", "source.mp4"),
             signed("original_product", "original.png"),
@@ -202,32 +208,34 @@ def test_three_official_recipe_payloads_have_exact_body_parity() -> None:
             "audio": True,
         },
     }
+    # Real aleph2 video_to_video body (2024-11-06): model/videoUri/promptText/
+    # targetAspectRatio only — the route is prompt-only because timed keyframes
+    # with product photos pull the scene toward the photos' interiors instead
+    # of the source footage (verified on paid runs 17.08.2026). The exact dict
+    # equality below also pins the ABSENCE of keyframes, of foreign recipe
+    # fields (duration/audio/resolution/version) and of originalProductImage —
+    # the frame is already inside the source video, while the asset set
+    # validation still requires the photos server-side.
     assert result["swap"] == {
         **common_envelope,
-        "endpointPath": "/v1/recipes/product_swap",
+        "endpointPath": "/v1/video_to_video",
         "body": {
-            "version": "2026-06",
-            "referenceVideo": {
-                "uri": "https://project.supabase.co/storage/v1/object/sign/private/source.mp4?token=opaque"
-            },
-            "originalProductImage": {
-                "uri": "https://project.supabase.co/storage/v1/object/sign/private/original.png?token=opaque"
-            },
-            "newProductImages": [
-                {
-                    "uri": "https://project.supabase.co/storage/v1/object/sign/private/front.png?token=opaque",
-                    "view": "front",
-                },
-                {
-                    "uri": "https://project.supabase.co/storage/v1/object/sign/private/side.png?token=opaque",
-                    "view": "side",
-                },
-            ],
-            "duration": 10,
-            "resolution": "1080p",
-            "audio": True,
+            "model": "aleph2",
+            "videoUri": "https://project.supabase.co/storage/v1/object/sign/private/source.mp4?token=opaque",
+            "promptText": "Replace the product with the referenced exact product.",
+            "targetAspectRatio": "9:16",
         },
     }
+    for foreign_field in (
+        "duration",
+        "audio",
+        "resolution",
+        "version",
+        "originalProductImage",
+        "referenceVideo",
+        "newProductImages",
+    ):
+        assert foreign_field not in result["swap"]["body"]
     assert result["ad"] == {
         **common_envelope,
         "endpointPath": "/v1/recipes/product_ad",
@@ -344,6 +352,7 @@ def test_product_swap_and_product_ad_enforce_official_counts_and_fields() -> Non
           const swap = {
             ...common, strategyId:"viral_product_swap", recipe:"product_swap",
             resolution:"720p",
+            promptText:"Swap the product; preserve the original scene.",
           };
           const ad = {
             ...common, strategyId:"viral_rebuild", recipe:"product_ad",
@@ -366,6 +375,17 @@ def test_product_swap_and_product_ad_enforce_official_counts_and_fields() -> Non
             swapTooManyProducts: attempt(() => subject.buildRunwayRecipeRequest(
               swap, [...swapBase, ...Array.from({length:10}, (_,i) => asset("product_reference",i+10))]
             )),
+            swapMissingPrompt: attempt(() => subject.buildRunwayRecipeRequest(
+              (() => { const {promptText, ...rest} = swap; return rest; })(),
+              swapBase
+            )),
+            swapOverlongPrompt: attempt(() => subject.buildRunwayRecipeRequest(
+              {...swap, promptText:"p".repeat(1001)}, swapBase
+            )),
+            swapReferenceCap: attempt(() => subject.buildRunwayRecipeRequest(
+              swap,
+              [...swapBase, ...Array.from({length:5}, (_,i) => asset("product_reference",i+10))]
+            )),
             adResolution: attempt(() => subject.buildRunwayRecipeRequest(
               {...ad,resolution:"720p"}, [asset("product_primary",1)]
             )),
@@ -379,15 +399,26 @@ def test_product_swap_and_product_ad_enforce_official_counts_and_fields() -> Non
         })()
         """
     )
-    assert {key: value["code"] for key, value in result.items()} == {
+    failures = {
+        key: value for key, value in result.items() if key != "swapReferenceCap"
+    }
+    assert {key: value["code"] for key, value in failures.items()} == {
         "swapRatio": "selection_fields_invalid",
         "swapMissingOriginal": "original_product_count_invalid",
         "swapBadView": "signed_asset_view_invalid",
         "swapTooManyProducts": "product_swap_assets_invalid",
+        "swapMissingPrompt": "selection_fields_invalid",
+        "swapOverlongPrompt": "prompt_text_invalid",
         "adResolution": "selection_fields_invalid",
         "adSourceVideo": "signed_asset_role_incompatible",
         "adTooManyStyles": "product_ad_assets_invalid",
     }
+    # Prompt-only body even when many photos pass the server-side asset
+    # validation: the photos stay spend-contour selection assets and never
+    # leak into the provider body as keyframes.
+    cap = result["swapReferenceCap"]
+    assert cap["ok"] is True
+    assert "keyframes" not in cap["value"]["body"]
 
 
 def test_creator_generate_wires_only_allowlisted_recipe_envelopes() -> None:

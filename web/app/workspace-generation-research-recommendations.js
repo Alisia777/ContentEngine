@@ -29,6 +29,9 @@ const GENERATION_INTENT_PREFIX = "contentengine.ai-research-generation.intent.v1
 const GENERATION_INTENT_MAX_AGE_MS = 5 * 60 * 1000;
 const MAX_RESEARCH_CONCLUSION_LINES = 6;
 const MAX_RESEARCH_CONCLUSION_LENGTH = 260;
+// Однократная ошибка чтения общего черновика больше не замораживает форму до
+// F5: сначала автоматические повторы с нарастающей паузой, затем явная кнопка.
+const WORKING_DRAFT_HYDRATE_RETRY_DELAYS_MS = Object.freeze([2_000, 5_000, 15_000]);
 const PRESET_FIELDS = Object.freeze([
   "product_category",
   "platform",
@@ -117,6 +120,9 @@ const runtime = {
   workingDraftConflict: false,
   workingDraftAuthority: "unknown",
   workingDraftAuthorityProjectId: "",
+  workingDraftHydrateRetryCount: 0,
+  workingDraftHydrateRetryTimer: 0,
+  workingDraftHydrateRetryDue: false,
   explicitApplyTargetKey: "",
   freshRouteApplyTargetKey: "",
   freshRouteApplyProjectId: "",
@@ -124,7 +130,15 @@ const runtime = {
 };
 
 function setWorkingDraftAuthority(projectIdValue, authority) {
-  runtime.workingDraftAuthorityProjectId = normalizedUuid(projectIdValue);
+  const normalizedProjectId = normalizedUuid(projectIdValue);
+  if (normalizedProjectId !== runtime.workingDraftAuthorityProjectId) {
+    // A project/form switch starts a clean retry budget for hydration.
+    runtime.workingDraftHydrateRetryCount = 0;
+    runtime.workingDraftHydrateRetryDue = false;
+    window.clearTimeout(runtime.workingDraftHydrateRetryTimer);
+    runtime.workingDraftHydrateRetryTimer = 0;
+  }
+  runtime.workingDraftAuthorityProjectId = normalizedProjectId;
   runtime.workingDraftAuthority = authority;
 }
 
@@ -1298,6 +1312,31 @@ function stopWorkingDraftConflictRetries() {
   runtime.workingDraftSavePending = false;
   window.clearTimeout(runtime.workingDraftSaveTimer);
   runtime.workingDraftSaveTimer = 0;
+  renderWorkingDraftRecovery("conflict");
+}
+
+function scheduleWorkingDraftHydrateRetry(form, context) {
+  const attempt = runtime.workingDraftHydrateRetryCount;
+  if (attempt >= WORKING_DRAFT_HYDRATE_RETRY_DELAYS_MS.length) {
+    renderWorkingDraftRecovery("hydrate_failed");
+    return;
+  }
+  runtime.workingDraftHydrateRetryCount = attempt + 1;
+  window.clearTimeout(runtime.workingDraftHydrateRetryTimer);
+  runtime.workingDraftHydrateRetryTimer = window.setTimeout(() => {
+    runtime.workingDraftHydrateRetryTimer = 0;
+    if (
+      routePath() !== ROUTE
+      || runtime.form !== form
+      || !form.isConnected
+      || formContext(form).projectId !== context.projectId
+      || runtime.workingDraftAuthority !== "failed"
+    ) return;
+    // One-shot grant: mount() consumes the flag before restarting hydration,
+    // so plain observer mutations never restart a settled failed read.
+    runtime.workingDraftHydrateRetryDue = true;
+    scheduleMount();
+  }, WORKING_DRAFT_HYDRATE_RETRY_DELAYS_MS[attempt]);
 }
 
 function selectedVerifiedMediaProduct(form, expectedProductId) {
@@ -1627,6 +1666,9 @@ function scheduleWorkingDraftSave() {
     runtime.workingDraftSavePending = false;
     window.clearTimeout(runtime.workingDraftSaveTimer);
     runtime.workingDraftSaveTimer = 0;
+    // The dropped sync stays visible: every later edit re-asserts the banner
+    // with the explicit resolution actions instead of being swallowed.
+    renderWorkingDraftRecovery("conflict");
     return;
   }
   runtime.workingDraftSavePending = true;
@@ -1698,6 +1740,82 @@ async function clearWorkingDraft() {
     } else if (runtime.workingDraftSavePending) {
       scheduleWorkingDraftSave();
     }
+  }
+}
+
+async function resolveWorkingDraftConflict(strategy /* "theirs" | "mine" */) {
+  if (
+    !runtime.form
+    || runtime.workingDraftSaving
+    || runtime.workingDraftHydrating
+  ) return;
+  const form = runtime.form;
+  const context = formContext(form);
+  if (!context.projectId) return;
+  const recovery = workingDraftRecoveryContainer();
+  recovery?.querySelectorAll?.("button")?.forEach?.((button) => {
+    button.disabled = true;
+  });
+  try {
+    const api = await getApi();
+    const fresh = await readGenerationAiResearchWorkingDraft(
+      api,
+      context.projectId,
+      { force: true },
+    );
+    if (
+      routePath() !== ROUTE
+      || runtime.form !== form
+      || !form.isConnected
+      || formContext(form).projectId !== context.projectId
+    ) return;
+    runtime.workingDraft = fresh;
+    runtime.workingDraftProjectId = context.projectId;
+    form.dataset.generationAiResearchWorkingRevision = String(fresh.revision);
+    const freshTombstone = Number(fresh.revision) > 0 && fresh.draft === null;
+    if (strategy === "mine" && freshTombstone) {
+      // Другой участник явно очистил общий черновик: не пересоздаём его
+      // молча поверх — остаётся только явное принятие его версии.
+      renderWorkingDraftRecovery("conflict");
+      setStatus(
+        "Другой участник очистил общий черновик проекта. Ваши правки не записаны поверх: можно только принять его версию.",
+        "danger",
+      );
+      return;
+    }
+    runtime.workingDraftConflict = false;
+    if (strategy === "theirs") {
+      if (fresh.draft) {
+        applySharedWorkingDraft(form, fresh);
+      } else {
+        delete form.dataset.generationAiResearchWorkingSelectionId;
+        delete form.dataset.generationAiResearchWorkingPosition;
+        runtime.root?.setAttribute("data-manual-mode", "true");
+        runtime.response = { recommendations: [] };
+        renderRecommendationPanel();
+      }
+      setStatus(
+        "Применена версия другого участника. Локальные правки этой вкладки заменены его версией.",
+        "ready",
+      );
+    } else {
+      scheduleWorkingDraftSave();
+      setStatus(
+        "Ваши правки будут записаны поверх новой версии общего черновика.",
+        "ready",
+      );
+    }
+    renderWorkingDraftRecovery(null);
+  } catch (error) {
+    console.warn(
+      "Generation AI research working draft conflict resolution failed",
+      error,
+    );
+    renderWorkingDraftRecovery("conflict");
+    setStatus(
+      "Не удалось получить свежую версию общего черновика — повторите.",
+      "danger",
+    );
   }
 }
 
@@ -1839,7 +1957,11 @@ async function hydrateSharedWorkingDraft(form, context) {
     ) return;
     const authoritative = authoritativeWorkingDraft(context, shared);
     setWorkingDraftAuthority(context.projectId, "verified");
+    runtime.workingDraftHydrateRetryCount = 0;
+    window.clearTimeout(runtime.workingDraftHydrateRetryTimer);
+    runtime.workingDraftHydrateRetryTimer = 0;
     runtime.workingDraftConflict = false;
+    renderWorkingDraftRecovery(null);
     if (!generationResearchWorkingDraftHydrationUnchanged(form, hydrationSnapshot)) {
       setStatus(
         "Вы уже изменили товар или параметры запуска. Поздний общий черновик не применён, ваши поля сохранены.",
@@ -1857,8 +1979,9 @@ async function hydrateSharedWorkingDraft(form, context) {
       && formContext(form).projectId === context.projectId
     ) {
       setWorkingDraftAuthority(context.projectId, "failed");
+      scheduleWorkingDraftHydrateRetry(form, context);
       setStatus(
-        "Общий черновик временно недоступен; сначала используем резервную копию этой вкладки. Рекомендации остаются необязательными.",
+        "Общий черновик временно недоступен; сначала используем резервную копию этой вкладки. Автоматически повторим проверку через несколько секунд; рекомендации остаются необязательными.",
         "danger",
       );
     }
@@ -1888,6 +2011,76 @@ function setStatus(message, tone = "neutral") {
   if (!status) return;
   status.textContent = message;
   status.dataset.tone = tone;
+}
+
+function workingDraftRecoveryContainer() {
+  return runtime.root?.querySelector(
+    "[data-research-recommendation-recovery]",
+  ) || null;
+}
+
+function renderWorkingDraftRecovery(kind /* null | "hydrate_failed" | "conflict" */) {
+  const root = runtime.root;
+  const recovery = workingDraftRecoveryContainer();
+  if (!recovery) return;
+  if (!kind) {
+    recovery.replaceChildren();
+    delete recovery.dataset.state;
+    root?.removeAttribute("data-working-draft-conflict");
+    return;
+  }
+  const recoveryButton = (label, datasetKey) => {
+    const button = el("button", "btn btn-secondary btn-small", label);
+    button.type = "button";
+    button.dataset[datasetKey] = "true";
+    return button;
+  };
+  if (kind === "hydrate_failed") {
+    root?.removeAttribute("data-working-draft-conflict");
+    recovery.dataset.state = "hydrate-failed";
+    recovery.replaceChildren(
+      el(
+        "p",
+        "generation-research-recommendations__recovery-note",
+        "Автоматические повторы исчерпаны: сервер так и не подтвердил общий черновик проекта. Поля этой вкладки сохранены локально.",
+      ),
+      recoveryButton(
+        "Повторить проверку общего черновика",
+        "researchRecommendationWorkingDraftRetry",
+      ),
+    );
+    return;
+  }
+  // kind === "conflict"
+  root?.setAttribute("data-working-draft-conflict", "true");
+  recovery.dataset.state = "conflict";
+  const authoritative = runtime.form
+    ? authoritativeWorkingDraft(formContext(runtime.form))
+    : null;
+  const clearedTombstone = Number(authoritative?.revision) > 0
+    && authoritative?.draft === null;
+  const children = [
+    el(
+      "p",
+      "generation-research-recommendations__recovery-note",
+      clearedTombstone
+        ? "Другой участник очистил общий черновик проекта. Ваши поля не перезаписаны, но и не синхронизируются: очищенный черновик не пересоздаётся — примите версию коллеги."
+        : "Другой участник обновил общий черновик проекта. Ваши поля не перезаписаны, но и не синхронизируются, пока вы не выберете, какую версию оставить.",
+    ),
+    recoveryButton(
+      "Взять версию коллеги",
+      "researchRecommendationConflictTakeTheirs",
+    ),
+  ];
+  if (!clearedTombstone) {
+    children.push(
+      recoveryButton(
+        "Оставить мою",
+        "researchRecommendationConflictKeepMine",
+      ),
+    );
+  }
+  recovery.replaceChildren(...children);
 }
 
 function selectedEnvelope() {
@@ -2058,10 +2251,17 @@ function markHumanEdit(field) {
     ...(field === "brief" ? { lastHumanText: controlValue(control) } : {}),
   });
   runtime.root?.setAttribute("data-human-edited", "true");
-  setStatus(
-    `Поле «${PRESET_FIELD_LABELS[field]}» изменено вручную. ИИ больше не перезапишет его автоматически.`,
-    "edited",
-  );
+  if (runtime.workingDraftConflict) {
+    setStatus(
+      `Поле «${PRESET_FIELD_LABELS[field]}» изменено, но не синхронизируется: сначала разрешите конфликт версий общего черновика.`,
+      "danger",
+    );
+  } else {
+    setStatus(
+      `Поле «${PRESET_FIELD_LABELS[field]}» изменено вручную. ИИ больше не перезапишет его автоматически.`,
+      "edited",
+    );
+  }
   renderRecommendationPanel();
   scheduleWorkingDraftSave();
 }
@@ -2400,13 +2600,17 @@ function buildRoot() {
   options.dataset.researchRecommendationOptions = "true";
   const preview = el("div", "generation-research-recommendations__preview");
   preview.dataset.researchRecommendationPreview = "true";
+  // Persistent recovery surface: unlike the shared status line it is never
+  // overwritten by later edits and never cleared by renderRecommendationPanel.
+  const recovery = el("div", "generation-research-recommendations__recovery");
+  recovery.dataset.researchRecommendationRecovery = "true";
   const status = el("p", "generation-research-recommendations__status", "Выберите товар — загрузим обученные рекомендации.");
   status.dataset.researchRecommendationStatus = "true";
   status.setAttribute("role", "status");
   status.setAttribute("aria-live", "polite");
   const actions = el("div", "generation-research-recommendations__actions");
   actions.dataset.researchRecommendationActions = "true";
-  root.append(header, options, preview, status, actions);
+  root.append(header, options, preview, recovery, status, actions);
   root.addEventListener("click", handleRootClick);
   return root;
 }
@@ -2806,6 +3010,24 @@ function scheduleLoad({ force = false } = {}) {
 }
 
 function handleRootClick(event) {
+  if (event.target.closest?.("[data-research-recommendation-working-draft-retry]")) {
+    event.preventDefault();
+    runtime.workingDraftHydrateRetryCount = 0;
+    runtime.workingDraftHydrateRetryDue = true;
+    renderWorkingDraftRecovery(null);
+    scheduleMount();
+    return;
+  }
+  if (event.target.closest?.("[data-research-recommendation-conflict-take-theirs]")) {
+    event.preventDefault();
+    void resolveWorkingDraftConflict("theirs");
+    return;
+  }
+  if (event.target.closest?.("[data-research-recommendation-conflict-keep-mine]")) {
+    event.preventDefault();
+    void resolveWorkingDraftConflict("mine");
+    return;
+  }
   const option = event.target.closest?.("[data-recommendation-index]");
   if (option) {
     event.preventDefault();
@@ -2895,12 +3117,16 @@ export function shouldHydrateGenerationResearchWorkingDraft({
   contextProjectId = "",
   authority = "unknown",
   hydrating = false,
+  hydrateRetryDue = false,
 } = {}) {
   const projectId = normalizedUuid(contextProjectId);
   if (!projectId) return false;
   return formChanged
     || normalizedUuid(authorityProjectId) !== projectId
-    || (!hydrating && authority === "unknown");
+    || (!hydrating && (
+      authority === "unknown"
+      || (authority === "failed" && hydrateRetryDue)
+    ));
 }
 
 export function generationResearchRecommendationMountResolveAction({
@@ -2957,6 +3183,7 @@ function mount() {
     contextProjectId: context.projectId,
     authority: runtime.workingDraftAuthority,
     hydrating: runtime.workingDraftHydrating,
+    hydrateRetryDue: runtime.workingDraftHydrateRetryDue,
   });
   const state = readState(context);
   const touched = inferTouchedFields(form, state);
@@ -3024,6 +3251,9 @@ function mount() {
   // A cached value can be the previous side of an app-level force refresh.
   // Never mark it verified or exact-resolve it before the shared read settles;
   // readGenerationAiResearchWorkingDraft joins that in-flight promise.
+  // A due retry is a one-shot grant: consume it here so only the timer or the
+  // explicit button — never a plain observer mutation — restarts hydration.
+  runtime.workingDraftHydrateRetryDue = false;
   setWorkingDraftAuthority(context.projectId, "unknown");
   void hydrateSharedWorkingDraft(form, context).finally(() => {
     if (form.isConnected && routePath() === ROUTE) scheduleLoad();

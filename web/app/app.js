@@ -71,7 +71,7 @@ import {
   generationSpendSnapshotMarkup,
   managerGenerationSpendMarkup,
   normalizeGenerationSpendOverview,
-} from "./generation-spend-view.js?v=20260814.os4.41";
+} from "./generation-spend-view.js?v=20260817.os4.42";
 import {
   generationProviderReadinessPreflights,
   normalizeGenerationProviderPreflight,
@@ -118,7 +118,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260814.os4.41";
+} from "./ai-learning-control-room.js?v=20260817.os4.42";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -322,7 +322,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260814.os4.41";
+} from "./my-work-view.js?v=20260817.os4.42";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -14576,11 +14576,15 @@ function generationStrategyExecutionArchiveDetails(item, strategy) {
     || selection.recipe_version !== "2026-06"
     || price?.version !== "generation-strategy-price-snapshot-v1"
     || price.strategy_id !== strategy.strategyId
-    || price.provider !== "runway"
+    || !["runway", "fal"].includes(price.provider)
     || recipe !== expectedRecipes[strategy.strategyId]
     || price.catalog_version !== selection.version
     || price.recipe_version !== selection.recipe_version
-    || price.pricing_version !== "runway-recipe-credits-2026-08-14.v1"
+    || ![
+      "runway-recipe-credits-2026-08-14.v1",
+      "fal-usd-per-run-2026-08-18.v1",
+      "fal-usd-per-second-2026-08-18.v1",
+    ].includes(price.pricing_version)
     || price.display_only !== true
     || price.requires_fresh_server_price !== true
     || price.price_hash !== null
@@ -15133,11 +15137,17 @@ function generatedVideoTechnicalQaMarkup(details) {
       ? " Звуковые уровни, тишина, клиппинг и длительность измерены локально."
       : " Звук автоматически не декодирован — его нужно прослушать вручную.";
     const automaticReviewApproved = entry?.reviewAutostartApproved === true;
-    const reviewStartControl = entry?.error
-      ? `<button class="btn btn-small" type="button" data-action="start-generated-video-review" data-media-id="${escapeHtml(mediaId)}">Повторить AI-проверку</button>`
-      : automaticReviewApproved
-        ? '<span class="muted tiny" role="status">AI-проверка запускается автоматически; транскрипция выключена.</span>'
-        : `<button class="btn btn-small" type="button" data-action="start-generated-video-review" data-media-id="${escapeHtml(mediaId)}">Запустить AI-проверку</button>`;
+    const categoryRequired = entry?.categoryRequired === true;
+    const reviewStartControl = categoryRequired
+      ? `<button class="btn btn-small" type="button" data-action="open-generated-content-review" data-media-id="${escapeHtml(mediaId)}">Подтвердить категорию — открыть проверку контента</button>`
+      : entry?.error
+        ? `<button class="btn btn-small" type="button" data-action="start-generated-video-review" data-media-id="${escapeHtml(mediaId)}">Повторить AI-проверку</button>`
+        : automaticReviewApproved
+          ? '<span class="muted tiny" role="status">AI-проверка запускается автоматически; транскрипция выключена.</span>'
+          : `<button class="btn btn-small" type="button" data-action="start-generated-video-review" data-media-id="${escapeHtml(mediaId)}">Запустить AI-проверку</button>`;
+    const categoryRequiredHint = categoryRequired
+      ? '<span class="muted tiny" role="status">Руководитель один раз подтверждает категорию товара в полной форме проверки; повторная AI-проверка без категории запускаться не будет.</span>'
+      : "";
     const reviewStartCopy = automaticReviewApproved
       ? " Визуальный AI-QA ставится в фоновую очередь автоматически; транскрипция остаётся выключенной."
       : " Это старый запуск без сохранённого согласия на автоматическую передачу в AI-QA; проверку можно запустить явно, транскрипция останется выключенной.";
@@ -15146,6 +15156,7 @@ function generatedVideoTechnicalQaMarkup(details) {
         <strong>Рендер готов · звук не принят</strong>
         <span>Технический скан готов автоматически. ${frameCount ? `${frameCount} evidence-изображений сохранены.` : ""}${atlasReady && temporalCount ? ` Пятое изображение — хронологический атлас из ${temporalCount} точек таймлайна.` : ""}${escapeHtml(continuityCopy)}${escapeHtml(audioCopy)}${escapeHtml(reviewStartCopy)}</span>
         ${entry?.error ? `<span class="generation-technical-qa__error">${escapeHtml(entry.error)}</span>` : ""}
+        ${categoryRequiredHint}
         <div class="generation-result-actions">
           ${reviewStartControl}
           ${reviewButton}
@@ -16113,6 +16124,7 @@ async function startGeneratedVideoReviewFromEvidence(mediaId, {
     status: "starting_review",
     evidence,
     reviewAutostartAttempted: automatic || previous?.reviewAutostartAttempted === true,
+    categoryRequired: false,
     error: "",
   });
   try {
@@ -16144,10 +16156,12 @@ async function startGeneratedVideoReviewFromEvidence(mediaId, {
       requestEpoch !== state.dataEpoch
       || requestUserId !== state.user?.id
     ) return false;
+    const errorCode = String(error?.code || "");
     setGeneratedVideoQaStatus(normalizedMediaId, {
       status: "ready",
       evidence,
       reviewAutostartAttempted: automatic || previous?.reviewAutostartAttempted === true,
+      categoryRequired: errorCode === "generated_video_review_category_required",
       error: automatic
         ? `Автозапуск AI-проверки не завершился: ${actionErrorMessage(error)}`
         : actionErrorMessage(error),
@@ -16174,6 +16188,7 @@ function resumeGeneratedVideoReviewAutopilot() {
     entry.status === "ready"
     && entry.reviewAutostartApproved === true
     && entry.reviewAutostartAttempted !== true
+    && entry.categoryRequired !== true
     && generatedVideoQaEvidenceForMedia(entry.mediaId)?.status === "ready"
   ));
   if (!next) return;
@@ -18967,7 +18982,9 @@ function renderAiLearningSection(sectionState) {
     error: state.aiLearning.error || (sectionState.error ? actionErrorMessage(sectionState.error) : ""),
     lastUpdatedAt: state.aiLearning.lastUpdatedAt,
     marketLearningMarkup,
-    legacyReadOnly: true,
+    // Server-driven legacy intake stance; fail closed to read-only while the
+    // snapshot is missing or an older server omits the capability.
+    legacyReadOnly: snapshot ? snapshot.capabilities.legacyIntakeReadOnly === true : true,
   });
 }
 
@@ -19841,7 +19858,7 @@ async function submitAiKnowledgeLink(form) {
     const response = await state.api.registerAiKnowledgeSource({
       product_category: category,
       source_kind: "link",
-      title: values.get("title"),
+      title: values.get("source_title"),
       source_url: values.get("source_url"),
       note: values.get("note"),
       rights_confirmed: values.get("rights_confirmed") === "on",
@@ -19908,7 +19925,7 @@ async function submitAiKnowledgeFile(form) {
     const response = await state.api.registerAiKnowledgeSource({
       product_category: category,
       source_kind: "file",
-      title: String(values.get("title") || file.name),
+      title: String(values.get("source_title") || file.name),
       note: values.get("note"),
       rights_confirmed: values.get("rights_confirmed") === "on",
       object_key: objectKey,
@@ -20082,7 +20099,7 @@ function renderFeedbackSection(sectionState) {
         <div class="feedback-form-grid">
           <label class="field"><span>Тип</span><select name="category"><option value="interface">Интерфейс</option><option value="generation">Создание контента</option><option value="quality">Качество</option><option value="funnel">Публикации</option><option value="social_data">Данные соцсетей</option><option value="payouts">Выплаты</option><option value="wb_aliases">Артикулы WB</option><option value="analytics">Результаты</option><option value="training">Обучение</option><option value="other">Другое</option></select></label>
           <label class="field"><span>Раздел</span><select name="section">${visibleWorkspaceTabs().filter(([key]) => !["home", "team"].includes(key)).map(([key, label]) => `<option value="${key}">${label}</option>`).join("")}</select></label>
-          <label class="field field-wide"><span>Короткий заголовок *</span><input name="title" required maxlength="180" placeholder="Например: не вижу точное фото упаковки" /></label>
+          <label class="field field-wide"><span>Короткий заголовок *</span><input name="feedback_title" required maxlength="180" placeholder="Например: не вижу точное фото упаковки" /></label>
           <label class="field field-wide"><span>Что произошло и какой результат нужен *</span><textarea name="description" required minlength="5" maxlength="2000" placeholder="Опишите шаги без паролей, токенов и платёжных реквизитов"></textarea></label>
         </div>
         <button class="btn" type="submit" data-primary-action="true">Отправить запрос</button>
@@ -23103,7 +23120,7 @@ async function submitGenerationCampaignCreate(form) {
   }
   const values = new FormData(form);
   const payload = {
-    name: String(values.get("name") || "").trim(),
+    name: String(values.get("campaign_name") || "").trim(),
     ...campaignPolicyPayload(values, values.get("paid_generation_enabled") === "true"),
   };
   if (!validateCampaignPolicyPayload(payload)) return;
@@ -23272,7 +23289,7 @@ async function submitMyWorkFilters(form) {
 
 async function submitSavedMyWorkView(form) {
   const values = new FormData(form);
-  const name = String(values.get("name") || "").trim();
+  const name = String(values.get("view_name") || "").trim();
   const makeDefault = values.get("is_default") === "true";
   setFormBusy(form, true, "Сохраняем…");
   try {
@@ -32157,7 +32174,7 @@ async function submitFeedback(form) {
     await state.api.createFeedback({
       category: String(values.get("category") || "other"),
       section: String(values.get("section") || "feedback"),
-      title: String(values.get("title") || "").trim(),
+      title: String(values.get("feedback_title") || "").trim(),
       description: String(values.get("description") || "").trim(),
     });
     await track("feedback_created", {

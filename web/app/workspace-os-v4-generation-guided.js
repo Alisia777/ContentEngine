@@ -1673,6 +1673,8 @@ function syncLegacyModelVisibility(form, strategySelected) {
     form.elements?.generation_reference_source_access_confirmed,
     form.elements?.generation_reference_transformative_use_confirmed,
     form.elements?.format,
+    form.elements?.generation_resolution,
+    form.elements?.generation_audio,
   ].forEach((control) => {
     if (
       control instanceof HTMLInputElement
@@ -1680,6 +1682,11 @@ function syncLegacyModelVisibility(form, strategySelected) {
       || control instanceof HTMLTextAreaElement
     ) {
       control.disabled = strategySelected;
+      // Dropping `required` matters as much as disabling: these legacy controls
+      // are hidden in a strategy route, and a re-render that re-enables one of
+      // them makes form.reportValidity() fail on an invisible empty select, so
+      // every submit dies silently with no message the operator can see.
+      if (strategySelected) control.required = false;
     }
   });
   if (strategySelected) {
@@ -1857,7 +1864,14 @@ function strategyAssetsForForm(form, row) {
       ? "product_image"
       : "";
   if (productRole) {
-    qa('input[name="media_id"]:checked:not(:disabled)', form).forEach((input) => {
+    // Во время setFormBusy все контролы disabled; учитываем исходное состояние,
+    // иначе выбранные фото «исчезают» из точного контекста прямо во время bind.
+    const busyLocked = form?.dataset?.busy === "true";
+    qa('input[name="media_id"]:checked', form).forEach((input) => {
+      const effectivelyDisabled = busyLocked
+        ? input.dataset.wasDisabled === "true"
+        : input.disabled;
+      if (effectivelyDisabled) return;
       assets.push({ role: productRole, media_id: String(input.value).toLowerCase() });
     });
   }
@@ -4204,6 +4218,13 @@ window.ContentEngineGenerationGuidedV4 = Object.freeze({
   },
   getStrategySummary() {
     return selectedGenerationStrategySummary(runtime.strategyState);
+  },
+  // Движки стратегии для экрана «Копия»: сервер отдаёт их вместе с каталогом,
+  // а форма показывает как «Генератор 1/2/3». Здесь только чтение — выбор
+  // движка попадает в наряд отдельным полем и подписывается сервером.
+  getStrategyProviderRoutes(strategyId) {
+    const routes = runtime.strategyCatalog?.strategyProviderRoutes?.[strategyId];
+    return Array.isArray(routes) ? routes : [];
   },
   refreshStrategyAssets(form = runtime.form) {
     if (!form?.isConnected) return Promise.resolve(false);

@@ -12,6 +12,13 @@
  * - https://docs.dev.runwayml.com/recipes/product-swap/
  * - https://docs.dev.runwayml.com/recipes/product-ad/
  * - https://docs.dev.runwayml.com/assets/inputs/
+ *
+ * 2026-08-17: the live Runway API has no /v1/recipes/* endpoints (verified in
+ * the Request History endpoint filter). Product Swap therefore dispatches to
+ * the real video_to_video API (Gen-4 Aleph, x-runway-version 2024-11-06):
+ * - https://docs.dev.runwayml.com/api/#tag/Start-generating/paths/~1v1~1video_to_video/post
+ * Its body accepts only model/videoUri/promptText/ratio/references; foreign
+ * recipe fields (duration/audio/resolution/version) must never be sent.
  */
 
 import {
@@ -51,6 +58,13 @@ const PRODUCT_AD_RATIOS = new Set([
   "1248:1664",
 ]);
 const PRODUCT_SWAP_RESOLUTIONS = new Set(["720p", "1080p"]);
+// aleph2 (video_to_video) contract: exact model id, prompt-only body, and the
+// vertical ratio. The catalog resolution (720p/1080p) stays a spend-contour
+// selection field; Aleph itself renders 720p and the Product Swap route is
+// vertical (9:16), so both map to 720:1280.
+const PRODUCT_SWAP_ALEPH_MODEL = "aleph2";
+const PRODUCT_SWAP_ALEPH_RATIO = "9:16";
+const PRODUCT_SWAP_PROMPT_LIMIT = 1_000;
 const PRODUCT_VIEWS = new Set(["front", "side", "back"]);
 const SIGNED_ASSET_ROLES = new Set([
   "avatar",
@@ -188,14 +202,24 @@ function exactSelection(value) {
     "audio",
   ];
   if (recipe === "product_swap") {
-    assertExactOwnKeys(
-      value,
-      [...commonKeys, "resolution"],
-      "selection_fields_invalid",
-    );
+    // modifyRegion нужен только маршрутам с точечной заменой объекта (fal).
+    // Ключ необязательный: маршрут Runway его не передаёт, и требовать его со
+    // всех означало бы сломать работающую «Копию».
+    const swapKeys = [...commonKeys, "resolution", "promptText"];
+    if (hasOwn(value, "modifyRegion")) swapKeys.push("modifyRegion");
+    assertExactOwnKeys(value, swapKeys, "selection_fields_invalid");
+    if (hasOwn(value, "modifyRegion")) {
+      exactText(value.modifyRegion, 3, 200, "modify_region_invalid");
+    }
     if (!PRODUCT_SWAP_RESOLUTIONS.has(value.resolution)) {
       fail("resolution_invalid");
     }
+    exactText(
+      value.promptText,
+      1,
+      PRODUCT_SWAP_PROMPT_LIMIT,
+      "prompt_text_invalid",
+    );
   } else {
     assertExactOwnKeys(
       value,
@@ -287,22 +311,28 @@ function buildProductUgc(selection, assets) {
 function buildProductSwap(selection, assets) {
   assertNoRoles(assets, ["avatar", "style_reference"]);
   const source = oneAsset(assets, "source_video");
+  // The original-product frame stays a mandatory server-validated selection
+  // asset (the dispatch receives the full set), but video_to_video does not
+  // accept it as a body field: that frame is already inside the source video.
   const original = oneAsset(assets, "original_product");
   const primary = oneAsset(assets, "product_primary");
   const references = assetsByRole(assets, "product_reference");
   if (references.length > 9 || assets.length !== 3 + references.length) {
     fail("product_swap_assets_invalid");
   }
+  if (hasOwn(source, "view") || hasOwn(original, "view")) {
+    fail("signed_asset_view_incompatible");
+  }
+  // aleph2 (video_to_video) is prompt-only for this route: timed keyframes
+  // with product photos pull the scene toward the photos' interiors instead
+  // of the source footage (verified on paid runs 17.08.2026), so the product
+  // photos stay spend-contour validation assets and inform the prompt text,
+  // while the body carries only the source video and the prompt.
   return {
-    version: RUNWAY_RECIPE_VERSION,
-    referenceVideo: uriObject(source),
-    originalProductImage: uriObject(original),
-    newProductImages: [primary, ...references].map((asset) =>
-      uriObject(asset, { allowView: true })
-    ),
-    duration: selection.durationSeconds,
-    resolution: selection.resolution,
-    audio: selection.audio,
+    model: PRODUCT_SWAP_ALEPH_MODEL,
+    videoUri: source.uri,
+    promptText: selection.promptText,
+    targetAspectRatio: PRODUCT_SWAP_ALEPH_RATIO,
   };
 }
 
@@ -328,6 +358,53 @@ function buildProductAd(selection, assets) {
     duration: selection.durationSeconds,
     audio: selection.audio,
   };
+}
+
+// fal.ai Pika Swaps: точечная замена объекта, а не переписывание кадра. Модель
+// принимает исходное видео, ОДНО фото товара и текстовое указание, что именно
+// в кадре заменить. Остальные фотографии остаются проверочными ассетами
+// спенд-контура: провайдер берёт ровно одну ссылку на изображение.
+const FAL_PRODUCT_SWAP_MODEL = "fal-ai/pika/v2/pikaswaps";
+
+function buildFalProductSwap(selection, assets) {
+  assertNoRoles(assets, ["avatar", "style_reference"]);
+  const source = oneAsset(assets, "source_video");
+  const original = oneAsset(assets, "original_product");
+  const primary = oneAsset(assets, "product_primary");
+  const references = assetsByRole(assets, "product_reference");
+  if (references.length > 9 || assets.length !== 3 + references.length) {
+    fail("product_swap_assets_invalid");
+  }
+  if (hasOwn(source, "view") || hasOwn(original, "view")) {
+    fail("signed_asset_view_incompatible");
+  }
+  if (
+    typeof selection.modifyRegion !== "string" ||
+    selection.modifyRegion.trim().length < 3 ||
+    selection.modifyRegion.length > 200
+  ) fail("modify_region_invalid");
+  return {
+    video_url: source.uri,
+    image_url: primary.uri,
+    modify_region: selection.modifyRegion,
+    prompt: selection.promptText,
+  };
+}
+
+export function buildFalRecipeRequest(selectionValue, signedAssetsValue) {
+  const selection = exactSelection(selectionValue);
+  const assets = exactSignedAssets(signedAssetsValue);
+  if (selection.recipe !== "product_swap") fail("fal_recipe_unsupported");
+  return deepFreeze({
+    provider: "fal",
+    // У очереди fal путь и есть идентификатор модели: submit уходит на
+    // {origin}/{model}, а адреса статуса и результата возвращает сам ответ —
+    // собирать их руками нельзя, они меняются на стороне провайдера.
+    endpointPath: FAL_PRODUCT_SWAP_MODEL,
+    method: "POST",
+    body: { input: buildFalProductSwap(selection, assets) },
+    pollKind: "fal_request",
+  });
 }
 
 export function buildRunwayRecipeRequest(selectionValue, signedAssetsValue) {

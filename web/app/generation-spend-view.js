@@ -358,7 +358,7 @@ function generationCampaignCreateForm(overview, { saving = false, disabled = fal
       <form id="generation-campaign-create-form" class="manager-spend-form" novalidate>
         <fieldset ${saving || disabled ? "disabled" : ""}>
           <legend>Новая кампания</legend>
-          <label class="field"><span>Название *</span><input name="name" required minlength="2" maxlength="160" autocomplete="off" placeholder="Например: Кровавый пилинг · июль" /></label>
+          <label class="field"><span>Название *</span><input name="campaign_name" required minlength="2" maxlength="160" autocomplete="off" placeholder="Например: Кровавый пилинг · июль" /></label>
           <div class="manager-spend-form-grid">
             ${moneyField("daily_limit_usd", "На день, $", overview.policy.dailyLimitMinor)}
             ${moneyField("monthly_limit_usd", "На месяц, $", overview.policy.monthlyLimitMinor)}

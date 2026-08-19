@@ -326,7 +326,12 @@ def test_output_is_allowlisted_bounded_verified_and_privately_persisted() -> Non
     assert (
         'const RUNWAY_OUTPUT_HOST = "dnznrvs05pmza.cloudfront.net"' in source
     )
-    assert 'url.hostname !== RUNWAY_OUTPUT_HOST' in source
+    # Хост результата проверяется по белому списку своего провайдера: у Runway
+    # он один, у fal — известный набор. Разрешать «любой https» нельзя.
+    assert 'url.hostname === RUNWAY_OUTPUT_HOST' in source
+    assert "FAL_OUTPUT_HOSTS.has(url.hostname)" in source
+    assert "const FAL_OUTPUT_HOSTS = new Set([" in source
+    assert ": false;" in source
     assert 'url.protocol !== "https:"' in source
     assert 'const MAX_OUTPUT_BYTES = 52_428_800' in source
     for output_mime in (
