@@ -21,7 +21,13 @@ const SEVERITY_META = Object.freeze({
 const SEVERITY_ORDER = Object.freeze(["blocker", "high", "medium", "low", "info", "other"]);
 const PRIMARY_ACTION_SELECTOR = '[data-primary-action="true"]';
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
-const runtime = { steps: new Map(), boundResults: new WeakSet(), boundRiskGroups: new WeakSet() };
+const NARROW_REVIEW_GUIDE = window.matchMedia("(max-width: 760px)");
+const runtime = {
+  steps: new Map(),
+  boundResults: new WeakSet(),
+  boundRiskGroups: new WeakSet(),
+  boundSummaryPosters: new WeakSet(),
+};
 
 function q(selector, root = document) {
   return root?.querySelector?.(selector) || null;
@@ -177,17 +183,25 @@ function panelId(result, step) {
   return `ce-v4-review-result-${stableToken(resultId(result))}-panel-${step}`;
 }
 
+function tabId(result, step) {
+  return `${panelId(result, step)}-tab`;
+}
+
 function createGuide(result) {
   const guide = create("nav", "ce-v4-review-guide");
   guide.setAttribute("aria-label", "Этапы готовой проверки");
   guide.setAttribute("role", "tablist");
+  guide.setAttribute("aria-orientation", "horizontal");
   STEP_META.forEach((meta, index) => {
     const step = index + 1;
     const button = create("button", "ce-v4-review-guide__step");
     button.type = "button";
+    button.id = tabId(result, step);
     button.dataset.ceV4ReviewStepTarget = String(step);
     button.setAttribute("role", "tab");
     button.setAttribute("aria-controls", panelId(result, step));
+    button.setAttribute("aria-selected", "false");
+    button.tabIndex = -1;
     button.append(create("span", "", String(step)), create("strong", "", meta.label));
     guide.append(button);
   });
@@ -208,7 +222,7 @@ function createPanel(result, step) {
   title.id = `${panel.id}-title`;
   title.tabIndex = -1;
   intro.append(eyebrow, title, create("span", "", meta.copy));
-  panel.setAttribute("aria-labelledby", title.id);
+  panel.setAttribute("aria-labelledby", tabId(result, step));
   panel.append(intro);
   return panel;
 }
@@ -294,11 +308,24 @@ function enforceOnePrimaryAction(panel, step) {
   primaryActions.slice(1).forEach((action) => action.removeAttribute("data-primary-action"));
 }
 
-function showStep(result, requestedStep, { focus = false } = {}) {
+function alignActiveTab(tab) {
+  if (!tab || !NARROW_REVIEW_GUIDE.matches) return;
+  window.requestAnimationFrame(() => {
+    tab.scrollIntoView?.({
+      behavior: REDUCED_MOTION.matches ? "auto" : "smooth",
+      block: "nearest",
+      inline: "center",
+    });
+  });
+}
+
+function showStep(result, requestedStep, { focus = false, focusTab = false } = {}) {
   const step = normalizeStep(requestedStep);
   const panels = qa(":scope > .ce-v4-review-panel", result);
   const tabs = qa(":scope > .ce-v4-review-guide > [role='tab']", result);
   if (panels.length !== STEP_COUNT || tabs.length !== STEP_COUNT) return;
+  const focusedPanel = panels.find((panel) => panel.contains(document.activeElement));
+  const focusedTab = tabs.find((tab) => tab === document.activeElement);
 
   panels.forEach((panel, index) => {
     const active = index + 1 === step;
@@ -318,7 +345,8 @@ function showStep(result, requestedStep, { focus = false } = {}) {
   tabs.forEach((tab, index) => {
     const active = index + 1 === step;
     tab.setAttribute("aria-selected", active ? "true" : "false");
-    tab.setAttribute("aria-current", active ? "step" : "false");
+    if (active) tab.setAttribute("aria-current", "step");
+    else tab.removeAttribute("aria-current");
     tab.tabIndex = active ? 0 : -1;
     tab.classList.toggle("is-current", active);
   });
@@ -329,12 +357,43 @@ function showStep(result, requestedStep, { focus = false } = {}) {
   runtime.steps.set(id, step);
   writeSession(sessionKey(result), step);
 
-  if (!focus) return;
   const activePanel = panels[step - 1];
+  const activeTab = tabs[step - 1];
+  alignActiveTab(activeTab);
+  if (focusTab
+      || (focusedTab && focusedTab !== activeTab)
+      || (focusedPanel && focusedPanel !== activePanel && !focus)) {
+    activeTab.focus?.({ preventScroll: true });
+  }
+  if (!focus) return;
   animatePanel(activePanel);
   const heading = q(":scope > .ce-v4-review-panel__intro h3", activePanel);
   heading?.focus?.({ preventScroll: true });
   activePanel.scrollIntoView?.({ behavior: REDUCED_MOTION.matches ? "auto" : "smooth", block: "start" });
+}
+
+function handleGuideKeydown(result, event) {
+  if (event.altKey || event.ctrlKey || event.metaKey) return;
+  const tab = event.target instanceof Element
+    ? event.target.closest(".ce-v4-review-guide > [role='tab'][data-ce-v4-review-step-target]")
+    : null;
+  const guide = tab?.parentElement;
+  if (!tab || !guide || guide.parentElement !== result) return;
+
+  const tabs = qa(":scope > [role='tab']", guide);
+  const currentIndex = tabs.indexOf(tab);
+  if (currentIndex < 0) return;
+
+  let nextIndex = currentIndex;
+  if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % tabs.length;
+  else if (event.key === "ArrowLeft") nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+  else if (event.key === "Home") nextIndex = 0;
+  else if (event.key === "End") nextIndex = tabs.length - 1;
+  else return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  showStep(result, tabs[nextIndex].dataset.ceV4ReviewStepTarget, { focusTab: true });
 }
 
 function bindResult(result) {
@@ -347,8 +406,111 @@ function bindResult(result) {
       : null;
     if (!control || !result.contains(control)) return;
     event.preventDefault();
-    showStep(result, control.dataset.ceV4ReviewStepTarget, { focus: true });
+    const isTab = control.getAttribute("role") === "tab";
+    showStep(result, control.dataset.ceV4ReviewStepTarget, {
+      focus: !isTab,
+      focusTab: isTab,
+    });
   });
+  result.addEventListener("keydown", (event) => handleGuideKeydown(result, event));
+}
+
+function updateSummaryPosterState(poster, state, label) {
+  poster.dataset.summaryPosterState = state;
+  const stateLabel = q("[data-content-review-summary-poster-label]", poster);
+  if (stateLabel && label) stateLabel.textContent = label;
+  const canvas = q(".content-review-summary-poster__canvas", poster);
+  if (state !== "ready" && canvas instanceof HTMLCanvasElement) {
+    canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
+  }
+}
+
+function paintSummaryPoster(poster, media) {
+  const canvas = q(".content-review-summary-poster__canvas", poster);
+  if (!(canvas instanceof HTMLCanvasElement)) return false;
+  const sourceWidth = media instanceof HTMLVideoElement
+    ? Number(media.videoWidth)
+    : media instanceof HTMLImageElement
+      ? Number(media.naturalWidth)
+      : 0;
+  const sourceHeight = media instanceof HTMLVideoElement
+    ? Number(media.videoHeight)
+    : media instanceof HTMLImageElement
+      ? Number(media.naturalHeight)
+      : 0;
+  if (!(sourceWidth > 0 && sourceHeight > 0)) return false;
+
+  const context = canvas.getContext("2d", { alpha: false });
+  if (!context) return false;
+  const targetWidth = 640;
+  const targetHeight = 360;
+  if (canvas.width !== targetWidth) canvas.width = targetWidth;
+  if (canvas.height !== targetHeight) canvas.height = targetHeight;
+  const scale = Math.max(targetWidth / sourceWidth, targetHeight / sourceHeight);
+  const drawWidth = sourceWidth * scale;
+  const drawHeight = sourceHeight * scale;
+  const offsetX = (targetWidth - drawWidth) / 2;
+  const offsetY = (targetHeight - drawHeight) / 2;
+  try {
+    context.fillStyle = "#07111f";
+    context.fillRect(0, 0, targetWidth, targetHeight);
+    context.drawImage(media, offsetX, offsetY, drawWidth, drawHeight);
+  } catch {
+    updateSummaryPosterState(poster, "unavailable", "Кадр защищённого файла откроется на шаге «Решение»");
+    return false;
+  }
+  updateSummaryPosterState(
+    poster,
+    "ready",
+    media instanceof HTMLVideoElement
+      ? "Ключевой кадр · точный player ниже по маршруту"
+      : "Миниатюра · точный файл ниже по маршруту",
+  );
+  return true;
+}
+
+function bindSummaryPoster(result) {
+  const poster = q("[data-content-review-summary-poster]", result);
+  if (!poster || runtime.boundSummaryPosters.has(poster)) return;
+  runtime.boundSummaryPosters.add(poster);
+  poster.dataset.summaryPosterBound = "true";
+
+  const media = q("[data-content-review-exact-media]", result)
+    || q(".content-review-readonly-preview .content-review-decision-preview__media", result);
+  if (!(media instanceof HTMLVideoElement) && !(media instanceof HTMLImageElement)) {
+    updateSummaryPosterState(poster, "unavailable", "Точный файл откроется после обновления проверки");
+    return;
+  }
+
+  const onReady = () => paintSummaryPoster(poster, media);
+  const onLoading = () => updateSummaryPosterState(
+    poster,
+    "loading",
+    media instanceof HTMLVideoElement
+      ? "Готовим ключевой кадр из точного player"
+      : "Готовим миниатюру точного файла",
+  );
+  const onError = () => updateSummaryPosterState(
+    poster,
+    "unavailable",
+    "Защищённый файл обновите перед решением",
+  );
+
+  media.addEventListener("error", onError);
+  if (media instanceof HTMLVideoElement) {
+    media.addEventListener("loadstart", onLoading);
+    media.addEventListener("emptied", onLoading);
+    media.addEventListener("loadeddata", onReady);
+    media.addEventListener("canplay", onReady);
+    media.addEventListener("seeked", onReady);
+    if (media.readyState >= 2) onReady();
+    else onLoading();
+    return;
+  }
+
+  media.addEventListener("load", onReady);
+  if (media.complete && media.naturalWidth > 0) onReady();
+  else onLoading();
 }
 
 function mountResult(result) {
@@ -356,6 +518,7 @@ function mountResult(result) {
       && !q(":scope > .ce-v4-review-panel .content-review-result__header", result)) return;
   if (!absorbLooseNodes(result)) scaffoldResult(result);
   qa(".content-review-findings", result).forEach((findings) => groupFindings(result, findings));
+  bindSummaryPoster(result);
   bindResult(result);
   showStep(result, rememberedStep(result));
 }

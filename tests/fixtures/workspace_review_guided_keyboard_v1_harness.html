@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Review guided keyboard contract</title>
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-review-guided.css" />
+  </head>
+  <body>
+    <article class="content-review-result" data-review-result-id="33333333-3333-4333-8333-333333333333">
+      <header class="content-review-result__header card"><h2>Точная проверка</h2></header>
+      <div class="content-review-score-grid"><section class="content-review-quality">82</section></div>
+      <section class="content-review-breakdown"><h3>Материал</h3></section>
+      <section class="content-review-findings"><h3>Риски</h3></section>
+      <form class="content-review-decision-form">
+        <h3>Решение человека</h3>
+        <div class="content-review-decision-actions"><button class="btn" type="button">Сохранить решение</button></div>
+      </form>
+    </article>
+    <script>
+      window.__reviewGuideScrolls = [];
+      Object.defineProperty(Element.prototype, "scrollIntoView", {
+        configurable: true,
+        value(options) {
+          window.__reviewGuideScrolls.push({
+            step: this.dataset.ceV4ReviewStepTarget || this.dataset.reviewGuidedPanel || "",
+            inline: options?.inline || "",
+            block: options?.block || "",
+          });
+        },
+      });
+      window.ContentEngineDesktopV4 = {
+        route: () => "/workspace/review",
+        registerAdapter(_name, mount) { mount(); },
+      };
+    </script>
+    <script type="module">
+      await import("../../web/app/workspace-os-v4-review-guided.js");
+      document.body.dataset.fixtureNotificationReady = "true";
+    </script>
+  </body>
+</html>

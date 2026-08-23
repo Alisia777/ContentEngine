@@ -34,7 +34,7 @@ body.ce-v4-finder-route .workspace-board__layout {
   min-width: 0;
   min-height: 0;
   height: auto;
-  grid-template-columns: minmax(220px, 270px) minmax(0, 1fr) !important;
+  grid-template-columns: minmax(220px, 260px) minmax(560px, 1fr) minmax(286px, 340px) !important;
   gap: 0 !important;
   overflow: visible;
 }
@@ -191,6 +191,8 @@ body.ce-v4-finder-route .workspace-board__content {
   grid-row: 1;
   width: 100%;
   height: auto !important;
+  container-name: ce-v4-finder-content;
+  container-type: inline-size;
   grid-template-rows: repeat(5, auto);
   overflow: visible;
 }
@@ -208,6 +210,17 @@ body.ce-v4-finder-route .workspace-board__content {
 .ce-v4-finder-toolbar__title { display: grid; gap: 2px; }
 .ce-v4-finder-toolbar__title small { color: var(--ce-v4-copper-bright); font-size: 12px; font-weight: 800; letter-spacing: .12em; }
 .ce-v4-finder-toolbar__title strong { color: var(--ce-v4-text); font-size: 14px; }
+.ce-v4-finder-control-status {
+  width: fit-content;
+  margin-top: 3px;
+  padding: 4px 8px;
+  border: 1px solid rgba(236,136,75,.24);
+  border-radius: 999px;
+  color: var(--ce-v4-copper-bright);
+  background: rgba(236,136,75,.07);
+  font: 700 12px/1.2 system-ui;
+  white-space: nowrap;
+}
 .ce-v4-finder-toolbar__controls {
   display: flex;
   align-items: center;
@@ -216,6 +229,38 @@ body.ce-v4-finder-route .workspace-board__content {
   scrollbar-width: none;
 }
 .ce-v4-finder-toolbar__controls::-webkit-scrollbar { display: none; }
+
+/*
+ * The window can be wide while its centre pane is narrow because Finder keeps
+ * both the project tree and Quick Look visible.  Measure the actual centre
+ * pane, not only the viewport/outer host, before placing the title beside the
+ * long control row.
+ */
+@container ce-v4-finder-content (max-width: 980px) {
+  .ce-v4-finder-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .ce-v4-finder-toolbar__title {
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .ce-v4-finder-toolbar__title > * {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .ce-v4-finder-toolbar__controls {
+    width: 100%;
+    max-width: 100%;
+    padding-bottom: 2px;
+    overflow-x: auto;
+  }
+}
 .ce-v4-finder-sort,
 .ce-v4-finder-mode,
 .ce-v4-finder-view,
@@ -239,6 +284,9 @@ body.ce-v4-finder-route .workspace-board__content {
 .ce-v4-finder-sidebar-toggle { display: none; }
 .ce-v4-finder-mode.is-active,
 .ce-v4-finder-view.is-active,
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="grid"] [data-ce-v4-finder-view="grid"],
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] [data-ce-v4-finder-view="list"],
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] [data-ce-v4-finder-view="columns"],
 .ce-v4-finder-quicklook:hover:not(:disabled),
 .ce-v4-finder-upload:hover { color: var(--ce-v4-text); border-color: rgba(236,136,75,.26); background: rgba(236,136,75,.09); }
 .ce-v4-finder-quicklook:disabled { opacity: .48; cursor: not-allowed; }
@@ -341,7 +389,7 @@ body.ce-v4-finder-route .workspace-board__grid {
   display: grid !important;
   min-height: 0;
   padding: 12px !important;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)) !important;
+  grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr)) !important;
   align-content: start;
   gap: 10px !important;
   overflow-y: visible;
@@ -523,6 +571,55 @@ body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] .work
 .ce-v4-finder-column__row.is-current { border-color: rgba(236,136,75,.42); background: rgba(236,136,75,.09); }
 .ce-v4-finder-column__row.is-current strong { color: var(--ce-v4-text); }
 .ce-v4-finder-column__connector { color: var(--ce-v4-copper-bright); text-align: center; }
+.ce-v4-finder-column__visual {
+  isolation: isolate;
+  position: relative;
+  display: grid;
+  width: 100%;
+  min-height: 148px;
+  margin: 2px 0 5px;
+  border: 1px solid rgba(115, 232, 255, .24);
+  border-radius: 16px;
+  place-items: center;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 24% 18%, rgba(80, 220, 247, .17), transparent 38%),
+    linear-gradient(145deg, #0c2235, #07101d 68%);
+  box-shadow: inset 0 1px rgba(220, 250, 255, .05);
+}
+.ce-v4-finder-column__image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: saturate(.98) contrast(1.04) brightness(.86);
+}
+.ce-v4-finder-column__visual:has(.ce-v4-finder-column__image)::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  background: linear-gradient(180deg, rgba(3, 10, 17, .04) 42%, rgba(3, 10, 17, .78));
+}
+.ce-v4-finder-column__visual-label {
+  position: absolute;
+  z-index: 2;
+  right: 10px;
+  bottom: 9px;
+  max-width: calc(100% - 20px);
+  padding: 5px 8px;
+  border: 1px solid rgba(151, 235, 250, .22);
+  border-radius: 999px;
+  overflow: hidden;
+  color: #e9fbff;
+  background: rgba(3, 12, 21, .76);
+  backdrop-filter: blur(10px);
+  font-size: 12px;
+  font-weight: 820;
+  letter-spacing: .08em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .ce-v4-finder-column__glyph {
   display: grid;
   width: 74px;
@@ -541,23 +638,28 @@ body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] .work
 .ce-v4-finder-column__hint { margin: 0; color: var(--ce-v4-muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .ce-v4-finder-column__hint { padding-top: 5px; color: var(--ce-v4-copper-bright); }
 
-/* Details replace Finder content in the same surface. A permanent third pane made
-   the file grid cramped and looked like another nested window. */
+/* Wide Finder follows the reference composition: folders, collection and a
+   stable inspector. The inspector becomes an inline detail screen only below
+   the container breakpoint, where three columns would genuinely be cramped. */
 body.ce-v4-finder-route .workspace-board__drawer {
-  display: none !important;
-  grid-column: 1;
+  position: sticky !important;
+  top: 0;
+  display: grid !important;
+  grid-column: 3;
   grid-row: 1;
   width: 100% !important;
-  height: auto !important;
+  height: 100% !important;
   padding: 16px !important;
-  border-left: 0 !important;
-  overflow-y: visible;
+  border-left: 1px solid var(--ce-v4-line) !important;
+  align-content: start;
+  gap: 12px;
+  overflow: visible;
   background: rgba(255,255,255,.012) !important;
 }
 body.ce-v4-finder-route .workspace-board__drawer h2 { color: var(--ce-v4-text); font-size: clamp(1.2rem,2vw,1.7rem); }
 body.ce-v4-finder-route .workspace-board__drawer p,
 body.ce-v4-finder-route .workspace-board__drawer dd { color: var(--ce-v4-muted); font-size: 13px; line-height: 1.5; }
-body.ce-v4-finder-route .workspace-board__drawer :is(dd, code) { overflow-wrap: anywhere; word-break: break-word; }
+body.ce-v4-finder-route .workspace-board__drawer :is(h2, p, dd, code) { overflow-wrap: break-word; word-break: normal; }
 body.ce-v4-finder-route .workspace-board__drawer-preview { min-height: 190px; border: 1px solid var(--ce-v4-line); border-radius: 16px; overflow: hidden; background: #090807; }
 body.ce-v4-finder-route .workspace-board__drawer-preview img,
 body.ce-v4-finder-route .workspace-board__drawer-preview video { width: 100%; max-height: 320px; object-fit: contain; }
@@ -627,21 +729,32 @@ body.ce-v4-finder-route :is(
 
 body.ce-v4-finder-route .workspace-board-pagination { padding: 10px 12px; border-top: 1px solid var(--ce-v4-line); }
 body.ce-v4-finder-route .workspace-board__empty { align-self: center; justify-self: center; max-width: 440px; padding: 30px; text-align: center; }
-
-/* Quick Look replaces Finder content inside the same workspace surface. */
-body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__layout {
-  grid-template-columns: minmax(0, 1fr) !important;
+body.ce-v4-finder-route .workspace-board__empty .ce-v4-finder-empty-mode {
+  margin-top: 8px;
+  color: var(--ce-v4-copper-bright);
+  font-size: 13px;
+  font-weight: 700;
 }
-body.ce-v4-finder-route .workspace-board.is-quicklook-inline :is(.workspace-board__sidebar, .workspace-board__content) {
-  display: none !important;
+
+/* On wide surfaces Quick Look stays in the inspector so collection context is
+   never lost and window geometry does not jump. */
+body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__layout {
+  grid-template-columns: minmax(220px, 260px) minmax(560px, 1fr) minmax(320px, 390px) !important;
+}
+body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__sidebar {
+  display: flex !important;
+}
+body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__content {
+  display: grid !important;
 }
 body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__drawer.ce-v4-quicklook-inline {
-  position: static !important;
+  position: sticky !important;
   display: grid !important;
   width: 100% !important;
   min-height: 100%;
   padding: 14px !important;
-  grid-template-columns: minmax(340px, 1.4fr) minmax(280px, .8fr);
+  grid-column: 3;
+  grid-template-columns: minmax(0, 1fr);
   align-content: start;
   gap: 18px;
   overflow: visible;
@@ -667,6 +780,7 @@ body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__d
 .ce-v4-quicklook-inline__controls button { min-height: 44px; padding: 0 12px; border: 1px solid var(--ce-v4-line); border-radius: 11px; color: var(--ce-v4-muted); background: rgba(255,255,255,.025); cursor: pointer; font-size: 12px; font-weight: 720; }
 .ce-v4-quicklook-inline__controls button:hover,
 .ce-v4-quicklook-inline__controls button:focus-visible { color: var(--ce-v4-text); border-color: rgba(236,136,75,.3); outline: none; background: rgba(236,136,75,.1); }
+body.ce-v4-finder-route .workspace-board.is-quicklook-inline .ce-v4-quicklook-inline__bar,
 body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__drawer-head,
 body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__drawer-description,
 body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__quicklook-sections,
@@ -674,13 +788,74 @@ body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__d
 body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__research-links,
 body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__drawer-facts,
 body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__quicklook-technical,
-body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__move-panel { grid-column: 2; }
-body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__drawer-preview { grid-column: 1; grid-row: 2 / span 5; min-height: 60svh; }
+body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__move-panel { grid-column: 1; }
+body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__drawer-preview { grid-column: 1; grid-row: auto; min-height: 220px; }
 body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__drawer-close { display: none !important; }
+
+@container ce-v4-finder-host (max-width: 1180px) {
+  .ce-v4-finder-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+  .ce-v4-finder-toolbar__title {
+    grid-template-columns: auto auto minmax(0, 1fr);
+    align-items: center;
+    column-gap: 8px;
+  }
+  .ce-v4-finder-control-status { margin-top: 0; }
+  .ce-v4-finder-toolbar__controls {
+    width: 100%;
+    padding-bottom: 2px;
+    overflow-x: auto;
+  }
+}
+
+/*
+ * The Finder host can still be wider than its centre pane when the sidebar and
+ * Quick Look are visible.  At ordinary laptop widths that made the toolbar's
+ * auto column paint over the title even though the host container itself had
+ * not crossed the container-query threshold.  Stack the controls from the
+ * viewport breakpoint as well; the controls remain horizontally scrollable,
+ * while the title always keeps its own row and can never be eaten.
+ */
+@media (max-width: 1700px) {
+  body.ce-v4-finder-route .ce-v4-finder-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  body.ce-v4-finder-route .ce-v4-finder-toolbar__title {
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  body.ce-v4-finder-route .ce-v4-finder-toolbar__title > * {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  body.ce-v4-finder-route .ce-v4-finder-toolbar__controls {
+    width: 100%;
+    max-width: 100%;
+    padding-bottom: 2px;
+    overflow-x: auto;
+  }
+}
 
 @container ce-v4-finder-host (max-width: 1080px) {
   body.ce-v4-finder-route .workspace-board__layout { grid-template-columns: minmax(190px,230px) minmax(0,1fr) !important; }
   body.ce-v4-finder-route .workspace-board__drawer { display: none !important; }
+  body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__layout { grid-template-columns: minmax(0,1fr) !important; }
+  body.ce-v4-finder-route .workspace-board.is-quicklook-inline :is(.workspace-board__sidebar, .workspace-board__content) { display: none !important; }
+  body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__drawer.ce-v4-quicklook-inline {
+    position: static !important;
+    display: grid !important;
+    grid-column: 1;
+    width: 100% !important;
+    min-height: 100%;
+    overflow: visible;
+  }
   body.ce-v4-finder-route .workspace-board.is-detail-inline .workspace-board__layout { grid-template-columns: minmax(0,1fr) !important; }
   body.ce-v4-finder-route .workspace-board.is-detail-inline :is(.workspace-board__sidebar, .workspace-board__content) { display: none !important; }
   body.ce-v4-finder-route .workspace-board.is-detail-inline .workspace-board__drawer:not(.workspace-board__drawer--empty) {
@@ -733,6 +908,17 @@ body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__d
   }
   body.ce-v4-finder-route .workspace-board__content { grid-column: 1; }
   .ce-v4-finder-toolbar { grid-template-columns: 1fr; }
+  .ce-v4-finder-toolbar__title {
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+  .ce-v4-finder-toolbar__title > * { min-width: 0; }
+  .ce-v4-finder-control-status {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
   .ce-v4-finder-toolbar__controls { overflow-x: auto; }
   .ce-v4-finder-batch { grid-template-columns: 1fr 1fr; }
   .ce-v4-finder-batch__summary,
@@ -798,4 +984,1023 @@ body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__d
 
 @media (prefers-reduced-motion: reduce) {
   body.ce-v4-finder-route .workspace-board__sidebar { transition: none !important; }
+}
+
+/* Finder visual language v5 -------------------------------------------------
+ * The data and interaction contract remains untouched. This layer gives the
+ * Finder its own ice/cyan identity and makes media the dominant part of every
+ * file card instead of falling back to the brown legacy workspace skin.
+ */
+body.ce-v4-finder-route {
+  --ce-v4-finder-ice: #73e8ff;
+  --ce-v4-finder-ice-strong: #35ccec;
+  --ce-v4-finder-ice-soft: rgba(94, 224, 247, .12);
+  --ce-v4-finder-ice-line: rgba(121, 228, 248, .27);
+  --ce-v4-finder-navy: #07111f;
+  --ce-v4-finder-navy-raised: #0b1929;
+  --ce-v4-finder-navy-deep: #040a13;
+}
+
+body.ce-v4-finder-route .workspace-board {
+  border-color: rgba(122, 205, 231, .24) !important;
+  background:
+    radial-gradient(circle at 68% -12%, rgba(62, 183, 234, .12), transparent 34%),
+    linear-gradient(148deg, rgba(11, 25, 42, .985), rgba(4, 10, 19, .99) 72%) !important;
+  box-shadow:
+    0 34px 100px rgba(0, 0, 0, .48),
+    inset 0 1px rgba(190, 239, 255, .055) !important;
+}
+
+body.ce-v4-finder-route .workspace-board__sidebar,
+body.ce-v4-finder-route .workspace-board__drawer {
+  background:
+    linear-gradient(180deg, rgba(18, 38, 59, .42), rgba(5, 14, 25, .66)) !important;
+}
+
+body.ce-v4-finder-route .workspace-board__sidebar {
+  border-right-color: rgba(121, 228, 248, .13) !important;
+}
+
+body.ce-v4-finder-route .workspace-board__drawer {
+  border-left-color: rgba(121, 228, 248, .13) !important;
+}
+
+body.ce-v4-finder-route :is(
+  .ce-v4-finder-toolbar,
+  .workspace-board__filters,
+  .workspace-board__collection-head
+) {
+  border-color: rgba(121, 228, 248, .12);
+}
+
+body.ce-v4-finder-route .ce-v4-finder-toolbar {
+  background:
+    linear-gradient(90deg, rgba(34, 150, 189, .08), transparent 62%),
+    rgba(4, 12, 22, .58);
+}
+
+body.ce-v4-finder-route :is(
+  .ce-v4-finder-toolbar__title small,
+  .workspace-board__context-hint,
+  .workspace-board__breadcrumb button[aria-current="page"],
+  .ce-v4-finder-detail-bar__copy small,
+  .ce-v4-quicklook-inline__title small,
+  .ce-v4-finder-empty-mode
+) {
+  color: var(--ce-v4-finder-ice);
+}
+
+body.ce-v4-finder-route .ce-v4-finder-control-status {
+  border-color: var(--ce-v4-finder-ice-line);
+  color: var(--ce-v4-finder-ice);
+  background: rgba(46, 183, 218, .08);
+}
+
+body.ce-v4-finder-route :is(
+  .ce-v4-finder-sort,
+  .ce-v4-finder-mode,
+  .ce-v4-finder-view,
+  .ce-v4-finder-quicklook,
+  .ce-v4-finder-upload,
+  .ce-v4-finder-sidebar-toggle,
+  .ce-v4-finder-detail-back,
+  .ce-v4-quicklook-inline__controls button
+) {
+  border-color: rgba(121, 228, 248, .14);
+  background: rgba(14, 31, 48, .68);
+}
+
+body.ce-v4-finder-route :is(
+  .ce-v4-finder-mode.is-active,
+  .ce-v4-finder-view.is-active,
+  .ce-v4-finder-quicklook:hover:not(:disabled),
+  .ce-v4-finder-upload:hover,
+  .ce-v4-finder-detail-back:hover,
+  .ce-v4-finder-detail-back:focus-visible,
+  .ce-v4-quicklook-inline__controls button:hover,
+  .ce-v4-quicklook-inline__controls button:focus-visible
+) {
+  border-color: rgba(115, 232, 255, .46);
+  color: #e9fbff;
+  outline: none;
+  background: linear-gradient(135deg, rgba(46, 192, 224, .18), rgba(40, 105, 167, .12));
+  box-shadow: inset 0 0 0 1px rgba(126, 232, 255, .07);
+}
+
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="grid"] [data-ce-v4-finder-view="grid"],
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] [data-ce-v4-finder-view="list"],
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] [data-ce-v4-finder-view="columns"] {
+  border-color: rgba(115, 232, 255, .52);
+  color: #e9fbff;
+  background: linear-gradient(135deg, rgba(46, 192, 224, .2), rgba(57, 112, 184, .12));
+}
+
+body.ce-v4-finder-route .workspace-board__folder-button:hover,
+body.ce-v4-finder-route .workspace-board__folder-row.is-selected > .workspace-board__folder-button {
+  border-color: rgba(115, 232, 255, .22);
+  background: linear-gradient(90deg, rgba(56, 192, 222, .14), rgba(45, 100, 157, .06));
+  box-shadow: inset 3px 0 var(--ce-v4-finder-ice-strong);
+}
+
+body.ce-v4-finder-route .workspace-board__folder-row.is-selected > .workspace-board__folder-button {
+  color: #effcff;
+}
+
+body.ce-v4-finder-route .workspace-board__folder-icon,
+body.ce-v4-finder-route .workspace-board__folder-row--system .workspace-board__folder-icon {
+  color: var(--ce-v4-finder-ice);
+  filter: drop-shadow(0 0 8px rgba(80, 220, 247, .28));
+}
+
+body.ce-v4-finder-route :is(
+  .workspace-board__folder-toggle:hover,
+  .workspace-board__folder-toggle:focus-visible,
+  .workspace-board__context-trigger:hover,
+  .workspace-board__context-trigger:focus-visible
+) {
+  border-color: rgba(115, 232, 255, .28);
+  color: #ecfcff;
+  outline: none;
+  background: rgba(55, 191, 221, .14);
+}
+
+body.ce-v4-finder-route .workspace-board__filters {
+  background: rgba(4, 13, 23, .42) !important;
+}
+
+body.ce-v4-finder-route .workspace-board__filters :is(input, select, button),
+body.ce-v4-finder-route .ce-v4-folder-search input {
+  border-color: rgba(121, 228, 248, .14);
+  background: rgba(6, 17, 30, .84);
+}
+
+body.ce-v4-finder-route .workspace-board__context-trigger {
+  border-color: rgba(121, 228, 248, .13);
+  color: #9db5c5;
+  background: rgba(3, 12, 21, .82);
+}
+
+body.ce-v4-finder-route .ce-v4-finder-batch {
+  border-color: rgba(115, 232, 255, .28);
+  background: linear-gradient(100deg, rgba(46, 190, 220, .13), rgba(41, 82, 143, .055));
+}
+
+body.ce-v4-finder-route .ce-v4-finder-batch :is(button, select) {
+  border-color: rgba(121, 228, 248, .16);
+  color: #dff4fa;
+  background: rgba(5, 16, 28, .88);
+}
+
+body.ce-v4-finder-route .ce-v4-finder-batch__move {
+  border-color: rgba(115, 232, 255, .34) !important;
+  background: rgba(43, 178, 209, .14) !important;
+}
+
+body.ce-v4-finder-route .workspace-board__filters :is(input, select):focus,
+body.ce-v4-finder-route .ce-v4-folder-search input:focus {
+  border-color: rgba(115, 232, 255, .58);
+  outline: 2px solid rgba(74, 206, 233, .13);
+  outline-offset: 1px;
+}
+
+body.ce-v4-finder-route .workspace-board__filter-submit {
+  border-color: rgba(115, 232, 255, .38) !important;
+  color: #eafbff !important;
+  background: linear-gradient(135deg, rgba(46, 190, 220, .2), rgba(47, 103, 166, .13)) !important;
+}
+
+/* The overview is the Finder's visual front door, not a generic settings page. */
+body.ce-v4-finder-route .workspace-board__overview {
+  padding: clamp(18px, 2.4cqi, 30px);
+  background:
+    radial-gradient(circle at 78% 2%, rgba(65, 202, 233, .15), transparent 36%),
+    linear-gradient(180deg, rgba(8, 21, 36, .9), rgba(4, 12, 22, .92));
+}
+
+body.ce-v4-finder-route .workspace-board__overview-head p,
+body.ce-v4-finder-route .workspace-board__workflow p {
+  color: var(--ce-v4-finder-ice);
+}
+
+body.ce-v4-finder-route .workspace-board__overview-head > span {
+  border-color: rgba(115, 232, 255, .2);
+  color: #b8dce6;
+  background: rgba(7, 20, 34, .78);
+}
+
+body.ce-v4-finder-route .workspace-board__overview-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+body.ce-v4-finder-route .workspace-board__overview-card {
+  --overview-accent: var(--ce-v4-finder-ice);
+  isolation: isolate;
+  min-height: 238px;
+  padding: 18px;
+  border-color: color-mix(in srgb, var(--overview-accent) 25%, transparent);
+  overflow: hidden;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--overview-accent) 14%, transparent), transparent 52%),
+    linear-gradient(160deg, rgba(17, 37, 57, .96), rgba(5, 14, 25, .98));
+  box-shadow:
+    inset 0 1px rgba(220, 250, 255, .04),
+    0 18px 40px rgba(0, 4, 12, .25);
+}
+
+body.ce-v4-finder-route .workspace-board__overview-card::before,
+body.ce-v4-finder-route .workspace-board__overview-card::after {
+  position: absolute;
+  z-index: -1;
+  content: "";
+  pointer-events: none;
+}
+
+body.ce-v4-finder-route .workspace-board__overview-card::before {
+  top: 20px;
+  right: -24px;
+  width: 168px;
+  height: 116px;
+  border: 1px solid color-mix(in srgb, var(--overview-accent) 28%, transparent);
+  border-radius: 22px;
+  opacity: .72;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--overview-accent) 22%, transparent), transparent 58%),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .045) 0 1px, transparent 1px 18px);
+  box-shadow: 0 0 36px color-mix(in srgb, var(--overview-accent) 12%, transparent);
+  transform: rotate(-7deg);
+}
+
+body.ce-v4-finder-route .workspace-board__overview-card::after {
+  right: 18px;
+  bottom: 18px;
+  width: 76px;
+  height: 4px;
+  border-radius: 99px;
+  background: linear-gradient(90deg, transparent, var(--overview-accent));
+  box-shadow: 0 0 15px color-mix(in srgb, var(--overview-accent) 42%, transparent);
+}
+
+body.ce-v4-finder-route .workspace-board__overview-card[data-overview-kind="source"] { --overview-accent: #59e7ef; }
+body.ce-v4-finder-route .workspace-board__overview-card[data-overview-kind="research"] { --overview-accent: #72a7ff; }
+body.ce-v4-finder-route .workspace-board__overview-card[data-overview-kind="generated_output"] { --overview-accent: #b688ff; }
+
+body.ce-v4-finder-route .workspace-board__overview-card:is(:hover, :focus-visible) {
+  border-color: color-mix(in srgb, var(--overview-accent) 58%, transparent);
+  outline: none;
+  box-shadow:
+    inset 0 1px rgba(220, 250, 255, .07),
+    0 22px 54px rgba(0, 5, 14, .36),
+    0 0 30px color-mix(in srgb, var(--overview-accent) 9%, transparent);
+  transform: translateY(-3px);
+}
+
+body.ce-v4-finder-route .workspace-board__overview-icon {
+  width: 50px;
+  height: 50px;
+  border: 1px solid color-mix(in srgb, var(--overview-accent) 50%, transparent);
+  color: #eefcff;
+  background:
+    radial-gradient(circle at 35% 25%, rgba(255, 255, 255, .24), transparent 32%),
+    color-mix(in srgb, var(--overview-accent) 26%, #071421);
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, .12),
+    0 0 24px color-mix(in srgb, var(--overview-accent) 24%, transparent);
+}
+
+body.ce-v4-finder-route .workspace-board__overview-copy {
+  position: relative;
+  z-index: 1;
+  padding-right: 16%;
+}
+
+body.ce-v4-finder-route .workspace-board__overview-copy strong {
+  color: #f2f8ff;
+  font-family: inherit;
+  font-size: clamp(18px, 1.45cqi, 24px);
+  font-weight: 760;
+}
+
+body.ce-v4-finder-route .workspace-board__overview-copy > span {
+  color: #9eb1c7;
+  font-size: 13px;
+}
+
+body.ce-v4-finder-route .workspace-board__overview-count {
+  border: 1px solid color-mix(in srgb, var(--overview-accent) 32%, transparent);
+  color: #eefcff;
+  background: color-mix(in srgb, var(--overview-accent) 13%, rgba(4, 12, 22, .86));
+}
+
+body.ce-v4-finder-route .workspace-board__workflow {
+  border-color: rgba(121, 228, 248, .16);
+  background: linear-gradient(100deg, rgba(38, 149, 183, .1), rgba(14, 26, 43, .72));
+}
+
+body.ce-v4-finder-route .workspace-board__workflow-folders button,
+body.ce-v4-finder-route .workspace-board__overview-all button {
+  border-color: rgba(121, 228, 248, .17);
+  color: #d9edf4;
+  background: rgba(6, 17, 30, .78);
+}
+
+body.ce-v4-finder-route .workspace-board__workflow-folders button:is(:hover, :focus-visible),
+body.ce-v4-finder-route .workspace-board__overview-all button:is(:hover, :focus-visible) {
+  border-color: rgba(115, 232, 255, .46);
+  outline: none;
+  background: rgba(42, 176, 207, .13);
+}
+
+body.ce-v4-finder-route .workspace-board__workflow-folders strong {
+  color: var(--ce-v4-finder-ice);
+}
+
+/* Media-first file cards. */
+body.ce-v4-finder-route .workspace-board__grid {
+  padding: 14px !important;
+  grid-template-columns: repeat(auto-fill, minmax(min(236px, 100%), 1fr)) !important;
+  gap: 13px !important;
+}
+
+body.ce-v4-finder-route .workspace-board__item {
+  min-height: 228px !important;
+  height: 228px;
+  border-color: rgba(121, 205, 231, .17) !important;
+  border-radius: 17px !important;
+  background:
+    linear-gradient(150deg, rgba(17, 36, 56, .94), rgba(5, 14, 25, .98)) !important;
+  box-shadow:
+    inset 0 1px rgba(211, 246, 255, .035),
+    0 14px 30px rgba(0, 4, 12, .18) !important;
+  contain-intrinsic-size: 236px 228px;
+  transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+
+body.ce-v4-finder-route .workspace-board__item:hover {
+  border-color: rgba(115, 232, 255, .46) !important;
+  background:
+    linear-gradient(150deg, rgba(19, 45, 67, .98), rgba(6, 17, 29, .99)) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(115, 232, 255, .07),
+    0 20px 44px rgba(0, 7, 18, .33),
+    0 0 30px rgba(48, 191, 221, .07) !important;
+  transform: translateY(-2px);
+}
+
+body.ce-v4-finder-route .workspace-board__item:is(.is-selected, .is-multi-selected) {
+  border-color: rgba(115, 232, 255, .72) !important;
+  background:
+    linear-gradient(150deg, rgba(30, 72, 92, .95), rgba(6, 19, 32, .99)) !important;
+  box-shadow:
+    inset 0 0 0 2px rgba(115, 232, 255, .16),
+    0 0 34px rgba(49, 202, 233, .13) !important;
+}
+
+body.ce-v4-finder-route .workspace-board__item:focus-within {
+  outline: 2px solid rgba(115, 232, 255, .52);
+  outline-offset: 3px;
+}
+
+body.ce-v4-finder-route .workspace-board__item-open {
+  height: 226px !important;
+  min-height: 226px !important;
+  grid-template-rows: 146px 80px !important;
+}
+
+body.ce-v4-finder-route .workspace-board__item-preview {
+  isolation: isolate;
+  position: relative;
+  height: 146px !important;
+  border-bottom-color: rgba(121, 228, 248, .13);
+  color: var(--ce-v4-finder-ice);
+  background:
+    radial-gradient(circle at 22% 16%, rgba(80, 220, 247, .18), transparent 34%),
+    radial-gradient(circle at 83% 76%, rgba(73, 111, 219, .16), transparent 38%),
+    linear-gradient(145deg, #0c2235, #07101d 68%) !important;
+}
+
+body.ce-v4-finder-route .workspace-board__item-preview::before,
+body.ce-v4-finder-route .workspace-board__item-preview::after {
+  position: absolute;
+  z-index: -1;
+  content: "";
+  pointer-events: none;
+}
+
+body.ce-v4-finder-route .workspace-board__item-preview::before {
+  inset: 0;
+  opacity: .22;
+  background:
+    linear-gradient(rgba(163, 232, 247, .12) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(163, 232, 247, .1) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, .9), transparent 96%);
+}
+
+body.ce-v4-finder-route .workspace-board__item-preview::after {
+  right: -20px;
+  bottom: -52px;
+  width: 126px;
+  height: 126px;
+  border: 1px solid rgba(115, 232, 255, .17);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 18px rgba(115, 232, 255, .025),
+    0 0 0 38px rgba(115, 232, 255, .014);
+}
+
+body.ce-v4-finder-route .workspace-board__item-preview img {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: saturate(.96) contrast(1.04) brightness(.88);
+  transform: scale(1.002);
+  transition: filter 180ms ease, transform 240ms ease;
+}
+
+body.ce-v4-finder-route .workspace-board__item:hover .workspace-board__item-preview img {
+  filter: saturate(1.08) contrast(1.05) brightness(.98);
+  transform: scale(1.035);
+}
+
+body.ce-v4-finder-route .workspace-board__item:has(.workspace-board__item-preview img) .workspace-board__item-preview::before {
+  z-index: 2;
+  opacity: 1;
+  background: linear-gradient(180deg, rgba(3, 10, 17, .03) 42%, rgba(3, 10, 17, .72));
+  mask-image: none;
+}
+
+body.ce-v4-finder-route .workspace-board__preview-symbol {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  width: 68px;
+  height: 68px;
+  border: 1px solid rgba(130, 232, 251, .28);
+  border-radius: 20px;
+  place-items: center;
+  color: #dffaff;
+  background:
+    radial-gradient(circle at 32% 22%, rgba(255, 255, 255, .18), transparent 30%),
+    linear-gradient(145deg, rgba(54, 190, 218, .24), rgba(44, 93, 160, .19));
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, .09),
+    0 0 28px rgba(69, 210, 235, .16);
+  font-size: 27px;
+}
+
+body.ce-v4-finder-route .workspace-board__preview-symbol::after {
+  position: absolute;
+  bottom: -23px;
+  left: 50%;
+  color: rgba(193, 233, 242, .68);
+  content: "ФАЙЛ";
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: .18em;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+body.ce-v4-finder-route .workspace-board__item[data-entity-type="generation"] .workspace-board__item-preview,
+body.ce-v4-finder-route .workspace-board__item[data-artifact-class="generated_output"] .workspace-board__item-preview {
+  color: #cfa7ff;
+  background:
+    radial-gradient(circle at 28% 20%, rgba(181, 111, 255, .24), transparent 36%),
+    linear-gradient(145deg, #211a42, #0b1225 72%) !important;
+}
+
+body.ce-v4-finder-route .workspace-board__item[data-entity-type="generation"] .workspace-board__preview-symbol,
+body.ce-v4-finder-route .workspace-board__item[data-artifact-class="generated_output"] .workspace-board__preview-symbol {
+  border-color: rgba(197, 143, 255, .38);
+  color: #f0ddff;
+  background: linear-gradient(145deg, rgba(167, 87, 238, .3), rgba(66, 72, 172, .2));
+  box-shadow: 0 0 30px rgba(177, 100, 241, .18);
+}
+
+body.ce-v4-finder-route .workspace-board__item[data-entity-type="generation"] .workspace-board__preview-symbol::after,
+body.ce-v4-finder-route .workspace-board__item[data-artifact-class="generated_output"] .workspace-board__preview-symbol::after {
+  color: #d6b6f5;
+  content: "AI OUTPUT";
+}
+
+body.ce-v4-finder-route .workspace-board__item[data-entity-type="research"] .workspace-board__item-preview {
+  color: #74efd5;
+  background:
+    radial-gradient(circle at 25% 16%, rgba(71, 231, 192, .24), transparent 38%),
+    linear-gradient(145deg, #0c302f, #07151f 74%) !important;
+}
+
+body.ce-v4-finder-route .workspace-board__item[data-entity-type="research"] .workspace-board__preview-symbol {
+  border-color: rgba(103, 235, 207, .36);
+  color: #d7fff6;
+  background: linear-gradient(145deg, rgba(48, 197, 166, .27), rgba(35, 108, 125, .18));
+  box-shadow: 0 0 30px rgba(60, 214, 181, .16);
+}
+
+body.ce-v4-finder-route .workspace-board__item[data-entity-type="research"] .workspace-board__preview-symbol::after {
+  color: #92dbc9;
+  content: "RESEARCH";
+}
+
+body.ce-v4-finder-route .workspace-board__item[data-entity-type="task"] .workspace-board__item-preview {
+  color: #ffb2ae;
+  background:
+    radial-gradient(circle at 26% 18%, rgba(255, 111, 108, .2), transparent 38%),
+    linear-gradient(145deg, #351b2b, #0d1524 72%) !important;
+}
+
+body.ce-v4-finder-route .workspace-board__item[data-entity-type="task"] .workspace-board__preview-symbol {
+  border-color: rgba(255, 142, 136, .36);
+  color: #ffe7e4;
+  background: linear-gradient(145deg, rgba(230, 84, 92, .25), rgba(119, 61, 127, .18));
+}
+
+body.ce-v4-finder-route .workspace-board__item[data-entity-type="task"] .workspace-board__preview-symbol::after {
+  color: #eab0b1;
+  content: "ЗАДАЧА";
+}
+
+body.ce-v4-finder-route .workspace-board__item:is(
+  [data-entity-type="placement"],
+  [data-entity-type="publication"]
+) .workspace-board__preview-symbol::after {
+  color: #8edbc1;
+  content: "ПУБЛИКАЦИЯ";
+}
+
+body.ce-v4-finder-route .workspace-board__item[data-entity-kind*="video" i] .workspace-board__preview-symbol::after {
+  color: #8ddff2;
+  content: "ВИДЕО";
+}
+
+body.ce-v4-finder-route .workspace-board__item[data-entity-kind*="audio" i] .workspace-board__preview-symbol::after {
+  color: #84ead5;
+  content: "АУДИО";
+}
+
+body.ce-v4-finder-route .workspace-board__item:is(
+  [data-entity-kind*="document" i],
+  [data-entity-kind*="script" i],
+  [data-entity-kind*="brief" i]
+) .workspace-board__preview-symbol::after {
+  color: #a9bfff;
+  content: "ДОКУМЕНТ";
+}
+
+body.ce-v4-finder-route .workspace-board__item[data-entity-kind*="logo" i] .workspace-board__preview-symbol::after {
+  color: #e3b8ff;
+  content: "ЛОГОТИП";
+}
+
+body.ce-v4-finder-route .workspace-board__item-copy {
+  height: 80px;
+  padding: 10px 13px 11px;
+  align-content: center;
+  gap: 3px;
+  background: linear-gradient(180deg, rgba(8, 20, 34, .78), rgba(5, 14, 24, .96));
+}
+
+body.ce-v4-finder-route .workspace-board__classification {
+  gap: 6px;
+}
+
+body.ce-v4-finder-route .workspace-board__item-copy small {
+  color: var(--ce-v4-finder-ice);
+  font-size: 12px;
+  letter-spacing: .1em;
+}
+
+body.ce-v4-finder-route .workspace-board__item-copy strong {
+  color: #f2f8ff;
+  font-size: 14px;
+  font-weight: 760;
+}
+
+body.ce-v4-finder-route .workspace-board__item-copy > span {
+  color: #8fa4b9;
+  font-size: 12px;
+}
+
+body.ce-v4-finder-route :is(
+  .workspace-board__artifact-badge,
+  .workspace-board__lifecycle-badge
+) {
+  border-color: rgba(121, 228, 248, .15);
+  color: #aec3d3;
+  background: rgba(10, 28, 43, .88);
+}
+
+body.ce-v4-finder-route .workspace-board__artifact-badge[data-artifact-class="source"] {
+  border-color: rgba(87, 227, 238, .3);
+  color: #78e8f0;
+}
+
+body.ce-v4-finder-route .workspace-board__artifact-badge[data-artifact-class="generated_output"] {
+  border-color: rgba(189, 132, 247, .34);
+  color: #d2a9ff;
+}
+
+body.ce-v4-finder-route .workspace-board__lifecycle-badge:is(
+  [data-lifecycle-stage="ready"],
+  [data-lifecycle-stage="published"]
+) {
+  border-color: rgba(86, 220, 173, .34);
+  color: #85e5c4;
+}
+
+body.ce-v4-finder-route .workspace-board__status {
+  top: 9px;
+  left: 9px;
+  max-width: calc(100% - 96px);
+  border-color: rgba(142, 226, 244, .18);
+  color: #b9cfda;
+  background: rgba(3, 11, 20, .82);
+  box-shadow: 0 5px 16px rgba(0, 4, 10, .28);
+  backdrop-filter: blur(9px);
+}
+
+body.ce-v4-finder-route .workspace-board__status[data-status="ready"],
+body.ce-v4-finder-route .workspace-board__status[data-status="done"],
+body.ce-v4-finder-route .workspace-board__status[data-status="published"] {
+  border-color: rgba(87, 224, 175, .28);
+  color: #9aeacb;
+}
+
+body.ce-v4-finder-route .workspace-board__status[data-status="processing"],
+body.ce-v4-finder-route .workspace-board__status[data-status="in_progress"],
+body.ce-v4-finder-route .workspace-board__status[data-status="queued"] {
+  border-color: rgba(115, 193, 255, .3);
+  color: #9ed5ff;
+}
+
+body.ce-v4-finder-route .workspace-board__status[data-status="blocked"],
+body.ce-v4-finder-route .workspace-board__status[data-status="failed"] {
+  border-color: rgba(255, 126, 126, .34);
+  color: #ffaaa7;
+}
+
+body.ce-v4-finder-route :is(
+  .workspace-board__context-trigger--item,
+  .workspace-board__select-item,
+  .workspace-board__drag-handle
+) {
+  border-color: rgba(145, 224, 242, .19);
+  color: #9db5c5;
+  background: rgba(3, 12, 21, .79);
+  box-shadow: 0 6px 18px rgba(0, 4, 10, .22);
+  backdrop-filter: blur(10px);
+}
+
+body.ce-v4-finder-route :is(
+  .workspace-board__context-trigger--item:hover,
+  .workspace-board__context-trigger--item:focus-visible,
+  .workspace-board__select-item:hover,
+  .workspace-board__select-item:focus-visible,
+  .workspace-board__drag-handle:hover,
+  .workspace-board__drag-handle:focus-visible
+) {
+  border-color: rgba(115, 232, 255, .48);
+  color: #e8fbff;
+  outline: none;
+  background: rgba(37, 154, 185, .2);
+}
+
+body.ce-v4-finder-route .workspace-board__item.is-multi-selected .workspace-board__select-item {
+  border-color: var(--ce-v4-finder-ice);
+  color: #031018;
+  background: var(--ce-v4-finder-ice);
+  box-shadow: 0 0 20px rgba(83, 218, 245, .26);
+}
+
+body.ce-v4-finder-route .ce-v4-finder-kind {
+  top: 111px;
+  border-color: rgba(129, 223, 242, .2);
+  color: #b9d0db;
+  background: rgba(3, 12, 21, .84);
+  backdrop-filter: blur(9px);
+}
+
+body.ce-v4-finder-route .ce-v4-finder-kind[data-kind="product"],
+body.ce-v4-finder-route .ce-v4-finder-kind[data-kind="source"],
+body.ce-v4-finder-route .ce-v4-finder-kind[data-kind="video"] {
+  border-color: rgba(104, 225, 246, .32);
+  color: #84e9f8;
+}
+
+/* List keeps thumbnails, metadata and actions on one clean readable row. */
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] .workspace-board__grid {
+  padding: 10px 12px !important;
+}
+
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] .workspace-board__item {
+  height: 72px !important;
+  min-height: 72px !important;
+  margin-bottom: 7px;
+  border-radius: 13px !important;
+  contain-intrinsic-size: 240px 72px;
+}
+
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] .workspace-board__item-open {
+  height: 70px !important;
+  min-height: 70px !important;
+  padding-right: 124px !important;
+  grid-template-columns: 76px minmax(0, 1fr);
+  grid-template-rows: 70px !important;
+}
+
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] .workspace-board__item-preview {
+  width: 76px;
+  height: 70px !important;
+  border-right: 1px solid rgba(121, 228, 248, .13);
+  border-bottom: 0;
+}
+
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] .workspace-board__preview-symbol {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  font-size: 19px;
+}
+
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] .workspace-board__preview-symbol::after,
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] .workspace-board__status,
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] .ce-v4-finder-kind {
+  display: none !important;
+}
+
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] .workspace-board__item-copy {
+  height: 70px;
+  padding: 8px 12px;
+  background: transparent;
+}
+
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] :is(
+  .workspace-board__context-trigger--item,
+  .workspace-board__select-item,
+  .workspace-board__drag-handle
+) {
+  top: 17px;
+  bottom: auto;
+  width: 36px;
+  height: 36px;
+}
+
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] .workspace-board__context-trigger--item { right: 8px; }
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] .workspace-board__select-item { right: 49px; }
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"] .workspace-board__drag-handle { right: 90px; }
+
+/* Column view retains the three-pane information architecture, but its rows
+   use the same file identity and ice selection language as grid/list. */
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] .workspace-board__item {
+  border-color: rgba(121, 228, 248, .11) !important;
+  background: rgba(6, 17, 29, .84) !important;
+}
+
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] .workspace-board__item:is(:hover, .is-selected, .is-multi-selected) {
+  background: linear-gradient(90deg, rgba(48, 183, 214, .16), rgba(9, 24, 39, .92)) !important;
+}
+
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] .workspace-board__item-preview {
+  background: linear-gradient(145deg, rgba(29, 93, 119, .25), rgba(7, 20, 33, .94)) !important;
+}
+
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] .workspace-board__preview-symbol {
+  width: 33px;
+  height: 33px;
+  border-radius: 10px;
+  font-size: 16px;
+}
+
+body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="columns"] .workspace-board__preview-symbol::after {
+  display: none;
+}
+
+body.ce-v4-finder-route .ce-v4-finder-column {
+  border-right-color: rgba(121, 228, 248, .12);
+  background: rgba(5, 15, 27, .82);
+}
+
+body.ce-v4-finder-route .ce-v4-finder-column__row {
+  border-color: rgba(121, 228, 248, .13);
+  background: rgba(13, 30, 47, .7);
+}
+
+body.ce-v4-finder-route .ce-v4-finder-column__row.is-folder {
+  border-color: rgba(107, 215, 236, .22);
+}
+
+body.ce-v4-finder-route .ce-v4-finder-column__row.is-current {
+  border-color: rgba(115, 232, 255, .5);
+  background: linear-gradient(90deg, rgba(52, 181, 211, .18), rgba(36, 73, 121, .1));
+}
+
+body.ce-v4-finder-route .ce-v4-finder-column__connector,
+body.ce-v4-finder-route .ce-v4-finder-column__hint {
+  color: var(--ce-v4-finder-ice);
+}
+
+body.ce-v4-finder-route .ce-v4-finder-column__glyph {
+  border-color: rgba(115, 232, 255, .3);
+  color: var(--ce-v4-finder-ice);
+  background:
+    radial-gradient(circle at 40% 20%, rgba(114, 231, 252, .2), transparent 52%),
+    #071522;
+  box-shadow: 0 0 28px rgba(55, 198, 227, .11);
+}
+
+/* Quick Look carries the same media treatment as the card that opened it. */
+body.ce-v4-finder-route .workspace-board__drawer-preview {
+  position: relative;
+  min-height: 220px;
+  border-color: rgba(121, 228, 248, .2);
+  background:
+    radial-gradient(circle at 50% 18%, rgba(69, 205, 234, .14), transparent 52%),
+    linear-gradient(145deg, #0a1e30, #050c16);
+  box-shadow: inset 0 1px rgba(210, 247, 255, .04);
+}
+
+body.ce-v4-finder-route .workspace-board.is-quicklook-inline .workspace-board__drawer.ce-v4-quicklook-inline,
+body.ce-v4-finder-route .workspace-board.is-detail-inline .workspace-board__drawer:not(.workspace-board__drawer--empty) {
+  background:
+    radial-gradient(circle at 50% 0, rgba(54, 186, 219, .09), transparent 34%),
+    linear-gradient(180deg, rgba(9, 24, 40, .99), rgba(4, 12, 22, .995)) !important;
+}
+
+body.ce-v4-finder-route .workspace-board__drawer-preview :is(img, video) {
+  width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+  background: rgba(2, 8, 14, .52);
+}
+
+body.ce-v4-finder-route :is(
+  .workspace-board__quicklook-section,
+  .workspace-board__quicklook-relations,
+  .workspace-board__quicklook-technical,
+  .workspace-board__quicklook-facts > div,
+  .workspace-board__quicklook-technical dl > div,
+  .workspace-board__quicklook-list li,
+  .workspace-board__quicklook-history li,
+  .workspace-board__quicklook-relations li,
+  .workspace-board__quicklook-unavailable
+) {
+  border-color: rgba(121, 228, 248, .12);
+  background: rgba(10, 25, 40, .7);
+}
+
+body.ce-v4-finder-route :is(
+  .workspace-board__quicklook-section-head p,
+  .workspace-board__quicklook-relations a
+) {
+  color: var(--ce-v4-finder-ice);
+}
+
+/* Empty and loading states preserve orientation instead of becoming blank. */
+body.ce-v4-finder-route .workspace-board__empty {
+  min-height: 360px;
+  margin: 14px;
+  border: 1px dashed rgba(115, 232, 255, .23);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(56, 200, 229, .12), transparent 34%),
+    rgba(5, 16, 28, .72);
+}
+
+body.ce-v4-finder-route .workspace-board__empty > span {
+  width: 72px;
+  height: 72px;
+  border: 1px solid rgba(115, 232, 255, .31);
+  border-radius: 22px;
+  color: var(--ce-v4-finder-ice);
+  background: linear-gradient(145deg, rgba(51, 191, 219, .2), rgba(49, 86, 148, .13));
+  box-shadow: 0 0 34px rgba(66, 210, 238, .14);
+}
+
+body.ce-v4-finder-route .workspace-board__empty h3 {
+  color: #f1f9ff;
+  font-family: inherit;
+  font-weight: 760;
+}
+
+body.ce-v4-finder-route .workspace-board__empty p {
+  color: #94aabd;
+}
+
+body.ce-v4-finder-route .workspace-board__empty button {
+  border-color: rgba(115, 232, 255, .34);
+  color: #eafcff;
+  background: rgba(41, 173, 204, .14);
+}
+
+body.ce-v4-finder-route .workspace-board[aria-busy="true"]::before {
+  position: absolute;
+  z-index: 12;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 2px;
+  border-radius: 22px 22px 0 0;
+  content: "";
+  background: linear-gradient(90deg, transparent, var(--ce-v4-finder-ice), transparent);
+  background-size: 45% 100%;
+  animation: ce-v4-finder-loading 1.15s ease-in-out infinite;
+  box-shadow: 0 0 14px rgba(86, 221, 247, .32);
+}
+
+body.ce-v4-finder-route .workspace-board[aria-busy="true"] .workspace-board__grid {
+  opacity: .72;
+}
+
+@keyframes ce-v4-finder-loading {
+  from { background-position: -70% 0; }
+  to { background-position: 170% 0; }
+}
+
+@container ce-v4-finder-content (max-width: 900px) {
+  body.ce-v4-finder-route .workspace-board__overview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  body.ce-v4-finder-route .workspace-board__overview-card {
+    min-height: 190px;
+  }
+
+  body.ce-v4-finder-route .workspace-board__overview-card:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
+
+@container ce-v4-finder-content (max-width: 600px) {
+  body.ce-v4-finder-route .workspace-board__overview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  body.ce-v4-finder-route .workspace-board__overview-card:last-child:nth-child(odd) {
+    grid-column: auto;
+  }
+}
+
+@container ce-v4-finder-host (max-width: 760px) {
+  body.ce-v4-finder-route .workspace-board__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="grid"] .workspace-board__item {
+    min-height: 210px !important;
+    height: 210px;
+  }
+
+  body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="grid"] .workspace-board__item-open {
+    height: 208px !important;
+    min-height: 208px !important;
+    grid-template-rows: 130px 78px !important;
+  }
+
+  body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="grid"] .workspace-board__item-preview {
+    height: 130px !important;
+  }
+
+  body.ce-v4-finder-route .ce-v4-finder-kind {
+    top: 95px;
+  }
+}
+
+@container ce-v4-finder-host (max-width: 480px) {
+  body.ce-v4-finder-route .workspace-board__grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="grid"] .workspace-board__item,
+  body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="grid"] .workspace-board__item-open {
+    min-height: 226px !important;
+    height: 226px !important;
+  }
+
+  body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="grid"] .workspace-board__item-open {
+    grid-template-rows: 146px 80px !important;
+  }
+
+  body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="grid"] .workspace-board__item-preview {
+    height: 146px !important;
+  }
+
+  body.ce-v4-finder-route .ce-v4-finder-kind {
+    top: 111px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.ce-v4-finder-route .workspace-board[aria-busy="true"]::before {
+    animation: none;
+    background-size: 100% 100%;
+  }
+
+  body.ce-v4-finder-route .workspace-board__item,
+  body.ce-v4-finder-route .workspace-board__item-preview img,
+  body.ce-v4-finder-route .workspace-board__overview-card {
+    transition: none !important;
+  }
 }

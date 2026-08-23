@@ -334,7 +334,7 @@ select throws_ok(
       'mutation_id', 'f8140000-0000-4000-8000-000000000003'::uuid
     )
   )$$,
-  '40001',
+  'PT409',
   'generation_ai_research_working_draft_revision_conflict',
   'a stale participant cannot overwrite the shared project revision'
 );

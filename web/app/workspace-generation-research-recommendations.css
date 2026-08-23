@@ -140,6 +140,25 @@
 .generation-research-recommendations__status[data-tone="danger"] { color: #ff9f97; }
 .generation-research-recommendations__status[data-tone="manual"] { color: var(--muted, #a99c90); }
 
+.generation-research-recommendations__recovery {
+  display: none;
+}
+.generation-research-recommendations__recovery[data-state] {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  padding: 10px 11px;
+  border: 1px solid color-mix(in srgb, #ff9f97 42%, var(--line, #34291f));
+  border-radius: 10px;
+  background: color-mix(in srgb, #ff9f97 9%, var(--surface-2, #1b1612));
+}
+.generation-research-recommendations__recovery-note {
+  flex: 1 1 100%;
+  margin: 0;
+  color: #ff9f97;
+}
+
 .generation-research-recommendations__actions {
   display: flex;
   align-items: center;
@@ -155,5 +174,19 @@
   }
   .generation-research-recommendations__badge,
   .generation-research-recommendations__scope { white-space: normal; }
-  .generation-research-recommendations__actions .btn { width: 100%; }
+  .generation-research-recommendations__actions .btn,
+  .generation-research-recommendations__recovery .btn { width: 100%; }
+}
+
+/* В компактных панелях «Копии» и «Дуэта» блок стоит рядом с полем замысла:
+   длинные пояснения прячем, остаются заголовок, варианты, предпросмотр и
+   действия — совет читается за один взгляд. */
+.generation-intake-v4__recommendation > .generation-research-recommendations {
+  margin: 0;
+  padding: 13px;
+}
+
+.generation-intake-v4__recommendation > .generation-research-recommendations
+  .generation-research-recommendations__header p.muted {
+  display: none;
 }

@@ -1,5 +1,28 @@
 export const GENERATION_SPEC_CONTROL_VERSION = "generation-spec-control-v1";
 
+export function generationSpecPreparationRoute(generationStrategyId = "") {
+  const strategyId = String(generationStrategyId || "").trim().toLowerCase();
+  if (!strategyId) {
+    return Object.freeze({
+      kind: "legacy",
+      strategyId: "",
+      legacyAllowed: true,
+      prepareRpc: "creator_prepare_generation_spec",
+      code: "",
+      message: "",
+    });
+  }
+  return Object.freeze({
+    kind: "strategy_v2",
+    strategyId,
+    legacyAllowed: false,
+    prepareRpc: "creator_prepare_generation_strategy_spec",
+    code: "generation_strategy_spec_route_required",
+    message:
+      "Для выбранной стратегии используется отдельное точное ТЗ. Подготовьте его основной кнопкой Product Swap или выбранной стратегии.",
+  });
+}
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u;

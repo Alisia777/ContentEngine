@@ -26,10 +26,12 @@ def test_os_v3_visual_qa_assets_are_retired_from_the_active_graph() -> None:
         "workspace-os-v3-zen-control.js",
     )
     assert not any(any(name in asset for name in retired_names) for asset in active_assets)
-    assert "./workspace-os-v4.css?v=20260814.os4.41" in active_assets
+    assert "./workspace-os-v4.css?v=20260822.live-windows.5" in active_assets
     assert active_assets.index(
-        "./workspace-os-v4-loader.js?v=20260814.os4.41.strategy-interactions-1"
-    ) < active_assets.index("./workspace-build-guard.js?v=20260814.os4.41")
+        "./workspace-os-v4-loader.js?v=20260822.live-windows.5"
+    ) < active_assets.index(
+        "./workspace-build-guard.js?v=20260823.copy-engines.45"
+    )
 
 
 def test_legacy_visual_layers_are_retained_as_contracts_but_not_executed() -> None:

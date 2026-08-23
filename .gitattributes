@@ -1,0 +1,5 @@
+# Keep SQL migrations byte-stable across Windows/Linux: CI hashes file bytes.
+*.sql text eol=lf
+*.ts text eol=lf
+*.js text eol=lf
+*.py text eol=lf

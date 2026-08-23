@@ -11,18 +11,20 @@ import {
   reduceGenerationStrategyViewState,
   selectedGenerationStrategySummary,
   validateSelectedGenerationStrategyDraft,
-} from "./generation-strategy-view.js?v=20260814.os4.41";
+} from "./generation-strategy-view.js?v=20260823.copy-engines.45";
 import {
   generationStrategyAssetEligibility,
   mergeGenerationStrategyAssetPages,
   normalizeGenerationStrategyAssetCandidates,
-} from "./generation-strategy-assets.js?v=20260814.os4.41";
+} from "./generation-strategy-assets.js?v=20260823.copy-engines.45";
 import {
   GENERATION_STRATEGY_SOURCE_PICKER_ACTIONS,
   createGenerationStrategySourcePicker,
+  generationStrategyRequiredSourceCount,
   generationStrategySourcePickerProjection,
   reduceGenerationStrategySourcePicker,
-} from "./generation-strategy-source-picker.js?v=20260814.os4.41";
+} from "./generation-strategy-source-picker.js?v=20260823.copy-engines.45";
+import { resolveGenerationModelVisual } from "./generation-model-visuals-v1.js?v=20260823.copy-engines.45";
 
 /*
  * ContentEngine Desktop v4 · guided generation.
@@ -40,12 +42,16 @@ const SESSION_ATTRIBUTE = "data-ce-v4-generation-session";
 const FORM_BINDING_KEY = Symbol.for(
   "contentengine.generation-guided.form-binding.v1",
 );
+const STRATEGY_REPEAT_MEDIA_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const PRODUCT_SWAP_REPEAT_MEDIA_LIMIT = 10;
+const strategyRepeatProductOrigins = new WeakMap();
 
 const STEPS = Object.freeze([
   {
     key: "mode",
-    label: "Способ создания",
-    hint: "Сравните три сценария и выберите один вручную. Исходники, сохранение сцены и цена различаются.",
+    label: "Модель ИИ",
+    hint: "Сравните модели по результату, длине, входным условиям и цене. ИИ-центр рекомендует, но окончательный выбор всегда делает человек.",
   },
   {
     key: "product",
@@ -80,6 +86,7 @@ const runtime = {
   catalogSignals: null,
   catalogStatus: "idle",
   catalogRequest: 0,
+  catalogRetryCount: 0,
   recommendationState: null,
   applyingModel: false,
   modelFilter: "relevant",
@@ -89,6 +96,7 @@ const runtime = {
   strategyCatalog: null,
   strategyCatalogStatus: "idle",
   strategyCatalogRequest: 0,
+  strategyCatalogRetryCount: 0,
   strategyState: null,
   pendingStrategyRestore: null,
   strategyAssetPage: null,
@@ -96,9 +104,17 @@ const runtime = {
   strategyAssetStatus: "idle",
   strategyAssetError: "",
   strategyAssetRequest: 0,
+  // A freshly uploaded MP4 is already registered and attached on the server,
+  // but the read-only asset catalog may still be stale (or temporarily fail).
+  // Keep only that exact server-issued UUID here so the compact handoff can
+  // materialize the real source picker without inventing a paid authority.
+  strategyRegisteredSourceProjectId: "",
+  strategyRegisteredSources: new Map(),
   strategySourcePicker: null,
   strategyMechanicsDrafts: new Map(),
   strategyViewRoots: new WeakSet(),
+  intakeHandoff: null,
+  intakeHandoffProjectId: "",
 };
 
 const LEGACY_MODEL_BY_MODE = Object.freeze({
@@ -189,8 +205,8 @@ const MODEL_WARNING_COPY = Object.freeze({
 
 const SELECTION_SOURCE_COPY = Object.freeze({
   manual: "Выбрано вручную",
-  accepted_recommendation: "Рекомендация ИИ принята",
-  system_recommendation: "Предложено системой",
+  accepted_recommendation: "Технический подбор принят",
+  system_recommendation: "Системный технический подбор",
   form_default: "Текущий режим формы",
 });
 
@@ -683,7 +699,7 @@ function createBudgetMarker() {
   marker.append(numberedHeading(
     4,
     "Кампания и бюджет",
-    "Ниже остаются исходные поля длительности, кампании, лимита и отдельного согласия на оплату.",
+    "Здесь собраны длительность, кампания, доступный лимит и отдельное согласие на оплату.",
   ));
   return marker;
 }
@@ -715,6 +731,10 @@ function hiddenExactControl(name) {
 function createExactModelSettings() {
   const section = element("section", "ce-v4-model-exact-settings");
   section.dataset.ceV4ModelExactSettings = "";
+  section.dataset.provider = "";
+  section.dataset.model = "";
+  section.dataset.contentKind = "";
+  section.dataset.profileState = "empty";
   section.hidden = true;
   [
     "generation_provider",
@@ -727,6 +747,23 @@ function createExactModelSettings() {
     "generation_selection_source",
     "generation_launch_enabled",
   ].forEach((name) => section.append(hiddenExactControl(name)));
+
+  const header = element("header", "ce-v4-model-exact-settings__header");
+  const headerCopy = element("div", "ce-v4-model-exact-settings__header-copy");
+  headerCopy.append(
+    element("p", "ce-v4-model-exact-settings__eyebrow", "ПРОФИЛЬ ВЫБРАННОЙ МОДЕЛИ"),
+    element("h4", "ce-v4-model-exact-settings__title", "Модель не выбрана"),
+  );
+  const authority = element(
+    "span",
+    "ce-v4-model-exact-settings__authority",
+    "Авторитет: серверный каталог",
+  );
+  const visualSlot = element("div", "ce-v4-model-exact-settings__visual-slot");
+  visualSlot.dataset.ceV4ModelExactVisual = "";
+  visualSlot.hidden = true;
+  visualSlot.setAttribute("aria-hidden", "true");
+  header.append(headerCopy, visualSlot, authority);
 
   const grid = element("div", "ce-v4-model-exact-settings__grid");
   const resolutionField = element("label", "field");
@@ -759,7 +796,7 @@ function createExactModelSettings() {
   );
   capabilityStatus.dataset.ceV4ModelCapabilityStatus = "";
   capabilityStatus.setAttribute("role", "status");
-  section.append(grid, capabilityStatus);
+  section.append(header, grid, capabilityStatus);
   return section;
 }
 
@@ -834,14 +871,75 @@ function syncExactModelControls(form, model, { emit = false } = {}) {
   const section = q("[data-ce-v4-model-exact-settings]", form);
   if (!section) return false;
   if (!model) {
+    section.dataset.provider = "";
+    section.dataset.model = "";
+    section.dataset.contentKind = "";
+    section.dataset.profileState = "empty";
+    delete section.dataset.modelFamily;
+    delete section.dataset.visualTone;
+    delete section.dataset.generationModelForm;
+    section.removeAttribute("aria-label");
+    const title = q(".ce-v4-model-exact-settings__title", section);
+    const authority = q(".ce-v4-model-exact-settings__authority", section);
+    const visualSlot = q("[data-ce-v4-model-exact-visual]", section);
+    if (title) title.textContent = "Модель не выбрана";
+    if (authority) authority.textContent = "Авторитет: серверный каталог";
+    if (visualSlot) {
+      visualSlot.replaceChildren();
+      visualSlot.hidden = true;
+    }
     section.hidden = true;
     qa("[data-ce-v4-exact-model-control]", section).forEach((control) => { control.value = ""; });
+    const brief = form.elements?.brief;
+    if (brief instanceof HTMLTextAreaElement) {
+      brief.maxLength = selectedStrategyRow() ? 800 : 1_200;
+      brief.setCustomValidity("");
+      delete brief.dataset.generationStrategyForm;
+      delete brief.dataset.generationModelForm;
+      delete brief.dataset.generationModelPromptLimit;
+    }
     return false;
   }
   const previousKey = `${form.elements?.generation_provider?.value || ""}:${form.elements?.generation_model_id?.value || ""}`;
   const nextKey = modelKey(model);
   const sameModel = previousKey === nextKey;
   const defaults = exactDefaults(model);
+  section.dataset.provider = String(model.provider || "");
+  section.dataset.model = String(model.model || "");
+  section.dataset.contentKind = String(model.contentKind || "");
+  section.dataset.profileState = "ready";
+  section.dataset.generationModelForm = nextKey;
+  section.setAttribute(
+    "aria-label",
+    `Точные параметры модели ${String(model.publicLabel || model.model || nextKey)}`,
+  );
+  const profileTitle = q(".ce-v4-model-exact-settings__title", section);
+  const profileAuthority = q(".ce-v4-model-exact-settings__authority", section);
+  const profileVisualSlot = q("[data-ce-v4-model-exact-visual]", section);
+  if (profileTitle) {
+    profileTitle.textContent = String(model.publicLabel || model.model || "Выбранная модель");
+  }
+  if (profileAuthority) {
+    const catalogVersion = String(runtime.catalog?.version || "").trim();
+    profileAuthority.textContent = catalogVersion
+      ? `Авторитет: серверный каталог · ${catalogVersion}`
+      : "Авторитет: серверный каталог";
+  }
+  if (profileVisualSlot) {
+    profileVisualSlot.replaceChildren();
+    const profileVisual = modelVisualNode(model, { featured: true });
+    if (profileVisual) {
+      profileVisual.classList.add("ce-v4-model-exact-settings__visual-frame");
+      section.dataset.modelFamily = profileVisual.dataset.family || "";
+      section.dataset.visualTone = profileVisual.dataset.tone || "";
+      profileVisualSlot.append(profileVisual);
+      profileVisualSlot.hidden = false;
+    } else {
+      delete section.dataset.modelFamily;
+      delete section.dataset.visualTone;
+      profileVisualSlot.hidden = true;
+    }
+  }
   const setHidden = (name, value) => {
     const control = form.elements?.[name];
     if (control instanceof HTMLInputElement) control.value = String(value ?? "");
@@ -855,6 +953,17 @@ function syncExactModelControls(form, model, { emit = false } = {}) {
   setHidden("generation_pricing_version", model.pricingVersion || "");
   setHidden("generation_selection_source", canonicalSelectionSource());
   setHidden("generation_launch_enabled", modelCanUseExistingLaunch(form, model) ? "true" : "false");
+  const promptLimit = Number(model.promptLimit);
+  const exactPromptLimit = Number.isSafeInteger(promptLimit) && promptLimit > 0
+    ? promptLimit
+    : 1_200;
+  const brief = form.elements?.brief;
+  if (brief instanceof HTMLTextAreaElement) {
+    brief.maxLength = exactPromptLimit;
+    delete brief.dataset.generationStrategyForm;
+    brief.dataset.generationModelForm = nextKey;
+    brief.dataset.generationModelPromptLimit = String(exactPromptLimit);
+  }
 
   const resolutionControl = form.elements?.generation_resolution;
   const lastFrameControl = form.elements?.generation_last_frame;
@@ -920,12 +1029,27 @@ function syncExactModelControls(form, model, { emit = false } = {}) {
   if (capabilityStatus) {
     const noExactCombination = model.contentKind !== "photo"
       && capability.allowedDurations.length === 0;
-    capabilityStatus.dataset.state = noExactCombination ? "blocked" : "ready";
-    capabilityStatus.textContent = noExactCombination
+    const promptLength = brief instanceof HTMLTextAreaElement
+      ? String(brief.value || "").length
+      : 0;
+    const promptTooLong = promptLength > exactPromptLimit;
+    const profileBlocked = noExactCombination || promptTooLong;
+    section.dataset.profileState = profileBlocked ? "blocked" : "ready";
+    capabilityStatus.dataset.state = profileBlocked ? "blocked" : "ready";
+    capabilityStatus.textContent = promptTooLong
+      ? `Инструкция содержит ${promptLength} знаков при лимите ${exactPromptLimit}. Сократите текст — запуск заблокирован.`
+      : noExactCombination
       ? "Для этого сочетания разрешения и финального кадра нет допустимой длительности. Измените параметры — запуск заблокирован."
       : capability.lastFrameDuration !== null && selectedLastFrame
         ? `Финальный кадр требует точную длительность ${capability.lastFrameDuration} секунд.`
-        : "Показаны только сочетания параметров, разрешённые выбранной моделью.";
+        : `Показаны только сочетания параметров, разрешённые выбранной моделью. Лимит инструкции — ${exactPromptLimit} знаков.`;
+    if (brief instanceof HTMLTextAreaElement) {
+      brief.setCustomValidity(
+        promptTooLong
+          ? `Сократите инструкцию до ${exactPromptLimit} знаков для выбранной модели.`
+          : "",
+      );
+    }
   }
   section.hidden = false;
   if (emit) {
@@ -941,8 +1065,8 @@ function createModelAdvisor() {
 
   const header = element("header", "ce-v4-model-advisor__header");
   const copy = element("div", "ce-v4-model-advisor__copy");
-  const eyebrow = element("p", "ce-v4-model-advisor__eyebrow", "СОВЕТ ИИ · РЕШЕНИЕ ЧЕЛОВЕКА");
-  const title = element("h4", "", "Модели для вашего результата");
+  const eyebrow = element("p", "ce-v4-model-advisor__eyebrow", "ТЕХНИЧЕСКИЙ ПОДБОР · РЕШЕНИЕ ЧЕЛОВЕКА");
+  const title = element("h4", "", "Технический подбор модели");
   title.id = "ce-v4-model-advisor-title";
   copy.append(
     eyebrow,
@@ -950,7 +1074,7 @@ function createModelAdvisor() {
     element(
       "p",
       "",
-      "ИИ сравнивает совместимость, качество, скорость и бюджет. Это совет: ручной выбор никогда не будет заменён автоматически.",
+      "Система сравнивает совместимость, качество, скорость и бюджет по серверному каталогу. Это технический совет: ручной выбор никогда не будет заменён автоматически.",
     ),
   );
   const badge = element("span", "ce-v4-model-advisor__authority", "Вы решаете");
@@ -968,7 +1092,7 @@ function createModelAdvisor() {
   const recommendationSection = element("section", "ce-v4-model-advisor__section");
   recommendationSection.append(numberedHeading(
     2,
-    "Системная рекомендация",
+    "Технический подбор модели",
     "Показываем причины, компромисс, цену и готовность до любой оплаты.",
     5,
   ), recommendation);
@@ -1038,6 +1162,25 @@ function extractedStrategyCatalog(catalog) {
   };
 }
 
+function generationStrategyCatalogFailure(error) {
+  const rawCode = typeof error?.code === "string" ? error.code.trim() : "";
+  const code = /^[a-z0-9_]{3,96}$/u.test(rawCode)
+    ? rawCode
+    : "catalog_unavailable";
+  const rawField = typeof error?.field === "string" ? error.field.trim() : "";
+  const field = rawField && rawField.length <= 500 &&
+      /^[a-z0-9_.\[\]-]+$/u.test(rawField)
+    ? rawField
+    : "catalog";
+  const rawMessage = typeof error?.message === "string" ? error.message : "";
+  const message = rawMessage
+    .replace(/[\u0000-\u001f\u007f]/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .slice(0, 300) || "Catalog request failed";
+  return Object.freeze({ code, field, message });
+}
+
 function selectedStrategyRow() {
   const strategyId = runtime.strategyState?.selected_strategy_id;
   if (!strategyId) return null;
@@ -1051,6 +1194,66 @@ const STRATEGY_ASSET_CONTROL_BY_ROLE = Object.freeze({
   avatar_image: "generation_strategy_avatar_media_id",
   original_product_image: "generation_strategy_original_product_media_id",
 });
+
+// Фото товара — единственная роль, которая собирается чекбоксами, а не селектом,
+// поэтому её нет в STRATEGY_ASSET_CONTROL_BY_ROLE. Имя роли зависит от стратегии:
+// «Копия» заменяет товар (new_product_image), остальные его показывают
+// (product_image).
+const STRATEGY_PRODUCT_ROLES = Object.freeze([
+  "new_product_image",
+  "product_image",
+]);
+
+function strategyProductRole(row) {
+  const roleIds = new Set((row?.asset_roles || []).map((role) => role.role));
+  return STRATEGY_PRODUCT_ROLES.find((role) => roleIds.has(role)) || "";
+}
+
+// Маршрут — часть готовности, а не деталь исполнения. У стратегии без единого
+// включённого маршрута сервер запуск не подпишет, поэтому зелёная отметка
+// обещала бы то, чего не будет.
+//
+// Отсутствие САМОГО поля publishedRoutes — это «сервер не публикует реестр», а
+// не «маршрутов нет»: поле каталога необязательное, и старая версия сервера его
+// не отдаёт вовсе. Решать по маршрутам в этом случае нельзя — иначе на первом же
+// таком ответе заблокировали бы и работающую «Копию».
+function strategyRouteUnavailable(publishedRoutes, strategyId) {
+  if (!publishedRoutes || typeof publishedRoutes !== "object") return false;
+  const routes = publishedRoutes[strategyId];
+  if (!Array.isArray(routes)) return true;
+  return !routes.some((route) => route?.enabled === true);
+}
+
+// Роль, которую форма собрать не умеет, — это не «необязательная роль», а пробел
+// формы. Раньше такие роли молча выпадали из проверки: фильтр требовал записи в
+// карте контролов, а роли товара собираются чекбоксами и в карту не попадают.
+// Молчание здесь означало зелёное «готово» и отказ сервера после всей подготовки.
+function strategyUnsupportedRequiredRoles(assetRoles) {
+  return (assetRoles || []).filter((role) => (
+    role?.role !== "source_video"
+    && !STRATEGY_ASSET_CONTROL_BY_ROLE[role?.role]
+    && !STRATEGY_PRODUCT_ROLES.includes(role?.role)
+    && Number(role?.min_count) > 0
+  ));
+}
+
+// Какие фото товара реально уйдут в наряд. Один источник правды для сборщика
+// ассетов и для расчёта готовности: пока проверка готовности считала иначе (а
+// точнее — не считала вовсе), модуль показывал «готово» там, где сервер отказал
+// бы по составу ассетов.
+//
+// Во время setFormBusy все контролы выключены, поэтому смотрим на исходное
+// состояние — иначе выбранные фото «исчезали» бы из точного контекста прямо во
+// время привязки.
+function strategySelectedProductInputs(form) {
+  const busyLocked = form?.dataset?.busy === "true";
+  return qa('input[name="media_id"]:checked', form).filter((input) => {
+    const effectivelyDisabled = busyLocked
+      ? input.dataset.wasDisabled === "true"
+      : input.disabled;
+    return !effectivelyDisabled;
+  });
+}
 
 const STRATEGY_ASSET_EMPTY_COPY = Object.freeze({
   source_video: "Выберите сохранённый MP4 с подтверждёнными правами",
@@ -1125,9 +1328,234 @@ function strategyMechanicsDraft(sourceMediaId) {
 }
 
 function strategySourceCandidates() {
-  return Array.isArray(runtime.strategyAssetPage?.assets)
+  const candidates = Array.isArray(runtime.strategyAssetPage?.assets)
     ? runtime.strategyAssetPage.assets
     : [];
+  if (!runtime.strategyRegisteredSources.size) return candidates;
+  // The overlay contains facts returned by successful register/attach/probe
+  // calls. It wins over a catalog page captured just before those calls; a
+  // later authoritative page with the verified duration removes the overlay.
+  const byId = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+  runtime.strategyRegisteredSources.forEach((candidate, mediaId) => {
+    byId.set(mediaId, candidate);
+  });
+  return [...byId.values()];
+}
+
+function registeredSourceCandidate(value, previous = null) {
+  const mediaId = String(value?.media_id || value?.id || "")
+    .trim().toLowerCase();
+  if (!STRATEGY_REPEAT_MEDIA_ID_PATTERN.test(mediaId)) return null;
+  const filename = String(value?.filename || previous?.filename || "Загруженный ролик")
+    .trim();
+  if (
+    !filename
+    || filename.length > 255
+    || /[\u0000-\u001f\u007f]/u.test(filename)
+  ) return null;
+  const requestedDuration = value?.duration_seconds === null
+    || value?.duration_seconds === undefined
+    ? previous?.duration_seconds ?? null
+    : value.duration_seconds;
+  const numericDuration = requestedDuration === null || requestedDuration === undefined
+    ? null
+    : Number(requestedDuration);
+  if (
+    numericDuration !== null
+    && (!Number.isFinite(numericDuration) || numericDuration <= 0 || numericDuration > 3_600)
+  ) return null;
+  const duration = numericDuration === null ? null : numericDuration;
+  const ready = duration !== null;
+  return Object.freeze({
+    id: mediaId,
+    kind: "source_video",
+    mime_type: "video/mp4",
+    duration_seconds: duration,
+    status: "ready",
+    rights_confirmed: true,
+    filename,
+    exact_youtube_attached: false,
+    direct_mp4_attached: true,
+    eligible: ready,
+    // Прямой MP4 — исходник обеих одноисходниковых стратегий. До 23.08.2026
+    // оверлей объявлял его только для «Копии», и «Дуэт» не видел только что
+    // загруженный ролик в списке исходников: «Выбрано 0 из 1» сразу после
+    // успешной загрузки.
+    eligible_strategy_roles: Object.freeze(ready
+      ? [
+        Object.freeze({ strategy_id: "viral_product_swap", role: "source_video" }),
+        Object.freeze({ strategy_id: "viral_avatar_ugc", role: "source_video" }),
+      ]
+      : []),
+    blocking_codes_by_strategy: Object.freeze({
+      viral_avatar_ugc: Object.freeze(ready
+        ? []
+        : ["server_duration_probe_required"]),
+      viral_product_swap: Object.freeze(ready
+        ? []
+        : ["server_duration_probe_required"]),
+      viral_rebuild: Object.freeze([]),
+    }),
+  });
+}
+
+function upsertRegisteredStrategySource(value) {
+  const projectId = generationStrategyProjectId();
+  if (!STRATEGY_REPEAT_MEDIA_ID_PATTERN.test(projectId)) return null;
+  if (runtime.strategyRegisteredSourceProjectId !== projectId) {
+    runtime.strategyRegisteredSourceProjectId = projectId;
+    runtime.strategyRegisteredSources.clear();
+  }
+  const mediaId = String(value?.media_id || value?.id || "")
+    .trim().toLowerCase();
+  const candidate = registeredSourceCandidate(
+    value,
+    runtime.strategyRegisteredSources.get(mediaId),
+  );
+  if (!candidate) return null;
+  runtime.strategyRegisteredSources.set(candidate.id, candidate);
+  return candidate;
+}
+
+// A catalog row may lag behind the direct-MP4 attachment RPC: it can already
+// know the duration while still omitting the attachment/role facts required by
+// the source picker. Such a partial row must not evict the project-scoped
+// handoff overlay, otherwise the same registered MP4 immediately becomes
+// "0 из 1". The catalog wins only when it independently proves the complete
+// Product Swap source contract; the paid preflight still revalidates it.
+function catalogConfirmsRegisteredStrategySource(catalogSource, mediaId) {
+  if (
+    !catalogSource
+    || catalogSource.id !== mediaId
+    || catalogSource.kind !== "source_video"
+    || catalogSource.mime_type !== "video/mp4"
+    || catalogSource.status !== "ready"
+    || catalogSource.rights_confirmed !== true
+    || (
+      catalogSource.exact_youtube_attached !== true
+      && catalogSource.direct_mp4_attached !== true
+    )
+    || !Number.isFinite(catalogSource.duration_seconds)
+  ) return false;
+  return generationStrategyAssetEligibility(
+    catalogSource,
+    "viral_product_swap",
+    "source_video",
+  ).eligible === true;
+}
+
+function registeredSourceFromHiddenHandoff(form) {
+  const read = (name) => String(form?.elements?.[name]?.value || "");
+  if (!read("generation_intake_version").trim()) return null;
+  if (read("generation_intake_route").trim() !== "copy_video") return null;
+  const sourceMediaId = read("generation_intake_source_media_id")
+    .trim().toLowerCase();
+  if (!STRATEGY_REPEAT_MEDIA_ID_PATTERN.test(sourceMediaId)) return null;
+  let assets;
+  try {
+    assets = JSON.parse(read("generation_strategy_prefill_assets") || "[]");
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(assets)) return null;
+  const sources = assets.filter((asset) => asset?.role === "source_video");
+  if (
+    sources.length !== 1
+    || String(sources[0]?.media_id || "").trim().toLowerCase() !== sourceMediaId
+  ) return null;
+  const topDurationRaw = read("generation_intake_source_duration_seconds").trim();
+  const assetDurationRaw = sources[0]?.duration_seconds;
+  const topDuration = topDurationRaw ? Number(topDurationRaw) : null;
+  const assetDuration = assetDurationRaw === null || assetDurationRaw === undefined
+    || String(assetDurationRaw).trim() === ""
+    ? null
+    : Number(assetDurationRaw);
+  const duration = Number.isFinite(topDuration)
+    && Number.isFinite(assetDuration)
+    && topDuration > 0
+    && assetDuration > 0
+    && topDuration <= 3_600
+    && assetDuration <= 3_600
+    && Math.ceil(topDuration) === Math.ceil(assetDuration)
+    ? assetDuration
+    : null;
+  return Object.freeze({
+    media_id: sourceMediaId,
+    filename: "Загруженный ролик",
+    duration_seconds: duration,
+  });
+}
+
+function registeredSourceFromIntakeHandoff(handoff) {
+  if (!handoff || handoff.route !== "copy_video") return null;
+  const sourceMediaId = String(handoff.source_media_id || "")
+    .trim().toLowerCase();
+  if (!STRATEGY_REPEAT_MEDIA_ID_PATTERN.test(sourceMediaId)) return null;
+  const sources = Array.isArray(handoff.assets)
+    ? handoff.assets.filter((asset) => asset?.role === "source_video")
+    : [];
+  if (
+    sources.length !== 1
+    || String(sources[0]?.media_id || "").trim().toLowerCase() !== sourceMediaId
+  ) return null;
+  const topDuration = handoff.source_duration_seconds;
+  const assetDuration = sources[0]?.duration_seconds;
+  const duration = Number.isFinite(topDuration)
+    && Number.isFinite(assetDuration)
+    && topDuration > 0
+    && assetDuration > 0
+    && topDuration <= 3_600
+    && assetDuration <= 3_600
+    && Math.ceil(topDuration) === Math.ceil(assetDuration)
+    ? assetDuration
+    : null;
+  return Object.freeze({
+    media_id: sourceMediaId,
+    filename: "Загруженный ролик",
+    duration_seconds: duration,
+  });
+}
+
+function hydrateRegisteredSourceFromHiddenHandoff(form) {
+  // A patch-render can replace the entire form after persistHandoff wrote its
+  // hidden inputs. The same project-scoped handoff is also stored in session;
+  // use it only when the live form no longer carries the exact paired fields.
+  const source = registeredSourceFromHiddenHandoff(form)
+    || registeredSourceFromIntakeHandoff(runtime.intakeHandoff);
+  if (!source) return false;
+  const catalogSource = runtime.strategyAssetPage?.assets?.find(
+    (asset) => asset?.id === source.media_id,
+  );
+  if (catalogConfirmsRegisteredStrategySource(catalogSource, source.media_id)) {
+    runtime.strategyRegisteredSources.delete(source.media_id);
+    return true;
+  }
+  return Boolean(upsertRegisteredStrategySource(source));
+}
+
+function materializeRegisteredStrategySource(form, value) {
+  if (!form?.isConnected) return false;
+  const candidate = upsertRegisteredStrategySource(value);
+  if (!candidate) return false;
+  syncStrategyAssetCandidates(form);
+  return true;
+}
+
+function confirmRegisteredStrategySourceProbe(form, value) {
+  if (!form?.isConnected) return false;
+  const mediaId = String(value?.media_id || value?.id || "")
+    .trim().toLowerCase();
+  const previous = runtime.strategyRegisteredSources.get(mediaId);
+  if (!previous) return false;
+  const candidate = registeredSourceCandidate({
+    media_id: mediaId,
+    filename: previous.filename,
+    duration_seconds: value?.duration_seconds,
+  }, previous);
+  if (!candidate || candidate.duration_seconds === null) return false;
+  runtime.strategyRegisteredSources.set(mediaId, candidate);
+  syncStrategyAssetCandidates(form);
+  return true;
 }
 
 function syncStrategySourcePickerState(strategyId, { reset = false } = {}) {
@@ -1161,7 +1589,13 @@ function syncStrategySourcePickerState(strategyId, { reset = false } = {}) {
   return runtime.strategySourcePicker;
 }
 
-function strategyMechanicsEditor(source, strategyId, position) {
+// Разбор механики референса не нужен только «Копии»: она правит сам ролик,
+// и сцена доезжает до провайдера целиком. «Дуэту» разбор НУЖЕН (миграция
+// 202608220006): модель ведущего исходное видео не получает, и всё, что он
+// скажет о ролике, приходит текстом — разбор и есть материал для речи.
+const MECHANICS_FREE_STRATEGIES = new Set(["viral_product_swap"]);
+
+function strategyMechanicsEditor(source, strategyId, position, requiredCount) {
   const article = element("article", "generation-strategy-source-review");
   article.dataset.generationStrategySourceReview = source.source_media_id;
   const details = document.createElement("details");
@@ -1174,10 +1608,12 @@ function strategyMechanicsEditor(source, strategyId, position) {
     "muted tiny",
     strategyId === "viral_product_swap"
       ? "Этот MP4 передаётся в recipe как исходная сцена. Движение, кадр и тайминг сохраняются в пределах возможностей сервиса; текстовый пересказ не подменяет видео."
-      : "Этот MP4 остаётся референсом механики: мы создадим новый ролик с вашими ассетами, а не копию кадр в кадр.",
+      : strategyId === "viral_avatar_ugc"
+        ? "Этот MP4 остаётся нетронутым фоном дуэта: ведущий проекта комментирует его из угла кадра."
+        : "Этот MP4 остаётся референсом механики: мы создадим новый ролик с вашими ассетами, а не копию кадр в кадр.",
   );
   details.append(copy);
-  if (strategyId !== "viral_product_swap") {
+  if (!MECHANICS_FREE_STRATEGIES.has(strategyId)) {
     const draft = strategyMechanicsDraft(source.source_media_id);
     const fields = element("div", "generation-strategy-mechanics-grid");
     STRATEGY_MECHANICS_FIELDS.forEach((field) => {
@@ -1194,7 +1630,7 @@ function strategyMechanicsEditor(source, strategyId, position) {
       control.name = `generation_strategy_mechanics_${position}_${field.key}`;
       control.setAttribute(
         "aria-label",
-        `${field.label} · ролик ${position} из 10 · ${source.filename}`,
+        `${field.label} · ролик ${position} из ${requiredCount} · ${source.filename}`,
       );
       label.append(control, element("small", "field-hint", field.hint));
       fields.append(label);
@@ -1216,13 +1652,20 @@ function renderStrategySourcePicker(form, { reset = false } = {}) {
   if (!projection) return null;
 
   const header = element("div", "generation-strategy-source-picker__header");
+  const sourceCopy = row.strategy_id === "viral_product_swap"
+    ? "Один MP4 станет исходной сценой Product Swap."
+    : row.strategy_id === "viral_avatar_ugc"
+      ? "Один MP4 станет фоном дуэта с ведущим."
+    : projection.required_count === 1
+      ? "Один MP4 станет референсом нового ролика."
+      : `Порядок станет порядком ${projection.required_count} независимых роликов.`;
   header.append(
-    element("strong", "", `Выбрано ${projection.selected_count} из 10`),
     element(
-      "span",
-      "muted tiny",
-      "Порядок станет порядком десяти независимых роликов.",
+      "strong",
+      "",
+      `Выбрано ${projection.selected_count} из ${projection.required_count}`,
     ),
+    element("span", "muted tiny", sourceCopy),
   );
   const options = element("div", "generation-strategy-source-picker__options");
   const selectedIds = new Set(projection.selected.map((item) => item.source_media_id));
@@ -1233,7 +1676,8 @@ function renderStrategySourcePicker(form, { reset = false } = {}) {
     input.name = "generation_strategy_source_selection";
     input.value = candidate.id;
     input.checked = selectedIds.has(candidate.id);
-    input.disabled = !input.checked && projection.selected_count >= 10;
+    input.disabled =
+      !input.checked && projection.selected_count >= projection.required_count;
     input.dataset.generationStrategySourceToggle = candidate.id;
     input.setAttribute("aria-label", `Выбрать ${candidate.filename}`);
     const position = projection.selected.find(
@@ -1258,13 +1702,18 @@ function renderStrategySourcePicker(form, { reset = false } = {}) {
     root.append(element(
       "p",
       "muted tiny",
-      "Нет доступных MP4 с привязкой к точному YouTube-источнику и подтверждёнными правами.",
+      "Нет доступных зарегистрированных MP4 с подтверждёнными правами.",
     ));
   }
 
   if (reviews) {
     reviews.replaceChildren(...projection.selected.map((source) => (
-      strategyMechanicsEditor(source, row.strategy_id, source.position)
+      strategyMechanicsEditor(
+        source,
+        row.strategy_id,
+        source.position,
+        projection.required_count,
+      )
     )));
   }
   form.dataset.generationStrategySourceCount = String(projection.selected_count);
@@ -1352,6 +1801,53 @@ function replaceStrategyAssetCandidates(form, strategyId, role, { reset = false 
 }
 
 function syncStrategyAssetCandidates(form, { reset = false } = {}) {
+  // The compact route persists the exact registered source UUID in hidden
+  // handoff fields before native controls are rebound. Rehydrate that server-
+  // issued source on every sync so a form remount or a failed/stale catalog
+  // response cannot turn an already attached MP4 into "0 из 1".
+  const diagnosticSource = registeredSourceFromHiddenHandoff(form)
+    || registeredSourceFromIntakeHandoff(runtime.intakeHandoff);
+  const diagnosticProjectId = generationStrategyProjectId();
+  hydrateRegisteredSourceFromHiddenHandoff(form);
+  if (form?.dataset) {
+    form.dataset.generationStrategyHandoffSource = diagnosticSource?.media_id || "";
+    form.dataset.generationStrategyRuntimeProject = diagnosticProjectId;
+    form.dataset.generationStrategyOverlayProject =
+      runtime.strategyRegisteredSourceProjectId || "";
+    form.dataset.generationStrategyOverlayCount = String(
+      runtime.strategyRegisteredSources.size,
+    );
+    const diagnosticOverlay = diagnosticSource
+      ? runtime.strategyRegisteredSources.get(diagnosticSource.media_id)
+      : null;
+    form.dataset.generationStrategyOverlayContract = diagnosticOverlay
+      ? [
+          diagnosticOverlay.kind,
+          diagnosticOverlay.mime_type,
+          diagnosticOverlay.status,
+          diagnosticOverlay.rights_confirmed === true ? "rights" : "no-rights",
+          diagnosticOverlay.direct_mp4_attached === true ? "direct" : "no-direct",
+          diagnosticOverlay.eligible === true ? "eligible" : "probe",
+          Number.isFinite(diagnosticOverlay.duration_seconds)
+            ? String(diagnosticOverlay.duration_seconds)
+            : "no-duration",
+          String(diagnosticOverlay.eligible_strategy_roles?.length || 0),
+          (diagnosticOverlay.blocking_codes_by_strategy?.viral_product_swap || [])
+            .join(",") || "no-blockers",
+        ].join("|")
+      : "absent";
+    const diagnosticCatalogSource = runtime.strategyAssetPage?.assets?.find(
+      (asset) => asset?.id === diagnosticSource?.media_id,
+    );
+    form.dataset.generationStrategyCatalogSource = diagnosticCatalogSource
+      ? catalogConfirmsRegisteredStrategySource(
+          diagnosticCatalogSource,
+          diagnosticSource?.media_id || "",
+        )
+        ? "complete"
+        : "partial"
+      : "absent";
+  }
   const row = selectedStrategyRow();
   const status = q("[data-generation-strategy-assets-status]", form);
   const more = q("[data-generation-strategy-assets-load-more]", form);
@@ -1380,32 +1876,17 @@ function syncStrategyAssetCandidates(form, { reset = false } = {}) {
     }
   }
   const sourceProjection = renderStrategySourcePicker(form, { reset });
-  if (!status) return;
-  if (runtime.strategyAssetStatus === "loading") {
-    status.dataset.state = "loading";
-    status.textContent = "Проверяем доступные исходники проекта. Файлы никуда не отправляются.";
-    return;
+  if (form?.dataset) {
+    form.dataset.generationStrategyPickerCandidateCount = String(
+      runtime.strategySourcePicker?.candidates?.length || 0,
+    );
+    form.dataset.generationStrategyPickerStrategy =
+      runtime.strategySourcePicker?.strategy_id || "";
   }
-  if (runtime.strategyAssetStatus === "error") {
-    status.dataset.state = "warning";
-    status.textContent = "Не удалось получить серверный список исходников. Платный запуск заблокирован; обновите список.";
-    return;
-  }
-  if (!runtime.strategyAssetPage) {
-    status.dataset.state = "pending";
-    status.textContent = "Загрузите серверный список исходников. Браузер не подставляет локальные файлы как платную авторизацию.";
-    return;
-  }
-  const requiredOwnedRoles = row.asset_roles
-    .filter((role) => (
-      role.role !== "source_video"
-      && STRATEGY_ASSET_CONTROL_BY_ROLE[role.role]
-    ));
-  const missing = requiredOwnedRoles.filter((role) => {
-    const control = form.elements?.[STRATEGY_ASSET_CONTROL_BY_ROLE[role.role]];
-    return !(control instanceof HTMLSelectElement)
-      || ![...control.options].some((option) => !option.disabled && option.value);
-  });
+  // A compact upload can be safely probed even while the broader read-only
+  // catalog is refreshing or temporarily unavailable: register + direct-MP4
+  // attachment already completed, and the probe endpoint revalidates the
+  // exact UUID without starting a provider or charging money.
   if (probe instanceof HTMLButtonElement) {
     const probeIds = sourceProjection?.probe_required_source_ids || [];
     const probeRequired = probeIds.length > 0;
@@ -1417,19 +1898,92 @@ function syncStrategyAssetCandidates(form, { reset = false } = {}) {
     probe.dataset.mediaIds = probeIds.join(",");
     if (probeIds.length) probe.dataset.mediaId = probeIds[0];
   }
+  if (!status) return;
+  if (runtime.strategyAssetStatus === "loading") {
+    setStrategyModuleState(form, "loading");
+    status.dataset.state = "loading";
+    status.textContent = "Проверяем доступные исходники проекта. Файлы никуда не отправляются.";
+    return;
+  }
+  if (runtime.strategyAssetStatus === "error") {
+    setStrategyModuleState(form, "blocked");
+    status.dataset.state = "warning";
+    status.textContent = sourceProjection?.probe_required_source_ids?.length
+      ? "Загруженный MP4 выбран. Общий список проекта временно недоступен, но бесплатная серверная проверка этого ролика доступна."
+      : sourceProjection?.all_selected_ready
+        ? "Загруженный MP4 выбран и проверен. Общий список проекта временно недоступен; платный запуск всё равно пройдёт отдельную серверную проверку."
+        : "Не удалось получить серверный список исходников. Платный запуск заблокирован; обновите список.";
+    return;
+  }
+  if (!runtime.strategyAssetPage) {
+    setStrategyModuleState(form, "blocked");
+    status.dataset.state = "pending";
+    status.textContent = "Загрузите серверный список исходников. Браузер не подставляет локальные файлы как платную авторизацию.";
+    return;
+  }
+  // Раньше «готово» решалось только полнотой файлов и про маршруты не знало
+  // ничего. Разбор условия — в strategyRouteUnavailable.
+  if (strategyRouteUnavailable(
+    runtime.strategyCatalog?.strategyProviderRoutes,
+    row.strategy_id,
+  )) {
+    setStrategyModuleState(form, "blocked");
+    status.dataset.state = "warning";
+    status.textContent = "У этой стратегии нет ни одного проверенного маршрута генерации. Подготовка и платный запуск недоступны, пока маршрут не заведён.";
+    return;
+  }
+  const requiredOwnedRoles = row.asset_roles
+    .filter((role) => (
+      role.role !== "source_video"
+      && STRATEGY_ASSET_CONTROL_BY_ROLE[role.role]
+    ));
+  const unsupportedRoles = strategyUnsupportedRequiredRoles(row.asset_roles);
+  if (unsupportedRoles.length) {
+    setStrategyModuleState(form, "blocked");
+    status.dataset.state = "warning";
+    status.textContent = `Форма не умеет собрать обязательную роль: ${
+      unsupportedRoles.map((role) => role.role).join(", ")
+    }. Это пробел формы, а не ваш: запуск заблокирован, чтобы сервер не отказал уже после подготовки.`;
+    return;
+  }
+  const missing = requiredOwnedRoles.filter((role) => {
+    const control = form.elements?.[STRATEGY_ASSET_CONTROL_BY_ROLE[role.role]];
+    return !(control instanceof HTMLSelectElement)
+      || ![...control.options].some((option) => !option.disabled && option.value);
+  });
+  // Фото товара собираются чекбоксами и потому в карту контролов не попадают —
+  // до этой правки готовность их не проверяла вовсе.
+  const productRoleId = strategyProductRole(row);
+  const productRole = productRoleId
+    ? row.asset_roles.find((role) => role.role === productRoleId)
+    : null;
+  const productMinimum = Number(productRole?.min_count || 0);
+  const productSelected = productRole
+    ? strategySelectedProductInputs(form).length
+    : 0;
+  const productShort = Boolean(productRole) && productSelected < productMinimum;
   if (sourceProjection?.probe_required_source_ids?.length) {
+    setStrategyModuleState(form, "blocked");
     status.dataset.state = "warning";
     status.textContent = `Для ${sourceProjection.probe_required_source_ids.length} выбранных MP4 нужна бесплатная серверная проверка длительности. До неё подготовка и платный запуск недоступны.`;
     return;
   }
   const sourceCount = sourceProjection?.selected_count || 0;
-  const incompleteSources = sourceCount !== 10;
-  status.dataset.state = missing.length || incompleteSources ? "warning" : "ready";
+  const requiredCount = sourceProjection?.required_count
+    || generationStrategyRequiredSourceCount(row.strategy_id);
+  const incompleteSources = sourceCount !== requiredCount;
+  const notReady = missing.length || incompleteSources || productShort;
+  setStrategyModuleState(form, notReady ? "blocked" : "ready");
+  status.dataset.state = notReady ? "warning" : "ready";
   status.textContent = missing.length
     ? "Для одной из обязательных ролей нет подходящего серверно подтверждённого файла. Добавьте исходник в Материалы или загрузите следующую страницу."
+    : productShort
+      ? `Выберите фотографии товара: нужно минимум ${productMinimum}, сейчас ${productSelected}.`
     : incompleteSources
-      ? `Выберите ровно 10 исходных хитов: сейчас ${sourceCount} из 10. Порядок выбора будет сохранён в очереди.`
-      : "Ровно 10 MP4 выбраны и проверены сервером. Каждый станет отдельным роликом; выбор ещё не запускает провайдера и не списывает средств.";
+      ? `Выберите ровно ${requiredCount} MP4: сейчас ${sourceCount} из ${requiredCount}. Порядок выбора будет сохранён в очереди.`
+      : requiredCount === 1
+        ? "Исходный MP4 выбран и проверен сервером. Выбор ещё не запускает провайдера и не списывает средств."
+        : `Ровно ${requiredCount} MP4 выбраны и проверены сервером. Каждый станет отдельным роликом; выбор ещё не запускает провайдера и не списывает средств.`;
 }
 
 async function loadGenerationStrategyAssets(form, { append = false } = {}) {
@@ -1487,6 +2041,19 @@ async function loadGenerationStrategyAssets(form, { append = false } = {}) {
           normalized.page,
         )
       : normalized.page;
+    // Once the catalog catches up, discard the temporary handoff overlay.
+    // Keep a just-probed duration only when this response is the older
+    // pre-probe snapshot (duration is still null); the next fresh page wins.
+    const catalogById = new Map(
+      (runtime.strategyAssetPage?.assets || []).map((asset) => [asset.id, asset]),
+    );
+    runtime.strategyRegisteredSources.forEach((candidate, mediaId) => {
+      const catalogCandidate = catalogById.get(mediaId);
+      if (!catalogCandidate) return;
+      if (catalogConfirmsRegisteredStrategySource(catalogCandidate, mediaId)) {
+        runtime.strategyRegisteredSources.delete(mediaId);
+      }
+    });
     runtime.strategyAssetStatus = "ready";
     runtime.strategyAssetError = "";
     syncStrategyAssetCandidates(form);
@@ -1519,6 +2086,291 @@ async function loadGenerationStrategyAssets(form, { append = false } = {}) {
   }
 }
 
+function generationStrategyRepeatProductFailure(code) {
+  return Object.freeze({
+    ok: false,
+    code,
+    product_id: "",
+    primary_media_id: "",
+    media_ids: Object.freeze([]),
+    assets: Object.freeze([]),
+  });
+}
+
+// Repeat IDs come from a read-only server snapshot, but IDs alone never make a
+// browser card paid-ready. Resolve every ID again through the strictly
+// normalized candidate catalog and preserve that server-owned product identity
+// for the ordinary media controls. The resulting order is the immutable repeat
+// order; its first item is the primary product photo.
+function generationStrategyRepeatProductPlan(
+  page,
+  requestedMediaIds,
+  expectedProductId,
+) {
+  const productId = String(expectedProductId || "").trim().toLowerCase();
+  if (!STRATEGY_REPEAT_MEDIA_ID_PATTERN.test(productId)) {
+    return generationStrategyRepeatProductFailure("repeat_product_identity_invalid");
+  }
+  if (
+    !Array.isArray(requestedMediaIds)
+    || requestedMediaIds.length < 1
+    || requestedMediaIds.length > PRODUCT_SWAP_REPEAT_MEDIA_LIMIT
+    || requestedMediaIds.some((value) => typeof value !== "string")
+  ) {
+    return generationStrategyRepeatProductFailure("repeat_product_ids_invalid");
+  }
+  const mediaIds = requestedMediaIds.map(
+    (value) => String(value).trim().toLowerCase(),
+  );
+  if (
+    mediaIds.some((mediaId) => !STRATEGY_REPEAT_MEDIA_ID_PATTERN.test(mediaId))
+    || new Set(mediaIds).size !== mediaIds.length
+  ) {
+    return generationStrategyRepeatProductFailure("repeat_product_ids_invalid");
+  }
+  if (
+    !page
+    || page.version !== "generation-strategy-asset-candidates-response-v1"
+    || !STRATEGY_REPEAT_MEDIA_ID_PATTERN.test(String(page.project_id || ""))
+    || !Array.isArray(page.assets)
+    || page.contract?.read_only !== true
+    || page.contract?.object_names_returned !== false
+    || page.contract?.hashes_returned !== false
+    || page.contract?.signed_urls_returned !== false
+    || !Object.isFrozen(page)
+    || !Object.isFrozen(page.assets)
+  ) {
+    return generationStrategyRepeatProductFailure("repeat_product_catalog_invalid");
+  }
+  const byId = new Map(page.assets.map((asset) => [asset?.id, asset]));
+  const assets = [];
+  for (const mediaId of mediaIds) {
+    const asset = byId.get(mediaId);
+    if (!asset) {
+      return generationStrategyRepeatProductFailure("repeat_product_asset_missing");
+    }
+    const identity = asset.product_identity;
+    const eligibility = generationStrategyAssetEligibility(
+      asset,
+      "viral_product_swap",
+      "new_product_image",
+    );
+    if (
+      !Object.isFrozen(asset)
+      || !["product_photo", "packshot"].includes(asset.kind)
+      || asset.project_id !== page.project_id
+      || asset.status !== "ready"
+      || asset.rights_confirmed !== true
+      || asset.product_id !== productId
+      || !identity
+      || identity.identity_verified !== true
+      || identity.product_id !== productId
+      || !String(identity.sku || "").trim()
+      || !String(identity.product_name || "").trim()
+      || eligibility.eligible !== true
+    ) {
+      return generationStrategyRepeatProductFailure("repeat_product_asset_invalid");
+    }
+    const firstIdentity = assets[0]?.product_identity;
+    if (
+      firstIdentity
+      && (
+        identity.product_id !== firstIdentity.product_id
+        || identity.sku !== firstIdentity.sku
+        || identity.product_name !== firstIdentity.product_name
+      )
+    ) {
+      return generationStrategyRepeatProductFailure("repeat_product_identity_mismatch");
+    }
+    assets.push(asset);
+  }
+  return Object.freeze({
+    ok: true,
+    code: "",
+    product_id: productId,
+    primary_media_id: mediaIds[0],
+    media_ids: Object.freeze([...mediaIds]),
+    assets: Object.freeze([...assets]),
+  });
+}
+
+function clearStrategyRepeatProductOptions(form) {
+  const host = q("[data-generation-strategy-repeat-products]", form);
+  if (!(host instanceof HTMLElement)) return;
+  qa("[data-generation-strategy-repeat-moved]", host).forEach((option) => {
+    const origin = strategyRepeatProductOrigins.get(option);
+    strategyRepeatProductOrigins.delete(option);
+    delete option.dataset.generationStrategyRepeatMoved;
+    if (origin?.isConnected) origin.replaceWith(option);
+    else option.remove();
+  });
+  const generatedFieldset = host.closest(
+    "[data-generation-strategy-repeat-product-fieldset]",
+  );
+  host.remove();
+  if (generatedFieldset instanceof HTMLElement) generatedFieldset.remove();
+}
+
+function strategyRepeatProductHost(form) {
+  const nativeInput = q('input[name="media_id"]', form);
+  let list = nativeInput?.closest?.(".option-list") || null;
+  if (!(list instanceof HTMLElement)) {
+    const fieldset = element("fieldset");
+    fieldset.dataset.generationStrategyRepeatProductFieldset = "true";
+    fieldset.style.cssText = "border:0; padding:0; margin:0";
+    fieldset.append(
+      element("legend", "field-label", "Фото и ракурсы выбранного товара *"),
+      element(
+        "p",
+        "muted tiny",
+        "Архивные фото повторного запуска заново подтверждены сервером.",
+      ),
+    );
+    list = element("div", "option-list");
+    list.style.marginTop = "8px";
+    fieldset.append(list);
+    (contentFor(form, "media") || form).append(fieldset);
+  }
+  const host = element("div", "generation-strategy-repeat-products");
+  host.dataset.generationStrategyRepeatProducts = "true";
+  host.style.display = "contents";
+  list.prepend(host);
+  return host;
+}
+
+function strategyRepeatNativeProductOption(form, asset) {
+  const identity = asset.product_identity;
+  return qa('input[name="media_id"]', form)
+    .map((input) => ({ input, option: input.closest(".generation-media-option") }))
+    .find(({ input, option }) => {
+      if (!(input instanceof HTMLInputElement) || !(option instanceof HTMLElement)) {
+        return false;
+      }
+      const primary = qa('input[name="primary_media_id"]', option).find(
+        (radio) => radio.value === asset.id,
+      );
+      return !input.disabled
+        && primary instanceof HTMLInputElement
+        && !primary.disabled
+        && input.value === asset.id
+        && option.dataset.paidReady === "true"
+        && input.dataset.mediaIdentityVerified === "true"
+        && input.dataset.mediaRightsConfirmed === "true"
+        && input.dataset.mediaProductId === identity.product_id
+        && input.dataset.mediaSku === identity.sku
+        && input.dataset.mediaProductName === identity.product_name;
+    })?.option || null;
+}
+
+function strategyRepeatSyntheticProductOption(asset) {
+  const identity = asset.product_identity;
+  const option = element("div", "option generation-media-option");
+  option.dataset.paidReady = "true";
+  option.dataset.generationStrategyRepeatSynthetic = "true";
+  const selectLabel = element("label", "generation-media-option__select");
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.name = "media_id";
+  input.value = asset.id;
+  input.dataset.mediaIdentityVerified = "true";
+  input.dataset.mediaRightsConfirmed = "true";
+  input.dataset.mediaProductId = identity.product_id;
+  input.dataset.mediaSku = identity.sku;
+  input.dataset.mediaProductName = identity.product_name;
+  const copy = element("span");
+  copy.append(
+    element("strong", "", asset.filename),
+    document.createElement("br"),
+    element(
+      "small",
+      "muted",
+      `фото товара · ${identity.sku} · ${identity.product_name} · подтверждено сервером`,
+    ),
+  );
+  selectLabel.append(input, copy);
+  const primaryLabel = element("label", "generation-media-option__primary");
+  const primary = document.createElement("input");
+  primary.type = "radio";
+  primary.name = "primary_media_id";
+  primary.value = asset.id;
+  primaryLabel.append(primary, element("span", "", "Главное фото"));
+  option.append(selectLabel, primaryLabel);
+  return option;
+}
+
+function materializeStrategyRepeatProductPlan(form, plan) {
+  if (!plan?.ok || !Array.isArray(plan.assets) || !plan.assets.length) return false;
+  clearStrategyRepeatProductOptions(form);
+  const host = strategyRepeatProductHost(form);
+  if (!(host instanceof HTMLElement)) return false;
+  qa('input[name="media_id"]', form).forEach((input) => {
+    input.checked = false;
+  });
+  qa('input[name="primary_media_id"]', form).forEach((input) => {
+    input.checked = false;
+  });
+  const selectedInputs = [];
+  const primaryInputs = [];
+  for (const asset of plan.assets) {
+    let option = strategyRepeatNativeProductOption(form, asset);
+    if (option) {
+      const origin = document.createComment("generation-strategy-repeat-origin");
+      option.before(origin);
+      strategyRepeatProductOrigins.set(option, origin);
+      option.dataset.generationStrategyRepeatMoved = "true";
+    } else {
+      option = strategyRepeatSyntheticProductOption(asset);
+    }
+    host.append(option);
+    const input = q('input[name="media_id"]', option);
+    const primary = q('input[name="primary_media_id"]', option);
+    if (!(input instanceof HTMLInputElement) || !(primary instanceof HTMLInputElement)) {
+      clearStrategyRepeatProductOptions(form);
+      return false;
+    }
+    selectedInputs.push(input);
+    primaryInputs.push(primary);
+  }
+  selectedInputs.forEach((input) => {
+    input.checked = true;
+  });
+  primaryInputs.forEach((input, index) => {
+    input.checked = index === 0 && input.value === plan.primary_media_id;
+  });
+  const exactOrder = qa('input[name="media_id"]:checked:not(:disabled)', host)
+    .map((input) => String(input.value || "").trim().toLowerCase());
+  const exactPrimary = String(
+    q('input[name="primary_media_id"]:checked:not(:disabled)', host)?.value || "",
+  ).trim().toLowerCase();
+  if (
+    JSON.stringify(exactOrder) !== JSON.stringify(plan.media_ids)
+    || exactPrimary !== plan.primary_media_id
+  ) {
+    clearStrategyRepeatProductOptions(form);
+    return false;
+  }
+  // Reuse the ordinary delegated handlers so SKU/name and readiness are
+  // recomputed from these server-derived datasets, not from stale form text.
+  selectedInputs[0].dispatchEvent(new Event("change", { bubbles: true }));
+  primaryInputs[0].dispatchEvent(new Event("change", { bubbles: true }));
+  const settledOrder = qa('input[name="media_id"]:checked:not(:disabled)', host)
+    .map((input) => String(input.value || "").trim().toLowerCase());
+  const settledPrimary = String(
+    q('input[name="primary_media_id"]:checked:not(:disabled)', host)?.value || "",
+  ).trim().toLowerCase();
+  if (
+    JSON.stringify(settledOrder) !== JSON.stringify(plan.media_ids)
+    || settledPrimary !== plan.primary_media_id
+  ) {
+    // The ordinary paid-media guard (including its existing 1–5 cap) has the
+    // final word. Never report a successful repeat restore after it rejects a
+    // server snapshot that no longer fits the current form contract.
+    clearStrategyRepeatProductOptions(form);
+    return false;
+  }
+  return true;
+}
+
 function replaceStrategyOptions(control, values, selectedValue, emptyLabel) {
   if (!(control instanceof HTMLSelectElement)) return "";
   const normalized = [...new Set((Array.isArray(values) ? values : [])
@@ -1542,10 +2394,15 @@ function replaceStrategyOptions(control, values, selectedValue, emptyLabel) {
 }
 
 function resetStrategyForm(form) {
+  clearStrategyRepeatProductOptions(form);
   const fieldset = q("#generation-strategy-assets", form);
   if (fieldset instanceof HTMLFieldSetElement) {
     fieldset.hidden = true;
     fieldset.disabled = true;
+    delete fieldset.dataset.generationStrategyModule;
+    delete fieldset.dataset.generationStrategyForm;
+    fieldset.dataset.state = "idle";
+    fieldset.removeAttribute("aria-label");
   }
   [
     "generation_strategy_id",
@@ -1572,6 +2429,15 @@ function resetStrategyForm(form) {
   runtime.strategyMechanicsDrafts.clear();
   delete form.dataset.generationStrategySourceCount;
   delete form.dataset.generationStrategySourcesReady;
+}
+
+function setStrategyModuleState(form, state) {
+  const fieldset = q("#generation-strategy-assets", form);
+  if (!(fieldset instanceof HTMLFieldSetElement)) return;
+  fieldset.dataset.state = ["idle", "editing", "blocked", "ready", "loading"]
+    .includes(state)
+    ? state
+    : "editing";
 }
 
 function strategyAttestationsMatch(root, row) {
@@ -1628,6 +2494,25 @@ function isStrategyAssetAuthorityControl(control) {
     || /^generation_strategy_.+_media_id$/u.test(name);
 }
 
+function syncStrategyBriefValidity(form, strategySelected = Boolean(selectedStrategyRow())) {
+  const brief = form.elements?.brief;
+  if (!(brief instanceof HTMLTextAreaElement)) return;
+  if (strategySelected) {
+    const strategyId = String(selectedStrategyRow()?.strategy_id || "");
+    brief.dataset.generationStrategyForm = strategyId;
+    delete brief.dataset.generationModelForm;
+    delete brief.dataset.generationModelPromptLimit;
+    brief.setCustomValidity(
+      String(brief.value || "").length > 800
+        ? "Сократите инструкцию до 800 знаков для выбранной стратегии."
+        : "",
+    );
+    return;
+  }
+  delete brief.dataset.generationStrategyForm;
+  brief.setCustomValidity("");
+}
+
 function syncLegacyModelVisibility(form, strategySelected) {
   const targets = [
     q("[data-ce-v4-model-kind]", form),
@@ -1654,6 +2539,8 @@ function syncLegacyModelVisibility(form, strategySelected) {
     form.elements?.generation_reference_source_access_confirmed,
     form.elements?.generation_reference_transformative_use_confirmed,
     form.elements?.format,
+    form.elements?.generation_resolution,
+    form.elements?.generation_audio,
   ].forEach((control) => {
     if (
       control instanceof HTMLInputElement
@@ -1661,6 +2548,11 @@ function syncLegacyModelVisibility(form, strategySelected) {
       || control instanceof HTMLTextAreaElement
     ) {
       control.disabled = strategySelected;
+      // Dropping `required` matters as much as disabling: these legacy controls
+      // are hidden in a strategy route, and a re-render that re-enables one of
+      // them makes form.reportValidity() fail on an invisible empty select, so
+      // every submit dies silently with no message the operator can see.
+      if (strategySelected) control.required = false;
     }
   });
   if (strategySelected) {
@@ -1692,12 +2584,32 @@ function syncLegacyModelVisibility(form, strategySelected) {
   if (brief instanceof HTMLTextAreaElement) {
     brief.required = strategySelected || modeIsReal(form);
     brief.maxLength = strategySelected ? 800 : 1_200;
+    syncStrategyBriefValidity(form, strategySelected);
   }
   const advisor = q("[data-ce-v4-model-advisor]", form);
   if (advisor instanceof HTMLElement) {
     advisor.hidden = false;
     advisor.dataset.strategyAdvisoryOnly = strategySelected ? "true" : "false";
   }
+}
+
+// Разрешения, которые умеет выбранный в каскаде движок, по его уровням
+// качества из реестра; null — движок не выбран или режимы неизвестны.
+function strategyEngineResolutions(form, strategyId) {
+  const raw = String(form?.elements?.generation_intake_engine?.value || "").trim();
+  const separator = raw.indexOf(":");
+  if (separator < 1) return null;
+  const routes = runtime.strategyCatalog?.strategyProviderRoutes?.[strategyId];
+  if (!Array.isArray(routes)) return null;
+  const route = routes.find((entry) => (
+    entry?.provider === raw.slice(0, separator)
+    && entry?.model_key === raw.slice(separator + 1)
+  ));
+  const modes = Array.isArray(route?.quality_modes) ? route.quality_modes : [];
+  const resolutions = new Set(
+    modes.map((mode) => String(mode?.resolution || "")).filter(Boolean),
+  );
+  return resolutions.size ? resolutions : null;
 }
 
 function syncStrategyForm(form, { reset = false } = {}) {
@@ -1708,11 +2620,21 @@ function syncStrategyForm(form, { reset = false } = {}) {
     syncLegacyModelVisibility(form, false);
     return false;
   }
+  if (reset || row.strategy_id !== "viral_product_swap") {
+    clearStrategyRepeatProductOptions(form);
+  }
 
   const fieldset = q("#generation-strategy-assets", form);
   if (!(fieldset instanceof HTMLFieldSetElement)) return false;
   fieldset.hidden = false;
   fieldset.disabled = false;
+  fieldset.dataset.generationStrategyModule = row.strategy_id;
+  fieldset.dataset.generationStrategyForm = row.strategy_id;
+  fieldset.dataset.state = "editing";
+  fieldset.setAttribute(
+    "aria-label",
+    `Отдельная форма стратегии «${row.public_label}». Настраивается человеком.`,
+  );
   syncLegacyModelVisibility(form, true);
 
   const setValue = (name, value) => {
@@ -1754,9 +2676,19 @@ function syncStrategyForm(form, { reset = false } = {}) {
   if (ratio instanceof HTMLSelectElement) {
     ratio.disabled = !ratioMode;
     ratio.required = ratioMode;
+    // Кадры, которых выбранный движок не делает, не предлагаются: у движков
+    // fal «Создания» есть только 720p, и 1080-й кадр обернулся бы отказом в
+    // цене уже после выбора. Без движка (или без сведений о его режимах)
+    // список остаётся полным.
+    const engineResolutions = strategyEngineResolutions(form, row.strategy_id);
+    const ratios = engineResolutions
+      ? row.output_rules.ratios.filter((value) => engineResolutions.has(
+        String(row.output_rules.resolution_by_ratio?.[value] || ""),
+      ))
+      : row.output_rules.ratios;
     replaceStrategyOptions(
       ratio,
-      row.output_rules.ratios,
+      ratios.length ? ratios : row.output_rules.ratios,
       reset ? "" : ratio.value,
       "Выберите формат",
     );
@@ -1802,7 +2734,10 @@ function syncStrategyForm(form, { reset = false } = {}) {
   syncStrategyAttestations(attestationRoot, row, { reset });
   const copy = q("[data-generation-strategy-assets-copy]", fieldset);
   if (copy) {
-    copy.textContent = `${row.public_label}. Выберите ровно 10 хитов в нужном порядке, общие ассеты товара и права. Каждый исходник получит своё ТЗ, цену и задачу; до общего явного подтверждения списания не будет.`;
+    const requiredCount = generationStrategyRequiredSourceCount(row.strategy_id);
+    copy.textContent = row.strategy_id === "viral_product_swap"
+      ? `${row.public_label}. Выберите один исходный MP4, кадр исходного товара, фото нового товара и подтвердите права. До явного подтверждения списания не будет.`
+      : `${row.public_label}. Выберите ровно ${requiredCount} исходных MP4 в нужном порядке, общие ассеты товара и права. Каждый исходник получит своё ТЗ, цену и задачу; до общего явного подтверждения списания не будет.`;
   }
   syncStrategyAssetCandidates(form, { reset });
   return true;
@@ -1829,13 +2764,9 @@ function strategyAssetsForForm(form, row) {
       form.elements?.generation_strategy_original_product_media_id,
     );
   }
-  const productRole = roleIds.has("new_product_image")
-    ? "new_product_image"
-    : roleIds.has("product_image")
-      ? "product_image"
-      : "";
+  const productRole = strategyProductRole(row);
   if (productRole) {
-    qa('input[name="media_id"]:checked:not(:disabled)', form).forEach((input) => {
+    strategySelectedProductInputs(form).forEach((input) => {
       assets.push({ role: productRole, media_id: String(input.value).toLowerCase() });
     });
   }
@@ -1850,7 +2781,7 @@ function generationStrategyAttestations(form, row) {
 }
 
 function generationStrategyMechanicsSummary(sourceMediaId, strategyId) {
-  if (strategyId === "viral_product_swap") return null;
+  if (MECHANICS_FREE_STRATEGIES.has(strategyId)) return null;
   const draft = strategyMechanicsDraft(sourceMediaId);
   return Object.freeze({
     version: "generation-strategy-mechanics-summary-v1",
@@ -1936,7 +2867,9 @@ function generationStrategySelections(form) {
       ),
     }));
   }
-  return results.length === 10 ? Object.freeze(results) : null;
+  return results.length === sourceProjection.required_count
+    ? Object.freeze(results)
+    : null;
 }
 
 function generationStrategySelection(form) {
@@ -1996,36 +2929,67 @@ function applyStrategyRestore(form, values) {
   const requestedProductMedia = Array.isArray(
     values.generation_strategy_product_media_ids,
   )
-    ? [...new Set(values.generation_strategy_product_media_ids.map(
+    ? values.generation_strategy_product_media_ids.map(
         (value) => String(value || "").trim().toLowerCase(),
-      ).filter(Boolean))]
+      ).filter(Boolean)
     : [];
-  const availableProductMedia = new Set(
-    qa('input[name="media_id"]:not(:disabled)', form).map((input) => (
-      String(input.value || "").trim().toLowerCase()
-    )),
-  );
-  const productMediaAvailable = requestedProductMedia.every((mediaId) => (
-    availableProductMedia.has(mediaId)
-  ));
-  if (requestedProductMedia.length && productMediaAvailable) {
-    const selected = new Set(requestedProductMedia);
-    qa('input[name="media_id"]', form).forEach((input) => {
-      input.checked = selected.has(String(input.value || "").trim().toLowerCase())
-        && !input.disabled;
-    });
-    qa('input[name="primary_media_id"]', form).forEach((input) => {
-      input.checked = String(input.value || "").trim().toLowerCase()
-        === requestedProductMedia[0] && !input.disabled;
-    });
+  let productMediaAvailable = false;
+  let repeatProductPlan = null;
+  if (strategyId === "viral_product_swap") {
+    repeatProductPlan = generationStrategyRepeatProductPlan(
+      runtime.strategyAssetPage,
+      values.generation_strategy_product_media_ids,
+      values.generation_strategy_product_id,
+    );
+    productMediaAvailable = repeatProductPlan.ok
+      && materializeStrategyRepeatProductPlan(form, repeatProductPlan);
+    if (!repeatProductPlan.ok) clearStrategyRepeatProductOptions(form);
+  } else {
+    // Other strategy routes retain the existing form-catalog behavior. Only
+    // Product Swap repeat may materialize server candidates outside that list.
+    const exactRequested = [...new Set(requestedProductMedia)];
+    const availableProductMedia = new Set(
+      qa('input[name="media_id"]:not(:disabled)', form).map((input) => (
+        String(input.value || "").trim().toLowerCase()
+      )),
+    );
+    productMediaAvailable = exactRequested.every((mediaId) => (
+      availableProductMedia.has(mediaId)
+    ));
+    if (exactRequested.length && productMediaAvailable) {
+      const selected = new Set(exactRequested);
+      qa('input[name="media_id"]', form).forEach((input) => {
+        input.checked = selected.has(String(input.value || "").trim().toLowerCase())
+          && !input.disabled;
+      });
+      qa('input[name="primary_media_id"]', form).forEach((input) => {
+        input.checked = String(input.value || "").trim().toLowerCase()
+          === exactRequested[0] && !input.disabled;
+      });
+    }
   }
+  const waitForProductCatalog = strategyId === "viral_product_swap"
+    && repeatProductPlan?.ok !== true
+    && [
+      "repeat_product_catalog_invalid",
+      "repeat_product_asset_missing",
+    ].includes(repeatProductPlan?.code)
+    && runtime.strategyAssetStatus !== "ready";
+  const loadNextProductPage = strategyId === "viral_product_swap"
+    && repeatProductPlan?.code === "repeat_product_asset_missing"
+    && runtime.strategyAssetStatus === "ready"
+    && runtime.strategyAssetPage?._meta?.has_more === true;
   if (
-    unresolvedAssetControls.length
-    && runtime.strategyAssetStatus !== "ready"
+    (
+      unresolvedAssetControls.length
+      && runtime.strategyAssetStatus !== "ready"
+    )
+    || waitForProductCatalog
+    || loadNextProductPage
   ) {
     runtime.pendingStrategyRestore = { form, values: { ...values } };
     if (runtime.strategyAssetStatus !== "loading") {
-      void loadGenerationStrategyAssets(form);
+      void loadGenerationStrategyAssets(form, { append: loadNextProductPage });
     }
     return false;
   }
@@ -2053,6 +3017,31 @@ function ensureStrategyView(form) {
   }
   if (!runtime.strategyViewRoots.has(root)) renderStrategyView(form);
   return root;
+}
+
+function modelVisualNode(model, { recommended = false, featured = false } = {}) {
+  const visual = resolveGenerationModelVisual(model?.provider, model?.model);
+  if (!visual) return null;
+  const frame = element(
+    "span",
+    featured
+      ? "ce-v4-model-card__visual ce-v4-model-card__visual--featured"
+      : "ce-v4-model-card__visual",
+  );
+  frame.dataset.family = visual.family;
+  frame.dataset.tone = visual.tone;
+  frame.dataset.modelVisual = visual.key;
+  frame.setAttribute("aria-hidden", "true");
+  const image = document.createElement("img");
+  image.className = "ce-v4-model-card__image";
+  image.src = visual.src;
+  image.alt = "";
+  image.decoding = "async";
+  image.draggable = false;
+  image.loading = recommended || featured ? "eager" : "lazy";
+  image.style.objectPosition = visual.focal;
+  frame.append(image);
+  return frame;
 }
 
 function modelCard(form, model, state) {
@@ -2110,14 +3099,14 @@ function modelCard(form, model, state) {
   );
 
   const top = element("span", "ce-v4-model-card__top");
-  const provider = element("span", "ce-v4-model-card__provider", String(model.provider || "ИИ").toUpperCase());
+  const provider = element("span", "ce-v4-model-card__provider", String(model.provider || "МОДЕЛЬ").toUpperCase());
   const flag = element(
     "span",
     recommended ? "ce-v4-model-card__flag is-recommended" : "ce-v4-model-card__flag",
     recommended && selected
-      ? "Ваш выбор · ИИ советует"
+      ? "Ваш выбор · системный подбор"
       : recommended
-        ? "ИИ советует"
+        ? "Системный подбор"
         : selected
           ? "Ваш выбор"
           : selectable
@@ -2184,8 +3173,10 @@ function modelCard(form, model, state) {
   const explanation = element("small", "ce-v4-model-card__explanation", copy);
 
   const choice = element("label", "ce-v4-model-card__choice");
+  choice.append(radio);
+  const visual = modelVisualNode(model, { recommended });
+  if (visual) choice.append(visual);
   choice.append(
-    radio,
     top,
     name,
     meta,
@@ -2324,7 +3315,7 @@ function renderRecommendationPanel(form, recommendation, state, suggestedModel, 
   if (!suggestedModel) {
     const empty = element("div", "ce-v4-model-advisor__recommendation-empty");
     empty.append(
-      element("strong", "", "Нет совместимой рекомендации"),
+      element("strong", "", "Нет совместимого технического подбора"),
       element("p", "", "Текущий ручной выбор сохранён. Исправьте исходник, длительность, звук или бюджет — ничего не будет запущено автоматически."),
     );
     recommendation.append(empty);
@@ -2352,10 +3343,11 @@ function renderRecommendationPanel(form, recommendation, state, suggestedModel, 
   const accepted = sameSelection && state.selectionSource === "accepted_recommendation";
 
   const hero = element("div", "ce-v4-model-recommendation-hero");
+  const heroVisual = modelVisualNode(suggestedModel, { recommended: true, featured: true });
   const title = element("div", "ce-v4-model-recommendation-hero__title");
   title.append(
     element("span", "ce-v4-model-recommendation-hero__source", recommendationSource(state)),
-    element("small", "", `Рекомендация ИИ · ${String(suggestedModel.provider || "ИИ").toUpperCase()}`),
+    element("small", "", `Технический подбор модели · ${String(suggestedModel.provider || "МОДЕЛЬ").toUpperCase()}`),
     element("strong", "", String(suggestedModel.publicLabel || suggestedModel.model)),
   );
   const metrics = element("div", "ce-v4-model-recommendation-hero__metrics");
@@ -2365,6 +3357,7 @@ function renderRecommendationPanel(form, recommendation, state, suggestedModel, 
   readinessMetric.dataset.state = readiness.state;
   readinessMetric.append(element("small", "", "Готовность"), element("strong", "", readiness.text));
   metrics.append(costMetric, readinessMetric);
+  if (heroVisual) hero.append(heroVisual);
   hero.append(title, metrics);
 
   const reasons = element("div", "ce-v4-model-recommendation__reasons");
@@ -2381,7 +3374,7 @@ function renderRecommendationPanel(form, recommendation, state, suggestedModel, 
   );
 
   const details = element("details", "ce-v4-model-recommendation__why");
-  details.append(element("summary", "", "Почему эта рекомендация?"));
+  details.append(element("summary", "", "Почему система предлагает эту модель?"));
   const detailBody = element("div", "ce-v4-model-recommendation__why-body");
   detailBody.append(
     element("p", "", `Источник: ${recommendationSource(state)}. Каталог: ${state.recommendation?.catalogVersion || "версия не получена"}.`),
@@ -2406,7 +3399,7 @@ function renderRecommendationPanel(form, recommendation, state, suggestedModel, 
   const apply = element(
     "button",
     "btn btn-secondary btn-small",
-    accepted ? "Рекомендация принята" : "Применить рекомендацию",
+    accepted ? "Технический подбор принят" : "Применить технический подбор",
   );
   apply.type = "button";
   apply.dataset.ceV4ApplyModelRecommendation = "";
@@ -2419,7 +3412,7 @@ function renderRecommendationPanel(form, recommendation, state, suggestedModel, 
     comparison.append(element("summary", "", "Сравнить с моим выбором"));
     const comparisonGrid = element("div", "ce-v4-model-comparison__grid");
     comparisonGrid.append(
-      comparisonCell("ИИ советует", suggestedModel, form, state),
+      comparisonCell("Системный подбор", suggestedModel, form, state),
       comparisonCell("Вы выбрали", selectedModel, form, state),
     );
     comparison.append(comparisonGrid);
@@ -2595,22 +3588,45 @@ function renderModelAdvisor(form) {
   });
 
   if (!runtime.catalog || !Array.isArray(runtime.catalog.models)) {
-    grid.replaceChildren();
+    const failed = runtime.catalogStatus === "error";
+    if (failed) {
+      const retry = element(
+        "button",
+        "btn ce-v4-model-catalog-retry",
+        "Повторить загрузку каталога",
+      );
+      retry.type = "button";
+      retry.dataset.ceV4ModelCatalogRetry = "";
+      grid.replaceChildren(retry);
+    } else {
+      grid.replaceChildren();
+    }
     recommendation.hidden = true;
     syncModelLaunchGuard(form, "");
     const summary = q("[data-ce-v4-model-selection-summary-body]", form);
     if (summary) {
-      summary.dataset.state = runtime.catalogStatus === "error" ? "blocked" : "loading";
-      summary.replaceChildren(
-        element("strong", "ce-v4-model-selection-summary__title", runtime.catalogStatus === "error"
+      summary.dataset.state = failed ? "blocked" : "loading";
+      const summaryChildren = [
+        element("strong", "ce-v4-model-selection-summary__title", failed
           ? "Каталог моделей не ответил"
           : "Загружаем точный каталог…"),
         element("p", "ce-v4-model-selection-summary__note", "Исходный режим формы сохранён. Мы не выдумываем модель, цену или готовность без ответа сервера."),
-      );
+      ];
+      if (failed) {
+        const summaryRetry = element(
+          "button",
+          "btn ce-v4-model-catalog-retry",
+          "Повторить загрузку каталога",
+        );
+        summaryRetry.type = "button";
+        summaryRetry.dataset.ceV4ModelCatalogRetry = "";
+        summaryChildren.push(summaryRetry);
+      }
+      summary.replaceChildren(...summaryChildren);
     }
-    status.dataset.state = runtime.catalogStatus === "error" ? "error" : "loading";
-    status.textContent = runtime.catalogStatus === "error"
-      ? "Каталог моделей сейчас недоступен. Текущий режим формы сохранён; платный запуск не изменён."
+    status.dataset.state = failed ? "error" : "loading";
+    status.textContent = failed
+      ? "Каталог моделей сейчас недоступен. Повторите загрузку — форма и платный запуск не изменены."
       : "Загружаем доступные модели…";
     return;
   }
@@ -2666,16 +3682,37 @@ function renderModelAdvisor(form) {
   status.dataset.state = !selectionActive ? "advisory" : state.manualLock ? "manual" : "advisory";
   status.dataset.strategyAdvisoryOnly = strategyAdvisoryOnly ? "true" : "false";
   status.textContent = strategyAdvisoryOnly
-    ? "ИИ предлагает несколько моделей для сравнения. Для этого сценария карточки носят рекомендательный характер; платно запускается только серверно подтверждённый recipe."
+    ? "Система показывает несколько технически подходящих моделей для сравнения. Для этого сценария карточки носят рекомендательный характер; платно запускается только серверно подтверждённый recipe."
     : !selectionActive
     ? explicitDryRun
       ? "Вы явно выбрали dry-run. Он создаст только задачи без медиафайла и списания."
       : "Способ создания ещё не выбран. Ни dry-run, ни платная генерация не включатся автоматически."
     : selectedModel
       ? state.manualLock
-        ? `Ваш выбор: ${selectedModel.publicLabel || selectedModel.model}. Он зафиксирован: новые советы ИИ не заменят его без вашей команды.`
-        : `Предложение ИИ: ${selectedModel.publicLabel || selectedModel.model}. Применение требует вашего действия.`
-      : "Выберите доступную модель. Рекомендация ИИ носит только советующий характер.";
+        ? `Ваш выбор: ${selectedModel.publicLabel || selectedModel.model}. Он зафиксирован: новый технический подбор не заменит его без вашей команды.`
+        : `Технический подбор: ${selectedModel.publicLabel || selectedModel.model}. Применение требует вашего действия.`
+      : "Выберите доступную модель. Технический подбор носит только советующий характер.";
+}
+
+// Однократная ошибка каталога больше не превращается в мёртвую страницу до
+// F5: сначала автоматические повторы с нарастающей паузой, затем явная кнопка.
+const CATALOG_RETRY_DELAYS_MS = Object.freeze([2_000, 5_000, 15_000]);
+
+function scheduleCatalogRetry(kind) {
+  const countKey = kind === "strategy"
+    ? "strategyCatalogRetryCount"
+    : "catalogRetryCount";
+  const statusKey = kind === "strategy" ? "strategyCatalogStatus" : "catalogStatus";
+  const attempt = runtime[countKey];
+  if (attempt >= CATALOG_RETRY_DELAYS_MS.length) return;
+  runtime[countKey] = attempt + 1;
+  window.setTimeout(() => {
+    const form = runtime.form;
+    if (!form?.isConnected || runtime[statusKey] !== "error") return;
+    runtime[statusKey] = "idle";
+    if (kind === "strategy") void loadStrategyCatalog(form);
+    else void loadModelCatalog(form);
+  }, CATALOG_RETRY_DELAYS_MS[attempt]);
 }
 
 async function loadModelCatalog(form) {
@@ -2703,6 +3740,7 @@ async function loadModelCatalog(form) {
     runtime.catalog = catalog;
     runtime.catalogSignals = response?.signals || response?.recommendation_context || null;
     runtime.catalogStatus = "ready";
+    runtime.catalogRetryCount = 0;
     runtime.recommendationState = null;
     window.ContentEngineWorkspaceRuntime?.setGenerationModelCatalog?.(catalog);
     const targetForm = form.isConnected ? form : runtime.form;
@@ -2719,6 +3757,7 @@ async function loadModelCatalog(form) {
   } catch {
     if (request !== runtime.catalogRequest) return;
     runtime.catalogStatus = "error";
+    scheduleCatalogRetry("model");
     const targetForm = form.isConnected ? form : runtime.form;
     if (targetForm?.isConnected) renderModelAdvisor(targetForm);
   }
@@ -2749,10 +3788,14 @@ async function loadStrategyCatalog(form) {
       extractedStrategyCatalog(catalog),
     );
     if (strategyState.catalog_status !== "ready") {
-      throw new Error("generation_strategy_catalog_invalid");
+      throw Object.assign(
+        new Error(strategyState.catalog_error?.code || "generation_strategy_catalog_invalid"),
+        strategyState.catalog_error || {},
+      );
     }
     runtime.strategyCatalog = catalog;
     runtime.strategyCatalogStatus = "ready";
+    runtime.strategyCatalogRetryCount = 0;
     runtime.strategyState = strategyState;
     const targetForm = form.isConnected ? form : runtime.form;
     if (!targetForm?.isConnected) return;
@@ -2761,10 +3804,22 @@ async function loadStrategyCatalog(form) {
     if (pendingStrategy?.form === targetForm) {
       applyStrategyRestore(targetForm, pendingStrategy.values);
     }
-  } catch {
+  } catch (error) {
     if (request !== runtime.strategyCatalogRequest) return;
+    const failure = generationStrategyCatalogFailure(error);
+    // Only bounded, operator-safe strings cross this diagnostic boundary. Do
+    // not log the response, stack, request, session or server details.
+    console.warn("generation strategy catalog load failed", {
+      code: failure.code,
+      message: failure.message,
+    });
     runtime.strategyCatalogStatus = "error";
-    runtime.strategyState = createGenerationStrategyViewState(null);
+    scheduleCatalogRetry("strategy");
+    runtime.strategyState = createGenerationStrategyViewState({
+      ok: false,
+      catalog: null,
+      error: { code: failure.code, field: failure.field },
+    });
     const targetForm = form.isConnected ? form : runtime.form;
     if (targetForm?.isConnected) renderStrategyView(targetForm);
   }
@@ -2919,9 +3974,9 @@ function createShell(form) {
   const intro = element("header", "ce-v4-generation-guided__intro");
   const introCopy = element("div", "ce-v4-generation-guided__intro-copy");
   introCopy.append(
-    element("p", "ce-v4-generation-guided__eyebrow", "ТРИ СТРАТЕГИИ ГЕНЕРАЦИИ"),
-    element("h2", "", "Сначала решите, как использовать референс"),
-    element("p", "", "Новый UGC с аватаром, замена товара в исходном ролике или новая реклама по его механике. Ничего не выбирается и не оплачивается автоматически."),
+    element("p", "ce-v4-generation-guided__eyebrow", "ВИДЕО ПО СТРАТЕГИИ · С НУЛЯ"),
+    element("h2", "", "Соберите новый ролик по своей задаче"),
+    element("p", "", "Это один последовательный конструктор: модель и формат, товар, аудитория, замысел, исходники, проверка и запуск. Рекомендации ИИ-центра остаются черновиком до решения человека."),
   );
   const position = element("span", "ce-v4-generation-guided__position", `Шаг 1 из ${STEPS.length}`);
   position.dataset.ceV4GenerationPosition = "";
@@ -2983,7 +4038,11 @@ function contentFor(form, key) {
 function organizeOriginalNodes(form, shell, originalNodes, submit) {
   let currentKey = "mode";
   originalNodes.forEach((node) => {
-    if (node === shell || node === submit) return;
+    if (
+      node === shell
+      || node === submit
+      || node.matches?.("[data-generation-intake-v4]")
+    ) return;
     currentKey = classifyNode(node, currentKey);
     (contentFor(form, currentKey) || contentFor(form, "mode"))?.append(node);
   });
@@ -3004,7 +4063,10 @@ function exposeProviderReadinessControl(form) {
 }
 
 function adoptDirectChildren(form, shell) {
-  const loose = [...form.children].filter((node) => node !== shell);
+  const loose = [...form.children].filter((node) => (
+    node !== shell
+    && !node.matches?.("[data-generation-intake-v4]")
+  ));
   loose.forEach((node) => {
     if (node.id === "generation-submit") {
       const current = q("#generation-submit", shell);
@@ -3043,7 +4105,19 @@ function firstInvalidControl(panel) {
 }
 
 function mediaSelectionValid(form, panel) {
-  const available = qa('input[name="media_id"]:not(:disabled)', panel);
+  // Compact Product Swap физически переносит те же product-photo nodes в
+  // sibling shell внутри формы. Panel-only поиск объявлял шаг пустым, хотя
+  // canonical strategy selection уже видел #7 и остальные exact media IDs.
+  // Только этот маршрут читает form-wide; остальные guided-стратегии сохраняют
+  // прежнюю область media panel и свои собственные ограничения.
+  const productSwap = runtime.strategyState?.selected_strategy_id
+    === "viral_product_swap";
+  const scope = productSwap ? form : panel;
+  const busyLocked = form?.dataset?.busy === "true";
+  const available = qa('input[name="media_id"]', scope).filter((control) => (
+    !control.disabled
+    || (busyLocked && control.dataset.wasDisabled === "false")
+  ));
   return available.length > 0 && available.some((control) => control.checked);
 }
 
@@ -3232,9 +4306,17 @@ function syncCompletion(form) {
   STEPS.forEach((step, index) => {
     const button = q(`[data-ce-v4-generation-target="${step.key}"]`, form);
     if (!button) return;
-    const complete = index < STEPS.length - 1
-      ? panelValidity(form, index).valid
+    const validity = index < STEPS.length - 1
+      ? panelValidity(form, index)
+      : null;
+    const complete = validity
+      ? validity.valid
       : Boolean(q("#generation-submit", form) && !q("#generation-submit", form).disabled);
+    // Ошибка navigation-гейта — про текущее состояние, а не история. Compact
+    // Product Swap может сделать media panel валидной через sibling shell;
+    // после следующего sync старый generic alert обязан исчезнуть. Реальная
+    // strategy-specific ошибка остаётся: invalid panel здесь не очищается.
+    if (validity?.valid) clearPanelError(validity.panel);
     button.classList.toggle("is-complete", complete);
     if (index === current) button.classList.remove("is-complete");
   });
@@ -3680,6 +4762,28 @@ function handleFormClick(event) {
     void loadGenerationStrategyAssets(form);
     return;
   }
+  const modelCatalogRetry = event.target.closest("[data-ce-v4-model-catalog-retry]");
+  if (modelCatalogRetry) {
+    event.preventDefault();
+    runtime.catalogRetryCount = 0;
+    if (runtime.catalogStatus !== "loading") {
+      runtime.catalogStatus = "idle";
+      void loadModelCatalog(form);
+    }
+    return;
+  }
+  const strategyCatalogRetry = event.target.closest(
+    "[data-generation-strategy-catalog-retry]",
+  );
+  if (strategyCatalogRetry) {
+    event.preventDefault();
+    runtime.strategyCatalogRetryCount = 0;
+    if (runtime.strategyCatalogStatus !== "loading") {
+      runtime.strategyCatalogStatus = "idle";
+      void loadStrategyCatalog(form);
+    }
+    return;
+  }
   const loadMoreStrategyAssets = event.target.closest(
     "[data-generation-strategy-assets-load-more]",
   );
@@ -3754,6 +4858,31 @@ function handleFormEdit(event) {
         ...strategyMechanicsDraft(sourceMediaId),
         [field]: mechanicsControl.value,
       });
+    }
+  }
+  if (mechanicsControl?.name === "brief" && selectedStrategyRow()) {
+    syncStrategyBriefValidity(form, true);
+  }
+  // Смена движка в каскаде меняет набор кадров «Создания». Перерисовка идёт
+  // только при НАСТОЯЩЕЙ смене значения и только для стратегии с выбором
+  // кадра: у «Копии» и «Дуэта» кадр задаёт исходник, и дёргать форму там
+  // незачем. Повторный вход запрещён: синхронизация сама рождает события.
+  if (control?.name === "generation_intake_engine") {
+    const row = selectedStrategyRow();
+    const value = String(control.value || "");
+    if (
+      row
+      && row.output_rules?.dimension_field === "ratio"
+      && runtime.lastEngineForRatioSync !== value
+      && !runtime.engineRatioSyncBusy
+    ) {
+      runtime.lastEngineForRatioSync = value;
+      runtime.engineRatioSyncBusy = true;
+      try {
+        syncStrategyForm(form);
+      } finally {
+        runtime.engineRatioSyncBusy = false;
+      }
     }
   }
   if (control?.matches?.('[data-ce-v4-generation-model]')) {
@@ -3852,7 +4981,10 @@ function bindForm(form) {
 }
 
 function setupForm(form, { initialSync = true } = {}) {
-  let shell = q(":scope > [data-ce-v4-generation-guided-shell]", form);
+  // Intake v4 owns the route switcher and places this constructor inside the
+  // selected “Видео по стратегии” panel. Search the whole form so a remount
+  // adopts that one live shell instead of creating a second form underneath.
+  let shell = q("[data-ce-v4-generation-guided-shell]", form);
   if (!shell) {
     const originalNodes = [...form.children];
     const submit = originalNodes.find((node) => node.id === "generation-submit")
@@ -3869,6 +5001,10 @@ function setupForm(form, { initialSync = true } = {}) {
   ensureModelAdvisor(form);
   exposeProviderReadinessControl(form);
   bindForm(form);
+  // Hidden handoff fields are part of the live form contract and may have been
+  // written after the first adapter mount. Hydrate before the fast return too,
+  // so remounting the same form cannot discard its already registered MP4.
+  hydrateRegisteredSourceFromHiddenHandoff(form);
   if (!initialSync) {
     syncSummary(form);
     syncCompletion(form);
@@ -3894,8 +5030,229 @@ function setupForm(form, { initialSync = true } = {}) {
   if (runtime.strategyAssetStatus === "idle") {
     void loadGenerationStrategyAssets(form);
   }
+  consumeIntakeHandoff(form);
   return shell;
 }
+
+// --- Консьюмер handoff-контракта компактной формы (intake-v4) ---------------
+// Компактные маршруты пишут handoff тремя каналами: скрытые поля
+// generation_intake_* в форме, sessionStorage `generation-intake-mp4-v4:<project>`
+// и событие contentengine:generation-strategy-handoff. Гид читает все три,
+// предзаполняет «Замысел» после перезагрузки и показывает происхождение
+// (источник-ссылку, происхождение рекомендации), чтобы данные не терялись.
+
+const INTAKE_HANDOFF_EVENT = "contentengine:generation-strategy-handoff";
+const INTAKE_HANDOFF_STORAGE_PREFIX = "generation-intake-mp4-v4:";
+
+const INTAKE_RECOMMENDATION_SOURCE_LABELS = Object.freeze({
+  ai_center: "проверенная рекомендация ИИ-центра",
+  ai_center_edited: "рекомендация ИИ-центра, отредактированная сотрудником",
+  ai_center_unverified: "непроверенный черновик ИИ-центра — не применён автоматически",
+  operator: "текст сотрудника",
+});
+
+function intakeHandoffCanPrefillBrief(handoff) {
+  const source = String(handoff?.recommendation_source || "").trim();
+  // Fail closed for AI-centre drafts and unknown lineage. Only an explicitly
+  // verified/edited recommendation or operator/legacy text may populate an
+  // otherwise empty brief; the human can still copy an unverified draft by
+  // hand after reviewing it in the AI Centre.
+  return ["", "empty", "operator", "ai_center", "ai_center_edited"].includes(source);
+}
+
+function normalizeIntakeHandoff(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const textOf = (value, limit) => String(value ?? "").trim().slice(0, limit);
+  const mediaIdOf = (value) => {
+    const mediaId = String(value ?? "").trim().toLowerCase();
+    return STRATEGY_REPEAT_MEDIA_ID_PATTERN.test(mediaId) ? mediaId : "";
+  };
+  const durationOf = (value) => {
+    if (value === null || value === undefined || String(value).trim() === "") {
+      return null;
+    }
+    const duration = Number(value);
+    return Number.isFinite(duration) && duration > 0 && duration <= 3_600
+      ? duration
+      : null;
+  };
+  const knownRoles = new Set([
+    "source_video",
+    "original_product_image",
+    "new_product_image",
+    "avatar_image",
+  ]);
+  const assets = [];
+  const seenAssets = new Set();
+  (Array.isArray(raw.assets) ? raw.assets : []).slice(0, 20).forEach((asset) => {
+    const role = textOf(asset?.role, 64);
+    const mediaId = mediaIdOf(asset?.media_id);
+    const key = `${role}:${mediaId}`;
+    if (!knownRoles.has(role) || !mediaId || seenAssets.has(key)) return;
+    seenAssets.add(key);
+    const duration = role === "source_video"
+      ? durationOf(asset?.duration_seconds)
+      : null;
+    assets.push(Object.freeze({
+      role,
+      media_id: mediaId,
+      ...(duration === null ? {} : { duration_seconds: duration }),
+    }));
+  });
+  const sourceMediaId = mediaIdOf(raw.source_media_id);
+  const sourceDuration = durationOf(raw.source_duration_seconds);
+  const handoff = {
+    route: textOf(raw.route, 40),
+    source_media_id: sourceMediaId,
+    source_duration_seconds: sourceDuration,
+    source_url: textOf(raw.source_url, 1_000),
+    description: textOf(raw.description, 1_200),
+    recommendation_source: textOf(raw.recommendation_source, 60),
+    requested_model: textOf(raw.requested_model, 160),
+    assets: Object.freeze(assets),
+  };
+  const meaningful = handoff.source_url
+    || handoff.description
+    || (handoff.recommendation_source && handoff.recommendation_source !== "empty")
+    || handoff.requested_model
+    || handoff.assets.length > 0;
+  return meaningful ? handoff : null;
+}
+
+function intakeHandoffFromHiddenFields(form) {
+  const read = (name) => String(form?.elements?.[name]?.value || "");
+  if (!read("generation_intake_version").trim()) return null;
+  let assets = [];
+  try {
+    const parsed = JSON.parse(read("generation_strategy_prefill_assets") || "[]");
+    if (Array.isArray(parsed)) assets = parsed;
+  } catch {
+    // A malformed hidden projection is ignored. The authoritative server
+    // preflight still validates every UUID before any priced action.
+  }
+  return normalizeIntakeHandoff({
+    route: read("generation_intake_route"),
+    source_media_id: read("generation_intake_source_media_id"),
+    source_duration_seconds: read("generation_intake_source_duration_seconds"),
+    source_url: read("generation_intake_source_url"),
+    description: read("generation_intake_description"),
+    recommendation_source: read("generation_intake_recommendation_source"),
+    requested_model: read("generation_intake_model"),
+    assets,
+  });
+}
+
+function intakeHandoffFromSession() {
+  try {
+    const hash = String(window.location.hash || "");
+    const projectMatch = /[?&]project_id=([0-9a-fA-F-]{36})/u.exec(hash);
+    const preferred = projectMatch
+      ? `${INTAKE_HANDOFF_STORAGE_PREFIX}${projectMatch[1].toLowerCase()}`
+      : "";
+    const keys = [];
+    for (let index = 0; index < sessionStorage.length; index += 1) {
+      const key = sessionStorage.key(index);
+      if (key && key.startsWith(INTAKE_HANDOFF_STORAGE_PREFIX)) keys.push(key);
+    }
+    const key = keys.includes(preferred)
+      ? preferred
+      : (!preferred && keys.length === 1 ? keys[0] : "");
+    if (!key) return null;
+    return normalizeIntakeHandoff(
+      JSON.parse(sessionStorage.getItem(key) || "null"),
+    );
+  } catch {
+    return null;
+  }
+}
+
+function applyIntakeHandoffBrief(form, handoff) {
+  const brief = form?.elements?.brief;
+  if (
+    brief instanceof HTMLTextAreaElement
+    && handoff.description
+    && intakeHandoffCanPrefillBrief(handoff)
+    && !String(brief.value || "").trim()
+  ) {
+    brief.value = handoff.description;
+    brief.dispatchEvent(new Event("input", { bubbles: true }));
+    brief.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  }
+  return false;
+}
+
+function renderIntakeHandoffProvenance(form, handoff) {
+  const content = q('[data-ce-v4-generation-content="brief"]', form);
+  if (!content) return;
+  const existing = q("[data-ce-v4-intake-provenance]", content);
+  const recommendationLabel = handoff.recommendation_source
+    && handoff.recommendation_source !== "empty"
+    ? (INTAKE_RECOMMENDATION_SOURCE_LABELS[handoff.recommendation_source]
+      || handoff.recommendation_source)
+    : "";
+  if (!handoff.source_url && !recommendationLabel && !handoff.requested_model) {
+    existing?.remove();
+    return;
+  }
+  const note = existing
+    || element("p", "ce-v4-generation-guided__intake-provenance");
+  note.dataset.ceV4IntakeProvenance = "";
+  note.replaceChildren(element("strong", "", "Из компактной формы: "));
+  const fragments = [];
+  if (handoff.source_url) {
+    const wrap = document.createDocumentFragment();
+    wrap.append(document.createTextNode("источник ролика — "));
+    if (/^https?:\/\//iu.test(handoff.source_url)) {
+      const link = element("a", "", handoff.source_url);
+      link.href = handoff.source_url;
+      link.target = "_blank";
+      link.rel = "noreferrer noopener";
+      wrap.append(link);
+    } else {
+      wrap.append(document.createTextNode(handoff.source_url));
+    }
+    fragments.push(wrap);
+  }
+  if (recommendationLabel) {
+    fragments.push(document.createTextNode(`происхождение замысла — ${recommendationLabel}`));
+  }
+  if (handoff.requested_model) {
+    fragments.push(document.createTextNode(`запрошенная модель — ${handoff.requested_model}`));
+  }
+  fragments.forEach((fragment, index) => {
+    if (index > 0) note.append(document.createTextNode(" · "));
+    note.append(fragment);
+  });
+  if (note.parentElement !== content) content.prepend(note);
+}
+
+function consumeIntakeHandoff(form) {
+  const handoff = intakeHandoffFromHiddenFields(form)
+    || intakeHandoffFromSession()
+    || runtime.intakeHandoff;
+  if (!handoff) return;
+  runtime.intakeHandoff = handoff;
+  runtime.intakeHandoffProjectId = generationStrategyProjectId();
+  // Pure state hydration only; the already scheduled form sync performs the
+  // render. This also covers a full-form patch that dropped the hidden inputs.
+  hydrateRegisteredSourceFromHiddenHandoff(form);
+  applyIntakeHandoffBrief(form, handoff);
+  renderIntakeHandoffProvenance(form, handoff);
+}
+
+window.addEventListener(INTAKE_HANDOFF_EVENT, (event) => {
+  const handoff = normalizeIntakeHandoff(event?.detail);
+  if (!handoff) return;
+  runtime.intakeHandoff = handoff;
+  runtime.intakeHandoffProjectId = generationStrategyProjectId();
+  const form = runtime.form;
+  if (form?.isConnected) {
+    hydrateRegisteredSourceFromHiddenHandoff(form);
+    applyIntakeHandoffBrief(form, handoff);
+    renderIntakeHandoffProvenance(form, handoff);
+  }
+});
 
 function mount() {
   if (routePath() !== ROUTE) {
@@ -3905,14 +5262,37 @@ function mount() {
     runtime.strategyAssetRequest += 1;
     runtime.strategyAssetStatus = "idle";
     runtime.strategyAssetError = "";
+    runtime.strategyRegisteredSourceProjectId = "";
+    runtime.strategyRegisteredSources.clear();
     runtime.strategySourcePicker = null;
     runtime.strategyMechanicsDrafts.clear();
+    runtime.intakeHandoff = null;
+    runtime.intakeHandoffProjectId = "";
     return;
   }
   const form = q("#mock-batch-form");
   if (!form) return;
+  const mountedProjectId = generationStrategyProjectId();
+  if (
+    runtime.strategyRegisteredSourceProjectId
+    && runtime.strategyRegisteredSourceProjectId !== mountedProjectId
+  ) {
+    runtime.strategyRegisteredSourceProjectId = "";
+    runtime.strategyRegisteredSources.clear();
+  }
+  if (
+    runtime.intakeHandoffProjectId
+    && runtime.intakeHandoffProjectId !== mountedProjectId
+  ) {
+    runtime.intakeHandoff = null;
+    runtime.intakeHandoffProjectId = "";
+  }
   const formChanged = runtime.form !== form;
   if (formChanged) {
+    if (runtime.catalogStatus === "error") runtime.catalogStatus = "idle";
+    if (runtime.strategyCatalogStatus === "error") {
+      runtime.strategyCatalogStatus = "idle";
+    }
     runtime.recommendationState = null;
     runtime.modelFilter = "relevant";
     runtime.externalSelectionActive = false;
@@ -3949,9 +5329,143 @@ window.ContentEngineGenerationGuidedV4 = Object.freeze({
   getStrategySummary() {
     return selectedGenerationStrategySummary(runtime.strategyState);
   },
+  // Движки стратегии для экрана «Копия»: сервер отдаёт их вместе с каталогом,
+  // а форма показывает как «Генератор 1/2/3». Здесь только чтение — выбор
+  // движка попадает в наряд отдельным полем и подписывается сервером.
+  getStrategyProviderRoutes(strategyId) {
+    const routes = runtime.strategyCatalog?.strategyProviderRoutes?.[strategyId];
+    return Array.isArray(routes) ? routes : [];
+  },
+  // Движок, выбранный в каскаде. Значение живёт в поле формы, поэтому
+  // читается оттуда же, откуда его видит человек. Сверка с каталогом здесь не
+  // формальность: пустое, чужое или выключенное значение обязано превратиться
+  // в «движок не выбран», а не уйти в привязку — тогда сервер посчитает
+  // действующий маршрут, как считал до каскада, вместо отказа на ровном месте.
+  //
+  // Маршруты спрашиваются у ТОЙ стратегии, которая выбрана в форме, а не у
+  // «Копии» литералом. Поле generation_intake_engine одно на всю форму, и до
+  // этой правки движок «Копии» уезжал в привязку любой другой стратегии: у
+  // неё такого маршрута в реестре нет, цена считалась бы null, а наружу шёл
+  // бы общий отказ. Чужой стратегии движок теперь просто не принадлежит.
+  getStrategyEngineChoice(form = runtime.form) {
+    if (!form?.isConnected) return null;
+    const raw = String(form.elements?.generation_intake_engine?.value || "").trim();
+    const separator = raw.indexOf(":");
+    if (separator < 1 || separator === raw.length - 1) return null;
+    const provider = raw.slice(0, separator);
+    const modelKey = raw.slice(separator + 1);
+    const strategyId = String(
+      form.elements?.generation_strategy_id?.value || "",
+    ).trim();
+    if (!strategyId) return null;
+    const routes = runtime.strategyCatalog
+      ?.strategyProviderRoutes?.[strategyId];
+    if (!Array.isArray(routes)) return null;
+    const route = routes.find((entry) => (
+      entry?.provider === provider && entry?.model_key === modelKey
+    ));
+    return route?.enabled === true
+      ? Object.freeze({ provider, model_key: modelKey })
+      : null;
+  },
+  // Ведущий, выбранный в форме «Дуэта»: наш UUID из поля формы. Отдаётся
+  // только когда выбрана стратегия дуэта — чужой стратегии ведущий не нужен,
+  // и лишний ключ в контексте привязки означал бы отказ сервера.
+  getDuetPresenterChoice(form = runtime.form) {
+    if (!form?.isConnected) return null;
+    const strategyId = String(
+      form.elements?.generation_strategy_id?.value || "",
+    ).trim();
+    if (strategyId !== "viral_avatar_ugc") return null;
+    const raw = String(
+      form.elements?.generation_intake_duet_presenter_id?.value || "",
+    ).trim().toLowerCase();
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u
+        .test(raw)
+      ? raw
+      : null;
+  },
+  // Ведущий и товар «Дуэта» читаются из полей формы одинаково; товар нужен
+  // подготовке ТЗ (контракт PREPARE_INPUT_KEYS_WITH_PRODUCT) явным полем.
+  getDuetProductChoice(form = runtime.form) {
+    if (!form?.isConnected) return null;
+    const strategyId = String(
+      form.elements?.generation_strategy_id?.value || "",
+    ).trim();
+    if (strategyId !== "viral_avatar_ugc") return null;
+    const raw = String(
+      form.elements?.generation_intake_duet_product_id?.value || "",
+    ).trim().toLowerCase();
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u
+        .test(raw)
+      ? raw
+      : null;
+  },
+  // Поля разбора механики — единый список для нативного редактора и для
+  // экспресс-панели «Дуэта», чтобы подписи и пределы не разошлись.
+  getStrategyMechanicsFields() {
+    return STRATEGY_MECHANICS_FIELDS;
+  },
+  // Разбор, написанный в экспресс-панели, становится черновиком выбранного
+  // исходника и значением нативных textarea: дальше его читают и ТЗ
+  // (mechanics_summary), и reportValidity() мастера.
+  setStrategyMechanicsDraft(form = runtime.form, sourceMediaId = "", draft = null) {
+    const mediaId = String(sourceMediaId || "").trim().toLowerCase();
+    if (!form?.isConnected || !STRATEGY_REPEAT_MEDIA_ID_PATTERN.test(mediaId)) return false;
+    if (!draft || typeof draft !== "object") return false;
+    const next = { ...strategyMechanicsDraft(mediaId) };
+    STRATEGY_MECHANICS_FIELDS.forEach(({ key }) => {
+      if (typeof draft[key] === "string") next[key] = draft[key];
+    });
+    runtime.strategyMechanicsDrafts.set(mediaId, next);
+    qa(
+      `textarea[data-generation-strategy-mechanics-field][data-generation-strategy-source-media-id="${mediaId}"]`,
+      form,
+    ).forEach((control) => {
+      const key = String(control.dataset.generationStrategyMechanicsField || "");
+      if (typeof next[key] === "string" && control.value !== next[key]) {
+        control.value = next[key];
+      }
+    });
+    return true;
+  },
+  // Товары проекта для формы «Дуэта».
+  //
+  // Отдельного перечня товаров в проекте нет и не заводится: товар появляется
+  // ВМЕСТЕ со своей первой фотографией, поэтому список выводится из уже
+  // полученной страницы ассетов. Новый серверный вызов ради того же факта был
+  // бы вторым его источником — а два источника одного факта однажды разойдутся.
+  //
+  // Берутся только подтверждённые личности: неподтверждённая означает, что
+  // сервер сам не считает связь товара с фотографией установленной, и
+  // предлагать такой товар для оформления запуска нельзя.
+  getProjectProducts() {
+    const assets = Array.isArray(runtime.strategyAssetPage?.assets)
+      ? runtime.strategyAssetPage.assets
+      : [];
+    const byId = new Map();
+    for (const asset of assets) {
+      const identity = asset?.product_identity;
+      if (!identity || identity.identity_verified !== true) continue;
+      const id = String(identity.product_id || "").trim().toLowerCase();
+      if (!id || byId.has(id)) continue;
+      byId.set(id, Object.freeze({
+        product_id: id,
+        sku: String(identity.sku || ""),
+        product_name: String(identity.product_name || ""),
+      }));
+    }
+    return Object.freeze([...byId.values()]);
+  },
   refreshStrategyAssets(form = runtime.form) {
     if (!form?.isConnected) return Promise.resolve(false);
     return loadGenerationStrategyAssets(form);
+  },
+  materializeRegisteredSource(form = runtime.form, value = null) {
+    return materializeRegisteredStrategySource(form, value);
+  },
+  confirmRegisteredSourceProbe(form = runtime.form, value = null) {
+    return confirmRegisteredStrategySourceProbe(form, value);
   },
   getSelectionSnapshotMetadata(form = runtime.form) {
     const identity = selectedModelForForm(form);

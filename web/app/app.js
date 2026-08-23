@@ -3,7 +3,7 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260814.os4.41.strategy-interactions-1";
+} from "./supabase-api.js?v=20260823.copy-engines.45";
 import {
   adminPeopleMarkup,
   normalizeAdminSnapshot,
@@ -29,13 +29,14 @@ import {
   generationSpecApprovalReviewState,
   generationSpecApprovalReviewTuple,
   generationSpecCardMarkup,
+  generationSpecPreparationRoute,
   generationSpecScopesMatch,
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
-} from "./generation-spec.js?v=20260814.os4.41";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260814.os4.41";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260814.os4.41";
+} from "./generation-spec.js?v=20260823.copy-engines.45";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260823.copy-engines.45";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260823.copy-engines.45";
 import {
   normalizeWorkspaceInternalTarget,
   resolveWorkspaceCommand,
@@ -67,11 +68,12 @@ import {
   managerOperationalHealthMarkup,
 } from "./manager-dashboard-view.js?v=20260718.1";
 import {
+  generationCampaignSelectionState,
   generationSpendAllowsMinor,
   generationSpendSnapshotMarkup,
   managerGenerationSpendMarkup,
   normalizeGenerationSpendOverview,
-} from "./generation-spend-view.js?v=20260814.os4.41";
+} from "./generation-spend-view.js?v=20260823.copy-engines.45";
 import {
   generationProviderReadinessPreflights,
   normalizeGenerationProviderPreflight,
@@ -107,7 +109,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260814.os4.41";
+} from "./product-research-view.js?v=20260823.copy-engines.45";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -118,7 +120,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260814.os4.41";
+} from "./ai-learning-control-room.js?v=20260823.copy-engines.45";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -134,7 +136,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260814.os4.41";
+} from "./content-generation-handoff.js?v=20260823.copy-engines.45";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -145,6 +147,7 @@ import {
 } from "./generation-form-readiness.js?v=20260805.1";
 import {
   GENERATION_STRATEGY_RUNTIME_ACTIONS,
+  createGenerationStrategyRuntimeFingerprint,
   createGenerationStrategyRuntimeState,
   generationStrategyRuntimeBindRequest,
   generationStrategyRuntimePreflightRequest,
@@ -155,7 +158,7 @@ import {
   invalidateGenerationStrategyRuntimeState,
   normalizeGenerationStrategyProbeResponse,
   reduceGenerationStrategyRuntimeState,
-} from "./generation-strategy-runtime.js?v=20260814.os4.41";
+} from "./generation-strategy-runtime.js?v=20260823.copy-engines.45";
 import {
   createGenerationStrategyQueue,
   generationStrategyQueueAggregateReview,
@@ -164,17 +167,17 @@ import {
   planGenerationStrategyQueueFreeWork,
   planGenerationStrategyQueueSequentialStarts,
   updateGenerationStrategyQueueRow,
-} from "./generation-strategy-queue.js?v=20260814.os4.41";
+} from "./generation-strategy-queue.js?v=20260823.copy-engines.45";
 import {
   renderGenerationStrategyQueueView,
-} from "./generation-strategy-queue-view.js?v=20260814.os4.41";
+} from "./generation-strategy-queue-view.js?v=20260823.copy-engines.45";
 import {
   buildGenerationStrategySpecApprovalRequest,
   buildGenerationStrategySpecPrepareRequest,
   generationStrategySpecSafeProjection,
   normalizeGenerationStrategySpecControlResponse,
   normalizeGenerationStrategySpecPrepareResponse,
-} from "./generation-strategy-spec.js?v=20260814.os4.41";
+} from "./generation-strategy-spec.js?v=20260823.copy-engines.45";
 import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
@@ -185,7 +188,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260814.os4.41";
+} from "./generation-form-draft.js?v=20260823.copy-engines.45";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
@@ -224,7 +227,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260814.os4.41";
+} from "./content-review-view.js?v=20260823.copy-engines.45";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -246,7 +249,7 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260814.os4.41";
+} from "./portal-experience.js?v=20260823.copy-engines.45";
 import {
   isWorkspaceSmartFolderId,
   normalizeWorkspaceBoard,
@@ -283,7 +286,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260814.os4.41";
+} from "./training-journey.js?v=20260823.copy-engines.45";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -321,7 +324,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260814.os4.41";
+} from "./my-work-view.js?v=20260817.os4.42";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -332,7 +335,7 @@ const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
   ),
 );
 const MEDIA_UPLOAD_CONCURRENCY = DEFAULT_MEDIA_UPLOAD_CONCURRENCY;
-const SUPABASE_SDK_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
+const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260823.copy-engines.45";
 const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260716.2";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
@@ -371,6 +374,16 @@ const REAL_GENERATION_URL_MAX_AGE_MS = 4 * 60 * 1_000;
 const GENERATION_PREFLIGHT_READY_TTL_MS = 2 * 60 * 1_000;
 const GENERATION_PREFLIGHT_ERROR_COOLDOWN_MS = 30_000;
 const REAL_GENERATION_ACTIVE_STATUSES = new Set(["queued", "starting", "submitted", "processing", "running"]);
+const GENERATION_STRATEGY_MANUAL_STATUS_REFRESH_STATUSES = new Set([
+  "queued",
+  "starting",
+  "submitted",
+  "processing",
+  "running",
+  "saving",
+  "uploading",
+  "failed",
+]);
 const PRODUCT_RESEARCH_POLL_INTERVAL_MS = 5_000;
 const AI_LEARNING_POLL_INTERVAL_MS = 6_000;
 const AI_KNOWLEDGE_MAX_FILE_BYTES = 25 * 1024 * 1024;
@@ -1169,6 +1182,7 @@ const state = {
   realGenerationResults: new Map(),
   generationStrategyRuntimes: new Map(),
   generationStrategyRequestKeys: new Map(),
+  generationStrategyStartRetries: new Map(),
   generationStrategyActiveSourceMediaId: "",
   generationStrategyStartInFlight: false,
   generationStrategyRequestId: 0,
@@ -1374,6 +1388,7 @@ const state = {
     requestId: 0,
     nextCursor: null,
     serverLoaded: false,
+    strategyStatusInFlight: new Set(),
   },
   home: { status: "idle", data: null, error: null, unavailable: [], requestId: 0 },
   aiLearning: {
@@ -1429,7 +1444,7 @@ initialize()
     window.CONTENTENGINE_BOOT_WATCHDOG?.failed("startup");
   });
 
-async function loadSupabaseCreateClient() {
+async function loadSupabaseBrowserSdk() {
   if (!supabaseSdkPromise) {
     supabaseSdkPromise = withUiTimeout(
       import(SUPABASE_SDK_URL),
@@ -1441,10 +1456,16 @@ async function loadSupabaseCreateClient() {
     });
   }
   const sdk = await supabaseSdkPromise;
-  if (typeof sdk?.createClient !== "function") {
+  if (
+    typeof sdk?.createClient !== "function"
+    || typeof sdk?.processLock !== "function"
+  ) {
     throw new Error("Supabase browser client is unavailable");
   }
-  return sdk.createClient;
+  return Object.freeze({
+    createClient: sdk.createClient,
+    processLock: sdk.processLock,
+  });
 }
 
 function createHybridAuthStorage() {
@@ -1889,7 +1910,13 @@ function generationFormDraftValues(form) {
     generation_pricing_version: String(form.elements.generation_pricing_version?.value || ""),
     generation_selection_source: String(form.elements.generation_selection_source?.value || ""),
     duration_seconds: String(form.elements.duration_seconds?.value || ""),
-    campaign_id: String(form.elements.campaign_id?.value || ""),
+    campaign_id: String(
+      form.elements.campaign_id?.value
+      || form.dataset.pendingGenerationCampaignId
+      || "",
+    ),
+    campaign_selection_required:
+      form.dataset.generationCampaignSelectionRequired === "true",
     sku: String(form.elements.sku?.value || ""),
     product_name: String(form.elements.product_name?.value || ""),
     product_category: String(form.elements.product_category?.value || ""),
@@ -2479,6 +2506,11 @@ function restoreLocalGenerationFormDraft(form, { operationalOnly = false } = {})
     return false;
   }
   const values = draft.values;
+  if (values.campaign_selection_required === true) {
+    form.dataset.generationCampaignSelectionRequired = "true";
+  } else {
+    delete form.dataset.generationCampaignSelectionRequired;
+  }
   if (!operationalOnly) {
     const mode = form.elements.generation_mode;
     const modeOption = Array.from(mode?.options || []).find((option) => (
@@ -2490,7 +2522,12 @@ function restoreLocalGenerationFormDraft(form, { operationalOnly = false } = {})
   const campaignOption = Array.from(campaign?.options || []).find((option) => (
     option.value === values.campaign_id && !option.disabled
   ));
-  if (campaignOption) campaign.value = campaignOption.value;
+  if (campaignOption) {
+    campaign.value = campaignOption.value;
+    delete form.dataset.pendingGenerationCampaignId;
+  } else if (values.campaign_id) {
+    form.dataset.pendingGenerationCampaignId = values.campaign_id;
+  }
 
   const selectedMedia = new Set(values.media_ids);
   let restoredMediaCount = 0;
@@ -2914,6 +2951,7 @@ async function restoreGenerationFormDraft(form) {
           : "Вы уже изменили товар или замысел. Старый локальный черновик не применён и ваши поля не перезаписаны.";
       }
     }
+    syncGenerationCampaignSelectUi(form);
   }
   return restored;
 }
@@ -3468,7 +3506,7 @@ async function initialize() {
     return;
   }
 
-  const createClient = await loadSupabaseCreateClient();
+  const { createClient, processLock } = await loadSupabaseBrowserSdk();
   state.authStorageKey = `contentengine.creator-workspace.${new URL(CONFIG.SUPABASE_URL).hostname}.auth-session.v1`;
   state.supabase = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_PUBLISHABLE_KEY, {
     auth: {
@@ -3476,6 +3514,12 @@ async function initialize() {
       autoRefreshToken: true,
       detectSessionInUrl: false,
       flowType: "pkce",
+      // Session data is deliberately tab-scoped. The SDK's browser default is
+      // a same-origin Navigator Lock keyed only by storageKey, so one stalled
+      // ContentEngine tab can otherwise block getSession() in every other tab.
+      // Official processLock still serializes same-tab clients without
+      // crossing browsing contexts or weakening sessionStorage isolation.
+      lock: processLock,
       storage: createHybridAuthStorage(),
       storageKey: state.authStorageKey,
     },
@@ -5997,18 +6041,51 @@ function authLayout(panel) {
       ${brandAtmosphereMarkup()}
       <section class="auth-story" aria-label="О продукте">
         <div class="auth-brand">
-          <div class="brand-mark brand-monogram" aria-hidden="true"><span>КИ</span></div>
-          <div><strong>КОНТЕНТ ИИ</strong><span>Завод цифрового производства</span></div>
+          <div class="brand-mark brand-monogram" aria-hidden="true"><span>CE</span></div>
+          <div><strong>КОНТЕНТ-ЗАВОД</strong><span>Content Engine</span></div>
         </div>
         <div class="auth-message">
-          <p class="eyebrow">От товара до результата</p>
-          <h1>Понятная работа.<br /><em>Измеримый результат.</em></h1>
-          <p>Обучение, подготовка видео, проверка, размещение и метрики — один безопасный цикл для всей команды.</p>
+          <p class="eyebrow">Личное рабочее пространство</p>
+          <h1>Весь контент-путь.<br /><em>В одном окне.</em></h1>
+          <p>Материалы, стратегии, ИИ-рекомендации, проверка и результат собраны в понятный производственный маршрут.</p>
+        </div>
+        <div class="auth-visual-stage" aria-hidden="true">
+          <span class="auth-visual-orbit auth-visual-orbit--one"></span>
+          <span class="auth-visual-orbit auth-visual-orbit--two"></span>
+          <span class="auth-visual-spark auth-visual-spark--one">✦</span>
+          <span class="auth-visual-spark auth-visual-spark--two">✦</span>
+          <div class="auth-visual-window">
+            <div class="auth-visual-window__bar">
+              <span class="auth-visual-traffic"><i></i><i></i><i></i></span>
+              <strong>Контент-завод</strong>
+              <span>МБТ</span>
+            </div>
+            <div class="auth-visual-flow">
+              <span class="is-done"><b>1</b> Файлы</span>
+              <i></i>
+              <span class="is-active"><b>2</b> Создать</span>
+              <i></i>
+              <span><b>3</b> Проверить</span>
+              <i></i>
+              <span><b>4</b> Результат</span>
+            </div>
+            <div class="auth-visual-window__content">
+              <div class="auth-visual-preview">
+                <span class="auth-visual-preview__media"><i></i><i></i><i></i></span>
+                <span class="auth-visual-preview__copy"><small>ИИ-РЕКОМЕНДАЦИЯ</small><strong>Человек выбирает финальный вариант</strong><i></i><i></i></span>
+              </div>
+              <div class="auth-visual-metrics">
+                <span><small>Материалы</small><strong>24</strong><i style="--fill:72%"></i></span>
+                <span><small>В работе</small><strong>7</strong><i style="--fill:48%"></i></span>
+                <span><small>Готово</small><strong>18</strong><i style="--fill:84%"></i></span>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="auth-steps" aria-label="Этапы работы">
-          <div class="auth-step"><b>01 · ОБУЧЕНИЕ</b><span>4 коротких курса и экзамен</span></div>
-          <div class="auth-step"><b>02 · ПРОИЗВОДСТВО</b><span>Только назначенные артикулы и материалы</span></div>
-          <div class="auth-step"><b>03 · РЕЗУЛЬТАТ</b><span>Ссылка на пост, показатели и выплата</span></div>
+          <div class="auth-step"><b>01 · СТРАТЕГИЯ</b><span>Отдельная форма под каждый маршрут и ИИ</span></div>
+          <div class="auth-step"><b>02 · РЕШЕНИЕ</b><span>ИИ рекомендует — человек корректирует и подтверждает</span></div>
+          <div class="auth-step"><b>03 · РЕЗУЛЬТАТ</b><span>Проверка, публикация и измеримые показатели</span></div>
         </div>
       </section>
       <main id="main-content" class="auth-panel" tabindex="-1">${panel}</main>
@@ -10148,6 +10225,9 @@ function captureDirtyWorkspaceForms(container) {
           name: String(field.name || ""),
           type: String(field.type || ""),
           value: field.value,
+          generationIntakeSelectionOrder: field.name === "media_id"
+            ? String(field.dataset?.generationIntakeSelectionOrder || "")
+            : "",
           checked: checkable ? field.checked : null,
           selectedValues: field instanceof HTMLSelectElement && field.multiple
             ? Array.from(field.selectedOptions).map((option) => option.value)
@@ -10186,6 +10266,14 @@ function restoreDirtyWorkspaceForms(container, snapshots) {
             && item.type === String(field.type || "")
           )) || snapshot.fields.find((item) => item.elementIndex === fieldIndex);
       if (!saved) return;
+      if (field.name === "media_id") {
+        const selectionOrder = Number(saved.generationIntakeSelectionOrder);
+        if (Number.isSafeInteger(selectionOrder) && selectionOrder > 0) {
+          field.dataset.generationIntakeSelectionOrder = String(selectionOrder);
+        } else {
+          delete field.dataset.generationIntakeSelectionOrder;
+        }
+      }
       if (field instanceof HTMLInputElement && field.type === "file" && saved.files?.length) {
         if (saved.node === field) return;
         try {
@@ -11124,16 +11212,13 @@ async function loadSection(section, options = {}) {
     const routeGenerationJobId = section === "generation"
       ? safeWorkspaceRouteEntityId("job")
       : "";
-    const generationDeepLinkRequest = routeGenerationJobId
-      ? withUiTimeout(
-        state.api.realGenerationStatus(routeGenerationJobId, { projectId }),
-        WORKSPACE_REQUEST_TIMEOUT_MS,
-        "generation_deep_link_timeout",
-      ).then(
-        (value) => ({ status: "fulfilled", value }),
-        (reason) => ({ status: "rejected", reason }),
-      )
-      : null;
+    // The archive tells us whether a deep-linked job belongs to the immutable
+    // strategy runtime.  Wait for that classification before choosing a
+    // status action: the legacy `status` reader intentionally cannot parse a
+    // recipe job and otherwise emits a misleading generation_unavailable on
+    // every fresh strategy deep link.
+    let generationDeepLinkRequest = null;
+    let generationDeepLinkIsStrategy = false;
     const generationVideoReferenceRequest = routeGenerationJobId
       ? withUiTimeout(
         state.api.generationVideoReferenceLineage({
@@ -11231,6 +11316,7 @@ async function loadSection(section, options = {}) {
     if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== target.requestId) return;
     let data = raw?.data ?? raw ?? {};
     let generationArchiveResult = null;
+    let generationArchiveAuthoritative = false;
     if (section === "generation") {
       const archiveOutcome = await generationArchiveRequest;
       if (archiveOutcome?.status === "fulfilled") {
@@ -11242,6 +11328,7 @@ async function loadSection(section, options = {}) {
           batches: listFrom(generationArchiveResult, "batches"),
           generation_archive_meta: generationArchiveResult?._meta || {},
         };
+        generationArchiveAuthoritative = true;
         state.generationArchive.error = "";
       } else {
         console.warn(
@@ -11253,6 +11340,46 @@ async function loadSection(section, options = {}) {
         );
         state.generationArchive.error = "Серверный архив временно недоступен. Показана первая локальная страница.";
       }
+      if (routeGenerationJobId) {
+        const deepLinkKind = generationDeepLinkStatusKind(
+          data,
+          routeGenerationJobId,
+          generationArchiveAuthoritative,
+        );
+        generationDeepLinkIsStrategy = deepLinkKind === "strategy";
+        const strategyRequest = generationDeepLinkIsStrategy
+          ? generationStrategyArchiveStatusRequest(
+            routeGenerationJobId,
+            projectId,
+          )
+          : null;
+        if (deepLinkKind === "unknown") {
+          console.warn(
+            "Deep-linked generation job type is unavailable; status request skipped",
+            routeGenerationJobId,
+          );
+        } else {
+          const deepLinkCall = generationDeepLinkIsStrategy
+            ? strategyRequest
+              ? state.api.generationStrategyStatus(strategyRequest)
+              : Promise.reject(new CreatorApiError(
+                "Не удалось определить платную задачу стратегии. Обновите раздел генерации.",
+                { code: "generation_strategy_status_request_invalid" },
+              ))
+            : state.api.realGenerationStatus(
+              routeGenerationJobId,
+              { projectId },
+            );
+          generationDeepLinkRequest = withUiTimeout(
+            deepLinkCall,
+            WORKSPACE_REQUEST_TIMEOUT_MS,
+            "generation_deep_link_timeout",
+          ).then(
+            (value) => ({ status: "fulfilled", value }),
+            (reason) => ({ status: "rejected", reason }),
+          );
+        }
+      }
       const deepLinkOutcome = await generationDeepLinkRequest;
       if (
         requestEpoch !== state.dataEpoch
@@ -11263,16 +11390,24 @@ async function loadSection(section, options = {}) {
         const deepLinkResult = deepLinkOutcome.value;
         const deepLinkJob = deepLinkResult?.job;
         if (String(deepLinkJob?.id || "") === routeGenerationJobId) {
-          applyRealGenerationResult(routeGenerationJobId, deepLinkResult, {
-            source: "deep-link",
-            renderNow: false,
-            projectId,
-          });
-          data = mergeGenerationDeepLinkedBatch(
-            data,
-            routeGenerationJobId,
-            deepLinkResult,
-          );
+          if (generationDeepLinkIsStrategy) {
+            applyGenerationStrategyArchiveStatus(
+              routeGenerationJobId,
+              deepLinkResult,
+              { projectId, renderNow: false },
+            );
+          } else {
+            applyRealGenerationResult(routeGenerationJobId, deepLinkResult, {
+              source: "deep-link",
+              renderNow: false,
+              projectId,
+            });
+            data = mergeGenerationDeepLinkedBatch(
+              data,
+              routeGenerationJobId,
+              deepLinkResult,
+            );
+          }
         }
       } else if (deepLinkOutcome?.status === "rejected") {
         console.warn(
@@ -11410,6 +11545,16 @@ async function loadSection(section, options = {}) {
     }
     if (section === "media" || section === "board" || section === "review") {
       data = await hydratePrivateMedia(data);
+    }
+    // The generation RPC intentionally exposes selection metadata but not the
+    // private object key.  Join it with the project media catalog before
+    // rendering so the picker can show the same protected thumbnails as
+    // «Материалы», while keeping generation metadata authoritative.
+    if (section === "generation") {
+      data = await hydrateGenerationMediaPreviews(data, {
+        api: requestApi,
+        projectId,
+      });
     }
     if (!requestIsCurrent()) return;
     target.data = data;
@@ -11872,6 +12017,7 @@ function renderGenerationBackgroundUpdate() {
   // Spend hydration and job polling are read-only background updates. They
   // must not replace the form that currently owns the person's product,
   // concept, reference and one-shot price decision.
+  syncGenerationCampaignSelectUi(form);
   syncGenerationSpendSnapshotUi(form);
   syncGenerationFormReadiness(form);
   syncGenerationArchiveCardUi();
@@ -12006,6 +12152,53 @@ async function hydratePrivateMedia(data, { refreshSignedUrls = false } = {}) {
     // Metadata remains usable when a short-lived preview URL cannot be issued.
   }
   return data;
+}
+
+async function hydrateGenerationMediaPreviews(
+  data,
+  { api = state.api, projectId = currentWorkspaceProjectId() } = {},
+) {
+  if (!data || typeof data !== "object" || !api || !isWorkspaceProjectId(projectId)) {
+    return data;
+  }
+  const targetKey = Array.isArray(data.media)
+    ? "media"
+    : Array.isArray(data.media_items)
+      ? "media_items"
+      : "";
+  if (!targetKey || !data[targetKey].length) return data;
+  try {
+    const rawCatalog = await api.workspaceSection("media", {
+      page_size: 100,
+      projectId,
+    });
+    const catalog = await hydratePrivateMedia(rawCatalog?.data ?? rawCatalog ?? {});
+    const previewById = new Map(
+      listFrom(catalog, "media", "media_items")
+        .map((item) => [String(item?.public_id || item?.id || ""), item])
+        .filter(([mediaId]) => mediaId),
+    );
+    return {
+      ...data,
+      [targetKey]: data[targetKey].map((item) => {
+        const preview = previewById.get(String(item?.public_id || item?.id || ""));
+        if (!preview) return item;
+        return {
+          ...item,
+          signed_url: preview.signed_url || item.signed_url || "",
+          access_url: preview.access_url || item.access_url || "",
+          preview_url: preview.preview_url || item.preview_url || "",
+          thumbnail_url: preview.thumbnail_url || item.thumbnail_url || "",
+        };
+      }),
+    };
+  } catch (error) {
+    console.warn(
+      "Generation media previews unavailable",
+      error?.code || error?.serverCode || error?.message || "",
+    );
+    return data;
+  }
 }
 
 async function loadHome() {
@@ -12416,6 +12609,14 @@ function homeProjectSwitcherMarkup(action) {
     ? Array.from({ length: 3 }, () => '<div class="home-project-card home-project-card--loading" aria-hidden="true"><span class="skeleton"></span><span class="skeleton"></span></div>').join("")
     : visibleProjects.map((project) => {
       const projectId = String(project.id || "");
+      const projectMonogram = String(project.name || "CE")
+        .trim()
+        .split(/\s+/u)
+        .slice(0, 2)
+        .map((word) => Array.from(word)[0] || "")
+        .join("")
+        .toUpperCase()
+        .slice(0, 2) || "CE";
       const nextAction = project.next_action || project.nextAction || {};
       const isRecoveryProject = project.recovery === true;
       const stageLabels = {
@@ -12440,7 +12641,11 @@ function homeProjectSwitcherMarkup(action) {
            href="#${escapeHtml(nextRoute)}"
            data-ce-v4-project-id="${escapeHtml(projectId)}"
            data-ce-v4-project-name="${escapeHtml(project.name)}">
-          <span class="home-project-card__folder" aria-hidden="true">◇</span>
+          <span class="home-project-card__cover" aria-hidden="true">
+            <span class="home-project-card__cover-orbit"></span>
+            <span class="home-project-card__folder">◇</span>
+            <b>${escapeHtml(projectMonogram)}</b>
+          </span>
           <span class="home-project-card__copy">
             <strong>${escapeHtml(project.name)}</strong>
             <small>${isRecoveryProject
@@ -13020,7 +13225,7 @@ function isRealGenerationMode(mode) {
 function generationOutcomeCopy(mode, sku = realGenerationSku(mode)) {
   const selectedMode = String(mode || "").trim();
   if (!selectedMode) {
-    return "Сначала выберите один из трёх способов генерации. Dry-run доступен отдельно и никогда не включается автоматически.";
+    return "Параметры запуска ещё не выбраны. Сверьте модель, длительность и исходники; dry-run доступен отдельно и никогда не включается автоматически.";
   }
   if (!isRealGenerationMode(mode) || !sku) {
     return `До ${MAX_MOCK_BATCH_SIZE} задач для проверки процесса. Изображение и видео в dry-run не создаются. Для готового файла выберите платный режим.`;
@@ -13045,7 +13250,9 @@ function generationOutcomeCopy(mode, sku = realGenerationSku(mode)) {
 
 function activeGenerationCampaigns() {
   if (!state.generationSpend.data || state.generationSpend.status !== "ready") return [];
-  return normalizeGenerationSpendOverview(state.generationSpend.data).campaigns
+  return generationCampaignSelectionState(state.generationSpend.data, {
+    status: state.generationSpend.status,
+  }).campaigns
     .filter((campaign) => campaign.id && campaign.enabled && !campaign.blockerCode);
 }
 
@@ -13508,6 +13715,16 @@ function generationMediaOptionMarkup(item, real, selectedMediaId = "") {
   const mediaId = String(item.public_id || item.id || "");
   const filename = item.original_filename || item.name || "Файл";
   const kind = humanMediaKind(item.kind);
+  const previewUrl = safeExternalUrl(
+    item.signed_url
+      || item.access_url
+      || item.preview_url
+      || item.thumbnail_url
+      || "",
+  );
+  const preview = previewUrl !== "#"
+    ? `<img class="generation-media-option__thumbnail" src="${previewUrl}" alt="${escapeHtml(filename)}" loading="lazy" />`
+    : `<span class="generation-media-option__thumbnail generation-media-option__thumbnail--empty" aria-hidden="true">▧</span>`;
   const identityCopy = identity.verified
     ? `${identity.sku} · ${identity.productName}`
     : "товар не привязан";
@@ -13531,6 +13748,7 @@ function generationMediaOptionMarkup(item, real, selectedMediaId = "") {
           ${real && !identity.paidReady ? "disabled" : ""}
           ${mediaId && mediaId === selectedMediaId && (!real || identity.paidReady) ? "checked" : ""}
         />
+        ${preview}
         <span>
           <strong>${escapeHtml(filename)}</strong><br />
           <small class="muted">${escapeHtml(kind)} · ${escapeHtml(identityCopy)}${escapeHtml(safetyCopy)}</small>
@@ -14152,6 +14370,7 @@ function generationArchiveMarkup(batches, filteredBatches, visibleBatches, filte
           <select name="provider">
             <option value="all" ${filters.provider === "all" ? "selected" : ""}>Все провайдеры</option>
             <option value="runway" ${filters.provider === "runway" ? "selected" : ""}>Runway</option>
+            <option value="fal" ${filters.provider === "fal" ? "selected" : ""}>fal (Pika / Kling)</option>
             <option value="google" ${filters.provider === "google" ? "selected" : ""}>Google</option>
           </select>
         </label>
@@ -14425,8 +14644,16 @@ function generationTable(items, interactive = false) {
         const failure = details.failureCode ? generationFailureMessage(details.failureCode) : "";
         const contentLabel = details.photo ? "Фото" : "Ролик";
         const previewUrl = trustedCachedGenerationUrl(details.jobId);
-        const providerLabel = details.provider === "google" ? "Google" : "Runway";
-        const providerOperationLabel = details.provider === "google" ? "operation" : "task";
+        const providerLabel = details.provider === "google"
+          ? "Google"
+          : details.provider === "fal"
+          ? "fal"
+          : "Runway";
+        const providerOperationLabel = details.provider === "google"
+          ? "operation"
+          : details.provider === "fal"
+          ? "request"
+          : "task";
         const startingWarning = details.reconciliationRequired
           ? `<div class="generation-reconcile-warning generation-reconcile-warning-critical" role="alert"><strong>Нужна ручная сверка ${providerLabel}.</strong><span>Автоопрос остановлен, потому что исход платного POST неизвестен. Новый запуск запрещён до фиксации существующего ${providerOperationLabel} ID или подтверждения его отсутствия.</span></div>`
           : details.status === "starting"
@@ -14497,11 +14724,7 @@ function generationStrategyArchiveMarkup(details) {
   const roles = Object.entries(strategy.roleCounts)
     .filter(([, count]) => count > 0)
     .map(([role, count]) => `${roleLabels[role] || role}: ${count}`);
-  const recipeLabels = {
-    product_ugc: "Runway Product UGC",
-    product_swap: "Runway Product Swap",
-    product_ad: "Runway Product Ad",
-  };
+  const executionLabel = generationStrategyExecutionPublicLabel(execution);
   const executionSummary = execution
     ? [
         `${execution.durationSeconds} сек.`,
@@ -14516,7 +14739,7 @@ function generationStrategyArchiveMarkup(details) {
         <strong>${escapeHtml(labels[strategy.strategyId] || strategy.strategyId)}</strong>
       </div>
       <p>${escapeHtml(basisLabels[strategy.sourceBasis] || strategy.sourceBasis)} · статус ${escapeHtml(humanGenerationStatus(strategy.status || details.status))}</p>
-      ${execution ? `<p><strong>${escapeHtml(recipeLabels[execution.recipe] || execution.recipe)}</strong> · ${escapeHtml(executionSummary)}</p>` : ""}
+      ${execution ? `<p><strong>${escapeHtml(executionLabel || execution.recipe)}</strong> · ${escapeHtml(executionSummary)}</p>` : ""}
       ${execution ? `<p class="generation-model-record__cost">Серверная оценка ${escapeHtml(formatGenerationUsd(execution.estimatedCostMinor))} · тариф ${escapeHtml(execution.pricingVersion)}</p>` : ""}
       ${roles.length ? `<p>${escapeHtml(roles.join(" · "))}</p>` : ""}
       <details>
@@ -14565,8 +14788,35 @@ function generationStrategyExecutionArchiveDetails(item, strategy) {
   const resolution = String(selection?.resolution || "").trim();
   const estimatedCostMinor = Number(price?.estimated_cost_minor);
   const estimatedCredits = Number(price?.estimated_credits);
-  const dimensionMatches = strategy.strategyId === "viral_product_swap"
-    ? ["720p", "1080p"].includes(resolution) && ratio === ""
+  const provider = String(price?.provider || "").trim().toLowerCase();
+  const pricingVersion = String(price?.pricing_version || "").trim();
+  const routePriceMatches = (
+    provider === "runway"
+      ? pricingVersion === "runway-recipe-credits-2026-08-14.v1"
+      : provider === "fal"
+        ? new Set([
+          "fal-usd-per-run-2026-08-18.v1",
+          "fal-usd-per-second-2026-08-18.v1",
+          "fal-usd-per-second-kling-standard-2026-08-23.v1",
+          "fal-usd-per-second-happy-horse-2026-08-23.v1",
+          "fal-usd-per-second-bytedance-2-5-2026-08-23.v1",
+          "fal-usd-per-second-minimax-h3-2026-08-23.v1",
+          "fal-usd-per-second-grok-imagine-2026-08-23.v1",
+          "fal-usd-per-second-happy-horse-reference-2026-08-23.v1",
+        ]).has(pricingVersion)
+        : provider === "heygen"
+          ? pricingVersion === "heygen-usd-per-second-2026-08-22.v1"
+          : false
+  );
+  // Обе правки готового видео измеряются РАЗРЕШЕНИЕМ: кадр приходит из
+  // исходника, а не выбирается. Соотношение сторон выбирает только «Создание»,
+  // которое строит ролик с нуля. Развилка по одному product_swap отвергала
+  // карточку дуэта целиком — запуск был, а в архиве он не показывался.
+  const sourceFramedStrategy = strategy.strategyId === "viral_product_swap"
+    || strategy.strategyId === "viral_avatar_ugc";
+  const dimensionMatches = sourceFramedStrategy
+    ? ["720p", "1080p"].includes(resolution)
+      && (ratio === "" || ratio === "source")
     : ["720:1280", "1080:1920"].includes(ratio) && resolution === "";
   if (
     selection?.version !== "2026-08-14.v1"
@@ -14574,18 +14824,32 @@ function generationStrategyExecutionArchiveDetails(item, strategy) {
     || selection.recipe_version !== "2026-06"
     || price?.version !== "generation-strategy-price-snapshot-v1"
     || price.strategy_id !== strategy.strategyId
-    || price.provider !== "runway"
+    || !routePriceMatches
     || recipe !== expectedRecipes[strategy.strategyId]
     || price.catalog_version !== selection.version
     || price.recipe_version !== selection.recipe_version
-    || price.pricing_version !== "runway-recipe-credits-2026-08-14.v1"
+    || ![
+      "runway-recipe-credits-2026-08-14.v1",
+      "fal-usd-per-run-2026-08-18.v1",
+      "fal-usd-per-second-2026-08-18.v1",
+      "heygen-usd-per-second-2026-08-22.v1",
+      "fal-usd-per-second-kling-standard-2026-08-23.v1",
+      "fal-usd-per-second-happy-horse-2026-08-23.v1",
+      "fal-usd-per-second-bytedance-2-5-2026-08-23.v1",
+      "fal-usd-per-second-minimax-h3-2026-08-23.v1",
+      "fal-usd-per-second-grok-imagine-2026-08-23.v1",
+      "fal-usd-per-second-happy-horse-reference-2026-08-23.v1",
+    ].includes(price.pricing_version)
     || price.display_only !== true
     || price.requires_fresh_server_price !== true
     || price.price_hash !== null
     || price.spend_confirmation !== null
     || !Number.isSafeInteger(durationSeconds)
-    || durationSeconds < 4
-    || durationSeconds > 15
+    // Предел — свойство стратегии, а не общее число: «Дуэт» комментирует чужой
+    // ролик целиком, и его длина задана исходником. Числа повторяют строки
+    // реестра маршрутов.
+    || durationSeconds < (strategy.strategyId === "viral_avatar_ugc" ? 3 : 4)
+    || durationSeconds > (strategy.strategyId === "viral_avatar_ugc" ? 60 : 15)
     || typeof selection.audio !== "boolean"
     || !dimensionMatches
     || !Number.isSafeInteger(estimatedCostMinor)
@@ -14593,14 +14857,39 @@ function generationStrategyExecutionArchiveDetails(item, strategy) {
     || estimatedCostMinor !== estimatedCredits
   ) return null;
   return Object.freeze({
+    provider,
     recipe,
     durationSeconds,
     ratio,
     resolution,
     audio: selection.audio,
     estimatedCostMinor,
-    pricingVersion: price.pricing_version,
+    pricingVersion,
   });
+}
+
+function generationStrategyExecutionPublicLabel(execution) {
+  if (!execution || typeof execution !== "object") return "";
+  if (execution.provider === "fal") {
+    // Версия прайса — подпись движка среди маршрутов fal, поэтому по ней
+    // восстанавливается публичное имя модели в архиве.
+    return ({
+      "fal-usd-per-run-2026-08-18.v1": "Pika Swaps",
+      "fal-usd-per-second-2026-08-18.v1": "Kling O3 Pro",
+      "fal-usd-per-second-kling-standard-2026-08-23.v1": "Kling O3 Standard",
+      "fal-usd-per-second-happy-horse-2026-08-23.v1": "Happy Horse Edit",
+      "fal-usd-per-second-bytedance-2-5-2026-08-23.v1": "Seedance 2.5",
+      "fal-usd-per-second-minimax-h3-2026-08-23.v1": "MiniMax H3",
+      "fal-usd-per-second-grok-imagine-2026-08-23.v1": "Grok Imagine",
+      "fal-usd-per-second-happy-horse-reference-2026-08-23.v1": "Happy Horse",
+    })[execution.pricingVersion] || "";
+  }
+  if (execution.provider !== "runway") return "";
+  return ({
+    product_ugc: "Runway Product UGC",
+    product_swap: "Runway Product Swap",
+    product_ad: "Runway Product Ad",
+  })[execution.recipe] || "";
 }
 
 function generationSelectionArchiveMarkup(details) {
@@ -14827,11 +15116,37 @@ function generationBatchDetails(item) {
   const cached = jobId ? state.realGenerationResults.get(jobId) : null;
   const job = cached?.job && typeof cached.job === "object" ? cached.job : {};
   const billing = parameters.billing && typeof parameters.billing === "object" ? parameters.billing : {};
+  // A strategy status projects the provider from the signed price receipt;
+  // the immutable archive execution record carries the same authority.  The
+  // generic archive item is only a fallback because older archive wrappers
+  // labelled every strategy as Runway.  If the two signed projections ever
+  // disagree, fail closed instead of rendering a reconciliation form for
+  // either provider.
+  const cachedStrategyProvider = strategy
+    && new Set(["runway", "fal"]).has(String(job.provider || "").trim().toLowerCase())
+    ? String(job.provider).trim().toLowerCase()
+    : "";
+  const frozenStrategyProvider = strategy
+    && new Set(["runway", "fal"]).has(
+      String(strategyExecution?.provider || "").trim().toLowerCase(),
+    )
+    ? String(strategyExecution.provider).trim().toLowerCase()
+    : "";
+  const strategyProviderConflict = Boolean(
+    cachedStrategyProvider
+    && frozenStrategyProvider
+    && cachedStrategyProvider !== frozenStrategyProvider,
+  );
   const provider = String(
-    hasAuthoritativeSnapshot
-      ? selectionSnapshot?.provider || item?.provider || ""
-      : selectionSnapshot?.provider || job.provider || item?.provider
-        || parameters.provider || "runway",
+    strategyProviderConflict
+      ? ""
+      : cachedStrategyProvider || frozenStrategyProvider || (
+        hasAuthoritativeSnapshot
+          ? selectionSnapshot?.provider || item?.provider || ""
+          : selectionSnapshot?.provider || job.provider || strategyExecution?.provider
+            || item?.provider
+            || parameters.provider || "runway"
+      ),
   ).trim().toLowerCase();
   const model = String(
     hasAuthoritativeSnapshot
@@ -14885,6 +15200,39 @@ function generationBatchDetails(item) {
     checkedAt: cached?.checkedAt || "",
     transientError: cached?.transientError || "",
   };
+}
+
+function generationDeepLinkStatusKind(
+  data,
+  jobId,
+  archiveAuthoritative = true,
+) {
+  const normalizedJobId = String(jobId || "").trim().toLowerCase();
+  if (!archiveAuthoritative || !contentReviewUuid(normalizedJobId)) {
+    return "unknown";
+  }
+  // Match only the archive's top-level immutable job identity.  Parameters
+  // are intentionally ignored here: old client-authored values must never
+  // decide which server status contract is called.
+  const exactRows = listFrom(data, "batches").filter((item) => (
+    String(item?.generation_job_id || "").trim().toLowerCase()
+      === normalizedJobId
+  ));
+  if (exactRows.length !== 1) return "unknown";
+  const item = exactRows[0];
+  if (
+    !Object.prototype.hasOwnProperty.call(
+      item,
+      "generation_strategy_snapshot",
+    )
+  ) return "unknown";
+  if (item.generation_strategy_snapshot === null) {
+    return "legacy";
+  }
+  const details = generationBatchDetails(item);
+  return details.strategy && details.jobId === normalizedJobId
+    ? "strategy"
+    : "unknown";
 }
 
 function mergeGenerationDeepLinkedBatch(data, jobId, result) {
@@ -15131,11 +15479,17 @@ function generatedVideoTechnicalQaMarkup(details) {
       ? " Звуковые уровни, тишина, клиппинг и длительность измерены локально."
       : " Звук автоматически не декодирован — его нужно прослушать вручную.";
     const automaticReviewApproved = entry?.reviewAutostartApproved === true;
-    const reviewStartControl = entry?.error
-      ? `<button class="btn btn-small" type="button" data-action="start-generated-video-review" data-media-id="${escapeHtml(mediaId)}">Повторить AI-проверку</button>`
-      : automaticReviewApproved
-        ? '<span class="muted tiny" role="status">AI-проверка запускается автоматически; транскрипция выключена.</span>'
-        : `<button class="btn btn-small" type="button" data-action="start-generated-video-review" data-media-id="${escapeHtml(mediaId)}">Запустить AI-проверку</button>`;
+    const categoryRequired = entry?.categoryRequired === true;
+    const reviewStartControl = categoryRequired
+      ? `<button class="btn btn-small" type="button" data-action="open-generated-content-review" data-media-id="${escapeHtml(mediaId)}">Подтвердить категорию — открыть проверку контента</button>`
+      : entry?.error
+        ? `<button class="btn btn-small" type="button" data-action="start-generated-video-review" data-media-id="${escapeHtml(mediaId)}">Повторить AI-проверку</button>`
+        : automaticReviewApproved
+          ? '<span class="muted tiny" role="status">AI-проверка запускается автоматически; транскрипция выключена.</span>'
+          : `<button class="btn btn-small" type="button" data-action="start-generated-video-review" data-media-id="${escapeHtml(mediaId)}">Запустить AI-проверку</button>`;
+    const categoryRequiredHint = categoryRequired
+      ? '<span class="muted tiny" role="status">Руководитель один раз подтверждает категорию товара в полной форме проверки; повторная AI-проверка без категории запускаться не будет.</span>'
+      : "";
     const reviewStartCopy = automaticReviewApproved
       ? " Визуальный AI-QA ставится в фоновую очередь автоматически; транскрипция остаётся выключенной."
       : " Это старый запуск без сохранённого согласия на автоматическую передачу в AI-QA; проверку можно запустить явно, транскрипция останется выключенной.";
@@ -15144,6 +15498,7 @@ function generatedVideoTechnicalQaMarkup(details) {
         <strong>Рендер готов · звук не принят</strong>
         <span>Технический скан готов автоматически. ${frameCount ? `${frameCount} evidence-изображений сохранены.` : ""}${atlasReady && temporalCount ? ` Пятое изображение — хронологический атлас из ${temporalCount} точек таймлайна.` : ""}${escapeHtml(continuityCopy)}${escapeHtml(audioCopy)}${escapeHtml(reviewStartCopy)}</span>
         ${entry?.error ? `<span class="generation-technical-qa__error">${escapeHtml(entry.error)}</span>` : ""}
+        ${categoryRequiredHint}
         <div class="generation-result-actions">
           ${reviewStartControl}
           ${reviewButton}
@@ -15196,15 +15551,37 @@ function generationActionsMarkup(details) {
         </div>
       `;
     }
-    const provider = details.provider === "google" ? "google" : "runway";
-    const providerLabel = provider === "google" ? "Google" : "Runway";
-    const operationLabel = provider === "google" ? "operation" : "task";
-    const idLabel = provider === "google" ? "Google operation name" : "Runway task ID";
+    const provider = String(details.provider || "").trim().toLowerCase();
+    if (!new Set(["google", "fal", "runway"]).has(provider)) {
+      return `
+        <div class="generation-reconciliation-readonly" role="alert">
+          <strong>Сервис сверки не подтверждён</strong>
+          <span>Портал не будет подставлять другой сервис вместо неизвестного. Не прикрепляйте чужую задачу и не запускайте генерацию повторно — обновите карточку или передайте инцидент руководителю.</span>
+        </div>
+      `;
+    }
+    const providerLabel = provider === "google"
+      ? "Google"
+      : provider === "fal"
+      ? "fal"
+      : "Runway";
+    const operationLabel = provider === "google"
+      ? "operation"
+      : provider === "fal"
+      ? "request"
+      : "task";
+    const idLabel = provider === "google"
+      ? "Google operation name"
+      : provider === "fal"
+      ? "fal request ID (UUIDv7)"
+      : "Runway task ID";
     const example = provider === "google"
       ? "Например: Google operations, 16.07 14:35"
+      : provider === "fal"
+      ? "Например: fal Recent History, полный проверенный интервал"
       : "Например: Runway dashboard, 16.07 14:35";
     return `
-      <form class="generation-reconciliation-form" data-job-id="${escapeHtml(details.jobId)}" data-incident-id="${escapeHtml(details.reconciliationIncidentId)}" data-provider="${provider}" novalidate>
+      <form class="generation-reconciliation-form" data-job-id="${escapeHtml(details.jobId)}" data-incident-id="${escapeHtml(details.reconciliationIncidentId)}" data-provider="${provider}"${details.strategy ? ' data-strategy-job="true"' : ""} novalidate>
         <div class="generation-reconciliation-heading">
           <strong>Сверить с панелью ${providerLabel}</strong>
           <span>Проверяйте только ${operationLabel}, созданный рядом со временем этого запуска. Портал дополнительно сверит ID, статус и createdAt через API.</span>
@@ -15234,6 +15611,18 @@ function generationActionsMarkup(details) {
     `;
   }
   if (["succeeded", "completed"].includes(details.status)) {
+    // Готовые стратегии выдают MP4 только через защищённое хранилище:
+    // легаси-действие 'status' у Edge отвечает 503 на recipe-модель, поэтому
+    // карточка стратегии никогда не рендерит легаси-кнопки.
+    if (details.strategy) {
+      return `
+        <div class="generation-result-actions">
+          <button class="btn btn-secondary btn-small" type="button" data-action="check-generation-strategy" data-output-action="preview" data-job-id="${escapeHtml(details.jobId)}">Показать видео</button>
+          <button class="btn btn-small" type="button" data-action="check-generation-strategy" data-output-action="download" data-job-id="${escapeHtml(details.jobId)}">Скачать MP4</button>
+          <a class="btn btn-secondary btn-small" href="#/workspace/review">Проверить контент</a>
+        </div>
+      `;
+    }
     const reviewAction = details.photo
       ? '<a class="btn btn-secondary btn-small" href="#/workspace/review">Проверить контент</a>'
       : "";
@@ -15245,11 +15634,21 @@ function generationActionsMarkup(details) {
       </div>
     `;
   }
+  if (
+    details.strategy
+    && GENERATION_STRATEGY_MANUAL_STATUS_REFRESH_STATUSES.has(details.status)
+  ) {
+    const busy = state.generationArchive.strategyStatusInFlight.has(details.jobId);
+    return `<div class="generation-result-actions"><button class="btn btn-secondary btn-small" type="button" data-action="refresh-generation-strategy-status" data-job-id="${escapeHtml(details.jobId)}" ${busy ? "disabled" : ""}>${busy ? "Проверяем…" : "Проверить сейчас"}</button></div>`;
+  }
   if (details.status === "failed" || details.status === "cancelled") {
     const canRepeat = canRepeatRealGeneration(details.jobId);
     return canRepeat
       ? `<div class="generation-result-actions"><button class="btn btn-secondary btn-small" type="button" data-action="repeat-real-generation" data-job-id="${escapeHtml(details.jobId)}">Создать новый вариант</button></div>`
       : "";
+  }
+  if (details.strategy) {
+    return `<div class="generation-result-actions"><button class="btn btn-secondary btn-small" type="button" data-action="refresh-generation-strategy-status" data-job-id="${escapeHtml(details.jobId)}">Проверить сейчас</button></div>`;
   }
   return `<div class="generation-result-actions"><button class="btn btn-secondary btn-small" type="button" data-action="check-real-generation" data-output-action="status" data-job-id="${escapeHtml(details.jobId)}">Проверить сейчас</button></div>`;
 }
@@ -15279,6 +15678,9 @@ function realGenerationJobsFromBatches(batches = listFrom(state.sections.generat
     .filter((details) =>
       details.real
       && details.jobId
+      // Строки стратегий опрашиваются только бесплатным strategy_status:
+      // легаси-действие 'status' отвечает на них 503 generation_unavailable.
+      && !details.strategy
       && !details.reconciliationRequired
       && REAL_GENERATION_ACTIVE_STATUSES.has(details.status)
     );
@@ -15291,6 +15693,7 @@ function realGenerationJobsFromBatches(batches = listFrom(state.sections.generat
       !job
       || !jobId
       || knownJobIds.has(jobId)
+      || cached?.strategy === true
       || cachedProjectId !== projectId
       || normalizeBoolean(job.reconciliation_required)
       || !REAL_GENERATION_ACTIVE_STATUSES.has(status)
@@ -15420,6 +15823,9 @@ function resumeGeneratedVideoQaRecovery() {
   ).map(generationBatchDetails).filter((details) => (
     details.real
     && !details.photo
+    // Легаси-восстановление статуса не касается стратегий: их результат
+    // читается через strategy_status и защищённое хранилище, а не 'status'.
+    && !details.strategy
     && ["succeeded", "completed"].includes(details.status)
     && contentReviewUuid(details.jobId)
     && !state.realGenerationResults.has(details.jobId)
@@ -15637,6 +16043,190 @@ function trustedCachedGenerationUrl(jobId) {
   return isTrustedGenerationDownload(cached.signedUrl) ? cached.signedUrl : "";
 }
 
+function generationStrategyArchiveStatusRequest(jobId, projectId) {
+  const organizationId = String(
+    state.api?.organizationId || state.bootstrap?.organization?.id || "",
+  ).trim().toLowerCase();
+  if (
+    !contentReviewUuid(jobId)
+    || !contentReviewUuid(projectId)
+    || !contentReviewUuid(organizationId)
+  ) return null;
+  return {
+    action: "strategy_status",
+    organization_id: organizationId,
+    project_id: projectId,
+    generation_job_id: jobId,
+  };
+}
+
+function exactGenerationStrategyArchiveDetails(jobId) {
+  const normalizedJobId = String(jobId || "").trim().toLowerCase();
+  if (!contentReviewUuid(normalizedJobId)) return null;
+  const matches = listFrom(
+    state.sections.generation.data || {},
+    "batches",
+  ).map(generationBatchDetails).filter((details) => (
+    details.real
+    && details.strategy
+    && details.jobId === normalizedJobId
+  ));
+  return matches.length === 1 ? matches[0] : null;
+}
+
+async function refreshGenerationStrategyArchiveStatus(jobId, control = null) {
+  const normalizedJobId = String(jobId || "").trim().toLowerCase();
+  const details = exactGenerationStrategyArchiveDetails(normalizedJobId);
+  if (
+    !details
+    || !GENERATION_STRATEGY_MANUAL_STATUS_REFRESH_STATUSES.has(details.status)
+  ) {
+    toast(
+      "Точная задача стратегии для бесплатной проверки не найдена. Обновите архив; новый запуск не создавался.",
+      "error",
+    );
+    return null;
+  }
+  const inFlight = state.generationArchive.strategyStatusInFlight;
+  if (inFlight.has(normalizedJobId)) return null;
+  inFlight.add(normalizedJobId);
+  const originalLabel = String(control?.textContent || "Проверить сейчас");
+  if (control) {
+    control.disabled = true;
+    control.textContent = "Проверяем…";
+    control.setAttribute?.("aria-busy", "true");
+  }
+  try {
+    // Ровно один бесплатный strategy_status для уже существующей задачи.
+    // Здесь нет legacy status, start, repeat или provider POST.
+    const raw = await requestGenerationStrategyArchiveStatus(normalizedJobId);
+    const status = String(raw?.job?.status || "").trim().toLowerCase();
+    toast(
+      ["succeeded", "completed"].includes(status)
+        ? "Статус обновлён: ролик готов."
+        : `Статус обновлён: ${humanGenerationStatus(status || details.status)}.`,
+      ["failed", "cancelled"].includes(status) ? "error" : "info",
+    );
+    return raw;
+  } catch (error) {
+    toast(`Статус не обновлён: ${actionErrorMessage(error)}`, "error");
+    return null;
+  } finally {
+    inFlight.delete(normalizedJobId);
+    if (control?.isConnected) {
+      control.disabled = false;
+      control.textContent = originalLabel;
+      control.removeAttribute?.("aria-busy");
+    }
+  }
+}
+
+async function requestGenerationStrategyArchiveStatus(jobId) {
+  const normalizedJobId = String(jobId || "").trim().toLowerCase();
+  const projectId = currentWorkspaceProjectId();
+  const request = generationStrategyArchiveStatusRequest(
+    normalizedJobId,
+    projectId,
+  );
+  if (!request || !state.api) {
+    throw new CreatorApiError("Не удалось определить платную задачу стратегии. Обновите раздел генерации.", {
+      code: "generation_strategy_status_request_invalid",
+    });
+  }
+  // Бесплатный strategy_status — единственный опрос для стратегий: легаси
+  // 'status' построен на модели каталога и отвечает 503 на recipe-задачи.
+  const raw = await state.api.generationStrategyStatus(request);
+  if (String(raw?.job?.id || "").trim().toLowerCase() !== normalizedJobId) {
+    throw new CreatorApiError(
+      "Сервер вернул статус другой задачи. Архив не изменён; повторный запуск запрещён.",
+      { code: "generation_strategy_status_job_mismatch" },
+    );
+  }
+  applyGenerationStrategyArchiveStatus(normalizedJobId, raw, { projectId });
+  return raw;
+}
+
+function applyGenerationStrategyArchiveStatus(jobId, raw, options = {}) {
+  const job = raw?.job && typeof raw.job === "object" ? raw.job : null;
+  if (!job || String(job.id || "") !== String(jobId || "")) return;
+  const reconciliation = raw.reconciliation && typeof raw.reconciliation === "object"
+    ? raw.reconciliation
+    : null;
+  const output = raw.output && typeof raw.output === "object" ? raw.output : null;
+  const previous = state.realGenerationResults.get(jobId);
+  state.realGenerationResults.set(jobId, {
+    strategy: true,
+    job: {
+      id: String(job.id),
+      batch_id: String(job.batch_id || ""),
+      project_id: String(job.project_id || ""),
+      status: String(job.status || "queued"),
+      provider: new Set(["runway", "fal"]).has(String(raw.price?.provider || ""))
+        ? String(raw.price.provider)
+        : "",
+      estimated_cost_minor: job.estimated_cost_minor,
+      actual_cost_minor: job.actual_cost_minor,
+      output_media_id: String(output?.media_id || ""),
+      failure_code: String(raw.error?.code || ""),
+      reconciliation_required: reconciliation?.required === true,
+      reconciliation_incident_id: String(reconciliation?.incident_id || ""),
+      reconciliation_required_at: String(reconciliation?.required_at || ""),
+      reconciliation_reason_code: String(reconciliation?.reason_code || ""),
+      reconciliation_resolution: String(reconciliation?.resolution || ""),
+      can_reconcile: ["owner", "admin"].includes(
+        state.bootstrap?.membership?.role,
+      ),
+    },
+    dispatchResultId: String(raw.dispatch?.result_id || ""),
+    outputMimeType: String(output?.mime_type || ""),
+    projectId: String(options.projectId || job.project_id || "")
+      .trim().toLowerCase(),
+    signedUrl: previous?.signedUrl || "",
+    signedUrlIssuedAt: previous?.signedUrlIssuedAt || 0,
+    checkedAt: new Date().toISOString(),
+    transientError: "",
+  });
+  if (
+    options.renderNow !== false
+    && state.route.path === "/workspace/generation"
+  ) {
+    renderGenerationBackgroundUpdate();
+  }
+}
+
+async function resolveGenerationStrategyOutputObjectName(outputMediaId) {
+  const normalizedMediaId = String(outputMediaId || "").trim().toLowerCase();
+  if (!contentReviewUuid(normalizedMediaId)) {
+    throw new CreatorApiError(
+      "Сервер ещё не подтвердил готовый MP4 этой стратегии. Нажмите «Проверить сейчас» немного позже.",
+      { code: "generation_strategy_output_media_missing" },
+    );
+  }
+  const raw = await withUiTimeout(
+    state.api.contentReviewCatalog({
+      limit: 50,
+      projectId: currentWorkspaceProjectId(),
+    }),
+    WORKSPACE_REQUEST_TIMEOUT_MS,
+    "content_review_catalog_timeout",
+  );
+  const catalog = normalizeContentReviewCatalog(raw?.data ?? raw ?? {});
+  const media = catalog.media.find((item) => item.id === normalizedMediaId);
+  if (
+    !media
+    || !media.isVideo
+    || media.kind !== "generated_video"
+    || String(media.mimeType || "").trim().toLowerCase() !== "video/mp4"
+    || !String(media.objectName || "").trim()
+  ) {
+    throw new CreatorApiError(
+      "Готовый MP4 стратегии не найден в защищённом каталоге. Откройте раздел «Проверка» — ролик доступен в задаче проверки.",
+      { code: "generation_strategy_output_object_unavailable" },
+    );
+  }
+  return String(media.objectName).trim();
+}
+
 function generationFailureMessage(code) {
   const messages = {
     provider_configuration_error: "Видеосервис временно не настроен. Списание не подтверждено; перед новым запуском обратитесь к руководителю.",
@@ -15740,10 +16330,13 @@ async function downloadGenerationOutput(url, jobId, photo = false) {
   if (!response.ok) {
     throw new Error("Защищённый файл временно недоступен для скачивания.");
   }
-  const blob = await response.blob();
+  deliverGenerationOutputBlob(await response.blob(), jobId, photo);
+}
+
+function deliverGenerationOutputBlob(blob, jobId, photo = false) {
   const expectedType = photo ? "image/png" : "video/mp4";
   if (
-    !blob.size
+    !blob?.size
     || (
       blob.type
       && blob.type !== expectedType
@@ -15974,6 +16567,7 @@ async function startGeneratedVideoReviewFromEvidence(mediaId, {
     status: "starting_review",
     evidence,
     reviewAutostartAttempted: automatic || previous?.reviewAutostartAttempted === true,
+    categoryRequired: false,
     error: "",
   });
   try {
@@ -16005,10 +16599,12 @@ async function startGeneratedVideoReviewFromEvidence(mediaId, {
       requestEpoch !== state.dataEpoch
       || requestUserId !== state.user?.id
     ) return false;
+    const errorCode = String(error?.code || "");
     setGeneratedVideoQaStatus(normalizedMediaId, {
       status: "ready",
       evidence,
       reviewAutostartAttempted: automatic || previous?.reviewAutostartAttempted === true,
+      categoryRequired: errorCode === "generated_video_review_category_required",
       error: automatic
         ? `Автозапуск AI-проверки не завершился: ${actionErrorMessage(error)}`
         : actionErrorMessage(error),
@@ -16035,6 +16631,7 @@ function resumeGeneratedVideoReviewAutopilot() {
     entry.status === "ready"
     && entry.reviewAutostartApproved === true
     && entry.reviewAutostartAttempted !== true
+    && entry.categoryRequired !== true
     && generatedVideoQaEvidenceForMedia(entry.mediaId)?.status === "ready"
   ));
   if (!next) return;
@@ -16541,7 +17138,8 @@ function normalizeGenerationStrategyRepeatEnvelope(raw, expectedJobId) {
   const strategyId = String(repeat.strategy_id || "").trim().toLowerCase();
   const durationSeconds = Number(selection?.duration_seconds);
   const allowedRoles = {
-    viral_avatar_ugc: new Set(["source_video", "avatar_image", "product_image"]),
+    // «Дуэт»: только исходник — ведущего даёт библиотека, а не ассет.
+    viral_avatar_ugc: new Set(["source_video"]),
     viral_product_swap: new Set(["source_video", "original_product_image", "new_product_image"]),
     viral_rebuild: new Set(["source_video", "product_image", "style_image"]),
   };
@@ -16550,10 +17148,8 @@ function normalizeGenerationStrategyRepeatEnvelope(raw, expectedJobId) {
   const assetIds = assets.map((asset) => String(asset?.media_id || "").trim().toLowerCase());
   const roleCount = (role) => assets.filter((asset) => asset?.role === role).length;
   const roleShapeValid = strategyId === "viral_avatar_ugc"
-    ? assets.length === 3
+    ? assets.length === 1
       && roleCount("source_video") === 1
-      && roleCount("avatar_image") === 1
-      && roleCount("product_image") === 1
     : strategyId === "viral_product_swap"
       ? assets.length >= 3
         && assets.length <= 12
@@ -16594,7 +17190,9 @@ function normalizeGenerationStrategyRepeatEnvelope(raw, expectedJobId) {
     && durationSeconds >= 4
     && durationSeconds <= 15
     && typeof selection.audio === "boolean"
-    && assets.length >= 2
+    // Нижняя граница — один ассет: у «Дуэта» он ровно один. Точный состав
+    // ролей проверяет roleShapeValid прямо ниже.
+    && assets.length >= 1
     && assets.length <= 16
     && roleShapeValid
     && new Set(assetIds).size === assetIds.length
@@ -16650,7 +17248,10 @@ function normalizeGenerationStrategyRepeatEnvelope(raw, expectedJobId) {
   }
   const ratio = String(selection.ratio || "").trim();
   const resolution = String(selection.resolution || "").trim();
-  const dimensionValid = strategyId === "viral_product_swap"
+  // «Копия» и «Дуэт» измеряются разрешением: кадр им задаёт исходник — одной
+  // потому, что она его переписывает, другому потому, что ролик остаётся
+  // подложкой. Соотношение сторон выбирает только «Создание».
+  const dimensionValid = ["viral_product_swap", "viral_avatar_ugc"].includes(strategyId)
     ? ["720p", "1080p"].includes(resolution) && ratio === ""
     : ["720:1280", "1080:1920"].includes(ratio) && resolution === "";
   if (!dimensionValid) return null;
@@ -16662,6 +17263,7 @@ function normalizeGenerationStrategyRepeatEnvelope(raw, expectedJobId) {
     liveAssetsCurrent: repeat.live_assets_current,
     values: Object.freeze({
       generation_strategy_id: strategyId,
+      generation_strategy_product_id: String(repeat.product_id).trim().toLowerCase(),
       generation_strategy_duration_seconds: durationSeconds,
       generation_strategy_ratio: ratio,
       generation_strategy_resolution: resolution,
@@ -17709,79 +18311,395 @@ function placementCard(item) {
   `;
 }
 
+const STATS_PAGE_SIZES = Object.freeze([5, 10, 20, 50]);
+
+function statsRowId(item) {
+  return String(item?.placement_id || item?.id || "").trim();
+}
+
+function statsRowTimestamp(item) {
+  const value = Date.parse(String(item?.observed_at || item?.captured_at || item?.updated_at || ""));
+  return Number.isFinite(value) ? value : null;
+}
+
+function statsRowContentType(item) {
+  return String(
+    item?.content_type
+      || item?.content_kind
+      || item?.media_kind
+      || item?.format
+      || "",
+  ).trim();
+}
+
+function humanStatsContentType(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  const labels = {
+    video: "Видео",
+    "video/mp4": "Видео",
+    image: "Изображение",
+    photo: "Фото",
+    carousel: "Карусель",
+    story: "История",
+    post: "Пост",
+    reel: "Reels",
+    shorts: "Shorts",
+  };
+  return labels[normalized] || String(value || "").trim();
+}
+
+function statsDistinctValues(items, readValue) {
+  const values = new Map();
+  items.forEach((item) => {
+    const value = String(readValue(item) || "").trim();
+    const key = value.toLocaleLowerCase("ru-RU");
+    if (value && !values.has(key)) values.set(key, value);
+  });
+  return [...values.values()].sort((left, right) => left.localeCompare(right, "ru-RU"));
+}
+
+function statsFiltersFromRoute(items = []) {
+  const period = ["all", "7d", "30d", "90d"].includes(state.route.query.get("period"))
+    ? state.route.query.get("period")
+    : "30d";
+  const sort = [
+    "updated_desc",
+    "updated_asc",
+    "views_desc",
+    "clicks_desc",
+    "orders_desc",
+    "revenue_desc",
+    "title_asc",
+  ].includes(state.route.query.get("sort"))
+    ? state.route.query.get("sort")
+    : "updated_desc";
+  const layout = state.route.query.get("layout") === "cards" ? "cards" : "table";
+  const requestedPageSize = Number(state.route.query.get("result_size"));
+  const pageSize = STATS_PAGE_SIZES.includes(requestedPageSize) ? requestedPageSize : 5;
+  const requestedPage = Number(state.route.query.get("result_page"));
+  const platforms = statsDistinctValues(items, (item) => item.platform);
+  const contentTypes = statsDistinctValues(items, statsRowContentType);
+  const requestedPlatform = String(state.route.query.get("platform") || "all").trim();
+  const requestedContentType = String(state.route.query.get("content_type") || "all").trim();
+  return {
+    period,
+    sort,
+    layout,
+    pageSize,
+    page: Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1,
+    query: String(state.route.query.get("q") || "").trim().slice(0, 120),
+    platform: platforms.includes(requestedPlatform) ? requestedPlatform : "all",
+    contentType: contentTypes.includes(requestedContentType) ? requestedContentType : "all",
+    platforms,
+    contentTypes,
+  };
+}
+
+function filterStatsRows(items, filters) {
+  const query = filters.query.toLocaleLowerCase("ru-RU");
+  const periodDays = { "7d": 7, "30d": 30, "90d": 90 }[filters.period] || null;
+  const threshold = periodDays ? Date.now() - periodDays * 86_400_000 : null;
+  const filtered = items.filter((item) => {
+    const timestamp = statsRowTimestamp(item);
+    if (threshold !== null && (timestamp === null || timestamp < threshold)) return false;
+    if (filters.platform !== "all" && String(item.platform || "") !== filters.platform) return false;
+    if (filters.contentType !== "all" && statsRowContentType(item) !== filters.contentType) return false;
+    if (!query) return true;
+    const searchable = [
+      item.title,
+      item.sku,
+      item.platform,
+      item.final_url,
+      humanMetricSource(item.source),
+      humanStatsContentType(statsRowContentType(item)),
+    ].map((value) => String(value || "")).join(" ").toLocaleLowerCase("ru-RU");
+    return searchable.includes(query);
+  });
+  const numeric = (item, key) => Number(item?.[key] || 0);
+  const comparators = {
+    updated_desc: (left, right) => (statsRowTimestamp(right) || 0) - (statsRowTimestamp(left) || 0),
+    updated_asc: (left, right) => (statsRowTimestamp(left) || 0) - (statsRowTimestamp(right) || 0),
+    views_desc: (left, right) => numeric(right, "views") - numeric(left, "views"),
+    clicks_desc: (left, right) => numeric(right, "clicks") - numeric(left, "clicks"),
+    orders_desc: (left, right) => numeric(right, "orders") - numeric(left, "orders"),
+    revenue_desc: (left, right) => numeric(right, "revenue_minor") - numeric(left, "revenue_minor"),
+    title_asc: (left, right) => String(left?.title || left?.sku || "").localeCompare(String(right?.title || right?.sku || ""), "ru-RU"),
+  };
+  return filtered.sort((left, right) => {
+    const primary = comparators[filters.sort](left, right);
+    return primary || statsRowId(left).localeCompare(statsRowId(right));
+  });
+}
+
+function statsRouteHref(patch = {}) {
+  const query = new URLSearchParams(state.route.query);
+  Object.entries(patch).forEach(([key, value]) => {
+    if (value === null || value === undefined || value === "") query.delete(key);
+    else query.set(key, String(value));
+  });
+  return workspaceProjectHref(`#/workspace/stats?${query.toString()}`);
+}
+
+function statsFilterControls(items, filters, filteredCount) {
+  const hasActiveFilters = filters.period !== "30d"
+    || filters.platform !== "all"
+    || filters.contentType !== "all"
+    || Boolean(filters.query);
+  return `
+    <div class="stats-live-toolbar stats-overview-panel">
+      <form id="stats-filter-form" class="stats-live-filters" role="search" aria-label="Фильтры результатов">
+        <label><span>Период</span><select name="period">
+          <option value="7d" ${filters.period === "7d" ? "selected" : ""}>За 7 дней</option>
+          <option value="30d" ${filters.period === "30d" ? "selected" : ""}>За 30 дней</option>
+          <option value="90d" ${filters.period === "90d" ? "selected" : ""}>За 90 дней</option>
+          <option value="all" ${filters.period === "all" ? "selected" : ""}>За всё время</option>
+        </select></label>
+        ${filters.platforms.length ? `<label><span>Площадка</span><select name="platform"><option value="all">Все площадки</option>${filters.platforms.map((platform) => `<option value="${escapeHtml(platform)}" ${filters.platform === platform ? "selected" : ""}>${escapeHtml(platform)}</option>`).join("")}</select></label>` : ""}
+        ${filters.contentTypes.length ? `<label><span>Тип контента</span><select name="content_type"><option value="all">Все типы</option>${filters.contentTypes.map((contentType) => `<option value="${escapeHtml(contentType)}" ${filters.contentType === contentType ? "selected" : ""}>${escapeHtml(humanStatsContentType(contentType))}</option>`).join("")}</select></label>` : ""}
+        <label class="stats-live-filters__search"><span>Поиск</span><input name="q" type="search" value="${escapeHtml(filters.query)}" maxlength="120" placeholder="Название, SKU, ссылка…" /></label>
+        <label><span>Сортировка</span><select name="sort">
+          <option value="updated_desc" ${filters.sort === "updated_desc" ? "selected" : ""}>Снача новые</option>
+          <option value="updated_asc" ${filters.sort === "updated_asc" ? "selected" : ""}>Снача старые</option>
+          <option value="views_desc" ${filters.sort === "views_desc" ? "selected" : ""}>По просмотрам</option>
+          <option value="clicks_desc" ${filters.sort === "clicks_desc" ? "selected" : ""}>По переходам</option>
+          <option value="orders_desc" ${filters.sort === "orders_desc" ? "selected" : ""}>По заказам</option>
+          <option value="revenue_desc" ${filters.sort === "revenue_desc" ? "selected" : ""}>По выручке</option>
+          <option value="title_asc" ${filters.sort === "title_asc" ? "selected" : ""}>По названию</option>
+        </select></label>
+        <button class="btn btn-secondary btn-small" type="submit">Применить</button>
+        ${hasActiveFilters ? `<button class="btn btn-ghost btn-small" type="button" data-action="reset-stats-filters">Сбросить</button>` : ""}
+      </form>
+      <div class="stats-live-toolbar__actions">
+        <span class="stats-live-count">Найдено: <strong>${formatNumber(filteredCount)}</strong> из ${formatNumber(items.length)} загруженных</span>
+        <div class="stats-live-layout" role="group" aria-label="Вид результатов">
+          <button type="button" data-action="set-stats-layout" data-layout="table" class="${filters.layout === "table" ? "is-active" : ""}" aria-pressed="${filters.layout === "table"}">Таблица</button>
+          <button type="button" data-action="set-stats-layout" data-layout="cards" class="${filters.layout === "cards" ? "is-active" : ""}" aria-pressed="${filters.layout === "cards"}">Карточки</button>
+        </div>
+        <button class="btn btn-secondary btn-small" type="button" data-action="export-stats-csv" ${filteredCount ? "" : "disabled"}>Экспорт CSV</button>
+      </div>
+    </div>`;
+}
+
+function statsPagination(filters, filteredCount, currentPage) {
+  if (!filteredCount) return "";
+  const pageCount = Math.max(1, Math.ceil(filteredCount / filters.pageSize));
+  const first = (currentPage - 1) * filters.pageSize + 1;
+  const last = Math.min(filteredCount, currentPage * filters.pageSize);
+  const nextSize = STATS_PAGE_SIZES.find((size) => size > filters.pageSize) || filters.pageSize;
+  const pages = Array.from({ length: pageCount }, (_, index) => index + 1)
+    .filter((page) => page === 1 || page === pageCount || Math.abs(page - currentPage) <= 1);
+  return `
+    <nav class="stats-live-pagination" aria-label="Страницы результатов">
+      <span>Показано ${formatNumber(first)}–${formatNumber(last)} из ${formatNumber(filteredCount)}</span>
+      <div class="stats-live-pagination__pages">
+        <a class="${currentPage <= 1 ? "is-disabled" : ""}" ${currentPage <= 1 ? 'aria-disabled="true" tabindex="-1"' : `href="${statsRouteHref({ result_page: currentPage - 1 })}"`} aria-label="Предыдущая страница">←</a>
+        ${pages.map((page, index) => `${index > 0 && page - pages[index - 1] > 1 ? '<span aria-hidden="true">…</span>' : ""}<a class="${page === currentPage ? "is-active" : ""}" href="${statsRouteHref({ result_page: page })}" ${page === currentPage ? 'aria-current="page"' : ""}>${page}</a>`).join("")}
+        <a class="${currentPage >= pageCount ? "is-disabled" : ""}" ${currentPage >= pageCount ? 'aria-disabled="true" tabindex="-1"' : `href="${statsRouteHref({ result_page: currentPage + 1 })}"`} aria-label="Следующая страница">→</a>
+      </div>
+      ${nextSize > filters.pageSize && filters.pageSize < filteredCount ? `<a class="btn btn-secondary btn-small" href="${statsRouteHref({ result_size: nextSize, result_page: 1 })}">Показать ещё</a>` : ""}
+    </nav>`;
+}
+
+function statsSnapshotHref(item) {
+  return statsRouteHref({
+    view: "new",
+    placement: statsRowId(item),
+    result_page: null,
+  });
+}
+
+function statsCards(items) {
+  return `<div class="stats-live-cards" role="list">${items.map((item) => {
+    const contentType = statsRowContentType(item);
+    return `<article class="stats-live-card" role="listitem">
+      <header><div><span>${escapeHtml(item.platform || "Площадка не указана")}</span>${contentType ? `<span>${escapeHtml(humanStatsContentType(contentType))}</span>` : ""}</div><span class="badge">${escapeHtml(humanMetricSource(item.source))}</span></header>
+      <h3>${escapeHtml(item.title || item.sku || `Публикация #${statsRowId(item)}`)}</h3>
+      ${item.sku ? `<p>SKU ${escapeHtml(item.sku)}</p>` : ""}
+      <dl>
+        <div><dt>Просмотры</dt><dd>${formatNumber(item.views || 0)}</dd></div>
+        <div><dt>Переходы</dt><dd>${formatNumber(item.clicks || 0)}</dd></div>
+        <div><dt>Заказы</dt><dd>${formatNumber(item.orders || 0)}</dd></div>
+        <div><dt>Выручка</dt><dd>${formatMoney(item.revenue_minor || 0)}</dd></div>
+      </dl>
+      <footer><span>${formatDate(item.observed_at || item.captured_at || item.updated_at, true)}</span><div>${item.final_url ? `<a href="${safeExternalUrl(item.final_url)}" target="_blank" rel="noopener noreferrer">Открыть пост</a>` : ""}<a class="stats-live-snapshot" href="${statsSnapshotHref(item)}">Добавить снимок</a></div></footer>
+    </article>`;
+  }).join("")}</div>`;
+}
+
 function renderStatsSection(sectionState) {
-  const data = sectionState.data || {};
   const requestedView = String(state.route.query.get("view") || "overview");
   const statsView = requestedView === "new" ? "new" : "overview";
-  const requestedPlacementId = safeWorkspaceRouteEntityId("placement");
-  const summary = data.summary || data.metrics || {};
-  const summaryScope = data.summary_scope === "page" ? " · по последним загруженным записям" : "";
+  const isBusyWithoutData = ["idle", "loading"].includes(sectionState.status) && !sectionState.data;
+  const refreshLabel = sectionState.status === "refreshing" ? "Обновляем…" : "Обновить";
+  const header = pageHeader(
+    "Результаты",
+    "Проверяйте эффект контента по последним подтверждённым снимкам каждой публикации.",
+    `<button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="stats" ${isBusyWithoutData ? "disabled" : ""}>${refreshLabel}</button>`,
+  );
+  const data = sectionState.data || {};
+  const serverSummary = data.summary || data.metrics || {};
   const rows = listFrom(data, "publications", "items", "rows");
   const publicationOptions = listFrom(data, "publication_options", "placements", "published_placements");
+  const filters = statsFiltersFromRoute(rows);
+  const filteredRows = filterStatsRows(rows, filters);
+  const filterChangesScope = filters.period !== "all"
+    || filters.platform !== "all"
+    || filters.contentType !== "all"
+    || Boolean(filters.query);
+  const filteredViews = filteredRows.reduce((total, item) => total + Number(item.views || 0), 0);
+  const filteredClicks = filteredRows.reduce((total, item) => total + Number(item.clicks || 0), 0);
+  const summary = filterChangesScope ? {
+    published: filteredRows.filter((item) => String(item.status || "").toLowerCase() === "published").length,
+    views: filteredViews,
+    clicks: filteredClicks,
+    ctr: filteredViews > 0 ? filteredClicks * 100 / filteredViews : 0,
+  } : serverSummary;
+  const summaryScope = filterChangesScope
+    ? " · по текущему фильтру среди загруженных"
+    : data.summary_scope === "page" ? " · по загруженной странице" : "";
+  const requestedPlacementId = safeWorkspaceRouteEntityId("placement");
+  const latestByPlacement = new Map(rows.map((item) => [statsRowId(item), item]));
+  const requestedMetric = latestByPlacement.get(requestedPlacementId) || null;
+  const requestedPublicationOption = publicationOptions.find(
+    (item) => String(item.id || item.placement_id || "") === requestedPlacementId,
+  ) || null;
+  const requestedTrackingEnabled = Boolean(requestedPublicationOption?.tracking_slug);
+  const requestedClicks = requestedTrackingEnabled
+    ? (requestedPublicationOption?.tracked_clicks || requestedMetric?.tracked_clicks || 0)
+    : (requestedMetric?.clicks || 0);
   const cards = [
     ["Опубликовано", summary.published ?? summary.publications ?? 0, `роликов со ссылкой на пост${summaryScope}`],
-    ["Просмотры", summary.views ?? 0, `последний подтверждённый снимок${summaryScope}`],
-    ["Переходы", summary.clicks ?? 0, `по ссылкам из задач${summaryScope}`],
+    ["Просмотры", summary.views ?? 0, `последние подтверждённые снимки${summaryScope}`],
+    ["Переходы", summary.clicks ?? 0, `ручно или по безопасным ссылкам${summaryScope}`],
     ["CTR", formatPercent(summary.ctr ?? 0), `переходы / просмотры${summaryScope}`],
   ];
-  return `
-    <div class="page-wrap" data-stats-view="${statsView}">
-      ${pageHeader("Результаты", "Здесь собраны публикации, просмотры, переходы и заказы с датой последнего обновления.", `<button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="stats">Обновить</button>`)}
-      ${workspaceActionSwitch("stats-action-switch", "Действие с результатами", statsView, [
-        { view: "overview", href: "#/workspace/stats?view=overview", label: "Посмотреть результат" },
-        { view: "new", href: "#/workspace/stats?view=new", label: "Добавить снимок" },
-      ])}
-      <div class="metrics-grid stats-overview-panel">${cards.map(([label, value, hint]) => `
-        <article class="card metric-card"><span class="metric-label">${label}</span><strong>${typeof value === "number" ? formatNumber(value) : value}</strong><small>${hint}</small></article>
-      `).join("")}</div>
-      <section class="card card-pad stats-entry-panel" style="margin-bottom:22px">
-        <div class="split-grid split-grid-results">
-          <div>
-            <p class="eyebrow">Ручной снимок</p>
-            <h2 style="font:600 1.5rem/1.2 Georgia,serif; margin:0 0 8px">Зафиксировать цифры на сейчас</h2>
-            <p class="muted tiny">Введите <strong>накопительные итоги</strong> публикации, а не прирост за день. Например, если вчера было 900 просмотров, а сегодня 1200 — укажите 1200.</p>
-            ${alertMarkup("Просмотры, заказы и выручка остаются ручным подтверждённым снимком. Переходы портал подставит сам, если в публикации использована его ссылка.", "info")}
-          </div>
-          ${publicationOptions.length ? `
-            <form id="manual-metric-form" class="form-stack" novalidate>
-              <label class="field"><span>Опубликованный ролик *</span><select name="placement_id" required><option value="">Выберите публикацию</option>${publicationOptions.map((item) => {
-                const placementId = String(item.id || item.placement_id || "");
-                return `<option value="${escapeHtml(placementId)}" data-tracked-clicks="${escapeHtml(item.tracked_clicks || 0)}" data-tracking-enabled="${item.tracking_slug ? "true" : "false"}" ${placementId === requestedPlacementId ? "selected" : ""}>${escapeHtml(item.title || item.sku || item.final_url || `Публикация #${item.id}`)}</option>`;
-              }).join("")}</select></label>
-              <div class="form-grid-2">
-                <label class="field"><span>Просмотры *</span><input name="views" type="number" min="0" step="1" value="0" required /></label>
-                <label class="field"><span>Переходы *</span><input name="clicks" type="number" min="0" step="1" value="0" required /><small class="muted" data-metric-click-source>Без tracking link укажите накопительное число вручную.</small></label>
-                <label class="field"><span>Заказы *</span><input name="orders" type="number" min="0" step="1" value="0" required /></label>
-                <label class="field"><span>Выручка, ₽ *</span><input name="revenue_rub" type="number" min="0" step="0.01" value="0" required /></label>
-              </div>
-              <label class="field"><span>Когда сняты цифры *</span><input name="observed_at" type="datetime-local" value="${datetimeLocalNow()}" required /></label>
-              <button class="btn" type="submit" data-primary-action="true">Сохранить накопительный снимок</button>
-            </form>
-          ` : alertMarkup("Сначала сохраните ссылку хотя бы на один пост в разделе «Публикации».", "warning")}
+  const pageCount = Math.max(1, Math.ceil(filteredRows.length / filters.pageSize));
+  const currentPage = Math.min(filters.page, pageCount);
+  const pageStart = (currentPage - 1) * filters.pageSize;
+  const visibleRows = filteredRows.slice(pageStart, pageStart + filters.pageSize);
+  const readyMarkup = `
+    ${workspaceActionSwitch("stats-action-switch", "Действие с результатами", statsView, [
+      { view: "overview", href: "#/workspace/stats?view=overview", label: "Посмотреть результат" },
+      { view: "new", href: "#/workspace/stats?view=new", label: "Добавить снимок" },
+    ])}
+    <div class="metrics-grid stats-overview-panel">${cards.map(([label, value, hint]) => `
+      <article class="card metric-card"><span class="metric-label">${label}</span><strong>${typeof value === "number" ? formatNumber(value) : value}</strong><small>${hint}</small></article>
+    `).join("")}</div>
+    <section class="card card-pad stats-entry-panel">
+      <div class="split-grid split-grid-results">
+        <div>
+          <p class="eyebrow">Ручной снимок</p>
+          <h2>Зафиксировать цифры на сейчас</h2>
+          <p class="muted tiny">Введите <strong>накопительные итоги</strong> публикации, а не прирост за день. Если вы открыли форму из строки, в ней уже стоят последние сохранённые итоги — сверьте и поправьте их.</p>
+          ${alertMarkup("Просмотры, заказы и выручка остаются ручным подтверждённым снимком. Переходы портал подставит сам, если в публикации использована его ссылка.", "info")}
         </div>
-      </section>
-      <section class="card stats-overview-panel">
-        <div class="card-header"><div><p class="eyebrow">По публикациям</p><h2>Измеримые результаты</h2></div><span class="badge">Автоматически · из файла · вручную</span></div>
-        ${sectionBody(sectionState, rows.length ? statsTable(rows) : emptyState("◫", "Результатов пока нет", "Сначала опубликуйте одобренный ролик и сохраните ссылку на конкретный пост.", { href: "#/workspace/placement", label: "Проверить публикации" }))}
-      </section>
-    </div>
-  `;
+        ${publicationOptions.length ? `
+          <form id="manual-metric-form" class="form-stack" novalidate>
+            <label class="field"><span>Опубликованный ролик *</span><select name="placement_id" required><option value="">Выберите публикацию</option>${publicationOptions.map((item) => {
+              const placementId = String(item.id || item.placement_id || "");
+              const latest = latestByPlacement.get(placementId) || {};
+              const latestObservedAt = String(latest.observed_at || latest.captured_at || "");
+              return `<option value="${escapeHtml(placementId)}" data-tracked-clicks="${escapeHtml(item.tracked_clicks || latest.tracked_clicks || 0)}" data-tracking-enabled="${item.tracking_slug ? "true" : "false"}" data-latest-views="${escapeHtml(latest.views || 0)}" data-latest-clicks="${escapeHtml(latest.clicks || 0)}" data-latest-orders="${escapeHtml(latest.orders || 0)}" data-latest-revenue-rub="${escapeHtml((Number(latest.revenue_minor || 0) / 100).toFixed(2))}" data-latest-observed-at="${escapeHtml(latestObservedAt)}" ${placementId === requestedPlacementId ? "selected" : ""}>${escapeHtml(item.title || item.sku || item.final_url || `Публикация #${item.id}`)}</option>`;
+            }).join("")}</select></label>
+            <div class="form-grid-2">
+              <label class="field"><span>Просмотры *</span><input name="views" type="number" min="0" step="1" value="${escapeHtml(requestedMetric?.views || 0)}" required /></label>
+              <label class="field"><span>Переходы *</span><input name="clicks" type="number" min="0" step="1" value="${escapeHtml(requestedClicks)}" ${requestedTrackingEnabled ? 'readonly aria-readonly="true"' : ""} required /><small class="muted" data-metric-click-source>${requestedTrackingEnabled ? `Подставлено автоматически: ${formatNumber(requestedClicks)} человеческих переходов.` : "Без tracking link сверьте и укажите накопительное число вручную."}</small></label>
+              <label class="field"><span>Заказы *</span><input name="orders" type="number" min="0" step="1" value="${escapeHtml(requestedMetric?.orders || 0)}" required /></label>
+              <label class="field"><span>Выручка, ₽ *</span><input name="revenue_rub" type="number" min="0" step="0.01" value="${escapeHtml((Number(requestedMetric?.revenue_minor || 0) / 100).toFixed(2))}" required /></label>
+            </div>
+            <label class="field"><span>Когда сняты цифры *</span><input name="observed_at" type="datetime-local" value="${datetimeLocalNow()}" required /></label>
+            <button class="btn" type="submit" data-primary-action="true">Сохранить накопительный снимок</button>
+          </form>
+        ` : alertMarkup("Сначала сохраните ссылку хотя бы на один пост в разделе «Публикации».", "warning")}
+      </div>
+    </section>
+    ${statsFilterControls(rows, filters, filteredRows.length)}
+    <section class="card stats-overview-panel stats-live-results">
+      <div class="card-header"><div><p class="eyebrow">По публикациям</p><h2>Измеримые результаты</h2><small class="muted">Общая сводка и экспорт основаны только на ${formatNumber(rows.length)} загруженных публикациях.</small></div><span class="badge">Автоматически · из файла · вручную</span></div>
+      ${!rows.length
+        ? emptyState("◫", "Результатов пока нет", "Сначала опубликуйте одобренный ролик и сохраните ссылку на конкретный пост.", { href: "#/workspace/placement", label: "Проверить публикации" })
+        : !filteredRows.length
+          ? emptyState("⌕", "Совпадений нет", "Измените период, площадку или поиск — исходные данные не изменены.", { href: statsRouteHref({ period: "all", platform: null, content_type: null, q: null, result_page: 1 }), label: "Показать всё время" })
+          : filters.layout === "cards" ? statsCards(visibleRows) : statsTable(visibleRows)}
+      ${statsPagination(filters, filteredRows.length, currentPage)}
+    </section>`;
+  return `
+    <div class="page-wrap" data-stats-view="${statsView}" data-stats-live-results>
+      ${header}
+      ${sectionBody(sectionState, readyMarkup)}
+    </div>`;
 }
 
 function statsTable(items) {
-  return `<div class="table-wrap"><table class="data-table">
+  return `<div class="table-wrap stats-live-table"><table class="data-table">
     <thead><tr><th>Публикация</th><th>Площадка</th><th>Просмотры</th><th>Переходы</th><th>Заказы</th><th>Выручка</th><th>Источник</th><th>Снимок</th></tr></thead>
-    <tbody>${items.map((item) => `<tr data-payout-id="${escapeHtml(item.id || item.payout_id || "")}" tabindex="-1">
-      <td><strong>${escapeHtml(item.title || item.sku || `#${item.id}`)}</strong>${item.final_url ? `<br /><a class="tiny" href="${safeExternalUrl(item.final_url)}" target="_blank" rel="noopener noreferrer">Открыть пост</a>` : ""}</td>
+    <tbody>${items.map((item) => `<tr data-placement-id="${escapeHtml(statsRowId(item))}" tabindex="-1">
+      <td><strong>${escapeHtml(item.title || item.sku || `#${statsRowId(item)}`)}</strong>${item.sku ? `<small>SKU ${escapeHtml(item.sku)}</small>` : ""}${item.final_url ? `<a class="tiny" href="${safeExternalUrl(item.final_url)}" target="_blank" rel="noopener noreferrer">Открыть пост</a>` : ""}</td>
       <td>${escapeHtml(item.platform || "—")}</td>
       <td>${formatNumber(item.views || 0)}</td>
       <td>${formatNumber(item.clicks || 0)}</td>
       <td>${formatNumber(item.orders || 0)}</td>
       <td>${formatMoney(item.revenue_minor || 0)}</td>
       <td><span class="badge">${escapeHtml(humanMetricSource(item.source))}</span></td>
-      <td>${formatDate(item.observed_at || item.captured_at || item.updated_at, true)}</td>
+      <td><time>${formatDate(item.observed_at || item.captured_at || item.updated_at, true)}</time><a class="stats-live-snapshot" href="${statsSnapshotHref(item)}">Добавить</a></td>
     </tr>`).join("")}</tbody>
   </table></div>`;
+}
+
+function statsCsvCell(value) {
+  let text = String(value ?? "").replace(/\r?\n/g, " ").trim();
+  if (/^[=+\-@]/u.test(text)) text = `'${text}`;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function exportVisibleStatsCsv() {
+  const data = state.sections.stats.data || {};
+  const rows = listFrom(data, "publications", "items", "rows");
+  const filters = statsFiltersFromRoute(rows);
+  const filteredRows = filterStatsRows(rows, filters);
+  if (!filteredRows.length) {
+    toast("По текущим фильтрам нечего экспортировать.", "info");
+    return;
+  }
+  const records = [
+    ["Публикация", "SKU", "Площадка", "Тип контента", "Просмотры", "Переходы", "Заказы", "Выручка, RUB", "Источник", "Снимок", "Ссылка"],
+    ...filteredRows.map((item) => [
+      item.title || `#${statsRowId(item)}`,
+      item.sku || "",
+      item.platform || "",
+      humanStatsContentType(statsRowContentType(item)),
+      Number(item.views || 0),
+      Number(item.clicks || 0),
+      Number(item.orders || 0),
+      (Number(item.revenue_minor || 0) / 100).toFixed(2),
+      humanMetricSource(item.source),
+      item.observed_at || item.captured_at || item.updated_at || "",
+      safeExternalUrl(item.final_url) === "#" ? "" : safeExternalUrl(item.final_url),
+    ]),
+  ];
+  const csv = `\uFEFF${records.map((record) => record.map(statsCsvCell).join(";")).join("\r\n")}`;
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `contentengine-results-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  toast(`Экспортировано ${formatNumber(filteredRows.length)} загруженных публикаций.`, "success");
+}
+
+function submitStatsFilters(form) {
+  const values = new FormData(form);
+  const route = statsRouteHref({
+    period: values.get("period") || "30d",
+    platform: values.get("platform") === "all" ? null : values.get("platform"),
+    content_type: values.get("content_type") === "all" ? null : values.get("content_type"),
+    q: String(values.get("q") || "").trim() || null,
+    sort: values.get("sort") || "updated_desc",
+    result_page: 1,
+  });
+  navigate(route.replace(/^#/, ""));
 }
 
 function renderPayoutsSection(sectionState) {
@@ -18828,7 +19746,9 @@ function renderAiLearningSection(sectionState) {
     error: state.aiLearning.error || (sectionState.error ? actionErrorMessage(sectionState.error) : ""),
     lastUpdatedAt: state.aiLearning.lastUpdatedAt,
     marketLearningMarkup,
-    legacyReadOnly: true,
+    // Server-driven legacy intake stance; fail closed to read-only while the
+    // snapshot is missing or an older server omits the capability.
+    legacyReadOnly: snapshot ? snapshot.capabilities.legacyIntakeReadOnly === true : true,
   });
 }
 
@@ -19702,7 +20622,7 @@ async function submitAiKnowledgeLink(form) {
     const response = await state.api.registerAiKnowledgeSource({
       product_category: category,
       source_kind: "link",
-      title: values.get("title"),
+      title: values.get("source_title"),
       source_url: values.get("source_url"),
       note: values.get("note"),
       rights_confirmed: values.get("rights_confirmed") === "on",
@@ -19769,7 +20689,7 @@ async function submitAiKnowledgeFile(form) {
     const response = await state.api.registerAiKnowledgeSource({
       product_category: category,
       source_kind: "file",
-      title: String(values.get("title") || file.name),
+      title: String(values.get("source_title") || file.name),
       note: values.get("note"),
       rights_confirmed: values.get("rights_confirmed") === "on",
       object_key: objectKey,
@@ -19943,7 +20863,7 @@ function renderFeedbackSection(sectionState) {
         <div class="feedback-form-grid">
           <label class="field"><span>Тип</span><select name="category"><option value="interface">Интерфейс</option><option value="generation">Создание контента</option><option value="quality">Качество</option><option value="funnel">Публикации</option><option value="social_data">Данные соцсетей</option><option value="payouts">Выплаты</option><option value="wb_aliases">Артикулы WB</option><option value="analytics">Результаты</option><option value="training">Обучение</option><option value="other">Другое</option></select></label>
           <label class="field"><span>Раздел</span><select name="section">${visibleWorkspaceTabs().filter(([key]) => !["home", "team"].includes(key)).map(([key, label]) => `<option value="${key}">${label}</option>`).join("")}</select></label>
-          <label class="field field-wide"><span>Короткий заголовок *</span><input name="title" required maxlength="180" placeholder="Например: не вижу точное фото упаковки" /></label>
+          <label class="field field-wide"><span>Короткий заголовок *</span><input name="feedback_title" required maxlength="180" placeholder="Например: не вижу точное фото упаковки" /></label>
           <label class="field field-wide"><span>Что произошло и какой результат нужен *</span><textarea name="description" required minlength="5" maxlength="2000" placeholder="Опишите шаги без паролей, токенов и платёжных реквизитов"></textarea></label>
         </div>
         <button class="btn" type="submit" data-primary-action="true">Отправить запрос</button>
@@ -20790,6 +21710,60 @@ async function handleClick(event) {
   const control = event.target.closest("[data-action]");
   if (!control) return;
   const action = control.dataset.action;
+
+  if (action === "reset-stats-filters") {
+    event.preventDefault();
+    const route = statsRouteHref({
+      period: null,
+      platform: null,
+      content_type: null,
+      q: null,
+      result_page: 1,
+    });
+    navigate(route.replace(/^#/, ""));
+    return;
+  }
+
+  if (action === "set-stats-layout") {
+    event.preventDefault();
+    const layout = control.dataset.layout === "cards" ? "cards" : "table";
+    navigate(statsRouteHref({ layout, result_page: 1 }).replace(/^#/, ""));
+    return;
+  }
+
+  if (action === "export-stats-csv") {
+    event.preventDefault();
+    exportVisibleStatsCsv();
+    return;
+  }
+
+  if (action === "finder-mode") {
+    event.preventDefault();
+    const mode = control.dataset.ceV4FinderMode === "organize" ? "organize" : "browse";
+    const query = new URLSearchParams(state.route.query);
+    query.set("view", mode);
+    query.delete("create");
+    navigate(`/workspace/board?${query.toString()}`);
+    return;
+  }
+
+  if (action === "finder-view") {
+    event.preventDefault();
+    window.ContentEngineFinderV4?.setView?.(control.dataset.ceV4FinderView, control);
+    return;
+  }
+
+  if (action === "finder-quicklook") {
+    event.preventDefault();
+    if (!control.disabled) void window.ContentEngineFinderV4?.openSelected?.(control);
+    return;
+  }
+
+  if (action === "finder-upload") {
+    event.preventDefault();
+    navigate("/workspace/media");
+    return;
+  }
 
   if (action === "refresh-admin-people") {
     if (!canManageTeam() || state.adminPeople.busyKey) return;
@@ -22624,6 +23598,16 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "retry-generation-strategy-start") {
+    const form = control.closest("#mock-batch-form");
+    const sourceMediaId = String(control.dataset.sourceMediaId || "")
+      .trim().toLowerCase();
+    if (form instanceof HTMLFormElement && contentReviewUuid(sourceMediaId)) {
+      await retryGenerationStrategyReservedStart(form, sourceMediaId);
+    }
+    return;
+  }
+
   if (action === "repeat-real-generation") {
     restoreRealGenerationDraft(control.dataset.jobId);
     return;
@@ -22657,6 +23641,77 @@ async function handleClick(event) {
       model: "video",
       output_media_id: mediaId,
     }, trustedCachedGenerationUrl(jobId), { force: true });
+    return;
+  }
+
+  if (action === "refresh-generation-strategy-status") {
+    await refreshGenerationStrategyArchiveStatus(control.dataset.jobId, control);
+    return;
+  }
+
+  if (action === "check-generation-strategy") {
+    const jobId = String(control.dataset.jobId || "").trim().toLowerCase();
+    const outputAction = String(control.dataset.outputAction || "status");
+    control.disabled = true;
+    const originalLabel = control.textContent;
+    control.textContent = outputAction === "download" ? "Готовим файл…" : "Проверяем…";
+    try {
+      // Только бесплатный strategy_status: легаси 'status' отвечает 503 на
+      // recipe-задачи и никогда не вызывается из карточки стратегии.
+      const result = await requestGenerationStrategyArchiveStatus(jobId);
+      const status = String(result?.job?.status || "processing").toLowerCase();
+      if (
+        ["succeeded", "completed"].includes(status)
+        && ["preview", "download"].includes(outputAction)
+      ) {
+        // strategy_status по контракту не возвращает подписанные ссылки
+        // (signed_urls_returned: false): MP4 читается напрямую из
+        // защищённого хранилища по object key каталога проверки.
+        const objectName = await resolveGenerationStrategyOutputObjectName(
+          result?.output?.media_id,
+        );
+        if (outputAction === "download") {
+          const blob = await withUiTimeout(
+            state.api.downloadPrivateObject(objectName),
+            90_000,
+            "generation_strategy_output_download_timeout",
+          );
+          deliverGenerationOutputBlob(blob, jobId, false);
+          toast("Ролик готов. Браузеру передан свежий MP4-файл из защищённого хранилища.", "success");
+        } else {
+          const signedUrls = await state.api.signedPrivateObjectUrls([objectName]);
+          const signedUrl = String(signedUrls.get(objectName) || "");
+          if (!signedUrl || !isTrustedGenerationDownload(signedUrl)) {
+            throw new Error("Защищённая ссылка на готовый ролик временно не создана. Повторите чуть позже.");
+          }
+          const cached = state.realGenerationResults.get(jobId);
+          if (cached) {
+            state.realGenerationResults.set(jobId, {
+              ...cached,
+              signedUrl,
+              signedUrlIssuedAt: Date.now(),
+            });
+          }
+          toast("Ролик готов — предпросмотр открыт в карточке запуска.", "success");
+          if (state.route.path === "/workspace/generation") {
+            renderGenerationBackgroundUpdate();
+          }
+        }
+      } else if (result?.reconciliation?.required === true) {
+        toast("Нужна ручная сверка Runway. Форма сверки открыта в этой карточке запуска.", "info");
+      } else if (status === "failed") {
+        toast(generationFailureMessage(result?.error?.code), "error");
+      } else {
+        toast(`Текущий статус генерации: ${humanGenerationStatus(status)}.`, "info");
+      }
+    } catch (error) {
+      toast(actionErrorMessage(error), "error");
+    } finally {
+      if (control.isConnected) {
+        control.disabled = false;
+        control.textContent = originalLabel;
+      }
+    }
     return;
   }
 
@@ -22803,6 +23858,7 @@ async function handleSubmit(event) {
   else if (form.classList.contains("content-review-decision-form")) await submitContentReviewDecision(form, event.submitter);
   else if (form.classList.contains("generation-reconciliation-form")) await submitRealGenerationReconciliation(form, event.submitter);
   else if (form.id === "mock-batch-form") await submitGenerationBatch(form);
+  else if (form.id === "stats-filter-form") submitStatsFilters(form);
   else if (form.id === "manual-metric-form") await submitManualMetric(form);
   else if (form.classList.contains("tracking-link-form")) await submitTrackingLink(form);
   else if (form.id === "wb-alias-form") await submitWbAlias(form);
@@ -22813,6 +23869,7 @@ async function handleSubmit(event) {
   else if (form.classList.contains("admin-member-action-form")) await submitAdminMemberAction(form);
   else if (form.id === "admin-account-create-form") await submitAdminAccountCreate(form);
   else if (form.classList.contains("admin-account-edit-form")) await submitAdminAccountUpdate(form);
+  else if (form.classList.contains("admin-account-ownership-form")) await submitAdminAccountOwnership(form);
   else if (form.classList.contains("admin-account-bind-form")) await submitAdminAccountBinding(form);
   else if (form.classList.contains("admin-account-archive-form")) await submitAdminAccountArchive(form);
   else if (form.id === "manager-access-form") await submitManagerAccess(form);
@@ -22860,7 +23917,7 @@ async function submitGenerationCampaignCreate(form) {
   }
   const values = new FormData(form);
   const payload = {
-    name: String(values.get("name") || "").trim(),
+    name: String(values.get("campaign_name") || "").trim(),
     ...campaignPolicyPayload(values, values.get("paid_generation_enabled") === "true"),
   };
   if (!validateCampaignPolicyPayload(payload)) return;
@@ -23029,7 +24086,7 @@ async function submitMyWorkFilters(form) {
 
 async function submitSavedMyWorkView(form) {
   const values = new FormData(form);
-  const name = String(values.get("name") || "").trim();
+  const name = String(values.get("view_name") || "").trim();
   const makeDefault = values.get("is_default") === "true";
   setFormBusy(form, true, "Сохраняем…");
   try {
@@ -23085,6 +24142,10 @@ function handleChange(event) {
       form.elements.real_spend_confirmation.checked = false;
     }
     syncGenerationSpecUi(form);
+    return;
+  }
+  if (event.target.matches('[data-action="finder-sort"]')) {
+    window.ContentEngineFinderV4?.setSort?.(event.target.value, event.target);
     return;
   }
   handleFormActivity(event);
@@ -23252,6 +24313,13 @@ function handleChange(event) {
     "platform",
     "product_category",
   ].includes(event.target.name)) {
+    if (
+      event.target.name === "campaign_id"
+      && String(event.target.value || "").trim()
+    ) {
+      delete generationForm.dataset.generationCampaignSelectionRequired;
+      delete generationForm.dataset.pendingGenerationCampaignId;
+    }
     if (event.target.name === "platform") {
       delete generationForm.dataset.autoGenerationPlatform;
       syncGenerationDestination(generationForm);
@@ -23378,11 +24446,14 @@ function handleFormActivity(event) {
         syncGenerationStrategyFormReadiness(form);
         return;
       }
+      const strategyEngineChanged =
+        event.target.name === "generation_intake_engine";
       const strategyContextChanged = Boolean(
         strategyId
         && !priceConfirmationChanged
         && (
-          String(event.target.name || "").startsWith("generation_strategy_")
+          strategyEngineChanged
+          || String(event.target.name || "").startsWith("generation_strategy_")
           || [
             "media_id",
             "primary_media_id",
@@ -23396,9 +24467,9 @@ function handleFormActivity(event) {
         )
       );
       if (strategyContextChanged) {
-        if (generationStrategyQueueHasPaidAuthority()) {
+        if (generationStrategyHasPaidAuthority()) {
           toast(
-            "После подтверждения первой строки исходники и ТЗ этой очереди заблокированы. Статусы десяти задач сохранены.",
+            "После платного подтверждения исходники и ТЗ заблокированы. Статусы созданных задач сохранены.",
             "info",
           );
           syncGenerationStrategyFormReadiness(form);
@@ -23420,7 +24491,12 @@ function handleFormActivity(event) {
             "generation_strategy_row_mechanics_changed",
           );
         } else {
-          resetGenerationStrategyQueueState();
+          resetGenerationStrategyQueueState({
+            // The engine affects binding, receipt and price, but not the
+            // already human-approved spec. Duration/quality still invalidate
+            // the spec through their generation_strategy_* controls.
+            clearSpecs: !strategyEngineChanged,
+          });
         }
         state.generationStrategyQueueSourceRevision = sourceRevision;
         form.dataset.generationStrategyConfirmationReady = "false";
@@ -23753,11 +24829,20 @@ function syncMediaProductFields(form) {
   }
 }
 
+function generationUsesPaidMedia(form) {
+  // Product Swap reuses the ordinary 1–5 paid product-photo controls while
+  // its legacy generation_mode is disabled/mock. Viral rebuild has its own
+  // exact-ten strategy branch and must never be squeezed through this cap.
+  return String(form?.elements?.generation_strategy_id?.value || "").trim()
+    === "viral_product_swap"
+    || isRealGenerationMode(form?.elements?.generation_mode?.value);
+}
+
 function generationMediaSelectionFromForm(form) {
   if (!form) {
     return resolveGenerationMediaSelection([], { real: false });
   }
-  const real = isRealGenerationMode(form.elements.generation_mode?.value);
+  const real = generationUsesPaidMedia(form);
   const primaryMediaId = String(
     form.querySelector('input[name="primary_media_id"]:checked')?.value || "",
   );
@@ -23813,7 +24898,7 @@ function syncGenerationMediaSelection(
   { changedInput = null, notify = true } = {},
 ) {
   if (!form) return null;
-  const real = isRealGenerationMode(form.elements.generation_mode?.value);
+  const real = generationUsesPaidMedia(form);
   if (real && changedInput?.name === "primary_media_id") {
     const source = Array.from(form.querySelectorAll('input[name="media_id"]'))
       .find((input) => input.value === changedInput.value);
@@ -25640,6 +26725,15 @@ function generationSpendConsentFingerprint(form) {
 }
 
 function generationSpecPreparationFailure(form, compiled = null) {
+  const preparationRoute = generationSpecPreparationRoute(
+    form?.elements?.generation_strategy_id?.value,
+  );
+  if (!preparationRoute.legacyAllowed) {
+    return {
+      code: preparationRoute.code,
+      message: preparationRoute.message,
+    };
+  }
   const verificationFailure = String(
     form?.dataset?.researchRecommendationVerificationFailure || "",
   );
@@ -25883,6 +26977,23 @@ function syncGenerationSpecUi(form) {
   if (!form) return;
   const current = form.querySelector("#generation-spec-card");
   if (!current) return;
+  const preparationRoute = generationSpecPreparationRoute(
+    form.elements?.generation_strategy_id?.value,
+  );
+  if (!preparationRoute.legacyAllowed) {
+    current.dataset.generationSpecRoute = preparationRoute.kind;
+    current.hidden = true;
+    current.inert = true;
+    current.setAttribute("aria-hidden", "true");
+    current.style.setProperty("display", "none", "important");
+    current.querySelectorAll("button, input, select, textarea").forEach((control) => {
+      control.disabled = true;
+    });
+    if (form.elements?.real_spend_confirmation) {
+      form.elements.real_spend_confirmation.checked = false;
+    }
+    return;
+  }
   const expectedScope = generationSpecExactScope(form);
   const currentPayload = generationSpecPreparePayload(form);
   const dirty = state.generationSpec.dirty === true
@@ -26004,8 +27115,18 @@ function applyGenerationSpecEnvelope(raw, form, {
 }
 
 async function refreshGenerationSpec(form, { force = false } = {}) {
+  if (!form) return null;
+  const preparationRoute = generationSpecPreparationRoute(
+    form.elements?.generation_strategy_id?.value,
+  );
+  if (!preparationRoute.legacyAllowed) {
+    throw new CreatorApiError(
+      preparationRoute.message,
+      { code: preparationRoute.code },
+    );
+  }
   const current = state.generationSpec.data?.generationSpec;
-  if (!form || !current) return null;
+  if (!current) return null;
   const expectedContext = {
     spec_id: current.spec_id,
     spec_version: current.spec_version,
@@ -26224,7 +27345,17 @@ async function runGenerationSpecControl(form, action, {
   preparedPayload: preparedPayloadOverride = null,
   approvalReview = null,
 } = {}) {
-  if (!form || state.generationSpec.saving) return null;
+  if (!form) return null;
+  const preparationRoute = generationSpecPreparationRoute(
+    form.elements?.generation_strategy_id?.value,
+  );
+  if (!preparationRoute.legacyAllowed) {
+    throw new CreatorApiError(
+      preparationRoute.message,
+      { code: preparationRoute.code },
+    );
+  }
+  if (state.generationSpec.saving) return null;
   const supported = new Set([
     "prepare", "patch", "approve", "reject", "revert", "recompute",
   ]);
@@ -26472,7 +27603,7 @@ function syncAutomaticGenerationBrief(form, { force = false, identity = null } =
 
 function syncGenerationProductIdentity(form) {
   if (!form) return null;
-  const real = isRealGenerationMode(form.elements.generation_mode?.value);
+  const real = generationUsesPaidMedia(form);
   const selection = syncGenerationMediaSelection(form, { notify: false });
   const selected = selection?.primaryMediaId
     ? Array.from(form.querySelectorAll('input[name="media_id"]'))
@@ -26613,6 +27744,18 @@ function syncGenerationDestination(form) {
   const destination = form?.elements?.destination_ref;
   const platform = form?.elements?.platform;
   if (!destination || !platform) return null;
+  // Стратегии («Копия», «Дуэт», «Создание») назначение публикации не
+  // спрашивают: наряд получает его от сервера (`'generation-strategy'` в
+  // creator_generation_strategy_start). Скрытое обязательное поле с пустым
+  // значением молча валило form.reportValidity() при каждом нажатии мастера —
+  // так 23.08.2026 выглядел отказ «Мастер не отвечает на бесплатную проверку:
+  // шаг „Подготовить точное ТЗ бесплатно“ не сдвигается» у любого проекта без
+  // истории запусков. Обязательность остаётся только у legacy-режимов, где
+  // поле действительно уходит в наряд.
+  const strategySelected = Boolean(
+    String(form.elements?.generation_strategy_id?.value || "").trim(),
+  );
+  destination.required = !strategySelected;
   const batches = listFrom(state.sections.generation.data || {}, "batches");
   const resolution = resolveGenerationDestination({
     batches,
@@ -26635,6 +27778,90 @@ function syncGenerationDestination(form) {
         : "Укажите точный аккаунт, канал или карточку для публикации.";
   }
   return resolution;
+}
+
+function syncGenerationCampaignSelectUi(form) {
+  const campaignSelect = form?.elements?.campaign_id;
+  if (!(campaignSelect instanceof HTMLSelectElement)) return false;
+  if (
+    form.dataset.generationStrategyPaidLocked === "true"
+    || state.realGenerationStartInFlight
+    || state.generationStrategyStartInFlight
+  ) return false;
+
+  const currentCampaignId = String(campaignSelect.value || "").trim();
+  const preferredCampaignId = String(
+    form.dataset.pendingGenerationCampaignId || "",
+  ).trim();
+  const reselectionAlreadyRequired =
+    form.dataset.generationCampaignSelectionRequired === "true";
+  const selection = generationCampaignSelectionState(
+    state.generationSpend.data || {},
+    {
+      status: state.generationSpend.status,
+      currentCampaignId,
+      preferredCampaignId,
+      requiresExplicitSelection: reselectionAlreadyRequired,
+    },
+  );
+  if (!selection.ready) return false;
+
+  const campaignOptions = selection.campaigns.map((campaign) => ({
+    value: campaign.id,
+    label: `${campaign.name || "Кампания"} · доступно $${((campaign.remainingMinor || 0) / 100).toFixed(2)}`,
+    disabled: false,
+  }));
+  const nextOptions = !campaignOptions.length
+    ? [{ value: "", label: "Нет активной кампании", disabled: false }]
+    : selection.explicitSelectionRejected
+      ? [
+          {
+            value: "",
+            label: "Выберите активную кампанию заново",
+            disabled: true,
+          },
+          ...campaignOptions,
+        ]
+      : campaignOptions;
+  const currentOptions = Array.from(campaignSelect.options).map((option) => ({
+    value: option.value,
+    label: option.textContent || "",
+    disabled: option.disabled,
+  }));
+  if (JSON.stringify(currentOptions) !== JSON.stringify(nextOptions)) {
+    const fragment = document.createDocumentFragment();
+    nextOptions.forEach((entry) => {
+      const option = document.createElement("option");
+      option.value = entry.value;
+      option.textContent = entry.label;
+      option.disabled = entry.disabled;
+      fragment.append(option);
+    });
+    campaignSelect.replaceChildren(fragment);
+  }
+  campaignSelect.value = selection.selectedId;
+  delete form.dataset.pendingGenerationCampaignId;
+  if (selection.explicitSelectionRejected) {
+    form.dataset.generationCampaignSelectionRequired = "true";
+  }
+
+  const campaignAuthorityChanged = selection.explicitSelectionRejected
+    || selection.selectionChanged
+    || Boolean(
+      preferredCampaignId && preferredCampaignId !== selection.selectedId,
+    );
+  if (campaignAuthorityChanged) {
+    const confirmation = form.elements?.real_spend_confirmation;
+    if (confirmation instanceof HTMLInputElement) confirmation.checked = false;
+    if (
+      (selection.explicitSelectionRejected && !reselectionAlreadyRequired)
+      || preferredCampaignId
+      || (selection.selectionChanged && form.dataset.dirty === "true")
+    ) {
+      scheduleGenerationFormDraftSave(form);
+    }
+  }
+  return true;
 }
 
 function syncGenerationSpendSnapshotUi(form) {
@@ -27349,10 +28576,95 @@ function generationStrategySourceMediaId(selection) {
   return contentReviewUuid(mediaId) ? mediaId : "";
 }
 
+// Compact «Копия» хранит семантический click-order фото отдельно от DOM:
+// каталог может перерисовать карточки между handoff и бесплатным ТЗ. Сначала
+// читаем точный массив handoff, а после patch-render (когда скрытое поле ещё не
+// успел вернуть intake-адаптер) — восстановленные порядковые data-атрибуты.
+function generationIntakeProductMediaOrder(form) {
+  const raw = String(
+    form?.elements?.generation_intake_product_media_ids?.value || "",
+  ).trim();
+  if (raw && raw.length <= 1_000) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        const exact = [...new Set(parsed.map((value) => (
+          String(value || "").trim().toLowerCase()
+        )).filter(contentReviewUuid))].slice(0, MAX_REAL_GENERATION_REFERENCES);
+        if (exact.length) return exact;
+      }
+    } catch {
+      // Malformed advisory handoff never replaces the live native selection.
+    }
+  }
+  return Array.from(form?.querySelectorAll?.('input[name="media_id"]:checked') || [])
+    .map((input, domIndex) => ({
+      id: String(input.value || "").trim().toLowerCase(),
+      order: Number(input.dataset?.generationIntakeSelectionOrder),
+      domIndex,
+    }))
+    .filter(({ id, order }) => (
+      contentReviewUuid(id) && Number.isSafeInteger(order) && order > 0
+    ))
+    .sort((left, right) => left.order - right.order || left.domIndex - right.domIndex)
+    .map(({ id }) => id)
+    .slice(0, MAX_REAL_GENERATION_REFERENCES);
+}
+
+function generationStrategySelectionInProductOrder(selection, productOrder) {
+  if (!selection || !Array.isArray(selection.assets) || !productOrder.length) {
+    return selection;
+  }
+  const productRoles = new Set(["product_image", "new_product_image"]);
+  const productAssets = selection.assets.filter((asset) => productRoles.has(asset?.role));
+  const byId = new Map(productAssets.map((asset) => [
+    String(asset?.media_id || "").trim().toLowerCase(),
+    asset,
+  ]));
+  // Stale/partial handoff must not drop or invent an asset. Reorder only when
+  // it is an exact permutation of the live guided selection.
+  if (
+    byId.size !== productAssets.length
+    || productOrder.length !== productAssets.length
+    || productOrder.some((mediaId) => !byId.has(mediaId))
+  ) return selection;
+  const orderedProducts = productOrder.map((mediaId) => byId.get(mediaId));
+  let productIndex = 0;
+  const assets = selection.assets.map((asset) => (
+    productRoles.has(asset?.role) ? orderedProducts[productIndex++] : asset
+  ));
+  if (assets.every((asset, index) => asset === selection.assets[index])) {
+    return selection;
+  }
+  return Object.freeze({
+    ...selection,
+    assets: Object.freeze(assets),
+  });
+}
+
 function generationStrategySelectionsForForm(form) {
   const value = globalThis.ContentEngineGenerationGuidedV4
     ?.getStrategySelections?.(form);
-  return Array.isArray(value) && value.length === 10 ? value : null;
+  const requiredCount = Number(
+    generationStrategySourceProjectionForForm(form)?.required_count || 0,
+  );
+  const exact = Array.isArray(value)
+    && [1, 10].includes(requiredCount)
+    && value.length === requiredCount
+    ? value
+    : null;
+  if (!exact) return null;
+  const productOrder = generationIntakeProductMediaOrder(form);
+  if (!productOrder.length) return exact;
+  return exact.map((entry) => {
+    const selection = generationStrategySelectionInProductOrder(
+      entry?.selection,
+      productOrder,
+    );
+    return selection === entry?.selection
+      ? entry
+      : Object.freeze({ ...entry, selection });
+  });
 }
 
 function generationStrategySourceProjectionForForm(form) {
@@ -27367,6 +28679,36 @@ function generationStrategyQueueHasPaidAuthority(queue = state.generationStrateg
     "start_once",
     "status",
   ].includes(row?.runtime_state?.phase));
+}
+
+function generationStrategySingleHasPaidAuthority(
+  runtimes = state.generationStrategyRuntimes,
+) {
+  if (!(runtimes instanceof Map)) return false;
+  return [...runtimes.values()].some((runtimeState) => [
+    "human_confirmed",
+    "start_once",
+    "status",
+  ].includes(runtimeState?.phase));
+}
+
+function generationStrategySingleHasOtherPaidAuthority(
+  sourceMediaId,
+  runtimes = state.generationStrategyRuntimes,
+) {
+  const normalizedSourceMediaId = String(sourceMediaId || "").trim().toLowerCase();
+  if (!(runtimes instanceof Map) || !contentReviewUuid(normalizedSourceMediaId)) {
+    return false;
+  }
+  return [...runtimes.entries()].some(([runtimeSourceMediaId, runtimeState]) => (
+    runtimeSourceMediaId !== normalizedSourceMediaId
+    && ["human_confirmed", "start_once", "status"].includes(runtimeState?.phase)
+  ));
+}
+
+function generationStrategyHasPaidAuthority() {
+  return generationStrategyQueueHasPaidAuthority()
+    || generationStrategySingleHasPaidAuthority();
 }
 
 function generationStrategyReceiptIsFresh(runtimeState, minimumRemainingMs = 0) {
@@ -27414,6 +28756,21 @@ function generationStrategyQueuePreflightRefreshTargets() {
   return targets;
 }
 
+function generationStrategyQueueReviewPreflightRefreshTargets() {
+  const queue = state.generationStrategyQueue;
+  if (!(queue?.rows instanceof Map)) return [];
+  const minimumRemainingMs = generationStrategyReceiptWindowMs(
+    queue.source_order.length,
+  );
+  return queue.source_order.flatMap((sourceMediaId) => {
+    const runtimeState = queue.rows.get(sourceMediaId)?.runtime_state;
+    return runtimeState?.phase === "preflight_ready"
+      && !generationStrategyReceiptIsFresh(runtimeState, minimumRemainingMs)
+      ? [{ sourceMediaId, minimumRemainingMs }]
+      : [];
+  });
+}
+
 function generationStrategyQueuePaidReceiptsNeedRefresh() {
   return generationStrategyQueuePreflightRefreshTargets().length > 0;
 }
@@ -27422,7 +28779,7 @@ function resetGenerationStrategyQueueState({
   clearSpecs = true,
   allowPaidAuthority = false,
 } = {}) {
-  if (!allowPaidAuthority && generationStrategyQueueHasPaidAuthority()) {
+  if (!allowPaidAuthority && generationStrategyHasPaidAuthority()) {
     return false;
   }
   state.generationStrategyQueue = null;
@@ -27430,6 +28787,7 @@ function resetGenerationStrategyQueueState({
   state.generationStrategyQueueSourceRevision = null;
   state.generationStrategyRuntimes.clear();
   state.generationStrategyRequestKeys.clear();
+  state.generationStrategyStartRetries.clear();
   state.generationStrategyActiveSourceMediaId = "";
   state.generationStrategyQueueBusy = false;
   if (clearSpecs) {
@@ -27511,6 +28869,18 @@ function generationStrategyRuntimeContextForApprovedSpec(
     || !contentReviewUuid(projectId)
     || !approvedContext
   ) return null;
+  // Движок каскада входит в контекст и, значит, в его отпечаток: смена движка
+  // меняет цену, поэтому обязана считаться другой привязкой, а не тихо
+  // подменять исполнителя у уже подписанной. Когда движок не выбран, ключа нет
+  // вовсе — сервер посчитает действующий маршрут реестра, как считал раньше.
+  const engine = globalThis.ContentEngineGenerationGuidedV4
+    ?.getStrategyEngineChoice?.() || null;
+  // Ведущий «Дуэта» — наш идентификатор из формы. Сервер требует его при
+  // привязке дуэта (generation_strategy_binding_duet_presenter_required), а
+  // личность провайдера читает сам: в браузере её нет. Для других стратегий
+  // ключа нет вовсе.
+  const duetPresenterId = globalThis.ContentEngineGenerationGuidedV4
+    ?.getDuetPresenterChoice?.() || null;
   return {
     organization_id: organizationId,
     project_id: String(projectId).toLowerCase(),
@@ -27518,6 +28888,8 @@ function generationStrategyRuntimeContextForApprovedSpec(
     spec_version: approvedContext.spec_version,
     spec_hash: approvedContext.spec_hash,
     generation_strategy: selection,
+    ...(engine === null ? {} : { engine }),
+    ...(duetPresenterId === null ? {} : { duet_presenter_id: duetPresenterId }),
   };
 }
 
@@ -27598,7 +28970,40 @@ function syncGenerationStrategyQueueUi(form) {
     queueProjection,
     review,
   );
+  appendGenerationStrategyStartRetryActions(mount);
   return { sourceProjection, queueProjection, review };
+}
+
+function generationStrategyPendingStartRetries() {
+  const pending = [];
+  for (const [sourceMediaId, record] of state.generationStrategyStartRetries) {
+    const runtimeState = generationStrategyQueueRuntime(sourceMediaId)
+      || state.generationStrategyRuntimes.get(sourceMediaId)
+      || null;
+    if (
+      runtimeState?.phase === "start_once"
+      && runtimeState.fingerprint === record.fingerprint
+      && runtimeState.start_attempt_idempotency_key === record.idempotency_key
+    ) {
+      pending.push({ sourceMediaId, record, runtimeState });
+    } else {
+      state.generationStrategyStartRetries.delete(sourceMediaId);
+    }
+  }
+  return pending;
+}
+
+function appendGenerationStrategyStartRetryActions(mount) {
+  if (!mount) return;
+  const pending = generationStrategyPendingStartRetries();
+  if (!pending.length) return;
+  const markup = pending.map(({ sourceMediaId }) => (
+    `<section class="generation-strategy-start-retry" role="alert" data-source-media-id="${escapeHtml(sourceMediaId)}">
+      <p><strong>Сеть прервала платный старт этой строки.</strong> Резерв, её idempotency key и серверная квитанция сохранены. Повтор отправит тот же самый запрос, и сервер вернёт уже созданную задачу без второго списания.</p>
+      <button class="btn btn-secondary btn-small" type="button" data-action="retry-generation-strategy-start" data-source-media-id="${escapeHtml(sourceMediaId)}">Повторить тот же платный старт</button>
+    </section>`
+  )).join("");
+  mount.insertAdjacentHTML("beforeend", markup);
 }
 
 function generationStrategySpecRequestKey(sourceMediaId) {
@@ -27659,7 +29064,8 @@ function generationStrategySpecMechanicsMarkup(spec, entry) {
       <p><strong>Публикация:</strong> ${escapeHtml(scope.platform)} · категория ${escapeHtml(scope.product_category)}</p>
       <dl class="generation-strategy-spec-review__contract">
         <div><dt>Стратегия</dt><dd>${escapeHtml(scope.strategy_id)}</dd></div>
-        <div><dt>Исполнение</dt><dd>${escapeHtml(scope.provider)} · ${escapeHtml(scope.recipe)} · ${escapeHtml(scope.input_mode)}</dd></div>
+        <div><dt>Recipe</dt><dd>${escapeHtml(scope.recipe)} · ${escapeHtml(scope.input_mode)}</dd></div>
+        <div><dt>Маршрут</dt><dd>провайдер и модель определяются серверным реестром при бесплатной проверке и закрепляются подписанной квитанцией</dd></div>
         <div><dt>Формат</dt><dd>${escapeHtml(scope.format)} · ratio ${escapeHtml(scope.ratio)} · ${escapeHtml(scope.resolution)}</dd></div>
         <div><dt>Референсы</dt><dd>${scope.reference_count} · видео ${scope.reference_video ? "передаётся" : "не передаётся"}</dd></div>
         <div><dt>Кадры и речь</dt><dd>first frame ${scope.first_frame ? "да" : "нет"} · last frame ${scope.last_frame ? "да" : "нет"} · spoken dialogue ${scope.spoken_dialogue ? "да" : "нет"}</dd></div>
@@ -27681,7 +29087,54 @@ function generationStrategySpecMechanicsMarkup(spec, entry) {
     </section>`;
 }
 
+function generationStrategySingleSpecReviewMarkup(entry) {
+  if (!entry || !contentReviewUuid(entry.source_media_id)) return "";
+  const record = state.generationStrategySpecs.get(entry.source_media_id);
+  const header = `<header class="generation-strategy-spec-review__header">
+      <p class="eyebrow">Бесплатная проверка Product Swap</p>
+      <h3>Точное ТЗ одного ролика</h3>
+      <p class="muted tiny">Проверьте неизменяемый набор ассетов и точный prompt. На этом шаге платный запрос не выполняется.</p>
+    </header>`;
+  if (!record?.draft) {
+    return `${header}<article class="generation-strategy-spec-review__row" data-source-media-id="${escapeHtml(entry.source_media_id)}">
+      <p class="eyebrow">Product Swap · ТЗ ещё не подготовлено</p>
+      <h4>${escapeHtml(entry.filename)}</h4>
+      <p class="muted tiny">Сначала подготовим серверное ТЗ без запуска провайдера.</p>
+    </article>`;
+  }
+  const projection = generationStrategySpecSafeProjection(
+    record.approved || record.draft,
+  );
+  const spec = record.draft.generationSpec;
+  const approved = Boolean(record.approvedContext);
+  const titleId = "generation-strategy-spec-review-title-product-swap";
+  const confirmationId = "generation-strategy-spec-review-confirmation-product-swap";
+  return `${header}<article class="generation-strategy-spec-review__row" data-source-media-id="${escapeHtml(entry.source_media_id)}" data-status="${approved ? "approved" : "draft"}" aria-labelledby="${titleId}">
+      <p class="eyebrow">Product Swap · ${approved ? "ТЗ одобрено" : "нужно одобрение"}</p>
+      <h4 id="${titleId}">${escapeHtml(entry.filename)}</h4>
+      <dl class="generation-strategy-spec-review__meta">
+        <div><dt>Recipe</dt><dd>${escapeHtml(projection?.identity?.recipe || "—")}</dd></div>
+        <div><dt>Spec</dt><dd>${escapeHtml(String(projection?.identity?.spec_version || "—"))}</dd></div>
+        <div><dt>Исходник</dt><dd><code>${escapeHtml(entry.source_media_id.slice(0, 8))}…</code></dd></div>
+      </dl>
+      <details class="generation-strategy-spec-review__prompt" ${approved ? "" : "open"}>
+        <summary>Прочитать точный prompt Product Swap — ${escapeHtml(entry.filename)}</summary>
+        <pre>${escapeHtml(spec.compiled_prompt)}</pre>
+      </details>
+      ${generationStrategySpecMechanicsMarkup(spec, entry)}
+      ${approved
+        ? '<p class="badge badge-info">Одобрено человеком · автозапуск запрещён</p>'
+        : `<label class="option generation-strategy-spec-review__confirmation">
+            <input type="checkbox" name="generation_strategy_spec_approval" data-generation-strategy-spec-approval-source="${escapeHtml(entry.source_media_id)}" aria-labelledby="${titleId} ${confirmationId}" />
+            <span id="${confirmationId}">Я прочитал(а) точное ТЗ Product Swap и одобряю именно эту версию.</span>
+          </label>`}
+    </article>`;
+}
+
 function generationStrategySpecReviewMarkup(form, selections) {
+  if (Array.isArray(selections) && selections.length === 1) {
+    return generationStrategySingleSpecReviewMarkup(selections[0]);
+  }
   if (!Array.isArray(selections) || selections.length !== 10) return "";
   const rows = selections.map((entry) => {
     const record = state.generationStrategySpecs.get(entry.source_media_id);
@@ -27754,9 +29207,15 @@ async function prepareGenerationStrategySpecs(form, selections, projectId) {
     form.elements?.product_category?.value || "",
   ).trim();
   const editableIntent = String(form.elements?.brief?.value || "").trim();
+  const exactTen = selections.length === 10;
   const plans = [];
   for (const entry of selections) {
     if (state.generationStrategySpecs.get(entry.source_media_id)?.draft) continue;
+    // Товар «Дуэта» приходит явным полем: фотографий товара у него нет, и
+    // вывести его из ассетов нельзя. Контракт ТЗ требует ключ только у дуэта.
+    const duetProductId = entry.selection?.strategy_id === "viral_avatar_ugc"
+      ? globalThis.ContentEngineGenerationGuidedV4?.getDuetProductChoice?.(form) || null
+      : null;
     const plan = buildGenerationStrategySpecPrepareRequest({
       organization_id: organizationId,
       project_id: projectId,
@@ -27766,13 +29225,24 @@ async function prepareGenerationStrategySpecs(form, selections, projectId) {
       editable_intent: editableIntent,
       proposed_prompt: editableIntent,
       mechanics_summary: entry.mechanics_summary,
+      ...(entry.selection?.strategy_id === "viral_avatar_ugc"
+        ? { product_id: duetProductId }
+        : {}),
       confirmation: true,
-      reason: `Пользователь подготовил отдельное ТЗ для исходника ${entry.position} из 10.`,
+      reason: exactTen
+        ? `Пользователь подготовил отдельное ТЗ для исходника ${entry.position} из 10.`
+        : "Пользователь подготовил точное ТЗ для одного Product Swap.",
       idempotency_key: generationStrategySpecRequestKey(entry.source_media_id),
     });
     if (!plan.ok) {
+      // Код и поле контракта — в тексте: без них отказ ТЗ читается как
+      // «что-то не так с ассетами», и чинить приходится вслепую.
+      const detail = [plan.error?.code, plan.error?.field].filter(Boolean).join(" · ");
       throw new CreatorApiError(
-        "Проверьте замысел и разбор механики для каждого из 10 роликов.",
+        (exactTen
+          ? "Проверьте замысел и разбор механики для каждого из 10 роликов."
+          : "Проверьте замысел и точный набор ассетов стратегии.")
+        + (detail ? ` Контракт ТЗ: ${detail}.` : ""),
         { code: plan.error?.code || "generation_strategy_spec_prepare_invalid" },
       );
     }
@@ -27821,7 +29291,9 @@ function generationStrategyAllDraftsReviewed(form, selections) {
 async function approveGenerationStrategySpecs(form, selections, projectId) {
   if (!generationStrategyAllDraftsReviewed(form, selections)) {
     throw new CreatorApiError(
-      "Прочитайте и отдельно отметьте все 10 точных ТЗ.",
+      selections.length === 10
+        ? "Прочитайте и отдельно отметьте все 10 точных ТЗ."
+        : "Прочитайте и отдельно отметьте точное ТЗ Product Swap.",
       { code: "generation_strategy_spec_human_review_required" },
     );
   }
@@ -27832,7 +29304,9 @@ async function approveGenerationStrategySpecs(form, selections, projectId) {
       project_id: projectId,
       draft: record.draft,
       human_confirmation: true,
-      reason: `Пользователь прочитал и явно одобрил ТЗ для ролика ${entry.position} из 10.`,
+      reason: selections.length === 10
+        ? `Пользователь прочитал и явно одобрил ТЗ для ролика ${entry.position} из 10.`
+        : "Пользователь прочитал и явно одобрил точное ТЗ Product Swap.",
     });
     if (!plan.ok) {
       throw new CreatorApiError(
@@ -27987,8 +29461,11 @@ async function prepareGenerationStrategyQueueFree(form, selections, projectId) {
   return reviewed.review;
 }
 
-async function refreshGenerationStrategyQueuePreflights(form, projectId) {
-  const targets = generationStrategyQueuePreflightRefreshTargets();
+async function refreshGenerationStrategyQueuePreflights(
+  form,
+  projectId,
+  targets = generationStrategyQueuePreflightRefreshTargets(),
+) {
   if (!targets.length) return 0;
   const requestContext = captureGenerationRequestContext(form, projectId);
   const requestApi = state.api;
@@ -28002,16 +29479,44 @@ async function refreshGenerationStrategyQueuePreflights(form, projectId) {
   let refreshed = 0;
   for (let index = 0; index < targets.length; index += 3) {
     const chunk = targets.slice(index, index + 3);
-    const operations = chunk.map(({ sourceMediaId }) => {
+    const operations = chunk.map(({ sourceMediaId, minimumRemainingMs = 0 }) => {
       const runtimeState = generationStrategyQueueRuntime(sourceMediaId);
       const oldReceipt = runtimeState?.preflight?.receipt;
+      const priorPhase = runtimeState?.phase;
       if (
-        runtimeState?.phase !== "human_confirmed"
+        !["preflight_ready", "human_confirmed"].includes(priorPhase)
         || !contentReviewUuid(oldReceipt?.id)
         || !String(oldReceipt?.receipt_hash || "").trim()
       ) {
-        throw new CreatorApiError("Оставшаяся строка потеряла серверную квитанцию.", {
+        throw new CreatorApiError("Строка потеряла серверную квитанцию.", {
           code: "generation_strategy_preflight_refresh_state_invalid",
+        });
+      }
+      const refreshRequestedAction = priorPhase === "preflight_ready"
+        ? {
+            type: GENERATION_STRATEGY_RUNTIME_ACTIONS.preflightRefreshRequested,
+            fingerprint: runtimeState.fingerprint,
+            receipt_id: oldReceipt.id,
+            receipt_hash: oldReceipt.receipt_hash,
+          }
+        : null;
+      const requestState = refreshRequestedAction
+        ? reduceGenerationStrategyRuntimeState(
+            runtimeState,
+            refreshRequestedAction,
+          )
+        : runtimeState;
+      if (
+        requestState?.phase !== (
+          priorPhase === "human_confirmed" ? "human_confirmed" : "bound"
+        )
+        || requestState.fingerprint !== runtimeState.fingerprint
+        || requestState.bind?.binding?.id !== runtimeState.bind?.binding?.id
+        || requestState.bind?.binding?.binding_hash
+          !== runtimeState.bind?.binding?.binding_hash
+      ) {
+        throw new CreatorApiError("Не удалось сохранить точную привязку строки.", {
+          code: "generation_strategy_preflight_refresh_transition_invalid",
         });
       }
       const idempotency = generationStrategyRequestIdempotencyKey(
@@ -28020,13 +29525,17 @@ async function refreshGenerationStrategyQueuePreflights(form, projectId) {
         oldReceipt.receipt_hash,
       );
       const plan = generationStrategyRuntimePreflightRequest(
-        runtimeState,
+        requestState,
         idempotency.value,
       );
       if (
         !plan.ok
         || plan.fingerprint !== runtimeState.fingerprint
-        || plan.start_context_fingerprint !== runtimeState.start_context_fingerprint
+        || plan.start_context_fingerprint !== (
+          priorPhase === "human_confirmed"
+            ? runtimeState.start_context_fingerprint
+            : null
+        )
       ) {
         throw new CreatorApiError("Не удалось собрать точное бесплатное обновление строки.", {
           code: plan.error?.code || "generation_strategy_preflight_refresh_plan_invalid",
@@ -28035,7 +29544,11 @@ async function refreshGenerationStrategyQueuePreflights(form, projectId) {
       return {
         sourceMediaId,
         runtimeState,
+        requestState,
+        priorPhase,
+        minimumRemainingMs,
         oldReceipt,
+        refreshRequestedAction,
         idempotency,
         plan,
       };
@@ -28052,15 +29565,18 @@ async function refreshGenerationStrategyQueuePreflights(form, projectId) {
         continue;
       }
       const live = generationStrategyQueueRuntime(operation.sourceMediaId);
+      const paidRefresh = operation.priorPhase === "human_confirmed";
       if (
         !generationRequestContextIsCurrent(requestContext)
         || state.api !== requestApi
         || state.generationStrategyQueueSourceRevision !== sourceRevision
-        || live?.phase !== "human_confirmed"
+        || live?.phase !== operation.priorPhase
         || live.fingerprint !== operation.runtimeState.fingerprint
-        || live.start_context_fingerprint
-          !== operation.runtimeState.start_context_fingerprint
-        || live.campaign_id !== operation.runtimeState.campaign_id
+        || (paidRefresh && (
+          live.start_context_fingerprint
+            !== operation.runtimeState.start_context_fingerprint
+          || live.campaign_id !== operation.runtimeState.campaign_id
+        ))
         || live.preflight?.receipt?.id !== operation.oldReceipt.id
         || live.preflight?.receipt?.receipt_hash !== operation.oldReceipt.receipt_hash
       ) {
@@ -28072,16 +29588,34 @@ async function refreshGenerationStrategyQueuePreflights(form, projectId) {
       }
       const resolvedAction = {
         type: GENERATION_STRATEGY_RUNTIME_ACTIONS.preflightResolved,
-        fingerprint: live.fingerprint,
+        fingerprint: operation.requestState.fingerprint,
         response: result.value,
       };
-      const verified = reduceGenerationStrategyRuntimeState(live, resolvedAction);
+      const verified = reduceGenerationStrategyRuntimeState(
+        operation.requestState,
+        resolvedAction,
+      );
+      const expectedPhase = paidRefresh
+        ? "human_confirmed"
+        : "preflight_ready";
       if (
         !verified
-        || verified.phase !== "human_confirmed"
+        || verified.phase !== expectedPhase
         || verified.fingerprint !== live.fingerprint
-        || verified.campaign_id !== live.campaign_id
-        || verified.start_context_fingerprint === live.start_context_fingerprint
+        || verified.bind?.binding?.id !== live.bind?.binding?.id
+        || verified.bind?.binding?.binding_hash !== live.bind?.binding?.binding_hash
+        || !generationStrategyReceiptIsFresh(
+          verified,
+          operation.minimumRemainingMs,
+        )
+        || (paidRefresh && (
+          verified.campaign_id !== live.campaign_id
+          || verified.start_context_fingerprint === live.start_context_fingerprint
+        ))
+        || (!paidRefresh && (
+          verified.campaign_id !== null
+          || verified.start_context_fingerprint !== null
+        ))
         || verified.preflight?.receipt?.id === operation.oldReceipt.id
         || verified.preflight?.receipt?.receipt_hash === operation.oldReceipt.receipt_hash
       ) {
@@ -28094,15 +29628,40 @@ async function refreshGenerationStrategyQueuePreflights(form, projectId) {
         );
         continue;
       }
+      if (operation.refreshRequestedAction) {
+        const refreshRequested = applyGenerationStrategyQueueRow(
+          operation.sourceMediaId,
+          operation.refreshRequestedAction,
+        );
+        if (
+          !refreshRequested
+          || refreshRequested.phase !== "bound"
+          || refreshRequested.fingerprint !== live.fingerprint
+          || refreshRequested.bind?.binding?.id !== live.bind?.binding?.id
+        ) {
+          firstFailure ||= new CreatorApiError(
+            "Точная привязка строки не сохранилась перед обновлением.",
+            { code: "generation_strategy_preflight_refresh_transition_invalid" },
+          );
+          continue;
+        }
+      }
       const committed = applyGenerationStrategyQueueRow(
         operation.sourceMediaId,
         resolvedAction,
       );
       if (
         !committed
-        || committed.phase !== "human_confirmed"
-        || committed.start_context_fingerprint !== verified.start_context_fingerprint
-        || committed.campaign_id !== live.campaign_id
+        || committed.phase !== expectedPhase
+        || committed.fingerprint !== verified.fingerprint
+        || committed.preflight?.receipt?.id !== verified.preflight?.receipt?.id
+        || committed.preflight?.receipt?.receipt_hash
+          !== verified.preflight?.receipt?.receipt_hash
+        || (paidRefresh && (
+          committed.start_context_fingerprint
+            !== verified.start_context_fingerprint
+          || committed.campaign_id !== live.campaign_id
+        ))
       ) {
         firstFailure ||= new CreatorApiError(
           "Новая квитанция не закрепилась в точной строке очереди.",
@@ -28205,7 +29764,7 @@ async function startGenerationStrategyQueueSequentially(
     if (planned.plan.state !== "ready" || !planned.plan.next) {
       const blocker = planned.plan.blocker;
       const message = blocker === "reconciliation_required"
-        ? "Один запрос имеет неопределённый исход. Новые платные старты остановлены до ручной сверки."
+        ? "Один запрос имеет неопределённый исход. Новые платные старты остановлены до ручной сверки в карточке этого запуска в архиве."
         : "Предыдущий платный старт ещё не зафиксирован сервером.";
       throw new CreatorApiError(message, {
         code: `generation_strategy_queue_${blocker || "blocked"}`,
@@ -28269,7 +29828,7 @@ async function startGenerationStrategyQueueSequentially(
     const actorId = String(state.user?.id || "").trim().toLowerCase();
     const sourceRevision = state.generationStrategyQueueSourceRevision;
     const expectedFingerprint = reserved.fingerprint;
-    requestApi.bindRealGenerationClientContext(startPlan.request, {
+    const bindStartClientContext = () => requestApi.bindRealGenerationClientContext(startPlan.request, {
       expectedActorId: actorId,
       isContextCurrent: () => {
         const currentSelection = generationStrategySelectionsForForm(form)
@@ -28299,7 +29858,19 @@ async function startGenerationStrategyQueueSequentially(
           && currentRuntime.campaign_id === reserved.campaign_id;
       },
     });
-    const raw = await requestApi.startGenerationStrategy(startPlan.request);
+    bindStartClientContext();
+    let raw;
+    try {
+      raw = await requestApi.startGenerationStrategy(startPlan.request);
+    } catch (startError) {
+      raw = await retryGenerationStrategyStartAfterTransportFailure(startError, {
+        sourceMediaId,
+        requestApi,
+        reserved,
+        request: startPlan.request,
+        bindClientContext: bindStartClientContext,
+      });
+    }
     const resolvedAction = {
       type: GENERATION_STRATEGY_RUNTIME_ACTIONS.startResolved,
       fingerprint: reserved.fingerprint,
@@ -28341,9 +29912,9 @@ function handleGenerationStrategySourcesChanged(event) {
   const form = event?.target?.closest?.("#mock-batch-form");
   if (!form) return;
   const projection = generationStrategySourceProjectionForForm(form);
-  if (generationStrategyQueueHasPaidAuthority()) {
+  if (generationStrategyHasPaidAuthority()) {
     toast(
-      "Состав очереди уже подтверждён. Нельзя заменить исходник, пока сохраняются статусы созданных задач.",
+      "Состав запуска уже подтверждён. Нельзя заменить исходник, пока сохраняются статусы созданных задач.",
       "info",
     );
     syncGenerationStrategyQueueUi(form);
@@ -28371,30 +29942,14 @@ function handleGenerationStrategySourcesChanged(event) {
 }
 
 function selectedGenerationStrategySourceMediaId(form) {
+  const projectedMediaId = String(
+    generationStrategySourceProjectionForForm(form)?.selected?.[0]
+      ?.source_media_id || "",
+  ).trim().toLowerCase();
+  if (contentReviewUuid(projectedMediaId)) return projectedMediaId;
   const selected = form?.elements?.generation_strategy_source_video_id;
   const mediaId = String(selected?.value || "").trim().toLowerCase();
   return contentReviewUuid(mediaId) ? mediaId : "";
-}
-
-function generationStrategyRuntimeContext(form, selection, projectId) {
-  const spec = currentApprovedGenerationSpecContext(form);
-  const organizationId = String(
-    state.api?.organizationId || state.bootstrap?.organization?.id || "",
-  ).trim().toLowerCase();
-  if (
-    !selection
-    || !contentReviewUuid(organizationId)
-    || !contentReviewUuid(projectId)
-    || !spec
-  ) return null;
-  return {
-    organization_id: organizationId,
-    project_id: String(projectId).toLowerCase(),
-    spec_id: spec.spec_id,
-    spec_version: spec.spec_version,
-    spec_hash: spec.spec_hash,
-    generation_strategy: selection,
-  };
 }
 
 function generationStrategyRuntimeForSource(sourceMediaId) {
@@ -28456,7 +30011,7 @@ function generationStrategyRuntimeProjection(form) {
 }
 
 function syncGenerationStrategyPaidControlLock(form) {
-  const locked = generationStrategyQueueHasPaidAuthority();
+  const locked = generationStrategyHasPaidAuthority();
   if (!locked) {
     delete form.dataset.generationStrategyPaidLocked;
     return false;
@@ -28469,6 +30024,9 @@ function syncGenerationStrategyPaidControlLock(form) {
     "[data-generation-strategy-assets-refresh]",
     "[data-generation-strategy-assets-load-more]",
     '[data-action="probe-generation-strategy-media"]',
+    '[name^="generation_intake_generator"]',
+    '[name^="generation_intake_quality"]',
+    '[name^="generation_intake_duration"]',
     "#generation-strategy-assets input",
     "#generation-strategy-assets select",
     "#generation-strategy-assets textarea",
@@ -28488,6 +30046,294 @@ function syncGenerationStrategyPaidControlLock(form) {
   return true;
 }
 
+// Стоп-кран для «Создания». У стратегии viral_rebuild нет ни одной строки в
+// реестре маршрутов, а объявленный путь /v1/recipes/product_ad у Runway не
+// существует — это записано в миграции 202608170006 после того, как на том же
+// дефекте умерла платная отправка «Копии». Платный старт по «Созданию» доходил
+// до подтверждения точной суммы и умирал на 404 уже ПОСЛЕ резервирования: цикл
+// из десяти ТЗ и десяти одобрений уходил впустую, а очередь замирала в платном
+// состоянии «Ожидаем фиксацию».
+//
+// Это временный клиентский стоп-кран, а не архитектура. Постоянный замок обязан
+// стоять на сервере, а решение «готово / не готово» — опираться на наличие
+// исполнимого маршрута, а не на имя стратегии: см. docs/GENERATION_FIX_QUEUE.md,
+// пункты 6 и 16. Вся логика подготовки «Создания» ниже сохранена целиком и
+// оживёт снятием этого флага, как только у стратегии появится маршрут.
+// Флага REBUILD_PAID_START_CLOSED здесь больше нет.
+//
+// 23.08.2026 замок переехал на сервер и перестал быть именным: миграция
+// 202608230010 отвергает привязку любой стратегии, у которой нет ни одной
+// включённой и разрешённой строки реестра маршрутов, — до строки в книге
+// трат и до создания наряда, отказом `generation_strategy_no_executable_route`.
+// Витрина знает то же самое: политика провайдера считает `enabled` по тому же
+// признаку (202608230011) и называет помеху в списке.
+//
+// Клиентский флаг был честно назван временным стоп-краном. Он выключал не
+// только платный старт, но и БЕСПЛАТНУЮ подготовку ТЗ: она вызывается только
+// изнутри submitGenerationStrategyExactTen, а тот стоял после стоп-крана.
+// Оператор не мог ни заплатить, ни подготовить.
+
+function syncUnsupportedGenerationStrategyFormReadiness(
+  form,
+  strategyId,
+  sourceProjection,
+) {
+  // «Аватар» сюда больше не приходит: с 22.08.2026 он идёт по тому же расчёту
+  // готовности, что и «Копия», а недоступность выражается выключенными
+  // маршрутами в реестре, а не отдельным клиентским замком. Прежний текст про
+  // feature gate убран, потому что стал неправдой: гейта нет, есть отсутствие
+  // включённого маршрута — и говорить об этом должен тот, кто это проверяет.
+  const rebuildWithoutRoute = strategyId === "viral_rebuild";
+  const blocker = rebuildWithoutRoute
+    ? "У «Создания» нет исполнимого маршрута: объявленный адрес провайдера не существует. Платный запуск закрыт, чтобы не тратить подготовку впустую."
+    : "Эта стратегия не подключена к безопасному runtime creator-generate.";
+  form.dataset.generationStrategyConfirmationReady = "false";
+  const campaignField = form.querySelector("#generation-campaign-field");
+  const campaign = form.elements?.campaign_id;
+  if (campaignField instanceof HTMLElement) campaignField.hidden = true;
+  if (campaign instanceof HTMLSelectElement) {
+    campaign.disabled = true;
+    campaign.required = false;
+  }
+  const confirmationPanel = form.querySelector("#real-generation-confirmation");
+  const confirmation = form.elements?.real_spend_confirmation;
+  if (confirmationPanel instanceof HTMLElement) confirmationPanel.hidden = true;
+  if (confirmation instanceof HTMLInputElement) {
+    confirmation.disabled = true;
+    confirmation.required = false;
+    confirmation.checked = false;
+    confirmation.value = "";
+  }
+  const price = form.querySelector("#real-generation-price");
+  if (price) price.textContent = blocker;
+  const submit = form.querySelector("#generation-submit");
+  if (submit instanceof HTMLButtonElement) {
+    submit.disabled = true;
+    submit.dataset.launchBlocker = blocker;
+    submit.dataset.launchPhase = "strategy_unsupported";
+    submit.textContent = "Стратегия пока недоступна";
+  }
+  syncGenerationStrategySpecReviewUi(form, []);
+  const queueMount = form.querySelector("[data-generation-strategy-queue-mount]");
+  queueMount?.replaceChildren();
+  return { sourceProjection, queueProjection: null, review: null };
+}
+
+function syncGenerationStrategySingleFormReadiness(
+  form,
+  sourceProjection,
+  selections,
+) {
+  const selectedSources = Array.isArray(sourceProjection?.selected)
+    ? sourceProjection.selected
+    : [];
+  const sourceMediaId = String(
+    selectedSources[0]?.source_media_id || "",
+  ).trim().toLowerCase();
+  // Один исходник — один результат: и у «Копии», и у «Дуэта». Проверка
+  // сверяет проекцию с ВЫБРАННОЙ стратегией формы; литерал «Копии» держал
+  // «Дуэт» на «Выбрано 1 из 1 ролика» с блокером «сейчас 1 из 1».
+  const singleSourceStrategyId = String(
+    form.elements?.generation_strategy_id?.value || "",
+  ).trim();
+  const exactSourceSelected = Boolean(
+    ["viral_product_swap", "viral_avatar_ugc"].includes(singleSourceStrategyId)
+    && sourceProjection?.strategy_id === singleSourceStrategyId
+    && sourceProjection.required_count === 1
+    && sourceProjection.selected_count === 1
+    && sourceProjection.exact_required_selected === true
+    && contentReviewUuid(sourceMediaId),
+  );
+  const exactSourceReady = Boolean(
+    exactSourceSelected
+    && sourceProjection.all_selected_ready === true,
+  );
+  const entry = Array.isArray(selections) && selections.length === 1
+    && selections[0]?.source_media_id === sourceMediaId
+    && selections[0]?.selection?.strategy_id === singleSourceStrategyId
+    ? selections[0]
+    : null;
+  const specRecord = sourceMediaId
+    ? state.generationStrategySpecs.get(sourceMediaId)
+    : null;
+  const runtimeState = sourceMediaId
+    ? state.generationStrategyRuntimes.get(sourceMediaId) || null
+    : null;
+  const runtimeProjection = runtimeState
+    ? generationStrategyRuntimeSafeProjection(runtimeState)
+    : null;
+  const currentRuntimeContext = entry && specRecord?.approvedContext
+    ? generationStrategyRuntimeContextForApprovedSpec(
+        entry.selection,
+        currentWorkspaceProjectId(),
+        specRecord.approvedContext,
+      )
+    : null;
+  const currentRuntimeFingerprint = currentRuntimeContext
+    ? createGenerationStrategyRuntimeFingerprint(currentRuntimeContext)
+    : null;
+  const runtimeFingerprintCurrent = Boolean(
+    runtimeState
+    && currentRuntimeFingerprint?.ok
+    && runtimeState.fingerprint === currentRuntimeFingerprint.fingerprint,
+  );
+  const phase = runtimeProjection?.phase || "idle";
+  const receiptFresh = runtimeFingerprintCurrent
+    && phase === "preflight_ready"
+    && generationStrategyReceiptIsFresh(runtimeState);
+  const preflightReady = Boolean(
+    receiptFresh
+    && runtimeProjection?.readiness?.ready === true
+    && runtimeProjection.readiness.launch_enabled === true
+    && runtimeProjection?.price?.spend_confirmation,
+  );
+  const confirmationReady = Boolean(
+    exactSourceReady
+    && entry
+    && specRecord?.approvedContext
+    && preflightReady
+    && REAL_GENERATION_ENABLED
+    && !generationStrategyHasPaidAuthority(),
+  );
+  form.dataset.generationStrategyConfirmationReady = confirmationReady
+    ? "true"
+    : "false";
+
+  const campaignField = form.querySelector("#generation-campaign-field");
+  const campaign = form.elements?.campaign_id;
+  if (campaignField instanceof HTMLElement) campaignField.hidden = !preflightReady;
+  if (campaign instanceof HTMLSelectElement) {
+    campaign.disabled = !confirmationReady;
+    campaign.required = confirmationReady;
+  }
+  const confirmationPanel = form.querySelector("#real-generation-confirmation");
+  const confirmation = form.elements?.real_spend_confirmation;
+  if (confirmationPanel instanceof HTMLElement) confirmationPanel.hidden = !preflightReady;
+  if (confirmation instanceof HTMLInputElement) {
+    confirmation.disabled = !confirmationReady;
+    confirmation.required = confirmationReady;
+    confirmation.value = confirmationReady
+      ? runtimeProjection.price.spend_confirmation
+      : "";
+    if (!confirmationReady) confirmation.checked = false;
+  }
+
+  const price = form.querySelector("#real-generation-price");
+  const confirmationTitle = form.querySelector(
+    "#real-generation-confirmation-title",
+  );
+  const confirmationCopy = form.querySelector(
+    "#real-generation-confirmation-copy",
+  );
+  const priceCopy = Number.isSafeInteger(
+    runtimeProjection?.price?.estimated_cost_minor,
+  )
+    ? formatGenerationUsd(runtimeProjection.price.estimated_cost_minor)
+    : "";
+  if (price) {
+    price.textContent = preflightReady && priceCopy
+      ? `Точная серверная цена одного Product Swap — ${priceCopy}.`
+      : "Сначала бесплатно проверим точное ТЗ, ассеты, сервис и цену одного Product Swap. Провайдер не запускается.";
+  }
+  if (confirmationTitle) {
+    confirmationTitle.textContent = "Подтверждаю один платный Product Swap";
+  }
+  if (confirmationCopy) {
+    confirmationCopy.textContent = preflightReady && priceCopy
+      ? `${priceCopy} за один запуск · точные spec, selection, price и receipt подтверждены сервером`
+      : "Серверная цена и одноразовая квитанция ещё не получены.";
+  }
+
+  const paidAuthorityActive = syncGenerationStrategyPaidControlLock(form);
+  const submit = form.querySelector("#generation-submit");
+  if (!(submit instanceof HTMLButtonElement)) {
+    syncGenerationStrategySpecReviewUi(form, selections);
+    return { sourceProjection, runtimeProjection, review: null };
+  }
+  const busy = state.generationStrategyStartInFlight
+    || state.generationStrategyQueueBusy
+    || form.dataset.busy === "true";
+  const probeRequired = Boolean(
+    sourceProjection?.probe_required_source_ids?.length,
+  );
+  const draftReviewed = entry
+    ? generationStrategyAllDraftsReviewed(form, [entry])
+    : false;
+  const campaignReady = contentReviewUuid(String(campaign?.value || ""));
+  const confirmationMatches = confirmationReady
+    && confirmation?.checked === true
+    && confirmation.value === runtimeProjection?.price?.spend_confirmation;
+  let blocker = "";
+  let label = "Подготовить Product Swap бесплатно";
+  if (paidAuthorityActive) {
+    if (phase === "status") {
+      blocker = "Один платный запуск уже создан; его статус сохранён.";
+      label = runtimeProjection?.job?.status
+        ? `Статус Product Swap: ${runtimeProjection.job.status}`
+        : "Product Swap уже запущен";
+    } else if (phase === "start_once") {
+      blocker = "Платный старт уже зарезервирован; повторный provider POST запрещён.";
+      label = "Ожидаем фиксацию Product Swap";
+    } else {
+      blocker = "Платный контекст уже подтверждён и заблокирован от изменений.";
+      label = "Product Swap подтверждён";
+    }
+  } else if (!exactSourceSelected) {
+    blocker = `Выберите один исходный MP4: сейчас ${sourceProjection?.selected_count || 0} из 1.`;
+    label = `Выбрано ${sourceProjection?.selected_count || 0} из 1 ролика`;
+  } else if (probeRequired) {
+    blocker = "Сначала бесплатно проверьте длительность выбранного MP4.";
+    label = "Проверить MP4 бесплатно";
+  } else if (!exactSourceReady) {
+    blocker = "Сервер ещё не подтвердил пригодность выбранного MP4.";
+    label = "Обновить проверку MP4";
+  } else if (!entry) {
+    blocker = "Заполните точные ассеты Product Swap, звук и обязательные подтверждения.";
+    label = "Заполните ассеты Product Swap";
+  } else if (!specRecord?.draft) {
+    label = "Подготовить точное ТЗ бесплатно";
+  } else if (!specRecord.approvedContext) {
+    if (!draftReviewed) {
+      blocker = "Прочитайте точный prompt Product Swap и отметьте одобрение версии.";
+      label = "Прочитайте и одобрите точное ТЗ";
+    } else {
+      label = "Одобрить точное ТЗ бесплатно";
+    }
+  } else if (phase === "invalid") {
+    blocker = "Контекст Product Swap изменился. Обновите один из входных параметров и повторите бесплатную проверку.";
+    label = "Контекст Product Swap изменился";
+  } else if (phase === "preflight_ready" && !receiptFresh) {
+    label = "Обновить точную цену бесплатно";
+  } else if (preflightReady && !REAL_GENERATION_ENABLED) {
+    blocker = "Платная генерация отключена в конфигурации.";
+    label = "Платные старты отключены";
+  } else if (!preflightReady) {
+    label = "Проверить ассеты и цену бесплатно";
+  } else {
+    label = `Запустить один Product Swap${priceCopy ? " · " + priceCopy : ""}`;
+    if (!campaignReady) blocker = "Выберите активную кампанию.";
+    else if (!confirmationMatches) {
+      blocker = "Проверьте точную цену и явно подтвердите один платный запуск.";
+    }
+  }
+  submit.disabled = busy || Boolean(blocker);
+  submit.dataset.launchBlocker = blocker;
+  submit.dataset.launchPhase = paidAuthorityActive
+    ? "strategy_product_swap_paid_locked"
+    : confirmationReady
+      ? "strategy_product_swap_paid_review"
+      : specRecord?.approvedContext
+        ? "strategy_product_swap_free_preflight"
+        : specRecord?.draft
+          ? "strategy_product_swap_spec_review"
+          : "strategy_product_swap_prepare";
+  submit.textContent = busy ? "Проверяем Product Swap — не повторяйте" : label;
+  syncGenerationStrategySpecReviewUi(form, selections);
+  const queueMount = form.querySelector("[data-generation-strategy-queue-mount]");
+  queueMount?.replaceChildren();
+  return { sourceProjection, runtimeProjection, review: null };
+}
+
 function syncGenerationStrategyFormReadiness(form) {
   if (!form) return null;
   const strategyId = String(
@@ -28496,6 +30342,33 @@ function syncGenerationStrategyFormReadiness(form) {
   if (!strategyId) return null;
   const sourceProjection = generationStrategySourceProjectionForForm(form);
   const selections = generationStrategySelectionsForForm(form);
+  // «Аватар» с 22.08.2026 — такая же правка одного исходного ролика, что и
+  // «Копия»: один MP4, один результат. Поэтому и расчёт готовности у них общий.
+  //
+  // Раньше аватар уходил в ветку «стратегия не подключена» и глушился текстом
+  // про feature gate. Замок при этом стоял ТОЛЬКО в браузере, а сервер отдавал
+  // стратегию включённой — то есть защита денег держалась на клиентском коде.
+  // Теперь защита там, где ей и место: все маршруты «Аватара» в реестре
+  // выключены, поэтому серверная политика не находит действующего маршрута и
+  // отвечает блокером provider_route_not_allowed, а модуль в браузере остаётся
+  // заблокированным расчётом готовности по той же причине.
+  if (
+    strategyId === "viral_product_swap"
+    || strategyId === "viral_avatar_ugc"
+  ) {
+    return syncGenerationStrategySingleFormReadiness(
+      form,
+      sourceProjection,
+      selections,
+    );
+  }
+  if (strategyId !== "viral_rebuild") {
+    return syncUnsupportedGenerationStrategyFormReadiness(
+      form,
+      strategyId,
+      sourceProjection,
+    );
+  }
   const selectedSources = sourceProjection?.selected || [];
   const preparedCount = selectedSources.filter((entry) => (
     state.generationStrategySpecs.get(entry.source_media_id)?.draft
@@ -28610,7 +30483,7 @@ function syncGenerationStrategyFormReadiness(form) {
       blocker = "10 отдельных задач уже созданы или безопасно остановлены.";
       label = "Очередь из 10 роликов создана";
     } else if (paidBlocker === "reconciliation_required") {
-      blocker = "Один старт требует ручной сверки; остальные платные старты остановлены.";
+      blocker = "Один старт требует ручной сверки; остальные платные старты остановлены. Форма сверки — в карточке этого запуска в архиве ниже.";
       label = "Нужна сверка неопределённого старта";
     } else if (paidBlocker === "start_once_in_flight") {
       blocker = "Сервер ещё фиксирует предыдущий старт; повторный POST запрещён.";
@@ -28721,6 +30594,15 @@ async function probeSelectedGenerationStrategyMedia(
       normalizedMediaId,
       "generation_strategy_media_verified",
     );
+    // The probe response is the server authority for duration. Preserve it in
+    // the compact-upload source overlay before refreshing the broader catalog;
+    // that catalog request may still return the snapshot taken before probe or
+    // may be temporarily unavailable.
+    globalThis.ContentEngineGenerationGuidedV4
+      ?.confirmRegisteredSourceProbe?.(form, {
+        media_id: normalizedMediaId,
+        duration_seconds: normalized.value.duration_seconds,
+      });
     if (refresh) {
       await globalThis.ContentEngineGenerationGuidedV4
         ?.refreshStrategyAssets?.(form);
@@ -28874,9 +30756,20 @@ async function submitGenerationStrategyExactTen(
       }
       if (paidPlan.plan.state !== "ready") {
         const blocker = paidPlan.plan.blocker;
+        if (
+          blocker === "start_once_in_flight"
+          && state.generationStrategyStartRetries.has(
+            paidPlan.plan.blocking_source_media_id,
+          )
+        ) {
+          throw new CreatorApiError(
+            "Сеть прервала предыдущий платный старт. Нажмите «Повторить тот же платный старт» в очереди — ключ и квитанция сохранены, второго списания не будет.",
+            { code: "generation_strategy_queue_start_retry_available" },
+          );
+        }
         throw new CreatorApiError(
           blocker === "reconciliation_required"
-            ? "Один старт требует ручной сверки. Остальные платные старты пока остановлены."
+            ? "Один старт требует ручной сверки. Остальные платные старты пока остановлены; форма сверки — в карточке этого запуска в архиве ниже."
             : "Предыдущий старт ещё не зафиксирован сервером. Повторный POST запрещён.",
           { code: `generation_strategy_queue_${blocker || "blocked"}` },
         );
@@ -28923,16 +30816,40 @@ async function submitGenerationStrategyExactTen(
         generationStrategyReceiptWindowMs(selections.length),
       )
     ) {
-      resetGenerationStrategyQueueState({ clearSpecs: false });
-      state.generationStrategyQueueSourceRevision = sourceProjection.revision;
+      const refreshTargets = generationStrategyQueueReviewPreflightRefreshTargets();
+      if (!refreshTargets.length) {
+        throw new CreatorApiError(
+          "Точная очередь изменилась перед бесплатным обновлением цен.",
+          { code: "generation_strategy_queue_preflight_refresh_state_invalid" },
+        );
+      }
       if (form.elements?.real_spend_confirmation) {
         form.elements.real_spend_confirmation.checked = false;
         form.elements.real_spend_confirmation.value = "";
       }
       setFormBusy(form, true, "Обновляем 10 точных цен и проверок без списания…");
-      await prepareGenerationStrategyQueueFree(form, selections, projectId);
+      const refreshed = await refreshGenerationStrategyQueuePreflights(
+        form,
+        projectId,
+        refreshTargets,
+      );
+      const refreshedReview = generationStrategyQueueAggregateReview(
+        state.generationStrategyQueue,
+        null,
+      );
+      if (!refreshedReview.ok || !refreshedReview.review?.ready) {
+        throw new CreatorApiError(
+          "Не все 10 строк получили свежую точную цену.",
+          {
+            code: refreshedReview.error?.code
+              || "generation_strategy_queue_review_not_ready",
+          },
+        );
+      }
+      state.generationStrategyQueueReview = refreshedReview.review;
+      syncGenerationStrategyQueueUi(form);
       toast(
-        "Серверные проверки и цены обновлены. Снова сверьте сумму и подтвердите десять запусков.",
+        `Обновлены ${refreshed} серверных проверок и цен без новой привязки исходников. Снова сверьте сумму и подтвердите десять запусков.`,
         "info",
       );
       return;
@@ -29001,63 +30918,141 @@ async function submitGenerationStrategyExactTen(
   }
 }
 
-async function submitGenerationStrategy(form, values, selection, projectId) {
+// Экспресс-панель «Копии» ведёт мастер сама и тостов не читает: отказ любого
+// бесплатного шага (ТЗ, одобрение, проверка сервиса и цены) записывается на
+// форму, чтобы панель назвала настоящую причину, а не «мастер не отвечает».
+function recordGenerationStrategyFailure(form, error) {
+  if (!(form instanceof HTMLFormElement)) return;
+  form.dataset.generationStrategyLastFailure = actionErrorMessage(error);
+  form.dataset.generationStrategyLastFailureAt = String(Date.now());
+}
+
+async function submitGenerationStrategy(form, values, entry, projectId) {
+  const sourceProjection = generationStrategySourceProjectionForForm(form);
+  const selections = generationStrategySelectionsForForm(form);
+  const currentEntry = Array.isArray(selections) && selections.length === 1
+    ? selections[0]
+    : null;
+  const selection = currentEntry?.selection || null;
   const sourceMediaId = generationStrategySourceMediaId(selection);
   const confirmation = form.elements?.real_spend_confirmation;
-  if (!sourceMediaId) {
-    toast("Выберите один точный исходный MP4 для этой стратегии.", "error");
+  // Один исходник — один результат: «Копия» и «Дуэт» идут одним путём, и
+  // проверка сверяет проекцию и выбор с ОДНОЙ И ТОЙ ЖЕ стратегией записи, а не
+  // с литералом «Копии» (он молча отвергал каждый submit «Дуэта»).
+  const singleSourceStrategyId = String(entry?.selection?.strategy_id || "");
+  if (
+    !["viral_product_swap", "viral_avatar_ugc"].includes(singleSourceStrategyId)
+    || sourceProjection?.strategy_id !== singleSourceStrategyId
+    || sourceProjection.required_count !== 1
+    || sourceProjection.all_selected_ready !== true
+    || !currentEntry
+    || currentEntry.source_media_id !== entry?.source_media_id
+    || selection?.strategy_id !== singleSourceStrategyId
+    || !sourceMediaId
+    || sourceMediaId !== currentEntry.source_media_id
+  ) {
+    toast("Выберите один готовый исходный MP4 и точные ассеты стратегии.", "error");
     return;
   }
-  if (state.generationStrategyStartInFlight || state.realGenerationStartInFlight) {
-    toast("Платный запуск уже проверяется. Не повторяйте запрос.", "info");
+  if (generationStrategyQueueHasPaidAuthority()) {
+    toast("Сначала завершите уже подтверждённую очередь из 10 роликов.", "info");
+    return;
+  }
+  if (generationStrategySingleHasOtherPaidAuthority(sourceMediaId)) {
+    toast(
+      "Другой Product Swap уже имеет платное подтверждение или созданную задачу. Новый платный контекст заблокирован.",
+      "info",
+    );
+    return;
+  }
+  if (
+    state.generationStrategyStartInFlight
+    || state.realGenerationStartInFlight
+    || form.dataset.busy === "true"
+  ) {
+    toast("Проверка или платный запуск уже идёт. Не повторяйте запрос.", "info");
     return;
   }
 
-  let spec = currentApprovedGenerationSpecContext(form);
-  if (!spec) {
-    setFormBusy(form, true, "Готовим точное ТЗ без списания…");
+  let specRecord = state.generationStrategySpecs.get(sourceMediaId);
+  if (!specRecord?.draft) {
+    setFormBusy(form, true, "Готовим точное ТЗ Product Swap без списания…");
     try {
-      const prepared = await ensurePreparedGenerationSpecForPaidStart(form);
-      spec = prepared?.approvedContext || null;
-      if (!spec) {
-        setFormBusy(form, false);
-        syncGenerationStrategyFormReadiness(form);
-        openGenerationSpecApprovalReview(form);
-        toast(
-          "Точное ТЗ подготовлено без списания. Прочитайте и отдельно одобрите его; после этого портал зафиксирует исходники и цену стратегии.",
-          "info",
-        );
-        return;
-      }
+      await prepareGenerationStrategySpecs(form, [currentEntry], projectId);
+      toast(
+        "Точное ТЗ Product Swap подготовлено бесплатно. Прочитайте prompt и отдельно одобрите именно эту версию.",
+        "success",
+      );
+      globalThis.ContentEngineGenerationGuidedV4?.goToStep?.("media");
+      const review = form.querySelector("[data-generation-strategy-spec-review]");
+      scrollElementIntoView(review, "start");
+      review?.querySelector("[data-generation-strategy-spec-approval-source]")
+        ?.focus({ preventScroll: true });
     } catch (error) {
-      setFormBusy(form, false);
-      syncGenerationStrategyFormReadiness(form);
-      toast(`Стратегия не подготовлена: ${actionErrorMessage(error)}`, "error");
+      toast(`Product Swap не подготовлен: ${actionErrorMessage(error)}`, "error");
+      recordGenerationStrategyFailure(form, error);
+    } finally {
+      if (form.isConnected) {
+        setFormBusy(form, false);
+        syncGenerationStrategySpecReviewUi(form, [currentEntry]);
+        syncGenerationStrategyFormReadiness(form);
+      }
+    }
+    return;
+  }
+
+  if (!specRecord.approvedContext) {
+    if (!generationStrategyAllDraftsReviewed(form, [currentEntry])) {
+      syncGenerationStrategySpecReviewUi(form, [currentEntry]);
+      const review = form.querySelector("[data-generation-strategy-spec-review]");
+      scrollElementIntoView(review, "start");
+      review?.querySelector("[data-generation-strategy-spec-approval-source]")
+        ?.focus({ preventScroll: true });
+      toast("Прочитайте точный prompt и отдельно отметьте одобрение этой версии.", "info");
       return;
     }
-  }
-
-  const context = generationStrategyRuntimeContext(
-    form,
-    selection,
-    projectId,
-  );
-  if (!context) {
-    toast("Одобренное ТЗ или точный контекст стратегии изменились.", "error");
+    setFormBusy(form, true, "Фиксируем одобренное ТЗ без списания…");
+    try {
+      await approveGenerationStrategySpecs(form, [currentEntry], projectId);
+      toast(
+        "ТЗ Product Swap одобрено человеком. Следующий шаг бесплатно проверит ассеты, сервис и точную цену.",
+        "success",
+      );
+      globalThis.ContentEngineGenerationGuidedV4?.goToStep?.("launch");
+    } catch (error) {
+      toast(`ТЗ Product Swap не одобрено: ${actionErrorMessage(error)}`, "error");
+      recordGenerationStrategyFailure(form, error);
+    } finally {
+      if (form.isConnected) {
+        setFormBusy(form, false);
+        syncGenerationStrategySpecReviewUi(form, [currentEntry]);
+        syncGenerationStrategyFormReadiness(form);
+      }
+    }
     return;
   }
-  const bindKey = generationStrategyRequestIdempotencyKey(
-    sourceMediaId,
-    "bind",
-    context.spec_hash,
+
+  specRecord = state.generationStrategySpecs.get(sourceMediaId);
+  const context = generationStrategyRuntimeContextForApprovedSpec(
+    selection,
+    projectId,
+    specRecord?.approvedContext || null,
   );
-  const bindPlan = generationStrategyRuntimeBindRequest(context, bindKey.value);
-  if (!bindPlan.ok) {
-    toast("Точный набор исходников стратегии не прошёл локальную проверку.", "error");
+  if (!context) {
+    toast("Одобренное ТЗ или точный контекст Product Swap изменились.", "error");
+    return;
+  }
+  const contextFingerprint = createGenerationStrategyRuntimeFingerprint(context);
+  if (!contextFingerprint.ok) {
+    toast("Точный набор исходников Product Swap не прошёл локальную проверку.", "error");
     return;
   }
   let runtimeState = generationStrategyRuntimeForSource(sourceMediaId);
-  if (runtimeState.fingerprint !== bindPlan.fingerprint) {
+  if (runtimeState.fingerprint !== contextFingerprint.fingerprint) {
+    if (["human_confirmed", "start_once", "status"].includes(runtimeState.phase)) {
+      toast("Платный контекст Product Swap уже зафиксирован и не может быть заменён.", "error");
+      return;
+    }
     runtimeState = reduceGenerationStrategyRuntimeState(runtimeState, {
       type: GENERATION_STRATEGY_RUNTIME_ACTIONS.select,
       context,
@@ -29065,27 +31060,120 @@ async function submitGenerationStrategy(form, values, selection, projectId) {
     setGenerationStrategyRuntime(sourceMediaId, runtimeState);
   }
   if (runtimeState.phase === "invalid") {
-    toast("Контекст стратегии изменился. Проверьте строку заново.", "error");
+    toast("Контекст Product Swap изменился. Обновите входные данные и проверьте его заново.", "error");
+    return;
+  }
+
+  const requestContext = captureGenerationRequestContext(form, projectId);
+  const requestApi = state.api;
+  const sourceRevision = sourceProjection.revision;
+  const exactContextIsCurrent = (expectedRuntime, expectedPhases) => {
+    const liveProjection = generationStrategySourceProjectionForForm(form);
+    const liveEntry = generationStrategySelectionsForForm(form)?.[0] || null;
+    const liveSpec = state.generationStrategySpecs.get(sourceMediaId);
+    const liveContext = generationStrategyRuntimeContextForApprovedSpec(
+      liveEntry?.selection,
+      projectId,
+      liveSpec?.approvedContext || null,
+    );
+    const liveFingerprint = liveContext
+      ? createGenerationStrategyRuntimeFingerprint(liveContext)
+      : null;
+    const liveRuntime = state.generationStrategyRuntimes.get(sourceMediaId);
+    return generationRequestContextIsCurrent(requestContext)
+      && state.api === requestApi
+      && liveProjection?.strategy_id === singleSourceStrategyId
+      && liveProjection.required_count === 1
+      && liveProjection.revision === sourceRevision
+      && liveEntry?.source_media_id === sourceMediaId
+      && liveFingerprint?.fingerprint === contextFingerprint.fingerprint
+      && liveRuntime === expectedRuntime
+      && liveRuntime?.fingerprint === expectedRuntime?.fingerprint
+      && expectedPhases.includes(liveRuntime?.phase);
+  };
+  if (!requestApi || !exactContextIsCurrent(runtimeState, [runtimeState.phase])) {
+    toast("Проект, пользователь или точный контекст Product Swap изменились.", "error");
     return;
   }
 
   try {
+    let refreshingExpiredReceipt = false;
+    let expiredReceipt = null;
     if (runtimeState.phase === "selected") {
+      const bindKey = generationStrategyRequestIdempotencyKey(
+        sourceMediaId,
+        "bind",
+        context.spec_hash,
+      );
+      const bindPlan = generationStrategyRuntimeBindRequest(
+        context,
+        bindKey.value,
+      );
+      if (
+        !bindPlan.ok
+        || bindPlan.fingerprint !== contextFingerprint.fingerprint
+      ) {
+        throw new CreatorApiError(
+          "Точный набор исходников Product Swap не прошёл локальную проверку.",
+          { code: bindPlan.error?.code || "generation_strategy_bind_invalid" },
+        );
+      }
       setFormBusy(form, true, "Фиксируем исходники без запуска провайдера…");
-      const rawBind = await state.api.bindGenerationStrategy(bindPlan.request);
-      runtimeState = reduceGenerationStrategyRuntimeState(runtimeState, {
+      const rawBind = await requestApi.bindGenerationStrategy(bindPlan.request);
+      if (!exactContextIsCurrent(runtimeState, ["selected"])) {
+        throw new CreatorApiError("Контекст изменился во время привязки ассетов.", {
+          code: "generation_strategy_single_bind_context_stale",
+        });
+      }
+      const nextRuntime = reduceGenerationStrategyRuntimeState(runtimeState, {
         type: GENERATION_STRATEGY_RUNTIME_ACTIONS.bindResolved,
         fingerprint: bindPlan.fingerprint,
         context,
         response: rawBind,
       });
-      setGenerationStrategyRuntime(sourceMediaId, runtimeState);
-      if (runtimeState.phase !== "bound") {
+      if (nextRuntime.phase !== "bound") {
         throw new CreatorApiError("Сервер не подтвердил точную привязку исходников.", {
-          code: runtimeState.error?.code || "generation_strategy_bind_invalid",
+          code: nextRuntime.error?.code || "generation_strategy_bind_invalid",
         });
       }
+      runtimeState = nextRuntime;
+      setGenerationStrategyRuntime(sourceMediaId, runtimeState);
       clearGenerationStrategyRequestIdempotencyKey(bindKey.key);
+    }
+
+    if (
+      runtimeState.phase === "preflight_ready"
+      && !generationStrategyReceiptIsFresh(runtimeState)
+    ) {
+      const oldReceipt = runtimeState.preflight?.receipt;
+      const refreshRequested = reduceGenerationStrategyRuntimeState(
+        runtimeState,
+        {
+          type: GENERATION_STRATEGY_RUNTIME_ACTIONS.preflightRefreshRequested,
+          fingerprint: runtimeState.fingerprint,
+          receipt_id: oldReceipt?.id,
+          receipt_hash: oldReceipt?.receipt_hash,
+        },
+      );
+      if (
+        refreshRequested.phase !== "bound"
+        || refreshRequested.fingerprint !== runtimeState.fingerprint
+        || refreshRequested.bind?.binding?.id !== runtimeState.bind?.binding?.id
+        || refreshRequested.bind?.binding?.binding_hash
+          !== runtimeState.bind?.binding?.binding_hash
+      ) {
+        throw new CreatorApiError(
+          "Истёкшая квитанция не отделилась от точной привязки Product Swap.",
+          {
+            code: refreshRequested.error?.code
+              || "generation_strategy_preflight_refresh_transition_invalid",
+          },
+        );
+      }
+      runtimeState = refreshRequested;
+      setGenerationStrategyRuntime(sourceMediaId, runtimeState);
+      refreshingExpiredReceipt = true;
+      expiredReceipt = oldReceipt;
     }
 
     if (runtimeState.phase === "bound") {
@@ -29099,30 +31187,46 @@ async function submitGenerationStrategy(form, values, selection, projectId) {
         preflightKey.value,
       );
       if (!preflightPlan.ok) {
-        throw new CreatorApiError("Не удалось собрать бесплатную проверку стратегии.", {
+        throw new CreatorApiError("Не удалось собрать бесплатную проверку Product Swap.", {
           code: preflightPlan.error?.code || "generation_strategy_preflight_invalid",
         });
       }
       setFormBusy(form, true, "Проверяем сервис и точную цену без списания…");
-      const rawPreflight = await state.api.preflightGenerationStrategy(
+      const rawPreflight = await requestApi.preflightGenerationStrategy(
         preflightPlan.request,
       );
-      runtimeState = reduceGenerationStrategyRuntimeState(runtimeState, {
+      if (!exactContextIsCurrent(runtimeState, ["bound"])) {
+        throw new CreatorApiError("Контекст изменился во время бесплатной проверки.", {
+          code: "generation_strategy_single_preflight_context_stale",
+        });
+      }
+      const nextRuntime = reduceGenerationStrategyRuntimeState(runtimeState, {
         type: GENERATION_STRATEGY_RUNTIME_ACTIONS.preflightResolved,
         fingerprint: runtimeState.fingerprint,
         response: rawPreflight,
       });
-      setGenerationStrategyRuntime(sourceMediaId, runtimeState);
-      if (runtimeState.phase !== "preflight_ready") {
-        throw new CreatorApiError("Сервер не подтвердил готовность стратегии.", {
-          code: runtimeState.error?.code || "generation_strategy_preflight_invalid",
+      if (
+        nextRuntime.phase !== "preflight_ready"
+        || !generationStrategyReceiptIsFresh(nextRuntime)
+        || (refreshingExpiredReceipt && (
+          nextRuntime.preflight?.receipt?.id === expiredReceipt?.id
+          || nextRuntime.preflight?.receipt?.receipt_hash
+            === expiredReceipt?.receipt_hash
+        ))
+      ) {
+        throw new CreatorApiError("Сервер не подтвердил готовность Product Swap.", {
+          code: nextRuntime.error?.code || "generation_strategy_preflight_invalid",
         });
       }
+      runtimeState = nextRuntime;
+      setGenerationStrategyRuntime(sourceMediaId, runtimeState);
       clearGenerationStrategyRequestIdempotencyKey(preflightKey.key);
       setFormBusy(form, false);
       syncGenerationStrategyFormReadiness(form);
       toast(
-        "Исходники и точная цена подтверждены без списания. Выберите кампанию, проверьте цену и отдельно подтвердите один платный запуск.",
+        refreshingExpiredReceipt
+          ? "Свежая серверная квитанция и цена получены без новой привязки исходников и без списания. Снова проверьте цену и подтвердите один платный запуск."
+          : "Ассеты и точная цена подтверждены без списания. Выберите кампанию, проверьте цену и отдельно подтвердите один платный запуск.",
         "success",
       );
       return;
@@ -29130,17 +31234,10 @@ async function submitGenerationStrategy(form, values, selection, projectId) {
 
     if (runtimeState.phase === "preflight_ready") {
       const projection = generationStrategyRuntimeSafeProjection(runtimeState);
-      if (
-        !Number.isFinite(Date.parse(projection?.readiness?.expires_at || ""))
-        || Date.parse(projection.readiness.expires_at) <= Date.now()
-      ) {
-        invalidateGenerationStrategyRuntimeForSource(
-          sourceMediaId,
-          "generation_strategy_receipt_expired",
-        );
-        syncGenerationStrategyFormReadiness(form);
-        toast("Срок бесплатной квитанции истёк. Получите свежую цену; списания не было.", "info");
-        return;
+      if (!REAL_GENERATION_ENABLED) {
+        throw new CreatorApiError("Платная генерация отключена в конфигурации.", {
+          code: "real_generation_disabled",
+        });
       }
       const campaignId = String(values.get("campaign_id") || "")
         .trim().toLowerCase();
@@ -29156,13 +31253,24 @@ async function submitGenerationStrategy(form, values, selection, projectId) {
         toast("Проверьте точную цену и отдельно подтвердите один платный запуск.", "error");
         return;
       }
-      runtimeState = reduceGenerationStrategyRuntimeState(runtimeState, {
+      if (!exactContextIsCurrent(runtimeState, ["preflight_ready"])) {
+        throw new CreatorApiError("Контекст изменился после проверки цены.", {
+          code: "generation_strategy_single_confirmation_context_stale",
+        });
+      }
+      const nextRuntime = reduceGenerationStrategyRuntimeState(runtimeState, {
         type: GENERATION_STRATEGY_RUNTIME_ACTIONS.humanConfirmed,
         fingerprint: runtimeState.fingerprint,
         campaign_id: campaignId,
         spend_confirmation: projection.price.spend_confirmation,
         confirmation: true,
       });
+      if (nextRuntime.phase !== "human_confirmed") {
+        throw new CreatorApiError("Серверная цена или подтверждение изменились.", {
+          code: nextRuntime.error?.code || "generation_strategy_confirmation_invalid",
+        });
+      }
+      runtimeState = nextRuntime;
       setGenerationStrategyRuntime(sourceMediaId, runtimeState);
     }
 
@@ -29182,74 +31290,100 @@ async function submitGenerationStrategy(form, values, selection, projectId) {
           code: startPlan.error?.code || "generation_strategy_start_invalid",
         });
       }
-      runtimeState = reduceGenerationStrategyRuntimeState(runtimeState, {
+      const reserved = reduceGenerationStrategyRuntimeState(runtimeState, {
         type: GENERATION_STRATEGY_RUNTIME_ACTIONS.startRequested,
         fingerprint: runtimeState.fingerprint,
         start_context_fingerprint: runtimeState.start_context_fingerprint,
         campaign_id: runtimeState.campaign_id,
         idempotency_key: startKey.value,
       });
-      setGenerationStrategyRuntime(sourceMediaId, runtimeState);
-      if (runtimeState.phase !== "start_once") {
+      setGenerationStrategyRuntime(sourceMediaId, reserved);
+      if (reserved.phase !== "start_once") {
         throw new CreatorApiError("Повторный платный запуск заблокирован.", {
-          code: runtimeState.error?.code || "generation_strategy_start_reserved",
+          code: reserved.error?.code || "generation_strategy_start_reserved",
         });
       }
       const actorId = String(state.user?.id || "").trim().toLowerCase();
-      const expectedFingerprint = runtimeState.fingerprint;
-      state.api.bindRealGenerationClientContext(startPlan.request, {
+      const bindStartClientContext = () => requestApi.bindRealGenerationClientContext(startPlan.request, {
         expectedActorId: actorId,
-        isContextCurrent: () => {
-          const currentSelection = globalThis.ContentEngineGenerationGuidedV4
-            ?.getStrategySelection?.(form) || null;
-          const currentContext = generationStrategyRuntimeContext(
-            form,
-            currentSelection,
-            projectId,
-          );
-          const currentPlan = currentContext
-            ? generationStrategyRuntimeBindRequest(currentContext, bindKey.value)
-            : null;
-          return form.isConnected
-            && state.user?.id === actorId
-            && currentPlan?.fingerprint === expectedFingerprint;
-        },
+        isContextCurrent: () => exactContextIsCurrent(reserved, ["start_once"])
+          && String(state.user?.id || "").trim().toLowerCase() === actorId
+          && state.generationStrategyRuntimes.get(sourceMediaId)
+            ?.start_context_fingerprint === reserved.start_context_fingerprint
+          && state.generationStrategyRuntimes.get(sourceMediaId)
+            ?.campaign_id === reserved.campaign_id,
       });
+      bindStartClientContext();
       state.generationStrategyStartInFlight = true;
       state.generationStrategyRequestId += 1;
-      setFormBusy(form, true, "Отправляем один подтверждённый запуск…");
-      const rawStart = await state.api.startGenerationStrategy(startPlan.request);
-      runtimeState = reduceGenerationStrategyRuntimeState(runtimeState, {
-        type: GENERATION_STRATEGY_RUNTIME_ACTIONS.startResolved,
-        fingerprint: runtimeState.fingerprint,
-        start_context_fingerprint: runtimeState.start_context_fingerprint,
-        idempotency_key: startKey.value,
-        response: rawStart,
-      });
-      setGenerationStrategyRuntime(sourceMediaId, runtimeState);
-      if (runtimeState.phase !== "status") {
-        throw new CreatorApiError("Сервер не вернул безопасный статус задачи.", {
-          code: runtimeState.error?.code || "generation_strategy_status_invalid",
+      setFormBusy(form, true, "Отправляем один подтверждённый Product Swap…");
+      let rawStart;
+      try {
+        rawStart = await requestApi.startGenerationStrategy(startPlan.request);
+      } catch (startError) {
+        rawStart = await retryGenerationStrategyStartAfterTransportFailure(startError, {
+          sourceMediaId,
+          requestApi,
+          reserved,
+          request: startPlan.request,
+          bindClientContext: bindStartClientContext,
         });
       }
+      const resolvedAction = {
+        type: GENERATION_STRATEGY_RUNTIME_ACTIONS.startResolved,
+        fingerprint: reserved.fingerprint,
+        start_context_fingerprint: reserved.start_context_fingerprint,
+        idempotency_key: startKey.value,
+        response: rawStart,
+      };
+      const verified = reduceGenerationStrategyRuntimeState(
+        reserved,
+        resolvedAction,
+      );
+      if (verified.phase !== "status") {
+        throw new CreatorApiError(
+          "Сервер не вернул безопасный статус. Резерв старта сохранён; повторный POST запрещён.",
+          { code: verified.error?.code || "generation_strategy_status_invalid" },
+        );
+      }
+      if (!exactContextIsCurrent(reserved, ["start_once"])) {
+        throw new CreatorApiError(
+          "Контекст изменился после старта. Резерв сохранён для ручной сверки; повторный POST запрещён.",
+          { code: "generation_strategy_single_start_response_stale" },
+        );
+      }
+      runtimeState = verified;
+      setGenerationStrategyRuntime(sourceMediaId, runtimeState);
       clearGenerationStrategyRequestIdempotencyKey(startKey.key);
       const projection = generationStrategyRuntimeSafeProjection(runtimeState);
       state.lastRealGenerationJobId = projection.job.id;
       if (confirmation instanceof HTMLInputElement) confirmation.checked = false;
-      toast("Ролик поставлен в отдельную очередь. Повторный provider POST запрещён сервером.", "success");
+      toast("Product Swap поставлен в отдельную очередь. Повторный provider POST запрещён сервером.", "success");
       scheduleGenerationStrategyPolling(1_000);
     } else if (runtimeState.phase === "start_once") {
-      toast("Запуск уже зарезервирован. Дождитесь серверной сверки; не повторяйте оплату.", "info");
+      if (state.generationStrategyStartRetries.has(sourceMediaId)) {
+        toast(
+          "Сеть прервала платный старт. Нажмите «Повторить тот же платный старт» — ключ и квитанция сохранены, второго списания не будет.",
+          "info",
+        );
+      } else {
+        toast("Запуск уже зарезервирован. Нужна серверная сверка; повторный POST запрещён.", "info");
+      }
     } else if (runtimeState.phase === "status") {
       scheduleGenerationStrategyPolling(0);
-      toast("Этот ролик уже имеет отдельную задачу; обновляем её статус.", "info");
+      toast("Product Swap уже имеет отдельную задачу; обновляем её статус.", "info");
     }
   } catch (error) {
-    toast(`Стратегия не запущена: ${actionErrorMessage(error)}`, "error");
+    toast(`Product Swap не запущен: ${actionErrorMessage(error)}`, "error");
+    // Экспресс-панель «Копии» ведёт мастер сама и тост не читает. Отказ
+    // сервера записывается на форму, чтобы панель назвала настоящую причину
+    // («сервис генерации не настроен», «баланс»), а не «мастер не отвечает».
+    recordGenerationStrategyFailure(form, error);
   } finally {
     state.generationStrategyStartInFlight = false;
     if (form.isConnected) {
       setFormBusy(form, false);
+      syncGenerationStrategyQueueUi(form);
       syncGenerationStrategyFormReadiness(form);
     }
   }
@@ -29259,21 +31393,34 @@ async function pollGenerationStrategyStatuses() {
   if (state.generationStrategyPollInFlight) return;
   state.generationStrategyPollInFlight = true;
   let shouldContinue = false;
+  let statusContractErrorShown = false;
   try {
-    const runtimeEntries = state.generationStrategyQueue
-      ? state.generationStrategyQueue.source_order.map((sourceMediaId) => [
+    const requestApi = state.api;
+    const queueAtStart = state.generationStrategyQueue;
+    const runtimeEntries = queueAtStart
+      ? queueAtStart.source_order.map((sourceMediaId) => [
           sourceMediaId,
           generationStrategyQueueRuntime(sourceMediaId),
         ])
       : [...state.generationStrategyRuntimes.entries()];
     for (const [sourceMediaId, current] of runtimeEntries) {
       const projection = generationStrategyRuntimeSafeProjection(current);
-      if (current.phase !== "status" || !projection?.can_poll) continue;
-      shouldContinue = true;
+      if (!requestApi || !generationStrategyStatusPollNeeded(current, projection)) {
+        continue;
+      }
       const plan = generationStrategyRuntimeStatusRequest(current);
-      if (!plan.ok) continue;
+      if (!plan.ok) {
+        if (!statusContractErrorShown) {
+          statusContractErrorShown = true;
+          toast(
+            "Не удалось собрать точный запрос статуса. Платная задача и блокировка сохранены; повторный POST запрещён.",
+            "error",
+          );
+        }
+        continue;
+      }
       try {
-        const raw = await state.api.generationStrategyStatus(plan.request);
+        const raw = await requestApi.generationStrategyStatus(plan.request);
         const action = {
           type: GENERATION_STRATEGY_RUNTIME_ACTIONS.statusResolved,
           fingerprint: current.fingerprint,
@@ -29281,14 +31428,59 @@ async function pollGenerationStrategyStatuses() {
           generation_job_id: current.status.job.id,
           response: raw,
         };
-        const next = state.generationStrategyQueue
-          ? applyGenerationStrategyQueueRow(sourceMediaId, action)
-          : reduceGenerationStrategyRuntimeState(current, action);
-        if (!state.generationStrategyQueue) {
-          setGenerationStrategyRuntime(sourceMediaId, next);
+        const candidate = reduceGenerationStrategyRuntimeState(current, action);
+        if (candidate?.phase !== "status") {
+          if (!statusContractErrorShown) {
+            statusContractErrorShown = true;
+            toast(
+              "Серверный статус не совпал с оплаченной задачей. Последнее подтверждённое состояние и блокировка сохранены; повторный POST запрещён.",
+              "error",
+            );
+          }
+          continue;
+        }
+        const queueIsCurrent = Boolean(queueAtStart)
+          === Boolean(state.generationStrategyQueue);
+        const live = queueAtStart
+          ? generationStrategyQueueRuntime(sourceMediaId)
+          : state.generationStrategyRuntimes.get(sourceMediaId);
+        if (state.api !== requestApi || !queueIsCurrent || live !== current) {
+          const liveProjection = generationStrategyRuntimeSafeProjection(live);
+          if (generationStrategyStatusPollNeeded(live, liveProjection)) {
+            shouldContinue = true;
+          }
+          continue;
+        }
+        let next = candidate;
+        if (queueAtStart) {
+          const updated = updateGenerationStrategyQueueRow(
+            state.generationStrategyQueue,
+            sourceMediaId,
+            action,
+          );
+          const queueCandidate = updated.ok
+            ? updated.queue?.rows?.get(sourceMediaId)?.runtime_state
+            : null;
+          if (queueCandidate?.phase !== "status") {
+            if (!statusContractErrorShown) {
+              statusContractErrorShown = true;
+              toast(
+                "Статус не закрепился в точной строке оплаченной очереди. Последнее подтверждённое состояние и блокировка сохранены.",
+                "error",
+              );
+            }
+            continue;
+          }
+          state.generationStrategyQueue = updated.queue;
+          state.generationStrategyRuntimes.set(sourceMediaId, queueCandidate);
+          next = queueCandidate;
+        } else {
+          setGenerationStrategyRuntime(sourceMediaId, candidate);
         }
         const nextProjection = generationStrategyRuntimeSafeProjection(next);
-        if (nextProjection?.can_poll) shouldContinue = true;
+        if (generationStrategyStatusPollNeeded(next, nextProjection)) {
+          shouldContinue = true;
+        }
       } catch {
         shouldContinue = true;
       }
@@ -29314,28 +31506,300 @@ function scheduleGenerationStrategyPolling(delay = 5_000) {
   }, Math.max(0, delay));
 }
 
+const GENERATION_STRATEGY_TERMINAL_JOB_STATUSES = new Set([
+  "succeeded",
+  "failed",
+  "cancelled",
+]);
+
+function generationStrategyStatusPollNeeded(runtimeState, projection) {
+  if (runtimeState?.phase !== "status") return false;
+  const jobStatus = projection?.job?.status;
+  if (!jobStatus) return false;
+  // Бесплатный strategy_status разрешён серверу для любой созданной задачи.
+  // Провайдера по-прежнему опрашивает только сервер по poll_provider_allowed,
+  // но клиент обязан опрашивать и строки queued/starting: без этого они
+  // навсегда остались бы «Запускается» до ручного обновления страницы.
+  return projection.can_poll
+    || !GENERATION_STRATEGY_TERMINAL_JOB_STATUSES.has(jobStatus);
+}
+
+const GENERATION_STRATEGY_START_TRANSPORT_ERROR_CODES = new Set([
+  "real_generation_request_failed",
+  "generation_unavailable",
+]);
+const GENERATION_STRATEGY_START_RETRY_DELAY_MS = 1_500;
+
+function generationStrategyStartFailureIsTransport(error) {
+  const code = String(error?.code || "").trim();
+  // Типизированные отказы сервера (generation_strategy_*) детерминированы и
+  // не повторяются. Повторять можно только транспортные сбои, чей исход
+  // серверу известен: replay того же idempotency key вернёт ту же задачу.
+  if (code.startsWith("generation_strategy_")) return false;
+  return GENERATION_STRATEGY_START_TRANSPORT_ERROR_CODES.has(code);
+}
+
+function rememberGenerationStrategyStartTransportFailure(
+  sourceMediaId,
+  reserved,
+  request,
+  error,
+) {
+  if (!contentReviewUuid(sourceMediaId) || reserved?.phase !== "start_once") {
+    return;
+  }
+  state.generationStrategyStartRetries.set(sourceMediaId, Object.freeze({
+    code: String(error?.code || "real_generation_request_failed"),
+    failed_at: Date.now(),
+    fingerprint: reserved.fingerprint,
+    start_context_fingerprint: reserved.start_context_fingerprint,
+    idempotency_key: reserved.start_attempt_idempotency_key,
+    request,
+  }));
+}
+
+async function retryGenerationStrategyStartAfterTransportFailure(error, {
+  sourceMediaId,
+  requestApi,
+  reserved,
+  request,
+  bindClientContext,
+}) {
+  if (
+    !generationStrategyStartFailureIsTransport(error)
+    || request?.idempotency_key !== reserved?.start_attempt_idempotency_key
+  ) {
+    throw error;
+  }
+  rememberGenerationStrategyStartTransportFailure(
+    sourceMediaId,
+    reserved,
+    request,
+    error,
+  );
+  await new Promise((resolve) => {
+    window.setTimeout(resolve, GENERATION_STRATEGY_START_RETRY_DELAY_MS);
+  });
+  try {
+    // Повторно отправляется тот же самый запрос: тот же idempotency key, та же
+    // квитанция и то же ценовое подтверждение. Новый ключ не создаётся никогда;
+    // сервер обязан вернуть replay уже созданной задачи, а не вторую задачу.
+    bindClientContext();
+    const raw = await requestApi.startGenerationStrategy(request);
+    state.generationStrategyStartRetries.delete(sourceMediaId);
+    return raw;
+  } catch (retryError) {
+    if (generationStrategyStartFailureIsTransport(retryError)) {
+      rememberGenerationStrategyStartTransportFailure(
+        sourceMediaId,
+        reserved,
+        request,
+        retryError,
+      );
+    } else {
+      state.generationStrategyStartRetries.delete(sourceMediaId);
+    }
+    throw retryError;
+  }
+}
+
+async function retryGenerationStrategyReservedStart(form, sourceMediaId) {
+  const pending = state.generationStrategyStartRetries.get(sourceMediaId) || null;
+  const requestApi = state.api;
+  if (!pending || !requestApi) {
+    toast("Для этой строки нет сохранённого платного запроса. Обновите раздел генерации.", "error");
+    return;
+  }
+  if (state.generationStrategyStartInFlight || form?.dataset.busy === "true") {
+    toast("Платный запуск уже идёт. Не повторяйте запрос.", "info");
+    return;
+  }
+  const fromQueue = Boolean(
+    state.generationStrategyQueue?.rows?.get(sourceMediaId),
+  );
+  const reserved = fromQueue
+    ? generationStrategyQueueRuntime(sourceMediaId)
+    : state.generationStrategyRuntimes.get(sourceMediaId) || null;
+  if (reserved?.phase === "status") {
+    state.generationStrategyStartRetries.delete(sourceMediaId);
+    if (form) syncGenerationStrategyQueueUi(form);
+    scheduleGenerationStrategyPolling(0);
+    toast("Задача этой строки уже создана; обновляем её статус.", "info");
+    return;
+  }
+  if (
+    reserved?.phase !== "start_once"
+    || reserved.fingerprint !== pending.fingerprint
+    || reserved.start_context_fingerprint !== pending.start_context_fingerprint
+    || reserved.start_attempt_idempotency_key !== pending.idempotency_key
+    || pending.request?.idempotency_key !== pending.idempotency_key
+    || pending.request?.receipt_id !== reserved.preflight?.receipt?.id
+  ) {
+    state.generationStrategyStartRetries.delete(sourceMediaId);
+    if (form) syncGenerationStrategyQueueUi(form);
+    toast("Резерв этой строки изменился. Повтор без серверной сверки запрещён.", "error");
+    return;
+  }
+  const actorId = String(state.user?.id || "").trim().toLowerCase();
+  const liveReserved = () => (
+    state.generationStrategyQueue?.rows?.get(sourceMediaId)?.runtime_state
+      || state.generationStrategyRuntimes.get(sourceMediaId)
+      || null
+  );
+  state.generationStrategyStartInFlight = true;
+  if (form) setFormBusy(form, true, "Повторяем тот же платный запрос без нового ключа…");
+  try {
+    // Повторная отправка того же самого запроса: тот же idempotency key и та же
+    // серверная квитанция. Сервер вернёт replay уже созданной задачи; новый
+    // ключ или новая квитанция здесь не создаются никогда.
+    requestApi.bindRealGenerationClientContext(pending.request, {
+      expectedActorId: actorId,
+      isContextCurrent: () => {
+        const live = liveReserved();
+        return state.api === requestApi
+          && String(state.user?.id || "").trim().toLowerCase() === actorId
+          && live?.phase === "start_once"
+          && live.fingerprint === pending.fingerprint
+          && live.start_context_fingerprint === pending.start_context_fingerprint
+          && live.start_attempt_idempotency_key === pending.idempotency_key;
+      },
+    });
+    const raw = await requestApi.startGenerationStrategy(pending.request);
+    const live = liveReserved();
+    if (
+      state.api !== requestApi
+      || live?.phase !== "start_once"
+      || live.fingerprint !== pending.fingerprint
+      || live.start_attempt_idempotency_key !== pending.idempotency_key
+    ) {
+      throw new CreatorApiError(
+        "Контекст изменился во время повторного старта. Резерв сохранён для ручной сверки.",
+        { code: "generation_strategy_start_retry_context_stale" },
+      );
+    }
+    const resolvedAction = {
+      type: GENERATION_STRATEGY_RUNTIME_ACTIONS.startResolved,
+      fingerprint: live.fingerprint,
+      start_context_fingerprint: live.start_context_fingerprint,
+      idempotency_key: live.start_attempt_idempotency_key,
+      response: raw,
+    };
+    const verified = reduceGenerationStrategyRuntimeState(live, resolvedAction);
+    if (verified?.phase !== "status") {
+      throw new CreatorApiError(
+        "Сервер не вернул безопасный статус повторного старта. Резерв и ключ сохранены; повторный POST запрещён.",
+        {
+          code: verified?.error?.code
+            || "generation_strategy_start_retry_response_invalid",
+        },
+      );
+    }
+    const committed = fromQueue
+      ? applyGenerationStrategyQueueRow(sourceMediaId, resolvedAction)
+      : (setGenerationStrategyRuntime(sourceMediaId, verified) ? verified : null);
+    if (committed?.phase !== "status") {
+      throw new CreatorApiError(
+        "Сервер не подтвердил итог повторного старта в точной строке. Резерв сохранён.",
+        {
+          code: committed?.error?.code
+            || "generation_strategy_start_retry_response_invalid",
+        },
+      );
+    }
+    state.generationStrategyStartRetries.delete(sourceMediaId);
+    state.lastRealGenerationJobId =
+      generationStrategyRuntimeSafeProjection(committed)?.job?.id
+        || state.lastRealGenerationJobId;
+    toast(
+      "Тот же платный запрос подтверждён сервером: задача создана один раз, второго списания нет.",
+      "success",
+    );
+    scheduleGenerationStrategyPolling(1_000);
+  } catch (error) {
+    if (generationStrategyStartFailureIsTransport(error)) {
+      rememberGenerationStrategyStartTransportFailure(
+        sourceMediaId,
+        reserved,
+        pending.request,
+        error,
+      );
+      toast(
+        "Сеть снова прервала повторный старт. Тот же запрос можно отправить ещё раз — ключ и квитанция сохранены.",
+        "error",
+      );
+    } else {
+      state.generationStrategyStartRetries.delete(sourceMediaId);
+      toast(`Повторный старт отклонён: ${actionErrorMessage(error)}`, "error");
+    }
+  } finally {
+    state.generationStrategyStartInFlight = false;
+    if (form?.isConnected) {
+      setFormBusy(form, false);
+      syncGenerationStrategyQueueUi(form);
+      syncGenerationStrategyFormReadiness(form);
+    }
+  }
+}
+
 async function submitGenerationBatch(form) {
-  if (!requireWorkspaceProjectId()) return;
+  const projectId = requireWorkspaceProjectId();
+  if (!projectId) return;
   const values = new FormData(form);
   const strategyControl = form.elements.generation_strategy_id;
   const strategyId = String(strategyControl?.value || "").trim();
   if (strategyId) {
     const strategySelections = generationStrategySelectionsForForm(form);
     const sourceProjection = generationStrategySourceProjectionForForm(form);
-    if (!strategySelections || !sourceProjection?.all_selected_ready) {
-      toast(
-        "Выберите и бесплатно проверьте ровно 10 MP4, затем заполните общие ассеты, параметры и механику каждого ролика.",
-        "error",
+    const projectionMatchesStrategy = sourceProjection?.strategy_id === strategyId;
+    // Один исходник — один результат: это верно и для «Копии», и для
+    // «Аватара». Платный старт при этом всё равно упрётся в серверную политику,
+    // если у стратегии нет включённого маршрута: у «Аватара» сегодня все три
+    // маршрута выключены, и политика ответит provider_route_not_allowed.
+    if (
+      (strategyId === "viral_product_swap" || strategyId === "viral_avatar_ugc")
+      && projectionMatchesStrategy
+      && sourceProjection.required_count === 1
+      && sourceProjection.all_selected_ready === true
+      && strategySelections?.length === 1
+    ) {
+      await submitGenerationStrategy(
+        form,
+        values,
+        strategySelections[0],
+        projectId,
       );
-      window.ContentEngineGenerationGuidedV4?.goToStep?.("media");
       return;
     }
-    await submitGenerationStrategyExactTen(
-      form,
-      values,
-      strategySelections,
-      requireWorkspaceProjectId(),
+    // Второго клиентского стоп-крана здесь тоже нет. Submit, пришедший мимо
+    // расчёта готовности, дойдёт до сервера и получит там названный отказ
+    // `generation_strategy_no_executable_route` — до резерва денег и до
+    // создания наряда. Отказ сервера лучше уговора браузера: его нельзя
+    // обойти, отправив запрос иначе.
+    if (
+      strategyId === "viral_rebuild"
+      && projectionMatchesStrategy
+      && sourceProjection.required_count === 10
+      && sourceProjection.all_selected_ready === true
+      && strategySelections?.length === 10
+    ) {
+      await submitGenerationStrategyExactTen(
+        form,
+        values,
+        strategySelections,
+        projectId,
+      );
+      return;
+    }
+
+    toast(
+      strategyId === "viral_product_swap"
+        ? "Для Product Swap нужен один бесплатно проверенный MP4 и точный набор обязательных ассетов."
+        : strategyId === "viral_rebuild"
+          ? "Выберите и бесплатно проверьте ровно 10 MP4, затем заполните общие ассеты, параметры и механику каждого ролика."
+          : "Эта стратегия не подключена к безопасному runtime creator-generate.",
+      "error",
     );
+    window.ContentEngineGenerationGuidedV4?.goToStep?.("media");
     return;
   }
   const mode = String(values.get("generation_mode") || "").trim();
@@ -29967,9 +32431,22 @@ async function submitRealGenerationReconciliation(form, submitter) {
   const values = new FormData(form);
   const jobId = String(form.dataset.jobId || "");
   const incidentId = String(form.dataset.incidentId || "");
+  const strategyJob = form.dataset.strategyJob === "true";
   const provider = String(form.dataset.provider || "").trim().toLowerCase();
-  const providerLabel = provider === "google" ? "Google" : "Runway";
-  const operationLabel = provider === "google" ? "operation" : "task";
+  if (!new Set(["google", "fal", "runway"]).has(provider)) {
+    toast("Сервис этого запуска не подтверждён. Обновите карточку; ручная сверка остановлена.", "error");
+    return;
+  }
+  const providerLabel = provider === "google"
+    ? "Google"
+    : provider === "fal"
+    ? "fal"
+    : "Runway";
+  const operationLabel = provider === "google"
+    ? "operation"
+    : provider === "fal"
+    ? "request"
+    : "task";
   const providerTaskId = String(values.get("provider_task_id") || "").trim();
   const evidenceReference = String(values.get("evidence_reference") || "").trim();
   const reason = String(values.get("reason") || "").trim();
@@ -29998,21 +32475,59 @@ async function submitRealGenerationReconciliation(form, submitter) {
   const requestEpoch = state.dataEpoch;
   const requestUserId = state.user?.id;
   try {
-    const result = await state.api.reconcileRealGeneration(jobId, {
-      project_id: projectId,
-      provider,
-      incident_id: incidentId,
-      resolution,
-      provider_task_id: providerTaskId,
-      evidence_reference: evidenceReference,
-      reason,
-    });
+    let result;
+    if (strategyJob) {
+      // Стратегии сверяются только через strategy_reconcile: легаси
+      // 'reconcile' построен на модели каталога и отвечает 503 на recipe.
+      let dispatchResultId = String(
+        state.realGenerationResults.get(jobId)?.dispatchResultId || "",
+      );
+      if (!contentReviewUuid(dispatchResultId)) {
+        const current = await requestGenerationStrategyArchiveStatus(jobId);
+        if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id) return;
+        dispatchResultId = String(current?.dispatch?.result_id || "");
+      }
+      if (!contentReviewUuid(dispatchResultId)) {
+        throw new CreatorApiError(
+          "Сервер не подтвердил зафиксированный исход платного POST. Обновите карточку и повторите сверку.",
+          { code: "generation_strategy_reconciliation_not_current" },
+        );
+      }
+      result = await state.api.reconcileGenerationStrategy(jobId, {
+        project_id: projectId,
+        provider,
+        dispatch_result_id: dispatchResultId,
+        incident_id: incidentId,
+        resolution,
+        provider_task_id: providerTaskId,
+        evidence_reference: evidenceReference,
+        reason,
+      });
+    } else {
+      result = await state.api.reconcileRealGeneration(jobId, {
+        project_id: projectId,
+        provider,
+        incident_id: incidentId,
+        resolution,
+        provider_task_id: providerTaskId,
+        evidence_reference: evidenceReference,
+        reason,
+      });
+    }
     if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id) return;
-    applyRealGenerationResult(jobId, result, {
-      renderNow: false,
-      source: "manual",
-      projectId,
-    });
+    if (strategyJob) {
+      // Ответ strategy_reconcile — это уже обновлённый strategy_status:
+      // обновляем карточку и просим очередь перечитать свои строки, чтобы
+      // блокировка «Нужна ручная сверка» снялась без перезагрузки.
+      applyGenerationStrategyArchiveStatus(jobId, result, { projectId });
+      scheduleGenerationStrategyPolling(0);
+    } else {
+      applyRealGenerationResult(jobId, result, {
+        renderNow: false,
+        source: "manual",
+        projectId,
+      });
+    }
     state.sections.generation.status = "idle";
     state.sections.tasks.status = "idle";
     if (resolution === "attach_existing_task") {
@@ -30694,16 +33209,30 @@ function syncManualMetricClicks(form) {
   const option = select.selectedOptions?.[0];
   const trackingEnabled = option?.dataset.trackingEnabled === "true";
   const trackedClicks = nonnegativeInteger(option?.dataset.trackedClicks) ?? 0;
+  const latestClicks = nonnegativeInteger(option?.dataset.latestClicks) ?? 0;
+  const prefill = {
+    views: nonnegativeInteger(option?.dataset.latestViews) ?? 0,
+    orders: nonnegativeInteger(option?.dataset.latestOrders) ?? 0,
+    revenue_rub: Number(option?.dataset.latestRevenueRub || 0),
+  };
+  Object.entries(prefill).forEach(([name, value]) => {
+    const field = form.elements?.[name];
+    if (field instanceof HTMLInputElement && Number.isFinite(value) && value >= 0) {
+      field.value = name === "revenue_rub" ? value.toFixed(2) : String(value);
+    }
+  });
   if (trackingEnabled) {
     input.value = String(trackedClicks);
     input.readOnly = true;
     input.setAttribute("aria-readonly", "true");
     if (hint) hint.textContent = `Подставлено автоматически: ${formatNumber(trackedClicks)} человеческих переходов.`;
   } else {
-    input.value = "0";
+    input.value = String(latestClicks);
     input.readOnly = false;
     input.removeAttribute("aria-readonly");
-    if (hint) hint.textContent = "Без tracking link укажите накопительное число вручную.";
+    if (hint) hint.textContent = option?.value
+      ? "Подставлен последний сохранённый итог. Сверьте и поправьте его вручную."
+      : "Без tracking link укажите накопительное число вручную.";
   }
 }
 
@@ -30845,7 +33374,7 @@ async function submitFeedback(form) {
     await state.api.createFeedback({
       category: String(values.get("category") || "other"),
       section: String(values.get("section") || "feedback"),
-      title: String(values.get("title") || "").trim(),
+      title: String(values.get("feedback_title") || "").trim(),
       description: String(values.get("description") || "").trim(),
     });
     await track("feedback_created", {
@@ -30917,6 +33446,25 @@ async function submitAdminAccountUpdate(form) {
       adminAccountFormPayload(form),
     ),
     "Карточка рабочего аккаунта обновлена.",
+  );
+}
+
+async function submitAdminAccountOwnership(form) {
+  if (!canManageTeam() || !isAdminRoute()) return;
+  const accountId = String(form.dataset.accountId || "").trim().toLowerCase();
+  const expectedUpdatedAt = String(form.dataset.expectedUpdatedAt || "").trim();
+  const values = new FormData(form);
+  await runAdminMutation(
+    `account:ownership:${accountId}`,
+    () => state.api.setManagedAccountOwnership(accountId, expectedUpdatedAt, {
+      ownershipKind: values.get("ownership_kind"),
+      custodianProfileId: values.get("custodian_profile_id"),
+      registrationEmailAlias: values.get("registration_email_alias"),
+      registrationPhoneRef: values.get("registration_phone_ref"),
+      externalAccountId: values.get("external_account_id"),
+      postingMode: values.get("posting_mode"),
+    }),
+    "Владение аккаунтом сохранено.",
   );
 }
 
@@ -35332,9 +37880,29 @@ async function track(eventName, properties = {}) {
   }
 }
 
+function isAllowedSupabaseOrigin(config) {
+  const value = String(config.SUPABASE_URL || "").trim();
+  if (/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(value)) return true;
+  if (config.LOCAL_DEVELOPMENT !== true) return false;
+  const localOrigin = String(config.LOCAL_SUPABASE_ORIGIN || "").trim();
+  if (!localOrigin || value !== localOrigin) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:"
+      && url.origin === localOrigin
+      && !url.username
+      && !url.password
+      && url.pathname === "/"
+      && !url.search
+      && !url.hash;
+  } catch {
+    return false;
+  }
+}
+
 function validateConfig(config) {
   const problems = [];
-  if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(String(config.SUPABASE_URL || ""))) {
+  if (!isAllowedSupabaseOrigin(config)) {
     problems.push("Укажите HTTPS URL проекта Supabase.");
   }
   const key = String(config.SUPABASE_PUBLISHABLE_KEY || "");
@@ -35351,6 +37919,16 @@ function validateConfig(config) {
   }
   if (!config.STORAGE_BUCKET || String(config.STORAGE_BUCKET).toLowerCase().includes("public")) {
     problems.push("Укажите имя приватного Storage bucket.");
+  }
+  if (
+    config.LOCAL_DEVELOPMENT === true
+    && (
+      config.REAL_GENERATION_ENABLED !== false
+      || config.ALLOW_REAL_SPEND !== false
+      || config.CREATOR_GENERATE_MOCK_ONLY !== true
+    )
+  ) {
+    problems.push("Локальный режим обязан блокировать реальные provider-вызовы и расходы.");
   }
   return problems;
 }
@@ -35502,6 +38080,7 @@ function clearAuthenticatedState() {
   state.generationStrategyRequestId += 1;
   state.generationStrategyRuntimes.clear();
   state.generationStrategyRequestKeys.clear();
+  state.generationStrategyStartRetries.clear();
   state.generationStrategyActiveSourceMediaId = "";
   state.generationVideoReferenceLineage.clear();
   state.realGenerationDrafts.clear();

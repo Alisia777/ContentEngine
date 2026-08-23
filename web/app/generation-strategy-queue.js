@@ -13,7 +13,7 @@ import {
   generationStrategyRuntimeSafeProjection,
   invalidateGenerationStrategyRuntimeState,
   reduceGenerationStrategyRuntimeState,
-} from "./generation-strategy-runtime.js?v=20260814.os4.41";
+} from "./generation-strategy-runtime.js?v=20260823.copy-engines.45";
 
 export const GENERATION_STRATEGY_QUEUE_VERSION = "2026-08-14.v1";
 export const GENERATION_STRATEGY_QUEUE_SIZE = 10;
@@ -670,8 +670,12 @@ function sequentialStartPlan(queue) {
   }
   const reconciliationBlocked = queue.source_order.find((sourceMediaId) => {
     const status = queue.rows.get(sourceMediaId).runtime_state.status;
+    // Ambiguous dispatch keeps the queue frozen only while the incident is
+    // unresolved: a reconciliation record with required === false is the
+    // owner/admin verdict that settles the sole paid POST for this row.
     return status?.reconciliation?.required === true ||
-      status?.dispatch?.outcome === "ambiguous";
+      (status?.dispatch?.outcome === "ambiguous" &&
+        status?.reconciliation?.required !== false);
   });
   if (reconciliationBlocked) {
     return deepFreeze({

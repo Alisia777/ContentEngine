@@ -185,6 +185,7 @@ def test_public_status_reader_requires_every_frozen_nested_keyset() -> None:
             avatar:'88888888-8888-4888-8888-888888888888',
             product:'99999999-9999-4999-8999-999999999999',
             dispatch:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            incident:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
           };
           const h = (value) => value.repeat(64);
           const base = {
@@ -205,11 +206,12 @@ def test_public_status_reader_requires_every_frozen_nested_keyset() -> None:
               strategy_prompt_hash:h('e')},
             selection:{version:'2026-08-14.v1',
               strategy_id:'viral_avatar_ugc',recipe_version:'2026-06',
-              duration_seconds:4,ratio:'720:1280',audio:false,
+              // «Дуэт»: измерение разрешением — кадр задаёт исходник.
+              duration_seconds:4,resolution:'720p',audio:false,
               assets:[
-                {role:'source_video',media_id:ids.source},
-                {role:'avatar_image',media_id:ids.avatar},
-                {role:'product_image',media_id:ids.product},
+                // Ровно один ассет: комментируемый ролик. Его длительность
+                // обязательна — по ней считается посекундная цена ведущего.
+                {role:'source_video',media_id:ids.source,duration_seconds:10},
               ],
               attestations:{source_media_rights_confirmed:true,
                 transformative_use_confirmed:true,
@@ -218,8 +220,8 @@ def test_public_status_reader_requires_every_frozen_nested_keyset() -> None:
                 avatar_likeness_consent_confirmed:true}},
             price:{version:'generation-strategy-price-snapshot-v1',
               strategy_id:'viral_avatar_ugc',provider:'runway',
-              recipe:'product_ugc',input_mode:'character_and_product_images',
-              duration_seconds:4,resolution:'720p',ratio:'720:1280',
+              recipe:'product_ugc',input_mode:'video_and_avatar_images',
+              duration_seconds:4,resolution:'720p',ratio:'source',
               audio:false,estimated_credits:192,
               estimated_pre_tax_usd_minor:192,estimated_cost_minor:192,
               estimated_cost_usd:'1.92',currency:'USD',
@@ -237,6 +239,9 @@ def test_public_status_reader_requires_every_frozen_nested_keyset() -> None:
           ) !== null;
           const submitted = clone(base);
           submitted.job.status = 'submitted';
+          // Exact first event written by
+          // system_record_generation_strategy_dispatch_result.
+          submitted.job.provider_status = 'submitted';
           submitted.job.provider_task_id = 'runway-task-001';
           submitted.dispatch = {result_id:ids.dispatch,result_hash:h('f'),
             outcome:'submitted',provider_post_started:true,
@@ -250,10 +255,36 @@ def test_public_status_reader_requires_every_frozen_nested_keyset() -> None:
           const badPoll = clone(base); badPoll.contract.poll_provider_allowed = true;
           const badOutput = clone(base);
           badOutput.output = {media_id:ids.product,mime_type:'video/webm',size_bytes:1};
+          const confirmedNotSubmitted = clone(base);
+          confirmedNotSubmitted.job.status = 'failed';
+          confirmedNotSubmitted.job.actual_cost_minor = 0;
+          confirmedNotSubmitted.dispatch = {
+            result_id:ids.dispatch,result_hash:h('f'),outcome:'ambiguous',
+            provider_post_started:true,provider_http_status:null,
+            recorded_at:'2026-08-14T08:00:02.000Z'};
+          confirmedNotSubmitted.reconciliation = {
+            required:false,incident_id:ids.incident,
+            resolution:'confirmed_not_submitted',
+            reconciled_at:'2026-08-14T08:05:00.000Z'};
+          confirmedNotSubmitted.error = {
+            code:'provider_submission_not_found',
+            provider_billing_outcome:null};
+          const unsafeNullBilling = clone(confirmedNotSubmitted);
+          unsafeNullBilling.error.code = 'provider_task_failed';
+          const paidUnknown = clone(submitted);
+          paidUnknown.job.status = 'failed';
+          paidUnknown.job.provider_status = 'failed';
+          paidUnknown.job.actual_cost_minor = 192;
+          paidUnknown.contract.poll_provider_allowed = false;
+          paidUnknown.error = {
+            code:'provider_task_failed',provider_billing_outcome:'unknown'};
           return {valid:read(base),submitted:read(submitted),
             dispatchExtra:read(dispatchExtra),priceExtra:read(priceExtra),
             selectionExtra:read(selectionExtra),badPoll:read(badPoll),
-            badOutput:read(badOutput)};
+            badOutput:read(badOutput),
+            confirmedNotSubmitted:read(confirmedNotSubmitted),
+            unsafeNullBilling:read(unsafeNullBilling),
+            paidUnknown:read(paidUnknown)};
         })()
         """
     )
@@ -265,6 +296,9 @@ def test_public_status_reader_requires_every_frozen_nested_keyset() -> None:
         "selectionExtra": False,
         "badPoll": False,
         "badOutput": False,
+        "confirmedNotSubmitted": True,
+        "unsafeNullBilling": False,
+        "paidUnknown": True,
     }
 
 
@@ -303,8 +337,16 @@ def test_strategy_payload_parsers_keep_spend_cents_and_exact_start_subset() -> N
     spend_parser = edge.split(
         "function readStrategySpendConfirmation", 1
     )[1].split("function readGenerationStrategyPayload", 1)[0]
-    assert "Number(match[5]) * 100 + Number(match[6])" in spend_parser
-    assert "Number(match[6]) * 100 + Number(match[7])" not in spend_parser
+    # Сумма читается как доллары плюс центы, а не как одно число. Номера групп
+    # сдвинулись на единицу, когда в строку подтверждения вошёл провайдер
+    # (RUNWAY_/FAL_): первая группа теперь он, поэтому доллары это шестая
+    # группа, а центы — седьмая.
+    # HEYGEN добавлен вместе с маршрутом «Дуэта»: SQL собирает строку как
+    # upper(p_provider), и без имени в наборе предполётный запрос отвечал бы
+    # 400 — квитанция готовности не создавалась бы вовсе.
+    assert "/^(RUNWAY|FAL|HEYGEN)_" in spend_parser
+    assert "Number(match[6]) * 100 + Number(match[7])" in spend_parser
+    assert "Number(match[5]) * 100 + Number(match[6])" not in spend_parser
 
     start_parser = edge.split(
         "function readGenerationStrategyStartPayload", 1

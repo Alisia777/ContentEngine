@@ -32,6 +32,26 @@ def test_finder_uses_the_stable_desktop_viewport() -> None:
     assert "100dvh" not in STYLES
 
 
+def test_wide_finder_keeps_folders_collection_and_inspector_visible_together() -> None:
+    layout = _between(
+        STYLES,
+        "body.ce-v4-finder-route .workspace-board__layout {",
+        "body.ce-v4-finder-route .workspace-board__layout > *",
+    )
+    drawer = _between(
+        STYLES,
+        "body.ce-v4-finder-route .workspace-board__drawer {\n  position: sticky",
+        "body.ce-v4-finder-route .workspace-board__drawer h2",
+    )
+    assert "minmax(220px, 260px) minmax(560px, 1fr) minmax(286px, 340px)" in layout
+    assert "grid-column: 3" in drawer
+    assert "position: sticky" in drawer
+    assert "display: grid" in drawer
+    assert "word-break: normal" in STYLES
+    assert "overflow-wrap: break-word" in STYLES
+    assert "overflow-wrap: anywhere" not in drawer
+
+
 def test_finder_text_and_controls_remain_readable_and_clickable() -> None:
     rem_sizes = [
         float(value)
@@ -50,6 +70,33 @@ def test_finder_text_and_controls_remain_readable_and_clickable() -> None:
         ".ce-v4-quicklook-inline__controls button",
     ):
         assert marker in STYLES
+
+
+def test_finder_toolbar_commands_navigate_explicitly_and_report_empty_view_state() -> None:
+    toolbar = _between(SCRIPT, "function buildToolbar()", "function buildFolderSearch()")
+    app_script = (APP / "app.js").read_text(encoding="utf-8")
+    status = _between(SCRIPT, "function syncFinderControlStatus()", "function applyMode()")
+    for marker in (
+        'browse.dataset.ceV4FinderMode = "browse"',
+        'organize.dataset.ceV4FinderMode = "organize"',
+        'browse.dataset.action = "finder-mode"',
+        'organize.dataset.action = "finder-mode"',
+        'list.dataset.action = "finder-view"',
+        'upload.dataset.action = "finder-upload"',
+        'upload.dataset.ceV4FinderUpload = "true"',
+    ):
+        assert marker in toolbar
+    assert "setView: (value, control = null)" in SCRIPT
+    assert "window.requestAnimationFrame(settle)" in SCRIPT
+    assert 'window.ContentEngineFinderV4?.setView?.(control.dataset.ceV4FinderView, control)' in app_script
+    assert 'if (action === "finder-mode")' in app_script
+    assert 'if (action === "finder-upload")' in app_script
+    assert 'controlStatus.setAttribute("aria-live", "polite")' in toolbar
+    assert 'q(".workspace-board__empty", runtime.board)' in status
+    assert "Организация включена" in status
+    assert "ce-v4-finder-control-status" in STYLES
+    assert "ce-v4-finder-empty-mode" in STYLES
+    assert '.workspace-board[data-ce-v4-finder-view="list"] [data-ce-v4-finder-view="list"]' in STYLES
 
 
 def test_mobile_sidebar_has_an_accessible_toggle_and_close_contract() -> None:
@@ -116,12 +163,28 @@ def test_finder_inline_surfaces_do_not_overflow_a_320px_viewport() -> None:
         "max-width: 100%",
         ".workspace-board__layout > * { max-width: 100%; }",
         ".ce-v4-finder-toolbar__controls { overflow-x: auto; }",
+        "@container ce-v4-finder-host (max-width: 1180px)",
         "overflow-wrap: anywhere",
         "@container ce-v4-finder-host (max-width: 480px)",
         "grid-template-columns: 1fr !important",
     ):
         assert marker in STYLES
     assert 'id="workspace-content"' in INLINE_FIXTURE.read_text(encoding="utf-8")
+
+
+def test_finder_toolbar_responds_to_the_real_centre_pane_width() -> None:
+    assert "container-name: ce-v4-finder-content" in STYLES
+    assert "@container ce-v4-finder-content (max-width: 980px)" in STYLES
+    centre_query = _between(
+        STYLES,
+        "@container ce-v4-finder-content (max-width: 980px)",
+        ".ce-v4-finder-sort,",
+    )
+    assert "grid-template-columns: minmax(0, 1fr)" in centre_query
+    assert ".ce-v4-finder-toolbar__title" in centre_query
+    assert "width: 100%" in centre_query
+    assert ".ce-v4-finder-toolbar__controls" in centre_query
+    assert "overflow-x: auto" in centre_query
 
 
 @pytest.mark.parametrize("width", [320, 760])
@@ -159,7 +222,7 @@ def test_finder_inline_surfaces_have_no_runtime_horizontal_overflow(width: int) 
     assert 'data-passed="true"' in result.stdout
 
 
-def test_quick_look_replaces_finder_content_inline_with_safari_safe_motion() -> None:
+def test_wide_quick_look_stays_in_the_inspector_with_safari_safe_motion() -> None:
     open_quick_look = _between(
         SCRIPT,
         "async function openQuickLook(",
@@ -181,7 +244,23 @@ def test_quick_look_replaces_finder_content_inline_with_safari_safe_motion() -> 
     assert "aria-modal" not in SCRIPT
     assert "ce-v4-quicklook-backdrop" not in SCRIPT
     assert ".ce-v4-quicklook-backdrop" not in STYLES
-    assert ".workspace-board.is-quicklook-inline" in STYLES
+    wide_quick_look = _between(
+        STYLES,
+        "/* On wide surfaces Quick Look stays in the inspector",
+        "@container ce-v4-finder-host (max-width: 1180px)",
+    )
+    for marker in (
+        "grid-template-columns: minmax(220px, 260px) minmax(560px, 1fr) minmax(320px, 390px)",
+        ".workspace-board.is-quicklook-inline .workspace-board__sidebar",
+        "display: flex !important",
+        ".workspace-board.is-quicklook-inline .workspace-board__content",
+        "display: grid !important",
+        ".workspace-board__drawer.ce-v4-quicklook-inline",
+        "grid-column: 3",
+        "position: sticky !important",
+    ):
+        assert marker in wide_quick_look
+    assert ":is(.workspace-board__sidebar, .workspace-board__content) { display: none" not in wide_quick_look
 
 
 def test_finder_separates_selection_quick_look_and_canonical_open_commands() -> None:

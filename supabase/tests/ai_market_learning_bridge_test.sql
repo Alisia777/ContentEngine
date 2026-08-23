@@ -114,8 +114,8 @@ select ok(
   )), 'creator_generation_learning_policy_pre_ai_control_room_v8') > 0
   and strpos(lower(pg_get_functiondef(
     'content_factory_private.creator_generation_learning_policy_pre_project_v47(jsonb)'::regprocedure
-  )), 'ai_effective_category_policies') = 0,
-  'the private project delegate removes legacy static teaching from generation'
+  )), 'ai_effective_category_policies') > 0,
+  'the private project delegate reapplies confirmed teaching policies over the audited v8 base'
 );
 
 select ok(

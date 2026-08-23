@@ -268,8 +268,11 @@ def test_mobile_accessibility_and_browser_security_floor_is_explicit() -> None:
     assert csp_match
     csp = csp_match.group(1)
     assert "object-src 'none'" in csp
-    assert "frame-src 'none'" in csp
-    assert "frame-ancestors 'none'" in csp
+    # Live workspace windows are isolated same-origin child documents. The
+    # meta policy constrains outgoing frames and mirrors the ancestor policy
+    # that production must also deliver as an HTTP response header.
+    assert "frame-src 'self'" in csp
+    assert "frame-ancestors 'self'" in csp
     assert "media-src 'self' blob: https://*.supabase.co" in csp
 
 

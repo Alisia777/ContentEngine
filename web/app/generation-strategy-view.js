@@ -540,6 +540,29 @@ function normalizedResult(value) {
     if (value.ok === true) {
       return normalizeGenerationStrategyCatalog(value.catalog);
     }
+    // A failed result from this module is already a strict, bounded contract.
+    // Preserve its exact diagnostic instead of replacing every failure with a
+    // generic code; the state remains fail-closed (no catalog, no selection).
+    if (
+      value.catalog === null &&
+      isPlainObject(value.error) &&
+      Object.keys(value.error).length === 2 &&
+      Object.prototype.hasOwnProperty.call(value.error, "code") &&
+      Object.prototype.hasOwnProperty.call(value.error, "field")
+    ) {
+      try {
+        return deepFreeze({
+          ok: false,
+          catalog: null,
+          error: {
+            code: requiredCode(value.error.code, "catalog.error.code"),
+            field: requiredText(value.error.field, "catalog.error.field", 500),
+          },
+        });
+      } catch {
+        // Malformed external failure envelopes are not trusted diagnostics.
+      }
+    }
     return deepFreeze({
       ok: false,
       catalog: null,
@@ -818,18 +841,24 @@ function pricingMarkup(strategy) {
   `;
 }
 
-function strategyCardMarkup(strategy, selectedStrategyId) {
+function strategyCardMarkup(strategy, selectedStrategyId, moduleIndex = 0) {
   const selected = strategy.strategy_id === selectedStrategyId;
   const duration = strategy.output_rules.duration;
+  const moduleNumber = String(moduleIndex + 1).padStart(2, "0");
   return `
     <article
       class="generation-strategy-card${selected ? " is-selected" : ""}${strategy.enabled ? "" : " is-disabled"}"
       data-generation-strategy-card="${escapeHtml(strategy.strategy_id)}"
+      data-generation-strategy-module="${escapeHtml(strategy.strategy_id)}"
       data-generation-strategy-enabled="${strategy.enabled ? "true" : "false"}"
+      data-state="${selected ? "selected" : strategy.enabled ? "available" : "blocked"}"
+      aria-label="Модуль ${escapeHtml(moduleNumber)}. ${escapeHtml(strategy.public_label)}"
+      ${selected ? 'aria-current="true"' : ""}
+      ${strategy.enabled ? "" : 'aria-disabled="true"'}
     >
       <header>
         <div>
-          <p class="eyebrow">${escapeHtml(strategy.provider)} · ${escapeHtml(strategy.recipe)}</p>
+          <p class="eyebrow">МОДУЛЬ ${escapeHtml(moduleNumber)} · ${escapeHtml(strategy.provider)} · ${escapeHtml(strategy.recipe)}</p>
           <h3>${escapeHtml(strategy.public_label)}</h3>
           <p>${escapeHtml(strategy.public_summary)}</p>
         </div>
@@ -897,6 +926,11 @@ export function generationStrategyViewMarkup(state) {
           <strong>Стратегии генерации временно недоступны.</strong>
           <span>Серверный каталог не прошёл строгую проверку. Ничего не выбрано и не применяется.</span>
           <small>Код: ${escapeHtml(code)}</small>
+          <button
+            type="button"
+            class="btn"
+            data-generation-strategy-catalog-retry
+          >Повторить загрузку</button>
         </div>
       </section>
     `;
@@ -923,8 +957,8 @@ export function generationStrategyViewMarkup(state) {
         <p class="generation-strategy-view__selection-error" role="status">Выбор не изменён · ${escapeHtml(state.selection_error)}</p>
       ` : ""}
       <div class="generation-strategy-view__cards">
-        ${state.catalog.strategies.map((strategy) =>
-          strategyCardMarkup(strategy, state.selected_strategy_id)
+        ${state.catalog.strategies.map((strategy, moduleIndex) =>
+          strategyCardMarkup(strategy, state.selected_strategy_id, moduleIndex)
         ).join("")}
       </div>
       ${selected.ok ? `

@@ -602,7 +602,7 @@ def test_generation_form_wires_autopilot_with_visible_override_and_cache_busting
     assert "if (!repairReady) applyContentGenerationHandoffToForm();" in APP
     assert "syncGenerationModeForm(generationForm);" in APP
     assert "syncGenerationFormReadiness(generationForm);" in APP
-    assert './app.js?v=20260814.os4.41' in INDEX
+    assert './app.js?v=20260823.copy-engines.45' in INDEX
 
 
 def test_rejected_learning_policy_only_recommends_fallback_without_mutating_choice() -> None:

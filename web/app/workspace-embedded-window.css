@@ -1,0 +1,85 @@
+/* ContentEngine live route surface inside a parent-owned application window. */
+
+html[data-ce-window-child="true"] {
+  --ce-v4-top: 0px;
+  --ce-v4-flowbar: 0px;
+  --ce-v4-dock: 0px;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  color-scheme: dark;
+}
+
+html[data-ce-window-child="true"] body.contentengine-window-child {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100vh;
+  height: 100svh;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0 !important;
+  overflow: hidden !important;
+  overscroll-behavior: contain;
+}
+
+html[data-ce-window-child="true"] body.contentengine-window-child > #app.app-root,
+html[data-ce-window-child="true"] body.contentengine-window-child .workspace-shell-v4,
+html[data-ce-window-child="true"] body.contentengine-window-child .workspace-main-v4 {
+  box-sizing: border-box;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+html[data-ce-window-child="true"] body.contentengine-window-child #main-content {
+  box-sizing: border-box;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
+}
+
+html[data-ce-window-child="true"] body.contentengine-window-child #workspace-content {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 100%;
+  container-name: ce-embedded-window;
+  container-type: inline-size;
+}
+
+/* Defence in depth: a child route never owns another desktop/window layer. */
+html[data-ce-window-child="true"] body.contentengine-window-child :is(
+  .ce-v4-menubar,
+  .ce-v4-dock,
+  .ce-v4-desktop,
+  .ce-v4-mission,
+  [data-ce-v4-window]
+) {
+  display: none !important;
+}
+
+html[data-ce-window-child="true"][data-ce-window-child-ready="false"] #app > .boot-screen {
+  min-height: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-ce-window-child="true"] body.contentengine-window-child * {
+    scroll-behavior: auto !important;
+  }
+}

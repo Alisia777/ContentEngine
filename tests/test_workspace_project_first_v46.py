@@ -283,7 +283,10 @@ def test_finder_uses_one_surface_for_list_preview_context_actions_and_trash() ->
     assert "display: none !important" in drawer_rule
     assert "is-quicklook-inline" in FINDER_CSS
     assert "handleBoardItemSelection" in FINDER
-    assert "void openQuickLook(selectedCard())" in FINDER
+    assert "openSelected: (control = null) =>" in FINDER
+    assert "return openQuickLook(selectedCard());" in FINDER
+    assert 'if (action === "finder-quicklook")' in APP
+    assert "void window.ContentEngineFinderV4?.openSelected?.(control)" in APP
     assert "void openQuickLook(current)" in FINDER
     assert "else openCanonicalCard(current)" in FINDER
     assert 'document.body.dataset.ceV4FinderMode === "organize"' in CONTEXT_TRASH

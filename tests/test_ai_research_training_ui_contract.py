@@ -262,6 +262,199 @@ def test_empty_and_loading_states_name_the_exact_selected_category() -> None:
         assert marker in MODULE
 
 
+def test_project_recommendation_journey_normalizes_pending_and_confirmed_state() -> None:
+    value = run_module_script(
+        """
+        const projectId = '11111111-1111-4111-8111-111111111111';
+        const pending = mod.normalizeProjectResearchJourney({
+          project_id: projectId,
+          product_category: 'cosmetics',
+          state_version: 14,
+          event_cursor: 31,
+          actor: { display_name: 'Мария Соколова' },
+          queue: [{
+            project_id: projectId,
+            receipt_id: '22222222-2222-4222-8222-222222222222',
+            receipt_hash: 'a'.repeat(64),
+            product_category: 'cosmetics',
+            research_title: 'Разбор SPF 50',
+            source_count: 3,
+            sources: [{
+              title: 'Карточка товара Wildberries',
+              source_type: 'marketplace',
+              trust_level: 'verified',
+            }],
+            research_forecast: {
+              confidence: 0.78,
+              summary: 'Гипотеза подтверждается несколькими источниками.',
+            },
+            scenarios: [{
+              title: 'Текстура первым кадром',
+              hook: 'Показываем текстуру сразу',
+              platform: 'youtube',
+              recommended_generation_mode: 'real_seedance',
+              duration_seconds: 15,
+              aspect_ratio: '9:16',
+              proof_points: ['видимая текстура', 'упаковка в кадре'],
+            }],
+          }],
+          learned: [],
+        }, {
+          selectedCategory: 'cosmetics',
+          canEdit: true,
+          canDecide: true,
+        });
+
+        const confirmed = mod.normalizeProjectResearchJourney({
+          project_id: projectId,
+          product_category: 'cosmetics',
+          state_version: 15,
+          event_cursor: 32,
+          learned: [{
+            project_id: projectId,
+            selection_id: '33333333-3333-4333-8333-333333333333',
+            receipt_id: '22222222-2222-4222-8222-222222222222',
+            product_category: 'cosmetics',
+            product_name: 'Крем SPF 50',
+            decision: 'approve',
+            selected_at: '2026-08-21T12:30:00Z',
+            forecast: { confidence: 86 },
+            recommendations: [{
+              position: 1,
+              title: 'Подтверждённая демонстрация',
+              platform: 'instagram',
+              recommended_generation_mode: 'avatar',
+            }],
+          }],
+          queue: [],
+        }, { selectedCategory: 'cosmetics' });
+
+        const rejected = mod.normalizeProjectResearchJourney({
+          project_id: projectId,
+          product_category: 'cosmetics',
+          learned: [{
+            project_id: projectId,
+            selection_id: '44444444-4444-4444-8444-444444444444',
+            receipt_id: '55555555-5555-4555-8555-555555555555',
+            product_category: 'cosmetics',
+            decision: 'reject',
+          }],
+          queue: [],
+        }, { selectedCategory: 'cosmetics' });
+
+        console.log(JSON.stringify({ pending, confirmed, rejected }));
+        """
+    )
+
+    pending = value["pending"]
+    assert pending["state"] == "pending"
+    assert pending["recommendationTitle"] == "Текстура первым кадром"
+    assert pending["confidence"]["percent"] == 78
+    assert pending["provenanceTitle"] == "Карточка товара Wildberries"
+    assert pending["provenanceDetail"] == "verified"
+    assert pending["sourceCount"] == 3
+    assert pending["proofCount"] == 2
+    assert pending["decisionTitle"] == "Ожидает подтверждения"
+    assert pending["decisionBadge"] == "Решает человек"
+    assert pending["stateVersion"] == "14"
+    assert pending["eventCursor"] == "31"
+    assert pending["actorName"] == "Мария Соколова"
+    assert pending["parameters"] == [
+        ["Категория", "Косметика и уход"],
+        ["Площадка", "youtube"],
+        ["ИИ / режим", "real_seedance"],
+        ["Длительность", "15 сек"],
+        ["Формат", "9:16"],
+        ["Доказательства", "Сигналов: 2"],
+    ]
+
+    confirmed = value["confirmed"]
+    assert confirmed["state"] == "confirmed"
+    assert confirmed["decisionTitle"] == "Подтверждено человеком"
+    assert confirmed["recommendationTitle"] == "Подтверждённая демонстрация"
+    assert confirmed["confidence"]["percent"] == 86
+
+    rejected = value["rejected"]
+    assert rejected["state"] == "rejected"
+    assert rejected["decisionTitle"] == "Отклонено человеком"
+    assert "не используется как рекомендация" in rejected["decisionCopy"]
+
+
+def test_project_journey_dom_is_visible_read_only_and_keeps_action_boundary() -> None:
+    selector = 'data-ai-project-recommendation-journey'
+    assert 'host.dataset.aiProjectRecommendationJourney = "true"' in MODULE
+    assert 'host.dataset.authority = "human-final"' in MODULE
+    assert 'host.dataset.snapshotMode = "read-only"' in MODULE
+    assert f'[{selector}]' in MODULE
+    assert 'root.append(header, status, journey, queue, historyWrap)' in MODULE
+    assert 'renderProjectResearchJourney(journeyHost' in MODULE
+
+    render_start = MODULE.index("function renderProjectResearchJourney")
+    render_end = MODULE.index("function createProjectResearchJourneyHost", render_start)
+    render = MODULE[render_start:render_end]
+    for label in (
+        "ИИ-центр рекомендует",
+        "Человек правит",
+        "Человек подтверждает",
+        "Confidence",
+        "Provenance",
+        "Автоприменение",
+        "Выключено",
+        "Граница полномочий",
+        "не запускает генерацию",
+        "отдельным явным действием человека",
+    ):
+        assert label in render
+
+    for forbidden in (
+        'el("button"',
+        'el("input"',
+        'el("select"',
+        'el("textarea"',
+        ".href =",
+        ".dataset.trainingDecision",
+        ".addEventListener(",
+        "RPC_DECIDE",
+        "RPC_QUEUE",
+    ):
+        assert forbidden not in render
+
+    for marker in (
+        "ai-research-training__journey-network",
+        "ai-research-training__journey-pencil",
+        "ai-research-training__journey-shield",
+        'dataset.aiProjectJourneyStage = "recommend"',
+        'dataset.aiProjectJourneyStage = "edit"',
+        'dataset.aiProjectJourneyStage = "confirm"',
+    ):
+        assert marker in MODULE
+
+
+def test_project_journey_css_has_three_visual_cards_and_reduced_motion() -> None:
+    for selector in (
+        ".ai-research-training__journey",
+        ".ai-research-training__journey-flow",
+        ".ai-research-training__journey-card.is-ai",
+        ".ai-research-training__journey-card.is-edit",
+        ".ai-research-training__journey-card.is-confirm",
+        ".ai-research-training__journey-confidence",
+        ".ai-research-training__journey-provenance",
+        ".ai-research-training__journey-parameters",
+        ".ai-research-training__journey-ledger",
+    ):
+        assert selector in STYLE
+
+    assert "@keyframes airt-journey-flow" in STYLE
+    assert "@keyframes airt-journey-orbit" in STYLE
+    reduced_motion = STYLE.rsplit(
+        "@media (prefers-reduced-motion: reduce)", maxsplit=1
+    )[1]
+    assert ".ai-research-training__journey-card" in reduced_motion
+    assert ".ai-research-training__journey-network" in reduced_motion
+    assert ".ai-research-training__journey-orbit" in reduced_motion
+    assert "animation: none !important" in reduced_motion
+
+
 def test_ai_research_training_module_remains_valid_javascript() -> None:
     node = shutil.which("node")
     if not node:

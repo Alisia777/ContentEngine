@@ -73,6 +73,7 @@ export const RPC = Object.freeze({
   inviteAttempts: "creator_invite_delivery_attempts",
   adminSnapshot: "creator_admin_snapshot",
   adminMutate: "creator_admin_mutate",
+  adminAccountOwnership: "creator_admin_account_ownership",
   managerDashboard: "creator_manager_dashboard",
   operationalHealth: "creator_operational_health",
   generationSpendOverview: "creator_generation_spend_overview",
@@ -289,18 +290,26 @@ const GENERATION_STRATEGY_EDGE_ACTIONS = Object.freeze(new Set([
   "strategy_preflight",
   "strategy_start",
   "strategy_status",
+  "strategy_reconcile",
 ]));
 const GENERATION_STRATEGY_IDEMPOTENT_ACTIONS = Object.freeze(new Set([
   "strategy_media_probe",
   "strategy_bind",
   "strategy_preflight",
   "strategy_start",
+  "strategy_reconcile",
 ]));
 const GENERATION_STRATEGY_IDEMPOTENCY_PATTERN =
   /^[A-Za-z0-9._:-]{8,180}$/u;
 const GENERATION_STRATEGY_UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 const GENERATION_STRATEGY_SHA256_PATTERN = /^[0-9a-f]{64}$/u;
+// Необязательные ключи запроса привязки. Набор ЗАКРЫТЫЙ и упорядоченный: он же
+// задаёт порядок ключей в собранном списке.
+const GENERATION_STRATEGY_BIND_OPTIONAL_KEYS = Object.freeze([
+  "engine",
+  "duet_presenter_id",
+]);
 const GENERATION_STRATEGY_REQUEST_KEYS = Object.freeze({
   strategy_catalog: Object.freeze([
     "action",
@@ -322,6 +331,29 @@ const GENERATION_STRATEGY_REQUEST_KEYS = Object.freeze({
     "spec_version",
     "spec_hash",
     "generation_strategy",
+    "confirmation",
+    "idempotency_key",
+  ]),
+  // Тот же запрос с выбранным движком каскада. Оставлен как ЭТАЛОННАЯ форма:
+  // именно на него ссылаются проверки, и по нему видно, куда встают
+  // необязательные ключи. Сама сверка идёт через
+  // generationStrategyBindRequestKeys — необязательных ключей стало два
+  // (движок и ведущий «Дуэта»), и четыре замороженных списка на два ключа
+  // разошлись бы между собой на первой же правке.
+  //
+  // Точность при этом не потеряна: список строится из ЗАКРЫТОГО набора
+  // GENERATION_STRATEGY_BIND_OPTIONAL_KEYS, пересечённого с тем, что реально
+  // пришло. Чужой ключ по-прежнему роняет совпадение — он просто не может
+  // попасть в список.
+  strategy_bind_engine: Object.freeze([
+    "action",
+    "organization_id",
+    "project_id",
+    "spec_id",
+    "spec_version",
+    "spec_hash",
+    "generation_strategy",
+    "engine",
     "confirmation",
     "idempotency_key",
   ]),
@@ -364,7 +396,31 @@ const GENERATION_STRATEGY_REQUEST_KEYS = Object.freeze({
     "project_id",
     "generation_job_id",
   ]),
+  // Mirrors readGenerationStrategyReconcilePayload in the Edge function.
+  // The stable recipe identity is independent from the paid provider route;
+  // provider_task_id is appended exclusively for attach_existing_task.
+  strategy_reconcile: Object.freeze([
+    "action",
+    "organization_id",
+    "project_id",
+    "generation_job_id",
+    "dispatch_result_id",
+    "incident_id",
+    "resolution",
+    "confirmation",
+    "evidence_reference",
+    "reason",
+    "idempotency_key",
+  ]),
 });
+const GENERATION_STRATEGY_RECONCILE_ATTACH_REQUEST_KEYS = Object.freeze([
+  ...GENERATION_STRATEGY_REQUEST_KEYS.strategy_reconcile,
+  "provider_task_id",
+]);
+const GENERATION_STRATEGY_RUNWAY_TASK_ID_PATTERN =
+  /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
+const GENERATION_STRATEGY_FAL_REQUEST_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const GENERATION_STRATEGY_RESPONSE_CONTRACTS = Object.freeze({
   strategy_catalog: Object.freeze({
     keys: Object.freeze([
@@ -438,6 +494,22 @@ const GENERATION_STRATEGY_RESPONSE_CONTRACTS = Object.freeze({
       "contract",
     ]),
   }),
+  strategy_reconcile: Object.freeze({
+    version: "generation-strategy-status-response-v1",
+    keys: Object.freeze([
+      "ok",
+      "version",
+      "job",
+      "strategy",
+      "selection",
+      "price",
+      "dispatch",
+      "reconciliation",
+      "output",
+      "error",
+      "contract",
+    ]),
+  }),
 });
 const GENERATION_STRATEGY_SPEC_PREPARE_REQUEST_KEYS = Object.freeze([
   "version",
@@ -453,6 +525,15 @@ const GENERATION_STRATEGY_SPEC_PREPARE_REQUEST_KEYS = Object.freeze([
   "idempotency_key",
   "reason",
 ]);
+// Товар «Дуэта» приходит ЯВНЫМ полем: фотографий товара у него нет, и вывести
+// его больше неоткуда. У «Копии» и «Создания» товар уже назван снимками, и
+// второй источник того же факта здесь запрещён — два источника однажды
+// разойдутся молча. Отсюда ДВА состава ключей, а не один необязательный ключ:
+// «не прислали, где надо» и «прислали, где нельзя» — разные ошибки формы.
+const GENERATION_STRATEGY_SPEC_PREPARE_DUET_KEYS = Object.freeze([
+  ...GENERATION_STRATEGY_SPEC_PREPARE_REQUEST_KEYS,
+  "product_id",
+]);
 const GENERATION_STRATEGY_MECHANICS_KEYS = Object.freeze([
   "version",
   "hook",
@@ -464,9 +545,10 @@ const GENERATION_STRATEGY_MECHANICS_KEYS = Object.freeze([
   "cta_pattern",
 ]);
 const GENERATION_STRATEGY_SPEC_SELECTION_RULES = Object.freeze({
+  // «Дуэт»: кадр задаёт исходник, ассет ровно один — ведущего даёт библиотека.
   viral_avatar_ugc: Object.freeze({
-    dimension: "ratio",
-    dimensions: Object.freeze(["720:1280", "1080:1920"]),
+    dimension: "resolution",
+    dimensions: Object.freeze(["720p", "1080p"]),
     attestations: Object.freeze([
       "source_media_rights_confirmed",
       "transformative_use_confirmed",
@@ -476,8 +558,6 @@ const GENERATION_STRATEGY_SPEC_SELECTION_RULES = Object.freeze({
     ]),
     roles: Object.freeze({
       source_video: Object.freeze([1, 1]),
-      avatar_image: Object.freeze([1, 1]),
-      product_image: Object.freeze([1, 1]),
     }),
   }),
   viral_product_swap: Object.freeze({
@@ -1982,7 +2062,7 @@ export class CreatorApi {
   generationArchive(options = {}) {
     const periods = new Set(["week", "4w", "12w", "all"]);
     const statuses = new Set(["all", "active", "ready", "issue"]);
-    const providers = new Set(["all", "runway", "google"]);
+    const providers = new Set(["all", "runway", "google", "fal"]);
     const strategies = new Set([
       "all",
       "viral_avatar_ugc",
@@ -2543,6 +2623,37 @@ export class CreatorApi {
       account_id: normalizedAccountId,
       expected_updated_at: normalizedExpectedAt,
       ...normalizeManagedAccountInput(account),
+    });
+  }
+
+  /*
+   * Поля владения аккаунтом компании (фаза 0 контура авторазмещения):
+   * вид владения, хранитель, на что заведён аккаунт, внешний ID, режим
+   * публикации. Секретов здесь нет и быть не может — их место в Vault.
+   */
+  setManagedAccountOwnership(accountId, expectedUpdatedAt, ownership = {}) {
+    const normalizedAccountId = String(accountId || "").trim().toLowerCase();
+    const normalizedExpectedAt = String(expectedUpdatedAt || "").trim();
+    if (!isUuid(normalizedAccountId) || !Number.isFinite(Date.parse(normalizedExpectedAt))) {
+      throw new CreatorApiError("Карточка аккаунта устарела. Обновите список.", {
+        code: "admin_account_version_invalid",
+      });
+    }
+    const textOrNull = (value, limit) => {
+      const normalized = String(value || "").trim().slice(0, limit);
+      return normalized ? normalized : null;
+    };
+    const custodian = String(ownership.custodianProfileId || "").trim().toLowerCase();
+    return this.mutate(RPC.adminAccountOwnership, {
+      action: "set_ownership",
+      account_id: normalizedAccountId,
+      expected_updated_at: normalizedExpectedAt,
+      ownership_kind: textOrNull(ownership.ownershipKind, 40),
+      custodian_profile_id: isUuid(custodian) ? custodian : null,
+      registration_email_alias: textOrNull(ownership.registrationEmailAlias, 120),
+      registration_phone_ref: textOrNull(ownership.registrationPhoneRef, 40),
+      external_account_id: textOrNull(ownership.externalAccountId, 120),
+      posting_mode: textOrNull(ownership.postingMode, 20),
     });
   }
 
@@ -5805,6 +5916,151 @@ export class CreatorApi {
     return data;
   }
 
+  /*
+   * Ведущие проекта для формата «Дуэт».
+   *
+   * Витрина отдаёт НАШ идентификатор ведущего и его раскладку, но не личность у
+   * провайдера: avatar_id и voice_id браузеру не нужны и не приходят. Форма
+   * выбирает ведущего по нашему id, а сервер сам подставляет личность в платный
+   * запрос — подменить её из браузера нельзя.
+   */
+  async duetPresenters(projectId) {
+    const data = await this.call("creator_list_duet_presenters", {
+      organization_id: String(this.organizationId || ""),
+      project_id: String(projectId || ""),
+    });
+    if (
+      !hasExactObjectKeys(data, ["ok", "version", "presenters"])
+      || data.ok !== true
+      || data.version !== "generation-duet-presenters-v1"
+      || !Array.isArray(data.presenters)
+    ) {
+      throw new CreatorApiError("Список ведущих пришёл в неизвестной форме.");
+    }
+    // Личность провайдера не должна доехать до браузера ни при какой версии
+    // сервера. Если доехала — это утечка, и молча принимать её нельзя.
+    for (const presenter of data.presenters) {
+      if (
+        presenter
+        && typeof presenter === "object"
+        && ("provider_avatar_id" in presenter || "provider_voice_id" in presenter)
+      ) {
+        throw new CreatorApiError(
+          "Сервер вернул идентификаторы провайдера в списке ведущих.",
+        );
+      }
+    }
+    return data.presenters;
+  }
+
+  /*
+   * Каталог личностей ведущего из кабинета провайдера: фото-аватары,
+   * видеоаватары и голоса. Ключ провайдера живёт на сервере — списки читает
+   * edge и отдаёт только идентификаторы, имена и превью.
+   */
+  async duetPresenterCatalog() {
+    const data = await this.invokeRealGeneration("duet_presenter_catalog", {
+      action: "duet_presenter_catalog",
+      organization_id: String(this.organizationId || ""),
+    });
+    if (
+      !hasExactObjectKeys(data, ["ok", "version", "presenters", "voices"])
+      || data.ok !== true
+      || data.version !== "duet-presenter-catalog-v1"
+      || !Array.isArray(data.presenters)
+      || !Array.isArray(data.voices)
+    ) {
+      throw new CreatorApiError("Каталог ведущих пришёл в неизвестной форме.");
+    }
+    const text = (value, limit) => String(value || "").trim().slice(0, limit);
+    return {
+      presenters: data.presenters
+        .filter((item) => item && typeof item === "object")
+        .map((item) => ({
+          kind: item.kind === "avatar" ? "avatar" : "talking_photo",
+          id: text(item.id, 128),
+          name: text(item.name, 120),
+          preview_image_url: typeof item.preview_image_url === "string"
+            && item.preview_image_url.startsWith("https://")
+            ? item.preview_image_url
+            : null,
+        }))
+        .filter((item) => item.id),
+      voices: data.voices
+        .filter((item) => item && typeof item === "object")
+        .map((item) => ({
+          id: text(item.id, 128),
+          name: text(item.name, 120),
+          language: text(item.language, 60),
+          gender: text(item.gender, 20),
+        }))
+        .filter((item) => item.id),
+    };
+  }
+
+  /*
+   * Регистрация ведущего проекта: наша запись о личности у провайдера. Один
+   * раз на проект; дальше он тот же во всех роликах.
+   */
+  async registerDuetPresenter(projectId, input) {
+    const payload = {
+      organization_id: String(this.organizationId || ""),
+      project_id: String(projectId || ""),
+      display_name: String(input?.displayName || "").trim(),
+      provider_avatar_id: String(input?.providerAvatarId || "").trim(),
+      provider_voice_id: String(input?.providerVoiceId || "").trim(),
+      provider_avatar_kind: input?.providerAvatarKind === "avatar"
+        ? "avatar"
+        : "talking_photo",
+      aspect_ratio: "9:16",
+      is_default: input?.isDefault !== false,
+      // Живой человек заводится только с записанным согласием: сервер отвергнет
+      // real_person без него (duet_presenter_likeness_consent_required).
+      likeness_kind: input?.likenessKind === "real_person" ? "real_person" : "synthetic",
+    };
+    if (payload.likeness_kind === "real_person") {
+      payload.likeness_consent_confirmed = input?.likenessConsentConfirmed === true;
+    }
+    const data = await this.call("creator_register_duet_presenter", payload);
+    if (
+      !data
+      || typeof data !== "object"
+      || data.ok !== true
+      || !data.presenter
+      || typeof data.presenter !== "object"
+      || typeof data.presenter.id !== "string"
+    ) {
+      throw new CreatorApiError("Ведущий не зарегистрирован: ответ сервера неизвестной формы.");
+    }
+    return data.presenter;
+  }
+
+  /*
+   * Раскладка врезки: где встанет ведущий и каким видом. Меняется отдельно от
+   * самого ведущего — сменить угол не значит завести нового человека.
+   */
+  async updateDuetPresenterLayout(projectId, presenterId, layout) {
+    const payload = {
+      organization_id: String(this.organizationId || ""),
+      project_id: String(projectId || ""),
+      presenter_id: String(presenterId || ""),
+    };
+    if (layout?.corner) payload.overlay_corner = String(layout.corner);
+    if (layout?.shape) payload.overlay_shape = String(layout.shape);
+    if (Number.isInteger(layout?.widthPercent)) {
+      payload.overlay_width_percent = layout.widthPercent;
+    }
+    const data = await this.call("creator_update_duet_presenter_layout", payload);
+    if (
+      !hasExactObjectKeys(data, ["ok", "version", "presenter"])
+      || data.ok !== true
+      || data.version !== "generation-duet-presenter-v1"
+    ) {
+      throw new CreatorApiError("Раскладка ведущего сохранена не полностью.");
+    }
+    return data.presenter;
+  }
+
   async generationStrategyCatalog() {
     const data = await this.invokeRealGeneration("strategy_catalog", {
       action: "strategy_catalog",
@@ -5817,12 +6073,29 @@ export class CreatorApi {
     if (
       !hasExactObjectKeys(data, ["ok", "catalog"])
       || data.ok !== true
-      || !hasExactObjectKeys(catalog, [
-        "strategyCatalogVersion",
-        "strategyRecipeVersion",
-        "strategyPricingVersion",
-        "strategies",
-      ])
+      // strategyProviderRoutes появляется, когда у стратегии больше одного
+      // движка. Поле необязательное: миграция базы и деплой функции не
+      // атомарны, поэтому каталог обязан читаться и с ним, и без него.
+      || !hasExactObjectKeys(
+        catalog && typeof catalog === "object" && !Array.isArray(catalog)
+          ? Object.fromEntries(
+            Object.entries(catalog).filter(
+              ([key]) => key !== "strategyProviderRoutes",
+            ),
+          )
+          : catalog,
+        [
+          "strategyCatalogVersion",
+          "strategyRecipeVersion",
+          "strategyPricingVersion",
+          "strategies",
+        ],
+      )
+      || (catalog.strategyProviderRoutes !== undefined && (
+        !catalog.strategyProviderRoutes
+        || typeof catalog.strategyProviderRoutes !== "object"
+        || Array.isArray(catalog.strategyProviderRoutes)
+      ))
       || typeof catalog.strategyCatalogVersion !== "string"
       || !catalog.strategyCatalogVersion.trim()
       || typeof catalog.strategyRecipeVersion !== "string"
@@ -5970,7 +6243,7 @@ export class CreatorApi {
         code: "generation_reconciliation_resolution_invalid",
       });
     }
-    if (!new Set(["runway", "google"]).has(provider)) {
+    if (!new Set(["runway", "google", "fal"]).has(provider)) {
       throw new CreatorApiError("Не удалось подтвердить сервис этого запуска. Обновите карточку.", {
         code: "generation_reconciliation_provider_invalid",
       });
@@ -5988,10 +6261,14 @@ export class CreatorApi {
     const providerTaskValid = provider === "google"
       ? /^models\/veo-3\.1-lite-generate-preview\/operations\/[A-Za-z0-9][A-Za-z0-9._~-]{0,255}$/u
         .test(providerTaskId)
-      : /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u.test(providerTaskId);
+      : provider === "fal"
+      ? GENERATION_STRATEGY_FAL_REQUEST_ID_PATTERN.test(providerTaskId)
+      : GENERATION_STRATEGY_RUNWAY_TASK_ID_PATTERN.test(providerTaskId);
     if (attachExistingTask && !providerTaskValid) {
       throw new CreatorApiError(provider === "google"
         ? "Укажите точное имя Google operation из панели сервиса."
+        : provider === "fal"
+        ? "Укажите точный fal request ID из панели сервиса."
         : "Укажите точный Runway task ID из панели видеосервиса.", {
         code: "generation_reconciliation_task_id_invalid",
       });
@@ -6008,9 +6285,89 @@ export class CreatorApi {
         ? attachExistingTask
           ? "GOOGLE_OPERATION_ID_VERIFIED"
           : "GOOGLE_NO_OPERATION_VERIFIED"
+        : provider === "fal"
+        ? attachExistingTask
+          ? "FAL_REQUEST_ID_VERIFIED"
+          : "FAL_NO_REQUEST_VERIFIED"
         : attachExistingTask
           ? "RUNWAY_TASK_ID_VERIFIED"
           : "RUNWAY_NO_TASK_VERIFIED",
+      ...(attachExistingTask ? { provider_task_id: providerTaskId } : {}),
+    });
+  }
+
+  reconcileGenerationStrategy(jobId, details = {}) {
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const normalizedJobId = String(jobId || "").trim();
+    const incidentId = String(details.incident_id || "").trim();
+    const dispatchResultId = String(details.dispatch_result_id || "").trim();
+    const resolution = String(details.resolution || "").trim();
+    const evidenceReference = String(details.evidence_reference || "").trim();
+    const reason = String(details.reason || "").trim();
+    const providerTaskId = String(details.provider_task_id || "").trim();
+    const provider = String(details.provider || "").trim().toLowerCase();
+    const projectId = requiredProjectId(details.project_id ?? details.projectId);
+    const attachExistingTask = resolution === "attach_existing_task";
+    const confirmNoSubmission = resolution === "confirm_no_submission";
+
+    if (
+      !uuidPattern.test(normalizedJobId)
+      || !uuidPattern.test(incidentId)
+      || !uuidPattern.test(dispatchResultId)
+    ) {
+      throw new CreatorApiError("Не удалось определить инцидент платного запуска стратегии. Обновите карточку и повторите сверку.", {
+        code: "generation_reconciliation_incident_invalid",
+      });
+    }
+    if (!attachExistingTask && !confirmNoSubmission) {
+      throw new CreatorApiError("Выберите результат ручной сверки платного запуска.", {
+        code: "generation_reconciliation_resolution_invalid",
+      });
+    }
+    if (!new Set(["runway", "fal"]).has(provider)) {
+      throw new CreatorApiError("Не удалось подтвердить сервис этого запуска. Обновите карточку.", {
+        code: "generation_reconciliation_provider_invalid",
+      });
+    }
+    if (
+      evidenceReference.length < 8
+      || evidenceReference.length > 500
+      || reason.length < 20
+      || reason.length > 1_000
+    ) {
+      throw new CreatorApiError("Добавьте проверяемое основание и подробную причину ручной сверки.", {
+        code: "generation_reconciliation_evidence_invalid",
+      });
+    }
+    const providerTaskValid = provider === "fal"
+      ? GENERATION_STRATEGY_FAL_REQUEST_ID_PATTERN.test(providerTaskId)
+      : GENERATION_STRATEGY_RUNWAY_TASK_ID_PATTERN.test(providerTaskId);
+    if (attachExistingTask && !providerTaskValid) {
+      throw new CreatorApiError(provider === "fal"
+        ? "Укажите точный fal request ID из панели сервиса."
+        : "Укажите точный Runway task ID из панели видеосервиса.", {
+        code: "generation_reconciliation_task_id_invalid",
+      });
+    }
+
+    return this.invokeRealGeneration("strategy_reconcile", {
+      action: "strategy_reconcile",
+      organization_id: this.organizationId,
+      project_id: projectId,
+      generation_job_id: normalizedJobId,
+      dispatch_result_id: dispatchResultId,
+      incident_id: incidentId,
+      resolution,
+      confirmation: provider === "fal"
+        ? attachExistingTask
+          ? "FAL_REQUEST_ID_VERIFIED"
+          : "FAL_NO_REQUEST_VERIFIED"
+        : attachExistingTask
+        ? "RUNWAY_TASK_ID_VERIFIED"
+        : "RUNWAY_NO_TASK_VERIFIED",
+      evidence_reference: evidenceReference,
+      reason,
+      idempotency_key: `strategy-reconcile:${incidentId}:${resolution}`,
       ...(attachExistingTask ? { provider_task_id: providerTaskId } : {}),
     });
   }
@@ -6022,6 +6379,9 @@ export class CreatorApi {
       "start",
       "status",
       "reconcile",
+      // Каталог личностей ведущего из кабинета HeyGen — чтение без денег;
+      // форма запроса та же, что у model_catalog: действие + организация.
+      "duet_presenter_catalog",
     ]).has(action);
     if (!legacyAction && !GENERATION_STRATEGY_EDGE_ACTIONS.has(action)) {
       throw new CreatorApiError("Неизвестное действие платной генерации.", {
@@ -6995,7 +7355,9 @@ function generationStrategySpecSelectionValid(value) {
     || typeof value[dimension] !== "string"
     || !rules.dimensions.includes(value[dimension])
     || !Array.isArray(value.assets)
-    || value.assets.length < 2
+    // Нижняя граница — один: у «Дуэта» ровно один ассет, и двойка отвергала бы
+    // его ещё до проверки ролей.
+    || value.assets.length < 1
     || value.assets.length > 15
     || !hasExactObjectKeys(value.attestations, rules.attestations)
     || rules.attestations.some((key) => value.attestations[key] !== true)
@@ -7093,8 +7455,15 @@ function assertGenerationStrategySpecPrepareRequest(request, organizationId) {
     ? request?.mechanics_summary === null
     : ["viral_avatar_ugc", "viral_rebuild"].includes(strategyId)
       && generationStrategyMechanicsSummaryValid(request?.mechanics_summary);
+  const duetProduct = strategyId === "viral_avatar_ugc";
   if (
-    !hasExactObjectKeys(request, GENERATION_STRATEGY_SPEC_PREPARE_REQUEST_KEYS)
+    !hasExactObjectKeys(
+      request,
+      duetProduct
+        ? GENERATION_STRATEGY_SPEC_PREPARE_DUET_KEYS
+        : GENERATION_STRATEGY_SPEC_PREPARE_REQUEST_KEYS,
+    )
+    || (duetProduct && !generationStrategyExactUuid(request.product_id))
     || request.version !== "generation-strategy-spec-prepare-request-v1"
     || !generationStrategyExactUuid(organization)
     || request.organization_id !== organization
@@ -7117,8 +7486,41 @@ function assertGenerationStrategySpecPrepareRequest(request, organizationId) {
   return request;
 }
 
+// Список ключей привязки под конкретный запрос: обязательные плюс те из
+// закрытого набора необязательных, что действительно пришли. Необязательные
+// встают перед confirmation — там же, где стоит engine в эталонной форме
+// strategy_bind_engine.
+function generationStrategyBindRequestKeys(request) {
+  const base = GENERATION_STRATEGY_REQUEST_KEYS.strategy_bind;
+  const present = GENERATION_STRATEGY_BIND_OPTIONAL_KEYS.filter((key) =>
+    request
+    && typeof request === "object"
+    && Object.prototype.hasOwnProperty.call(request, key)
+  );
+  if (present.length === 0) return base;
+  const cut = base.indexOf("confirmation");
+  return Object.freeze([
+    ...base.slice(0, cut),
+    ...present,
+    ...base.slice(cut),
+  ]);
+}
+
 function assertGenerationStrategyRuntimeRequest(action, request, organizationId) {
-  const keys = GENERATION_STRATEGY_REQUEST_KEYS[action];
+  const bindWithEngine = action === "strategy_bind"
+    && request
+    && typeof request === "object"
+    && Object.prototype.hasOwnProperty.call(request, "engine");
+  const bindWithPresenter = action === "strategy_bind"
+    && request
+    && typeof request === "object"
+    && Object.prototype.hasOwnProperty.call(request, "duet_presenter_id");
+  const keys = action === "strategy_reconcile"
+    && request?.resolution === "attach_existing_task"
+    ? GENERATION_STRATEGY_RECONCILE_ATTACH_REQUEST_KEYS
+    : action === "strategy_bind"
+    ? generationStrategyBindRequestKeys(request)
+    : GENERATION_STRATEGY_REQUEST_KEYS[action];
   const organization = String(organizationId || "");
   const uuidFields = {
     strategy_media_probe: ["organization_id", "project_id", "media_id"],
@@ -7138,6 +7540,13 @@ function assertGenerationStrategyRuntimeRequest(action, request, organizationId)
       "campaign_id",
     ],
     strategy_status: ["organization_id", "project_id", "generation_job_id"],
+    strategy_reconcile: [
+      "organization_id",
+      "project_id",
+      "generation_job_id",
+      "dispatch_result_id",
+      "incident_id",
+    ],
   }[action] || [];
   const hashFields = {
     strategy_bind: ["spec_hash"],
@@ -7160,11 +7569,37 @@ function assertGenerationStrategyRuntimeRequest(action, request, organizationId)
     "strategy_preflight",
     "strategy_start",
   ].includes(action);
-  const hasConfirmation = !["strategy_catalog", "strategy_status"].includes(action);
+  const hasConfirmation = ![
+    "strategy_catalog",
+    "strategy_status",
+    "strategy_reconcile",
+  ].includes(action);
   const hasSpendConfirmation = [
     "strategy_preflight",
     "strategy_start",
   ].includes(action);
+  const strategyReconcileAttach = action === "strategy_reconcile"
+    && request?.resolution === "attach_existing_task";
+  const strategyReconcileConfirmation = action === "strategy_reconcile"
+    ? String(request?.confirmation || "")
+    : "";
+  const strategyReconcileConfirmationValid = action !== "strategy_reconcile"
+    || (strategyReconcileAttach
+      ? new Set([
+        "RUNWAY_TASK_ID_VERIFIED",
+        "FAL_REQUEST_ID_VERIFIED",
+      ]).has(strategyReconcileConfirmation)
+      : request?.resolution === "confirm_no_submission" && new Set([
+        "RUNWAY_NO_TASK_VERIFIED",
+        "FAL_NO_REQUEST_VERIFIED",
+      ]).has(strategyReconcileConfirmation));
+  const strategyReconcileTaskIdValid = !strategyReconcileAttach
+    || (strategyReconcileConfirmation === "FAL_REQUEST_ID_VERIFIED"
+      ? GENERATION_STRATEGY_FAL_REQUEST_ID_PATTERN
+        .test(String(request?.provider_task_id || ""))
+      : strategyReconcileConfirmation === "RUNWAY_TASK_ID_VERIFIED"
+      && GENERATION_STRATEGY_RUNWAY_TASK_ID_PATTERN
+        .test(String(request?.provider_task_id || "")));
   if (
     !keys
     || !hasExactObjectKeys(request, keys)
@@ -7191,10 +7626,44 @@ function assertGenerationStrategyRuntimeRequest(action, request, organizationId)
       || typeof request.generation_strategy !== "object"
       || Array.isArray(request.generation_strategy)
     ))
+    // Движок каскада: ровно два поля и обе строки непустые. Существует ли
+    // такой маршрут и сколько он стоит, решает сервер по реестру — браузер
+    // проверяет только форму, чтобы неполный выбор не ушёл в запрос.
+    || (bindWithEngine && (
+      !request.engine
+      || typeof request.engine !== "object"
+      || Array.isArray(request.engine)
+      || !hasExactObjectKeys(request.engine, ["provider", "model_key"])
+      || !generationStrategyExactBoundedText(request.engine.provider, 2, 40)
+      || !generationStrategyExactBoundedText(request.engine.model_key, 2, 120)
+    ))
+    // Ведущий «Дуэта»: браузер проверяет только форму. Существует ли такой
+    // ведущий, активен ли он и подтверждено ли согласие на его образ — решает
+    // сервер, читая реестр перед каждой отправкой. Второй список ведущих здесь
+    // разошёлся бы с реестром на первой же архивации.
+    || (bindWithPresenter
+      && !generationStrategyExactUuid(request.duet_presenter_id))
     || (hasSpendConfirmation && (
       typeof request.spend_confirmation !== "string"
-      || !/^RUNWAY_(?:PRODUCT_UGC|PRODUCT_SWAP|PRODUCT_AD)_(?:[4-9]|1[0-5])S_(?:720P|1080P)_(?:AUDIO|SILENT)_USD_[0-9]{1,4}[.][0-9]{2}$/u
+      // Провайдер стоит в самой строке подтверждения, и нижняя граница
+      // длительности у маршрутов разная: рецепт Runway начинается с четырёх
+      // секунд, у fal ролик может быть короче. Эта проверка повторяет ту, что
+      // стоит в edge; расходиться им нельзя — иначе запрос молча не уйдёт.
+      //
+      // 23.08.2026 они и разошлись: edge узнал HEYGEN и шестьдесят секунд,
+      // а браузер остался на двух провайдерах и пятнадцати. «Дуэт» с его
+      // HEYGEN_PRODUCT_UGC_24S_… не проходил бы здесь — то есть запрос не
+      // уходил бы вовсе, без единого объяснения оператору.
+      || !/^(?:RUNWAY|FAL|HEYGEN)_(?:PRODUCT_UGC|PRODUCT_SWAP|PRODUCT_AD)_(?:[1-9]|[1-5][0-9]|60)S_(?:720P|1080P)_(?:AUDIO|SILENT)_USD_[0-9]{1,4}[.][0-9]{2}$/u
         .test(request.spend_confirmation)
+    ))
+    || (action === "strategy_reconcile" && (
+      !["attach_existing_task", "confirm_no_submission"]
+        .includes(request.resolution)
+      || !strategyReconcileConfirmationValid
+      || !generationStrategyExactBoundedText(request.evidence_reference, 8, 500)
+      || !generationStrategyExactBoundedText(request.reason, 20, 1_000)
+      || !strategyReconcileTaskIdValid
     ))
   ) {
     throw new CreatorApiError(
@@ -8499,6 +8968,12 @@ function toFriendlyMessage(error) {
     provider_configuration_error: "Доступ к выбранному сервису генерации не настроен. Платный запуск не создан.",
     provider_authentication_failed: "Сервис генерации отклонил ключ доступа. Платный запуск не создан.",
     provider_credits_unavailable: "В выбранном сервисе недостаточно средств для запуска. Деньги не списаны.",
+    provider_balance_insufficient: "На счёте сервиса генерации не хватает кредитов для этого запуска. Пополните баланс провайдера и снова нажмите «Показать цену» — деньги не списаны.",
+    provider_readiness_unavailable: "Сервис генерации не ответил на бесплатную проверку готовности. Платный запуск не создан, деньги не списаны.",
+    real_generation_user_daily_quota_exceeded: "Исчерпан суточный лимит платных запусков для вашей учётной записи (10 за 24 часа). Дождитесь освобождения окна и повторите — деньги не списаны.",
+    real_generation_organization_daily_quota_exceeded: "Исчерпан суточный лимит платных запусков организации (50 за 24 часа). Деньги не списаны.",
+    real_generation_assignee_concurrency_exceeded: "У вас уже есть незавершённый платный запуск. Дождитесь его результата — деньги не списаны.",
+    real_generation_organization_concurrency_exceeded: "В организации уже идут три платных запуска. Дождитесь их завершения — деньги не списаны.",
     provider_rate_limited: "Суточная квота выбранного сервиса исчерпана. Платный запуск не создан.",
     provider_request_rejected: "Выбранная модель сейчас недоступна в сервисе генерации. Платный запуск не создан.",
     provider_request_failed: "Сервис генерации не ответил на бесплатную проверку готовности. Платный запуск не создан.",
@@ -8578,10 +9053,20 @@ function toFriendlyMessage(error) {
     generation_reconciliation_provider_invalid: "Не удалось подтвердить сервис этого запуска. Обновите карточку.",
     generation_reconciliation_task_id_invalid: "Укажите точный task ID или Google operation из панели сервиса генерации.",
     generation_reconciliation_forbidden: "Ручную сверку платного запуска может выполнить только владелец или администратор команды.",
+    generation_strategy_readiness_prompt_invalid: "Речь ведущего не уложилась в длительность ролика: около 15 знаков на секунду и не больше 1500. Сократите текст и повторите бесплатную проверку.",
+    posting_mode_requires_connection: "Режим «через API» включается подключением аккаунта к публикации, а не вручную: без живого подключения воркеру нечем публиковать.",
+    custodian_not_eligible: "Хранителем аккаунта может быть только активный владелец, администратор или продюсер.",
+    ownership_kind_invalid: "Неизвестный вид владения аккаунтом.",
+    registration_email_alias_invalid: "Почтовый алиас регистрации должен быть адресом вида имя@домен.",
+    account_changed_concurrently: "Карточку аккаунта уже изменил другой администратор. Обновите список и повторите.",
+    generation_strategy_reconciliation_forbidden: "Ручную сверку запуска стратегии может выполнить только владелец или администратор команды.",
     generation_reconciliation_task_not_found: "Задача сервиса с таким ID не найдена. Проверьте точный идентификатор в панели провайдера.",
     generation_reconciliation_task_mismatch: "Задача сервиса не совпадает со временем этого запуска. Не прикрепляйте чужую задачу.",
     generation_reconciliation_wait_required: "Для подтверждения отсутствия задачи сервиса подождите две минуты после фиксации инцидента.",
     generation_reconciliation_rejected: "Состояние запуска изменилось. Обновите очередь перед ручной сверкой.",
+    generation_strategy_reconciliation_not_current: "Состояние сверки этого запуска изменилось. Обновите карточку: возможно, сверка уже выполнена.",
+    generation_strategy_reconciliation_task_mismatch: "Сервис генерации не подтвердил этот task/request ID для данного запуска. Проверьте точный идентификатор и время создания в панели выбранного провайдера.",
+    generation_strategy_reconciliation_rejected: "Сервер отклонил ручную сверку стратегии. Обновите карточку запуска и проверьте данные ещё раз.",
     real_generation_reconciliation_required: "Новый платный запуск временно закрыт: сначала владелец или администратор должен завершить ручную сверку предыдущего запроса к сервису генерации.",
     generation_learning_context_required: "Восстановите безопасное авто-ТЗ и дождитесь бесплатной проверки обучения.",
     generation_learning_policy_category_invalid: "Выберите категорию товара для отдельного контура обучения.",
@@ -8660,6 +9145,8 @@ function toFriendlyMessage(error) {
     origin_not_allowed: "Платная генерация недоступна с этого адреса портала.",
     generation_rejected: "Сервер отклонил платный запуск. Проверьте доступ, исходник и подтверждение расходов.",
     generation_unavailable: "Сервис платной генерации временно недоступен. Повторите попытку позже.",
+    generation_route_unresolved: "Сервер не смог подтвердить, каким движком выполняется этот запуск, и не стал опрашивать провайдера наугад. Деньги уже зарезервированы: не запускайте повторно — сообщите руководителю, чтобы запуск сверили вручную.",
+    generation_strategy_source_duration_mismatch: "У выбранной модели секунда стоит денег, а длительность задаёт исходник. Длительность в форме должна совпадать с проверенной сервером длиной исходного ролика — обновите шаг «Длительность» и повторите. Деньги не списаны.",
     product_research_input_invalid: "Проверьте название товара и артикул.",
     research_youtube_source_requires_media: "YouTube-ссылка относится к отдельному видеоисточнику. Сначала добавьте разрешённый MP4 в исследование или исключите YouTube-ссылку из рыночного запроса.",
     exact_youtube_media_attachment_payload_invalid: "Контекст загрузки MP4 устарел. Вернитесь в ИИ-центр и откройте точный источник заново.",
@@ -8910,7 +9397,7 @@ function toFriendlyMessage(error) {
     generated_video_review_start_payload_invalid: "Запрос запуска AI-проверки ролика устарел. Обновите генерацию.",
     generated_video_review_source_invalid: "Точный MP4 или его evidence изменились. Обновите генерацию и подготовьте кадры заново.",
     generated_video_review_platform_invalid: "Площадка ролика не подходит для безопасного автоматического QA.",
-    generated_video_review_category_required: "Сначала один раз подтвердите категорию товара в полной форме проверки; дальше портал будет подставлять её сам.",
+    generated_video_review_category_required: "Категория товара наследуется автоматически из платного запуска. Этот старый запуск сохранён без категории, поэтому один раз подтвердите её в полной форме проверки — дальше портал будет подставлять её сам.",
     generated_video_review_evidence_required: "Сначала дождитесь сохранения пяти evidence-изображений точного MP4.",
     generated_video_transcription_guard_failed: "Проверка остановлена: без отдельного разрешения транскрипция ролика должна оставаться выключенной.",
     generated_video_autopilot_input_invalid: "Сервер не подтвердил происхождение ролика для ускоренного QA. Откройте полную форму проверки.",

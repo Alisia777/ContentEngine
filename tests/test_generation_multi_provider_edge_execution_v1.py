@@ -189,7 +189,9 @@ def test_google_chain_has_direct_auth_lro_output_storage_and_safe_redirects() ->
     for token in (
         'Deno.env.get("GEMINI_API_KEY")',
         '"x-goog-api-key": secret',
-        'pollKind: "runway_task" | "google_long_running_operation"',
+        # Союз опросов вырос: у fal своя очередь, у HeyGen — свой GET. Здесь
+        # стережётся присутствие ветки Google, а не точный состав союза.
+        '"google_long_running_operation"',
         "/v1beta/models/${GOOGLE_VEO_LITE_MODEL}:predictLongRunning",
         "parseCreatedGoogleOperation(createdValue)",
         "parseGoogleOperation(providerValue)",
@@ -197,7 +199,7 @@ def test_google_chain_has_direct_auth_lro_output_storage_and_safe_redirects() ->
         "generated.generatedSamples",
         'url.hostname === "storage.googleapis.com"',
         'url.hostname.endsWith(".googleusercontent.com")',
-        "await fetchGoogleOutput(outputUrl, secret)",
+        "await fetchGoogleOutput(",
         "supabaseAdmin.storage.from(STORAGE_BUCKET)",
     ):
         assert token in EDGE
@@ -218,6 +220,8 @@ def test_polling_output_and_reconciliation_are_provider_aware() -> None:
     for token in (
         "GOOGLE_OPERATION_ID_VERIFIED",
         "GOOGLE_NO_OPERATION_VERIFIED",
+        "FAL_REQUEST_ID_VERIFIED",
+        "FAL_NO_REQUEST_VERIFIED",
         "RUNWAY_TASK_ID_VERIFIED",
         "RUNWAY_NO_TASK_VERIFIED",
     ):
@@ -227,14 +231,27 @@ def test_polling_output_and_reconciliation_are_provider_aware() -> None:
         "function rpcPayload(",
     )
     assert "isValidGoogleOperationName(value.provider_task_id)" in parser
+    assert "isFalRequestId(value.provider_task_id)" in parser
     handler = _between(
         "const handleReconciliation = async",
         "const handlePreflight = async",
     )
     assert "authorization.provider === \"google\"" in handler
-    assert "isValidProviderTaskId(" in handler
+    assert "authorization.provider === \"fal\"" in handler
+    assert "isValidReconciliationTaskId(" in handler
     assert "expectedConfirmation" in handler
     assert "GOOGLE_OPERATION_NAME_PATTERN" in EDGE
+    assert "FAL_REQUEST_ID_PATTERN" in EDGE
+    reconciliation_task_validator = _between(
+        "function isValidReconciliationTaskId(",
+        "function runwaySecret(",
+    )
+    assert 'if (provider === "fal") return isFalRequestId(value);' in (
+        reconciliation_task_validator
+    )
+    assert "return isValidProviderTaskId(provider, value);" in (
+        reconciliation_task_validator
+    )
     assert "createdAt: null" in handler
     assert "providerTask?.createdAt === null" in handler
     assert 'if (authorization.provider === "runway") {' in handler

@@ -168,8 +168,11 @@ def test_finder_handoff_and_submit_do_not_depend_on_folder_catalog_or_a_modal() 
     media_renderer = _function(APP, "function renderMediaSection(")
 
     assert '"Добавить материал"' in finder_toolbar
-    assert 'upload.href = scopedWorkspaceHref("/workspace/media")' in finder_toolbar
-    assert "project_id" in _function(FINDER, "function scopedWorkspaceHref(")
+    assert 'upload.dataset.action = "finder-upload"' in finder_toolbar
+    assert 'upload.dataset.ceV4FinderUpload = "true"' in finder_toolbar
+    assert 'if (action === "finder-upload")' in APP
+    assert 'navigate("/workspace/media")' in APP
+    assert "workspaceProjectHref(rawNormalized)" in _function(APP, "function navigate(")
 
     assert "const projectId = requireWorkspaceProjectId();" in submit
     assert "await state.api.uploadPrivateObject(objectKey, file)" in submit

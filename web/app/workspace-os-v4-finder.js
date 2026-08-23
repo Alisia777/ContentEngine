@@ -8,6 +8,11 @@ const PROJECT_CONTEXT_KEY = "contentengine.desktop-v4.project";
 const PROJECT_QUERY_KEY = "project_id";
 const FOLDER_QUERY_KEY = "folder";
 const FINDER_VIEWS = new Set(["grid", "list", "columns"]);
+const FINDER_VIEW_LABELS = Object.freeze({
+  grid: "Сетка",
+  list: "Список",
+  columns: "Колонки",
+});
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
 const MOBILE_SIDEBAR = window.matchMedia("(max-width: 760px)");
 
@@ -120,23 +125,6 @@ function setFolderUrl(folderId, { replace = false, projectId: projectOverride = 
   if (nextHash === window.location.hash) return;
   const state = { ...(window.history.state || {}), ceV4FinderFolder: String(folderId || "all") };
   window.history[replace ? "replaceState" : "pushState"](state, "", nextHash);
-}
-
-function finderHref(view) {
-  const query = routeFinderQuery();
-  const projectId = finderProjectId();
-  if (projectId) query.set("project_id", projectId);
-  query.set("folder", String(query.get("folder") || "all"));
-  query.set("view", view);
-  query.delete("create");
-  return `#/workspace/board?${query.toString()}`;
-}
-
-function scopedWorkspaceHref(path) {
-  const projectId = finderProjectId();
-  return projectId
-    ? `#${path}?project_id=${encodeURIComponent(projectId)}`
-    : `#${path}`;
 }
 
 function visible(node) {
@@ -379,6 +367,41 @@ function finderColumnRow(label, value, className = "") {
   return row;
 }
 
+function finderCardPreviewSource(card) {
+  const image = q(".workspace-board__item-preview img", card);
+  const candidate = String(image?.currentSrc || image?.getAttribute("src") || "").trim();
+  if (!candidate) return "";
+  try {
+    const parsed = new URL(candidate, window.location.href);
+    const localHttp = parsed.protocol === "http:" && parsed.origin === window.location.origin;
+    return parsed.protocol === "https:" || parsed.protocol === "blob:" || localHttp
+      ? parsed.href
+      : "";
+  } catch {
+    return "";
+  }
+}
+
+function finderColumnVisual(card, kind) {
+  const visual = create("figure", "ce-v4-finder-column__visual");
+  visual.dataset.kind = kind.key;
+  const source = finderCardPreviewSource(card);
+  if (source) {
+    const image = create("img", "ce-v4-finder-column__image");
+    image.src = source;
+    image.alt = "";
+    image.loading = "lazy";
+    image.decoding = "async";
+    visual.append(image);
+  } else {
+    const glyph = create("span", "ce-v4-finder-column__glyph", kind.key === "video" ? "▶" : kind.key === "research" ? "✦" : "◇");
+    glyph.dataset.kind = kind.key;
+    visual.append(glyph);
+  }
+  visual.append(create("figcaption", "ce-v4-finder-column__visual-label", kind.label));
+  return visual;
+}
+
 function ensureColumnsProjection() {
   const grid = q(".workspace-board__grid", runtime.board);
   if (!grid) return null;
@@ -460,11 +483,9 @@ function syncColumnsProjection() {
   } else {
     const kind = itemKind(card);
     const status = compact(q(".workspace-board__status", card)?.textContent || "—", 80);
-    const glyph = create("span", "ce-v4-finder-column__glyph", kind.key === "video" ? "▶" : kind.key === "research" ? "✦" : "◇");
-    glyph.dataset.kind = kind.key;
     previewPanel.append(
       finderColumnHeading("ПРЕДПРОСМОТР", finderCardTitle(card)),
-      glyph,
+      finderColumnVisual(card, kind),
       finderCardSubtitle(card)
         ? create("p", "ce-v4-finder-column__summary", finderCardSubtitle(card))
         : create("p", "ce-v4-finder-column__summary", "Метаданные объекта доступны без открытия нового маршрута."),
@@ -585,6 +606,7 @@ function applyView() {
   if (view === "columns") syncColumnsProjection();
   else removeColumnsProjection();
   syncQuickLookControl();
+  syncFinderControlStatus();
 }
 
 function sortCards(value) {
@@ -675,6 +697,29 @@ function finderMode() {
     : "browse";
 }
 
+function syncFinderControlStatus() {
+  if (!runtime.board) return;
+  const mode = finderMode();
+  const viewLabel = FINDER_VIEW_LABELS[currentFinderView()] || FINDER_VIEW_LABELS.grid;
+  const modeLabel = mode === "organize" ? "Организация" : "Просмотр";
+  const statusText = `${modeLabel} · вид «${viewLabel}»`;
+  const status = q("[data-ce-v4-finder-control-status]", runtime.board);
+  if (status && status.textContent !== statusText) status.textContent = statusText;
+
+  const empty = q(".workspace-board__empty", runtime.board);
+  if (!empty) return;
+  let hint = q(":scope > [data-ce-v4-finder-empty-mode]", empty);
+  if (!hint) {
+    hint = create("p", "ce-v4-finder-empty-mode");
+    hint.dataset.ceV4FinderEmptyMode = "true";
+    empty.append(hint);
+  }
+  const hintText = mode === "organize"
+    ? `Организация включена · вид «${viewLabel}». Добавьте материал — затем его можно будет раскладывать по папкам.`
+    : `Просмотр · вид «${viewLabel}».`;
+  if (hint.textContent !== hintText) hint.textContent = hintText;
+}
+
 function applyMode() {
   if (!runtime.board) return;
   const mode = finderMode();
@@ -683,8 +728,9 @@ function applyMode() {
   qa("[data-ce-v4-finder-mode]", runtime.board).forEach((control) => {
     const active = control.dataset.ceV4FinderMode === mode;
     control.classList.toggle("is-active", active);
-    control.setAttribute("aria-current", active ? "page" : "false");
+    control.setAttribute("aria-pressed", String(active));
   });
+  syncFinderControlStatus();
 }
 
 function sidebarParts() {
@@ -774,24 +820,30 @@ function syncInlineDetail() {
 function buildToolbar() {
   const content = q(".workspace-board__content", runtime.board);
   if (!content) return;
-  if (q(":scope > .ce-v4-finder-toolbar", content)) {
+  const existing = q(":scope > .ce-v4-finder-toolbar", content);
+  if (existing) {
     ensureMobileSidebar();
     return;
   }
   const toolbar = create("header", "ce-v4-finder-toolbar");
   const title = create("div", "ce-v4-finder-toolbar__title");
-  title.append(create("small", "", "CONTENTENGINE FINDER"), create("strong", "", "Файлы и папки"));
+  const controlStatus = create("span", "ce-v4-finder-control-status");
+  controlStatus.dataset.ceV4FinderControlStatus = "true";
+  controlStatus.setAttribute("role", "status");
+  controlStatus.setAttribute("aria-live", "polite");
+  title.append(create("small", "", "CONTENTENGINE FINDER"), create("strong", "", "Файлы и папки"), controlStatus);
 
   const controls = create("div", "ce-v4-finder-toolbar__controls");
-  const browse = create("a", "ce-v4-finder-mode", "Просмотр");
-  browse.href = "#/workspace/board?view=browse";
-  browse.href = finderHref("browse");
+  const browse = create("button", "ce-v4-finder-mode", "Просмотр");
+  browse.type = "button";
+  browse.dataset.action = "finder-mode";
   browse.dataset.ceV4FinderMode = "browse";
-  const organize = create("a", "ce-v4-finder-mode", "Организация");
-  organize.href = "#/workspace/board?view=organize";
-  organize.href = finderHref("organize");
+  const organize = create("button", "ce-v4-finder-mode", "Организация");
+  organize.type = "button";
+  organize.dataset.action = "finder-mode";
   organize.dataset.ceV4FinderMode = "organize";
   const sort = create("select", "ce-v4-finder-sort");
+  sort.dataset.action = "finder-sort";
   sort.setAttribute("aria-label", "Сортировка объектов");
   [["name", "По имени"], ["type", "По типу"], ["status", "По статусу"]].forEach(([value, label]) => {
     const option = create("option", "", label);
@@ -801,42 +853,32 @@ function buildToolbar() {
   sort.value = runtime.state.sort || "name";
   const grid = create("button", "ce-v4-finder-view");
   grid.type = "button";
+  grid.dataset.action = "finder-view";
   grid.dataset.ceV4FinderView = "grid";
   grid.textContent = "Сетка";
   const list = create("button", "ce-v4-finder-view");
   list.type = "button";
+  list.dataset.action = "finder-view";
   list.dataset.ceV4FinderView = "list";
   list.textContent = "Список";
   const columns = create("button", "ce-v4-finder-view");
   columns.type = "button";
+  columns.dataset.action = "finder-view";
   columns.dataset.ceV4FinderView = "columns";
   columns.textContent = "Колонки";
   const quickLook = create("button", "ce-v4-finder-quicklook", "Быстрый просмотр");
   quickLook.type = "button";
+  quickLook.dataset.action = "finder-quicklook";
   quickLook.dataset.ceV4FinderQuicklook = "true";
   quickLook.disabled = true;
   quickLook.setAttribute("aria-disabled", "true");
-  const upload = create("a", "ce-v4-finder-upload", "Добавить материал");
-  upload.href = scopedWorkspaceHref("/workspace/media");
+  const upload = create("button", "ce-v4-finder-upload", "Добавить материал");
+  upload.type = "button";
+  upload.dataset.action = "finder-upload";
+  upload.dataset.ceV4FinderUpload = "true";
   controls.append(browse, organize, sort, grid, list, columns, quickLook, upload);
   toolbar.append(title, controls);
   content.prepend(toolbar);
-  toolbar.addEventListener("click", (event) => {
-    const quickLookButton = event.target instanceof Element
-      ? event.target.closest("[data-ce-v4-finder-quicklook]")
-      : null;
-    if (quickLookButton) {
-      event.preventDefault();
-      if (!quickLookButton.disabled) void openQuickLook(selectedCard());
-      return;
-    }
-    const button = event.target instanceof Element ? event.target.closest("[data-ce-v4-finder-view]") : null;
-    if (!button) return;
-    event.preventDefault();
-    rememberFinderView(button.dataset.ceV4FinderView);
-    applyView();
-  });
-  sort.addEventListener("change", () => sortCards(sort.value));
   ensureMobileSidebar();
 }
 
@@ -1172,9 +1214,32 @@ function handleBoardItemSelection(event) {
   });
 }
 
+function handleFinderViewControl(event) {
+  if (!(event.target instanceof Element)) return;
+  const control = event.target.closest(
+    ".ce-v4-finder-view[data-ce-v4-finder-view]",
+  );
+  if (!(control instanceof HTMLButtonElement) || !runtime.board?.contains(control)) return;
+  event.preventDefault();
+  // Finder owns this state transition. Do not let the application-level
+  // action bridge apply the same view a second time.
+  event.stopPropagation();
+  rememberFinderView(control.dataset.ceV4FinderView);
+  applyView();
+}
+
+function handleFinderSortControl(event) {
+  const control = event.target;
+  if (!(control instanceof HTMLSelectElement) || !control.matches(".ce-v4-finder-sort")) return;
+  event.stopPropagation();
+  sortCards(control.value);
+}
+
 function bindBoard() {
   if (runtime.board.dataset.ceV4FinderBound === "true") return;
   runtime.board.dataset.ceV4FinderBound = "true";
+  runtime.board.addEventListener("click", handleFinderViewControl);
+  runtime.board.addEventListener("change", handleFinderSortControl);
   runtime.board.addEventListener("dblclick", handleBoardDoubleClick);
   runtime.board.addEventListener("click", handleBoardSelectionClick);
   runtime.board.addEventListener("keydown", handleBoardSelectionKeydown, true);
@@ -1290,6 +1355,29 @@ window.ContentEngineDesktopV4.registerAdapter("finder-board", mount, { priority:
 window.ContentEngineFinderV4 = Object.freeze({
   openQuickLook,
   closeQuickLook,
+  openSelected: (control = null) => {
+    const board = control instanceof Element ? control.closest(".workspace-board") : null;
+    if (board) runtime.board = board;
+    return openQuickLook(selectedCard());
+  },
+  setView: (value, control = null) => {
+    rememberFinderView(value);
+    const settle = () => {
+      const board = control instanceof Element && control.isConnected
+        ? control.closest(".workspace-board")
+        : q(".workspace-board");
+      if (!board || routePath() !== ROUTE) return;
+      runtime.board = board;
+      applyView();
+    };
+    settle();
+    window.requestAnimationFrame(settle);
+  },
+  setSort: (value, control = null) => {
+    const board = control instanceof Element ? control.closest(".workspace-board") : null;
+    if (board) runtime.board = board;
+    sortCards(value);
+  },
   selectedItems,
   clearSelection,
   moveSelection: (folderId) => moveSelectedItems(folderId),

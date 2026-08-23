@@ -77,7 +77,8 @@ def test_migration_and_pgtap_parse_and_frozen_contracts_are_untouched() -> None:
     assert len(parse_sql(migration)) >= 25
     assert len(parse_sql(pgtap)) >= 12
     for path, expected in FROZEN.items():
-        assert hashlib.sha256(path.read_bytes()).hexdigest() == expected
+        canonical_bytes = path.read_bytes().replace(b"\r\n", b"\n")
+        assert hashlib.sha256(canonical_bytes).hexdigest() == expected
 
 
 def test_plpgsql_strategy_scope_case_expression_is_parser_safe() -> None:

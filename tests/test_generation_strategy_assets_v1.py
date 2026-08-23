@@ -56,11 +56,15 @@ def _evaluate(expression: str) -> object:
             " filename:'product.png',exact_youtube_attached:false,\n"
             " eligible_roles:['product_image','new_product_image'],\n"
             " eligible_strategy_roles:[\n"
-            "  {strategy_id:'viral_avatar_ugc',role:'product_image'},\n"
+            # У «Дуэта» товарной роли нет вовсе: он комментирует чужой ролик,
+            # а не показывает товар. Фотография остаётся годной для «Копии» и
+            # «Создания», а для дуэта названа неподходящей — запись остаётся в
+            # выдаче с причиной, а не исчезает из неё молча.
             "  {strategy_id:'viral_product_swap',role:'new_product_image'},\n"
             "  {strategy_id:'viral_rebuild',role:'product_image'},\n"
             " ],eligible:true,blocking_codes:[],blocking_codes_by_strategy:{\n"
-            "  viral_avatar_ugc:[],viral_product_swap:[],viral_rebuild:[],\n"
+            "  viral_avatar_ugc:['strategy_role_unavailable'],\n"
+            "  viral_product_swap:[],viral_rebuild:[],\n"
             " },created_at:'2026-08-14T07:00:00.000Z',\n"
             " _cursor:cursor(ids.productMedia,'2026-08-14T07:00:00.000Z'),\n"
             "});\n"

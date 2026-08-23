@@ -24,7 +24,8 @@ const MIME_BY_KIND = Object.freeze({
 });
 const KINDS = Object.freeze(new Set(["all", ...Object.keys(MIME_BY_KIND)]));
 const STRATEGY_ROLES = Object.freeze({
-  viral_avatar_ugc: new Set(["source_video", "avatar_image", "product_image"]),
+  // «Дуэт»: только исходник. Ведущий приходит из библиотеки, а не ассетом.
+  viral_avatar_ugc: new Set(["source_video"]),
   viral_product_swap: new Set([
     "source_video",
     "original_product_image",
@@ -60,6 +61,15 @@ const ASSET_KEYS = Object.freeze([
   "created_at",
   "_cursor",
 ]);
+// Появились в серверной обёртке 202608150001 (direct-MP4 источник) и
+// присутствуют только у kind === "source_video".
+const ASSET_OPTIONAL_KEYS = Object.freeze([
+  "direct_mp4_attached",
+  "source_attachment_kind",
+]);
+const SOURCE_ATTACHMENT_KINDS = Object.freeze(
+  new Set(["direct_mp4", "exact_youtube"]),
+);
 const PRODUCT_KEYS = Object.freeze([
   "product_id",
   "sku",
@@ -83,6 +93,16 @@ const CONTRACT_KEYS = Object.freeze([
   "signed_urls_returned",
   "source_video_requires_exact_youtube_attachment",
 ]);
+// Форма контракта после 202608150001: точный YouTube-источник ИЛИ прямой MP4.
+const CONTRACT_KEYS_DIRECT_MP4 = Object.freeze([
+  "read_only",
+  "object_names_returned",
+  "hashes_returned",
+  "signed_urls_returned",
+  "source_video_requires_registered_attachment",
+  "direct_mp4_supported",
+  "social_url_required_for_direct_mp4",
+]);
 
 class AssetContractError extends Error {
   constructor(code, field) {
@@ -99,13 +119,14 @@ function isPlainObject(value) {
   return prototype === Object.prototype || prototype === null;
 }
 
-function exactObject(value, keys, field) {
+function exactObject(value, keys, field, optionalKeys = []) {
   if (!isPlainObject(value)) throw new AssetContractError("object_required", field);
-  const actual = Object.keys(value).sort();
-  const expected = [...keys].sort();
+  const required = new Set(keys);
+  const optional = new Set(optionalKeys);
+  const actual = Object.keys(value);
   if (
-    actual.length !== expected.length
-    || actual.some((key, index) => key !== expected[index])
+    [...required].some((key) => !Object.hasOwn(value, key))
+    || actual.some((key) => !required.has(key) && !optional.has(key))
   ) {
     throw new AssetContractError("object_keys_mismatch", field);
   }
@@ -155,12 +176,14 @@ function exactNullableUuid(value, field) {
 
 function exactDuration(value, field) {
   if (value === null) return null;
+  // Миллисекундная гранулярность проверяется с допуском на двоичное
+  // представление double: 8.081 * 1000 === 8080.999999999999 в IEEE 754.
   if (
     typeof value !== "number"
     || !Number.isFinite(value)
     || value <= 0
     || value > 3_600
-    || Math.round(value * 1_000) !== value * 1_000
+    || Math.abs(Math.round(value * 1_000) - value * 1_000) > 1e-6
   ) {
     throw new AssetContractError("duration_invalid", field);
   }
@@ -213,18 +236,22 @@ function normalizeEligibleStrategyRoles(value, field) {
     throw new AssetContractError("eligible_strategy_roles_invalid", field);
   }
   const seen = new Set();
-  const normalized = value.map((entry, index) => {
+  const normalized = [];
+  value.forEach((entry, index) => {
     const itemField = `${field}.${index}`;
     exactObject(entry, ELIGIBLE_ROLE_KEYS, itemField);
     const strategyId = exactCode(entry.strategy_id, `${itemField}.strategy_id`);
     const role = exactCode(entry.role, `${itemField}.role`);
-    if (!STRATEGY_ROLES[strategyId]?.has(role)) {
-      throw new AssetContractError("eligible_strategy_role_invalid", itemField);
-    }
+    // Пара (стратегия, роль), которой этот экран не знает, ОТБРАСЫВАЕТСЯ, а не
+    // валит страницу. Иначе одна чужая роль — например, старая роль «Аватара»
+    // от сервера, который ещё не получил миграции «Дуэта», — оставляла бы без
+    // исходников «Копию» и «Создание» целиком. Экран не ставит ассет на роль,
+    // которой не знает, и этого достаточно; остальное — дело сервера.
+    if (!STRATEGY_ROLES[strategyId]?.has(role)) return;
     const key = `${strategyId}:${role}`;
     if (seen.has(key)) throw new AssetContractError("eligible_strategy_role_duplicate", itemField);
     seen.add(key);
-    return Object.freeze({ strategy_id: strategyId, role });
+    normalized.push(Object.freeze({ strategy_id: strategyId, role }));
   });
   return Object.freeze(normalized);
 }
@@ -239,7 +266,7 @@ function normalizeBlockingByStrategy(value, field) {
 
 function normalizeAsset(value, index, projectId) {
   const field = `assets.${index}`;
-  exactObject(value, ASSET_KEYS, field);
+  exactObject(value, ASSET_KEYS, field, ASSET_OPTIONAL_KEYS);
   const id = exactUuid(value.id, `${field}.id`);
   const kind = exactCode(value.kind, `${field}.kind`);
   if (!Object.hasOwn(MIME_BY_KIND, kind)) {
@@ -274,18 +301,40 @@ function normalizeAsset(value, index, projectId) {
     value.exact_youtube_attached,
     `${field}.exact_youtube_attached`,
   );
-  if (kind === "source_video" && !exactYoutubeAttached) {
+  const directMp4Attached = value.direct_mp4_attached === undefined
+    ? false
+    : exactBoolean(value.direct_mp4_attached, `${field}.direct_mp4_attached`);
+  let sourceAttachmentKind = null;
+  if (
+    value.source_attachment_kind !== undefined
+    && value.source_attachment_kind !== null
+  ) {
+    sourceAttachmentKind = exactCode(
+      value.source_attachment_kind,
+      `${field}.source_attachment_kind`,
+    );
+    if (!SOURCE_ATTACHMENT_KINDS.has(sourceAttachmentKind)) {
+      throw new AssetContractError(
+        "source_attachment_kind_invalid",
+        `${field}.source_attachment_kind`,
+      );
+    }
+  }
+  if (kind === "source_video" && !exactYoutubeAttached && !directMp4Attached) {
     throw new AssetContractError("source_attachment_required", field);
   }
-  if (kind !== "source_video" && exactYoutubeAttached) {
+  if (
+    kind !== "source_video"
+    && (exactYoutubeAttached || directMp4Attached || sourceAttachmentKind !== null)
+  ) {
     throw new AssetContractError("source_attachment_not_applicable", field);
   }
   if (!Array.isArray(value.eligible_roles) || value.eligible_roles.length > 8) {
     throw new AssetContractError("eligible_roles_invalid", `${field}.eligible_roles`);
   }
-  const eligibleRoles = value.eligible_roles.map((role, roleIndex) =>
+  const declaredRoles = value.eligible_roles.map((role, roleIndex) =>
     exactCode(role, `${field}.eligible_roles.${roleIndex}`));
-  if (new Set(eligibleRoles).size !== eligibleRoles.length) {
+  if (new Set(declaredRoles).size !== declaredRoles.length) {
     throw new AssetContractError("eligible_roles_duplicate", `${field}.eligible_roles`);
   }
   const eligibleStrategyRoles = normalizeEligibleStrategyRoles(
@@ -293,6 +342,13 @@ function normalizeAsset(value, index, projectId) {
     `${field}.eligible_strategy_roles`,
   );
   const pairRoles = new Set(eligibleStrategyRoles.map((entry) => entry.role));
+  // Роль без пары (стратегия, роль) после отсева незнакомых пар — это роль,
+  // которой этот экран не знает (например, прежняя роль «Аватара» от сервера
+  // без миграций «Дуэта»). Она отбрасывается вместе с парой, а не валит
+  // страницу: ассет просто не встанет на незнакомую роль.
+  // Ассет, у которого все роли оказались чужими, остаётся в списке без ролей
+  // и ниже честно считается «не подходит ни одной роли».
+  const eligibleRoles = declaredRoles.filter((role) => pairRoles.has(role));
   if (eligibleRoles.some((role) => !pairRoles.has(role))) {
     throw new AssetContractError("eligible_roles_unbound", `${field}.eligible_roles`);
   }
@@ -321,6 +377,8 @@ function normalizeAsset(value, index, projectId) {
     product_identity: productIdentity,
     filename: exactText(value.filename, `${field}.filename`, 255),
     exact_youtube_attached: exactYoutubeAttached,
+    direct_mp4_attached: directMp4Attached,
+    source_attachment_kind: sourceAttachmentKind,
     eligible_roles: Object.freeze(eligibleRoles),
     eligible_strategy_roles: eligibleStrategyRoles,
     eligible,
@@ -361,8 +419,14 @@ function normalizeMeta(value, field) {
 }
 
 function normalizeContract(value, field) {
-  exactObject(value, CONTRACT_KEYS, field);
-  const normalized = Object.freeze({
+  const directMp4Shape = isPlainObject(value)
+    && Object.hasOwn(value, "source_video_requires_registered_attachment");
+  exactObject(
+    value,
+    directMp4Shape ? CONTRACT_KEYS_DIRECT_MP4 : CONTRACT_KEYS,
+    field,
+  );
+  const base = {
     read_only: exactBoolean(value.read_only, `${field}.read_only`),
     object_names_returned: exactBoolean(
       value.object_names_returned,
@@ -373,18 +437,43 @@ function normalizeContract(value, field) {
       value.signed_urls_returned,
       `${field}.signed_urls_returned`,
     ),
+  };
+  if (!base.read_only || base.object_names_returned
+    || base.hashes_returned || base.signed_urls_returned) {
+    throw new AssetContractError("unsafe_contract", field);
+  }
+  if (directMp4Shape) {
+    const normalized = Object.freeze({
+      ...base,
+      source_video_requires_registered_attachment: exactBoolean(
+        value.source_video_requires_registered_attachment,
+        `${field}.source_video_requires_registered_attachment`,
+      ),
+      direct_mp4_supported: exactBoolean(
+        value.direct_mp4_supported,
+        `${field}.direct_mp4_supported`,
+      ),
+      social_url_required_for_direct_mp4: exactBoolean(
+        value.social_url_required_for_direct_mp4,
+        `${field}.social_url_required_for_direct_mp4`,
+      ),
+    });
+    if (
+      !normalized.source_video_requires_registered_attachment
+      || normalized.social_url_required_for_direct_mp4
+    ) {
+      throw new AssetContractError("unsafe_contract", field);
+    }
+    return normalized;
+  }
+  const normalized = Object.freeze({
+    ...base,
     source_video_requires_exact_youtube_attachment: exactBoolean(
       value.source_video_requires_exact_youtube_attachment,
       `${field}.source_video_requires_exact_youtube_attachment`,
     ),
   });
-  if (
-    !normalized.read_only
-    || normalized.object_names_returned
-    || normalized.hashes_returned
-    || normalized.signed_urls_returned
-    || !normalized.source_video_requires_exact_youtube_attachment
-  ) {
+  if (!normalized.source_video_requires_exact_youtube_attachment) {
     throw new AssetContractError("unsafe_contract", field);
   }
   return normalized;

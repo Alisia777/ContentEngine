@@ -32,15 +32,15 @@ export function normalizeGenerationSpendOverview(value = {}) {
   const usageSource = objectValue(source.usage) || {};
   const daySource = objectValue(usageSource.day) || {};
   const monthSource = objectValue(usageSource.month) || {};
-  const policyPresent = [
+  const policyFieldsPresent = [
     "paid_generation_enabled",
     "daily_limit_minor",
     "monthly_limit_minor",
     "per_request_limit_minor",
     "version",
-  ].some((key) => Object.prototype.hasOwnProperty.call(policySource, key));
+  ].every((key) => Object.prototype.hasOwnProperty.call(policySource, key));
   const policy = {
-    present: policyPresent,
+    present: false,
     paidGenerationEnabled: policySource.paid_generation_enabled === true,
     dailyLimitMinor: minorValue(policySource.daily_limit_minor),
     monthlyLimitMinor: minorValue(policySource.monthly_limit_minor),
@@ -51,6 +51,12 @@ export function normalizeGenerationSpendOverview(value = {}) {
     updatedAt: safeText(policySource.updated_at),
     updatedBy: safeText(policySource.updated_by),
   };
+  const policyPresent = policyFieldsPresent
+    && policy.dailyLimitMinor !== null
+    && policy.monthlyLimitMinor !== null
+    && policy.perRequestLimitMinor !== null
+    && policy.version > 0;
+  policy.present = policyPresent;
   const day = normalizePeriod(daySource);
   const month = normalizePeriod(monthSource);
   const explicitBlocker = safeCode(source.blocker_code);
@@ -74,12 +80,74 @@ export function normalizeGenerationSpendOverview(value = {}) {
   };
 }
 
+export function generationCampaignSelectionState(value = {}, {
+  status = "ready",
+  currentCampaignId = "",
+  preferredCampaignId = "",
+  requiresExplicitSelection = false,
+} = {}) {
+  const overview = isNormalizedOverview(value)
+    ? value
+    : normalizeGenerationSpendOverview(value);
+  const trusted = status === "ready"
+    && overview.ok === true
+    && overview.policy.present === true
+    && Number.isSafeInteger(overview.day.remainingMinor)
+    && Number.isSafeInteger(overview.month.remainingMinor);
+  const idCounts = new Map();
+  if (trusted) {
+    for (const campaign of overview.campaigns) {
+      const id = campaignIdValue(campaign?.id);
+      if (id) idCounts.set(id, (idCounts.get(id) || 0) + 1);
+    }
+  }
+  const campaigns = trusted
+    ? overview.campaigns.filter((campaign) => {
+        const id = campaignIdValue(campaign?.id);
+        return Boolean(
+          id
+          && idCounts.get(id) === 1
+          && campaign.enabled === true
+          && !campaign.blockerCode,
+        );
+      })
+    : [];
+  const currentId = campaignIdValue(currentCampaignId);
+  const preferredId = campaignIdValue(preferredCampaignId);
+  const hasCurrentSelection = Boolean(safeText(currentCampaignId));
+  const hasPreferredSelection = Boolean(safeText(preferredCampaignId));
+  let selectedId = "";
+  if (requiresExplicitSelection === true) {
+    selectedId = "";
+  } else if (hasPreferredSelection) {
+    selectedId = campaigns.find((campaign) => campaign.id === preferredId)?.id || "";
+  } else if (hasCurrentSelection) {
+    selectedId = campaigns.find((campaign) => campaign.id === currentId)?.id || "";
+  } else {
+    selectedId = campaigns[0]?.id || "";
+  }
+  return {
+    ready: trusted,
+    campaigns,
+    selectedId,
+    selectionChanged: selectedId !== currentId,
+    explicitSelectionRejected: Boolean(
+      requiresExplicitSelection === true
+      || ((hasPreferredSelection || hasCurrentSelection) && !selectedId),
+    ),
+    preferredSelectionResolved: Boolean(
+      preferredId && selectedId === preferredId,
+    ),
+  };
+}
+
 export function generationSpendAllowsMinor(value, requestMinor, campaignId = "") {
   const overview = isNormalizedOverview(value) ? value : normalizeGenerationSpendOverview(value);
   const amount = minorValue(requestMinor);
+  if (overview.ok !== true) return false;
   if (!overview.policy.present) return false;
   if (!overview.policy.paidGenerationEnabled || overview.blockerCode) return false;
-  if (amount === null) return true;
+  if (amount === null) return false;
   const limits = [
     overview.policy.perRequestLimitMinor,
     overview.day.remainingMinor,
@@ -88,8 +156,11 @@ export function generationSpendAllowsMinor(value, requestMinor, campaignId = "")
   if (limits.some((item) => item === null)) return false;
   if (!limits.every((limit) => limit >= amount)) return false;
   if (!overview.campaigns.length) return false;
-  const normalizedCampaignId = safeText(campaignId);
+  const normalizedCampaignId = campaignIdValue(campaignId);
   const campaign = overview.campaigns.find((item) => item.id === normalizedCampaignId);
+  if (overview.campaigns.filter(
+    (item) => item.id === normalizedCampaignId,
+  ).length !== 1) return false;
   if (!campaign || !campaign.enabled || campaign.blockerCode) return false;
   const campaignLimits = [
     campaign.policy.perRequestLimitMinor,
@@ -147,7 +218,7 @@ export function managerGenerationSpendMarkup(state = {}, {
     : loading
       ? "Пока идёт проверка, сохранённые значения показаны только для справки."
       : overview.blockerMessage
-      || "Перед каждым запросом к Runway сервер атомарно резервирует сумму и повторно сверяет лимиты.";
+      || "Перед каждым платным запросом к провайдеру сервер атомарно резервирует сумму и повторно сверяет лимиты.";
   const controls = canEdit
     ? generationSpendPolicyForm(overview, { saving, disabled: !trusted || loading || staleError })
     : `<p class="manager-spend-readonly">Изменить рубильник и лимиты может только владелец или администратор команды.</p>`;
@@ -358,7 +429,7 @@ function generationCampaignCreateForm(overview, { saving = false, disabled = fal
       <form id="generation-campaign-create-form" class="manager-spend-form" novalidate>
         <fieldset ${saving || disabled ? "disabled" : ""}>
           <legend>Новая кампания</legend>
-          <label class="field"><span>Название *</span><input name="name" required minlength="2" maxlength="160" autocomplete="off" placeholder="Например: Кровавый пилинг · июль" /></label>
+          <label class="field"><span>Название *</span><input name="campaign_name" required minlength="2" maxlength="160" autocomplete="off" placeholder="Например: Кровавый пилинг · июль" /></label>
           <div class="manager-spend-form-grid">
             ${moneyField("daily_limit_usd", "На день, $", overview.policy.dailyLimitMinor)}
             ${moneyField("monthly_limit_usd", "На месяц, $", overview.policy.monthlyLimitMinor)}
@@ -388,30 +459,72 @@ function normalizeCampaign(value) {
   if (!source) return null;
   const policySource = objectValue(source.policy) || {};
   const usageSource = objectValue(source.usage) || {};
+  const status = safeCode(source.status);
+  const policy = {
+    paidGenerationEnabled: policySource.paid_generation_enabled === true,
+    dailyLimitMinor: minorValue(policySource.daily_limit_minor),
+    monthlyLimitMinor: minorValue(policySource.monthly_limit_minor),
+    perRequestLimitMinor: minorValue(policySource.per_request_limit_minor),
+    version: nonNegativeInteger(policySource.version),
+    reason: safeText(policySource.reason),
+    updatedAt: safeText(policySource.updated_at),
+  };
+  const policyPresent = [
+    "paid_generation_enabled",
+    "daily_limit_minor",
+    "monthly_limit_minor",
+    "per_request_limit_minor",
+    "version",
+  ].every((key) => Object.prototype.hasOwnProperty.call(policySource, key))
+    && policy.dailyLimitMinor !== null
+    && policy.monthlyLimitMinor !== null
+    && policy.perRequestLimitMinor !== null
+    && policy.version > 0;
+  const day = normalizePeriod(objectValue(usageSource.day) || {});
+  const month = normalizePeriod(objectValue(usageSource.month) || {});
   const hasExplicitEnabled = Object.prototype.hasOwnProperty.call(source, "enabled");
+  const explicitEnabled = hasExplicitEnabled ? source.enabled === true : null;
+  const explicitBlocker = safeCode(source.blocker_code);
+  const blockerCode = explicitBlocker
+    || (status !== "active" ? "paid_generation_campaign_not_active" : "")
+    || (!policyPresent ? "paid_generation_campaign_policy_missing" : "")
+    || (!policy.paidGenerationEnabled ? "paid_generation_campaign_paused" : "")
+    || (day.remainingMinor === null || month.remainingMinor === null
+      ? "generation_campaign_budget_policy_changed"
+      : "")
+    || (day.remainingMinor === 0
+      ? "generation_campaign_daily_budget_exceeded"
+      : "")
+    || (month.remainingMinor === 0
+      ? "generation_campaign_monthly_budget_exceeded"
+      : "")
+    || (hasExplicitEnabled && explicitEnabled !== true
+      ? "generation_campaign_budget_policy_changed"
+      : "");
+  const fallbackRemainingMinor = day.remainingMinor === null
+    || month.remainingMinor === null
+    ? null
+    : Math.min(day.remainingMinor, month.remainingMinor);
   return {
-    id: safeText(source.id || source.campaign_id),
+    id: campaignIdValue(source.id || source.campaign_id)
+      || safeText(source.id || source.campaign_id),
     name: safeText(source.name || source.campaign_name),
     productName: safeText(source.product_name),
     sku: safeText(source.sku),
     kind: safeText(source.kind),
-    status: safeText(source.status),
-    enabled: hasExplicitEnabled ? source.enabled === true : source.status === "active",
-    blockerCode: safeCode(source.blocker_code),
-    policy: {
-      paidGenerationEnabled: policySource.paid_generation_enabled === true,
-      dailyLimitMinor: minorValue(policySource.daily_limit_minor),
-      monthlyLimitMinor: minorValue(policySource.monthly_limit_minor),
-      perRequestLimitMinor: minorValue(policySource.per_request_limit_minor),
-      version: nonNegativeInteger(policySource.version),
-      reason: safeText(policySource.reason),
-      updatedAt: safeText(policySource.updated_at),
-    },
-    day: normalizePeriod(objectValue(usageSource.day) || {}),
-    month: normalizePeriod(objectValue(usageSource.month) || {}),
+    status,
+    enabled: status === "active"
+      && policyPresent
+      && policy.paidGenerationEnabled
+      && explicitEnabled !== false
+      && !blockerCode,
+    blockerCode,
+    policy,
+    day,
+    month,
     committedMinor: minorValue(source.committed_minor ?? source.settled_minor) ?? 0,
     reservedMinor: minorValue(source.reserved_minor) ?? 0,
-    remainingMinor: minorValue(source.remaining_minor),
+    remainingMinor: minorValue(source.remaining_minor) ?? fallbackRemainingMinor,
   };
 }
 
@@ -436,6 +549,13 @@ function isNormalizedOverview(value) {
 
 function safeText(value) {
   return String(value ?? "").trim().slice(0, 500);
+}
+
+function campaignIdValue(value) {
+  const id = safeText(value).toLowerCase();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(id)
+    ? id
+    : "";
 }
 
 function safeCode(value) {

@@ -29,7 +29,7 @@ def _function_source(source: str, name: str, next_name: str) -> str:
 
 
 def test_v44_preserves_mandatory_learning_and_normalizes_only_the_obsolete_alias() -> None:
-    assert 'content="20260814.os4.41"' in INDEX
+    assert 'content="20260823.copy-engines.45"' in INDEX
     assert './startup-route.js?v=20260803.entry1' in INDEX
     assert INDEX.index("./startup-route.js") < INDEX.index("./app.js")
     assert '/^#\\/academy' in STARTUP
@@ -496,12 +496,12 @@ def test_workspace_tabs_without_permission_open_an_explicit_access_screen_not_ac
     assert 'data-action="retry-bootstrap"' in screen
 
 
-def test_visible_menubar_search_opens_finder_without_another_window() -> None:
+def test_visible_menubar_search_opens_finder_and_keeps_multiwindow_controls() -> None:
     menubar = _between(CORE, "function ensureMenubar() {", "\n}\n\nfunction updateClock")
     workspace_window = _between(
         CORE,
-        "function ensureWorkspaceWindow() {",
-        "\nfunction removeWorkspaceWindow()",
+        "function createWorkspaceWindowShell(windowId) {",
+        "\nfunction syncWorkspaceWindowState()",
     )
     search = _between(CORE, "function focusFinderSearch(", "\n}\n\nfunction fullscreenElement")
     public_api = CORE[CORE.index("window.ContentEngineDesktopV4 = Object.freeze({") :]
@@ -526,7 +526,8 @@ def test_visible_menubar_search_opens_finder_without_another_window() -> None:
     assert 'windowControl("zoom"' in workspace_window
     assert "ceV4Fullscreen" in menubar
     assert "void toggleFullscreen()" in menubar
-    for retired_window in ("openMission,", "openSpotlight,", "openZen,", "closeZen,"):
+    assert "openMission," in public_api
+    for retired_window in ("openSpotlight,", "openZen,", "closeZen,"):
         assert retired_window not in public_api
 
 

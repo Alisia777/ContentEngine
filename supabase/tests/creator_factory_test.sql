@@ -158,7 +158,14 @@ select is(
       and procedure.proname like 'creator_%'
       and has_function_privilege('authenticated', procedure.oid, 'execute')
   ),
-  117,
+  -- 120 = 117 + библиотека ведущих «Дуэта»: creator_list_duet_presenters,
+  -- creator_register_duet_presenter, creator_update_duet_presenter_layout
+  -- (миграции 202608220008, 202608220009, 202608220012). Число здесь стоит не
+  -- ради числа: оно ловит функцию, которой выдали право на выполнение мимо
+  -- ревью. Поэтому его правят вместе с осознанным добавлением, а не подгоняют.
+  -- 121 = 120 + creator_admin_account_ownership (202608230024): поля владения
+  -- аккаунтом компании ставит владелец/админ из админки «Люди → Аккаунты».
+  121,
   'authenticated can execute all creator RPCs'
 );
 

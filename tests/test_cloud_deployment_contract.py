@@ -764,6 +764,7 @@ def test_cloud_documentation_describes_one_public_browser_workspace() -> None:
     assert "paid product research" in normalized
     assert "OPENAI_API_KEY" in guide
     assert "RUNWAYML_API_SECRET" in guide
+    assert "FAL_KEY" in guide
     assert "Creators do not install Python" in normalized
     assert "SUPABASE_ACCESS_TOKEN" in guide
     assert "SUPABASE_DB_PASSWORD" not in guide

@@ -51,6 +51,11 @@ def test_real_generation_edge_function_is_authenticated_and_origin_bound() -> No
     assert 'auth: "user"' in source
     assert 'const PUBLIC_APP_ORIGIN = "https://alisia777.github.io"' in source
     assert 'const LOCAL_QA_APP_ORIGIN = "http://127.0.0.1:8767"' in source
+    assert (
+        'const LOCAL_PRODUCTION_QA_APP_ORIGIN = "http://127.0.0.1:8769"'
+        in source
+    )
+    assert "LOCAL_PRODUCTION_QA_APP_ORIGIN," in source
     assert 'USER_APP_ORIGINS.has(request.headers.get("origin") ?? "")' in source
     assert '"access-control-allow-origin", origin' in source
     assert '"access-control-allow-origin", "*"' not in source
@@ -326,7 +331,17 @@ def test_output_is_allowlisted_bounded_verified_and_privately_persisted() -> Non
     assert (
         'const RUNWAY_OUTPUT_HOST = "dnznrvs05pmza.cloudfront.net"' in source
     )
-    assert 'url.hostname !== RUNWAY_OUTPUT_HOST' in source
+    # Хост результата проверяется по белому списку своего провайдера: у Runway
+    # он один, у fal — известный набор. Разрешать «любой https» нельзя.
+    assert 'url.hostname === RUNWAY_OUTPUT_HOST' in source
+    # У fal готовые файлы раздаются с меняющихся узлов одного домена (v3, v3b
+    # и далее), поэтому проверяется домен и его поддомены, а не перечень узлов:
+    # жёсткий перечень однажды уже сделал оплаченный ролик недоступным. Чужой
+    # хост так не пройдёт — сравнение либо точное, либо по суффиксу с точкой.
+    assert "falOutputHostAllowed(url.hostname)" in source
+    assert 'const FAL_OUTPUT_DOMAINS = Object.freeze(["fal.media"]);' in source
+    assert "hostname === domain || hostname.endsWith(`.${domain}`)" in source
+    assert ": false;" in source
     assert 'url.protocol !== "https:"' in source
     assert 'const MAX_OUTPUT_BYTES = 52_428_800' in source
     for output_mime in (
@@ -377,9 +392,73 @@ def test_provider_errors_and_ephemeral_urls_are_not_returned_raw() -> None:
         assert safe_code in source
 
 
-def test_production_workflow_masks_sets_and_deploys_runway_secret() -> None:
+def test_refusals_leave_a_redacted_trace_in_the_function_log() -> None:
+    # Отказы платного пути обязаны попадать в function_logs. Без этого пустой
+    # лог заставлял разбирать поломку часами: наружу уходил только непрозрачный
+    # generation_unavailable, а причина не сохранялась нигде.
+    source = _source()
+
+    # Единственный сток, который Edge-рантайм пересылает в function_logs.
+    # console.log/console.error по-прежнему запрещены тестом выше.
+    assert "console.warn" in source
+
+    # Каждый ответ со статусом >= 400 обязан слить накопленный след.
+    assert "if (status >= 400) flushGenerationRefusal(request, body, status);" \
+        in source
+
+    # След живёт в WeakMap по объекту Request: параллельные вызовы внутри
+    # одного изолята не должны смешивать причины отказов между собой.
+    assert "const refusalTrails = new WeakMap<Request, string[]>();" in source
+    assert "refusalTrails.delete(request);" in source
+
+    # Редакция — это белый список, а не чёрный. Любое значение вне точных
+    # шаблонов схлопывается в "unclassified", поэтому в лог не могут попасть
+    # секреты, промпты, подписанные ссылки, тела провайдера и текст ошибок БД.
+    assert "const REFUSAL_CODE_PATTERN = /^[a-z0-9_]{3,110}$/u;" in source
+    assert "const REFUSAL_STAGE_PATTERN = /^[a-z0-9_.]{3,60}$/u;" in source
+    assert '"unclassified"' in source
+
+    # Одного класса символов мало: ключ вида key_live_9f3ab77c... целиком
+    # состоит из [a-z0-9_] и прошёл бы как «код». Поэтому каждый сегмент
+    # обязан быть коротким словом — так энтропия отсекается по форме.
+    assert "REFUSAL_CODE_SEGMENT_PATTERN" in source
+    assert "/^(?:[a-z]{1,24}[0-9]{0,3}|[0-9]{1,4})$/u;" in source
+    assert "code.split(\"_\").every((segment) =>" in source
+
+    # Код провайдера логируется только из уже санированной таксономии,
+    # и проверяется тем же правилом формы слова.
+    assert (
+        "const REFUSAL_PROVIDER_CODE_PATTERN = /^[A-Z0-9][A-Z0-9._-]{0,59}$/u;"
+        in source
+    )
+    assert "REFUSAL_PROVIDER_SEGMENT_PATTERN" in source
+    assert "/^(?:[A-Z]{1,24}[0-9]{0,3}|[0-9]{1,4})$/u;" in source
+    assert "code.split(/[._-]/u).every((segment) =>" in source
+
+    # Упавшая оплаченная задача отвечает HTTP 200 с failed-джобой в теле,
+    # поэтому её причина пишется напрямую, а не через слив отказов.
+    assert 'logGenerationJobFailure("job.marked_failed", safeCode, {' in source
+
+    # Ключевые швы платного маршрута инструментированы поимённо.
+    for stage in (
+        '"start.claim_budget_rejected"',
+        '"start.claim_terminal"',
+        '"start.claim_unavailable"',
+        '"start.reserved_job_mismatch"',
+        '"strategy_start.claim_rpc_rejected"',
+        '"strategy_start.continuation_refused"',
+        '"strategy_status.projection_unavailable"',
+    ):
+        assert stage in source
+
+    # Наружу контракт не меняется: пользователь по-прежнему видит только код.
+    assert 'reason: trail.length > 0 ? trail : ["not_instrumented"]' in source
+
+
+def test_production_workflow_masks_sets_and_deploys_video_provider_secrets() -> None:
     text = WORKFLOW_PATH.read_text(encoding="utf-8")
     builder = PAGES_BUILDER_PATH.read_text(encoding="utf-8")
+    env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
     workflow = yaml.safe_load(text)
     migrate = workflow["jobs"]["migrate"]
     steps = migrate["steps"]
@@ -396,6 +475,27 @@ def test_production_workflow_masks_sets_and_deploys_runway_secret() -> None:
     assert 'echo "::add-mask::$RUNWAYML_API_SECRET"' in secret_step["run"]
     assert "supabase secrets set" in secret_step["run"]
     assert 'RUNWAYML_API_SECRET="$RUNWAYML_API_SECRET"' in secret_step["run"]
+    fal_secret_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Synchronize private fal.ai API secret"
+    )
+    assert fal_secret_step["env"] == {
+        "SUPABASE_ACCESS_TOKEN": "${{ secrets.SUPABASE_ACCESS_TOKEN }}",
+        "FAL_KEY": "${{ secrets.FAL_KEY }}",
+    }
+    assert 'echo "::add-mask::$FAL_KEY"' in fal_secret_step["run"]
+    assert "supabase secrets set" in fal_secret_step["run"]
+    assert 'FAL_KEY="$FAL_KEY"' in fal_secret_step["run"]
+    require_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Require production Supabase coordinates"
+    )
+    assert require_step["env"]["FAL_KEY"] == "${{ secrets.FAL_KEY }}"
+    assert "${FAL_KEY:?Configure FAL_KEY in the production environment}" in (
+        require_step["run"]
+    )
     deploy = next(
         step
         for step in steps
@@ -407,6 +507,14 @@ def test_production_workflow_masks_sets_and_deploys_runway_secret() -> None:
     )
     assert "--no-verify-jwt" not in deploy["run"]
     assert "RUNWAYML_API_SECRET" not in workflow["jobs"]["build-pages"]["env"]
+    assert "FAL_KEY" not in workflow["jobs"]["build-pages"]["env"]
+    reject_secrets_step = next(
+        step
+        for step in workflow["jobs"]["build-pages"]["steps"]
+        if step.get("name") == "Reject server secrets and localhost from Pages artifact"
+    )
+    assert "FAL_KEY" in reject_secrets_step["run"]
+    assert "\nFAL_KEY=\n" in env_example
     assert '"MOCK_ONLY"' not in builder
     assert '"MOCK_ENABLED": True' in builder
     assert '"REAL_GENERATION_ENABLED": True' in builder

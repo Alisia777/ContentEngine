@@ -19,14 +19,16 @@ def test_legacy_desktop_polish_is_not_an_active_runtime_layer() -> None:
         flags=re.MULTILINE,
     )
     assert not any("workspace-desktop-os-polish" in asset for asset in active_assets)
-    assert "./workspace-os-v4.css?v=20260814.os4.41" in active_assets
+    assert "./workspace-os-v4.css?v=20260822.live-windows.5" in active_assets
     assert (
-        "./workspace-os-v4-loader.js?v=20260814.os4.41.strategy-interactions-1"
+        "./workspace-os-v4-loader.js?v=20260822.live-windows.5"
         in active_assets
     )
     assert active_assets.index(
-        "./workspace-os-v4-loader.js?v=20260814.os4.41.strategy-interactions-1"
-    ) < active_assets.index("./workspace-build-guard.js?v=20260814.os4.41")
+        "./workspace-os-v4-loader.js?v=20260822.live-windows.5"
+    ) < active_assets.index(
+        "./workspace-build-guard.js?v=20260823.copy-engines.45"
+    )
 
 
 def test_mobile_mode_switch_no_longer_overlaps_the_step_dock() -> None:

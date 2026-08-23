@@ -15,7 +15,7 @@ export const GENERATION_VISIBLE_CAP = 200;
 const PORTAL_THEME_IDS = new Set(PORTAL_THEMES.map((theme) => theme.id));
 const GENERATION_PERIODS = new Set(["week", "4w", "12w", "all"]);
 const GENERATION_STATUS_GROUPS = new Set(["all", "active", "ready", "issue"]);
-const GENERATION_PROVIDERS = new Set(["all", "runway", "google"]);
+const GENERATION_PROVIDERS = new Set(["all", "runway", "google", "fal"]);
 const GENERATION_STRATEGIES = new Set([
   "all",
   "viral_avatar_ugc",

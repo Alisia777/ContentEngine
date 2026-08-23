@@ -1,0 +1,47 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+    environment:
+      QVF_RUNTIME_PROFILE: development
+      QVF_GENERATION_MODE: mock
+      QVF_LLM_PROVIDER: mock
+      QVF_VIDEO_PROVIDER: mock
+      QVF_ALLOW_REAL_SPEND: "false"
+      QVF_MOCK_PROVIDER_ENABLED: "true"
+      QVF_DATABASE_URL: sqlite:////app/.local-data/qharisma.db
+      QVF_MEDIA_ROOT: /app/media
+      QVF_FFMPEG_PATH: ffmpeg
+      QVF_FFPROBE_PATH: ffprobe
+    volumes:
+      - ./.local/docker/media:/app/media
+      - ./.local/docker/data:/app/.local-data
+
+  product-ugc-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+    environment:
+      QVF_RUNTIME_PROFILE: development
+      QVF_GENERATION_MODE: mock
+      QVF_LLM_PROVIDER: mock
+      QVF_VIDEO_PROVIDER: mock
+      QVF_ALLOW_REAL_SPEND: "false"
+      QVF_MOCK_PROVIDER_ENABLED: "true"
+      QVF_DATABASE_URL: sqlite:////app/.local-data/qharisma.db
+      QVF_MEDIA_ROOT: /app/media
+      QVF_FFMPEG_PATH: ffmpeg
+      QVF_FFPROBE_PATH: ffprobe
+    volumes:
+      - ./.local/docker/media:/app/media
+      - ./.local/docker/data:/app/.local-data
+
+  local-web:
+    image: nginx:1.27-alpine
+    ports:
+      - "127.0.0.1:8767:80"
+    restart: unless-stopped
+    volumes:
+      - ./.local/site:/usr/share/nginx/html:ro
+      - ./dev/nginx.local.conf:/etc/nginx/conf.d/default.conf:ro

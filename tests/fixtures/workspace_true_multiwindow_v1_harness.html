@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="ru" data-ce-v4-notification-fixture="true">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ContentEngine true multiwindow v1 harness</title>
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4.css?v=true-multiwindow-v1" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-stability.css?v=true-multiwindow-v1" />
+    <style>
+      html, body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      .fixture-bootstrap-page { display: grid; gap: 12px; min-height: 440px; padding: 24px; color: #eef3f8; background: #0c1622; }
+      .fixture-bootstrap-page h1 { margin: 0; }
+      .fixture-bootstrap-page p { max-width: 60ch; margin: 0; color: #8392a4; }
+    </style>
+  </head>
+  <body>
+    <div id="app" class="app-root">
+      <div
+        class="workspace-shell workspace-shell-v4"
+        data-workspace-section="ai"
+        data-workspace-role="operator"
+        data-workspace-authorized-routes="/workspace/home /workspace/board /workspace/generation /workspace/review /workspace/placement /workspace/stats /workspace/research /workspace/ai /workspace/tasks /workspace/work"
+        data-project-id="11111111-1111-4111-8111-111111111111"
+        data-project-name="Bombbar · Август"
+      >
+        <main class="workspace-main">
+          <div id="main-content">
+            <div id="workspace-content">
+              <section class="page-wrap fixture-bootstrap-page">
+                <h1>Начальная страница ИИ-центра</h1>
+                <p>Родительская оболочка не должна копировать эту бизнес-разметку между окнами.</p>
+              </section>
+            </div>
+          </div>
+        </main>
+      </div>
+      <script id="workspace-project-flow-snapshot" type="application/json">
+        {
+          "project_id": "11111111-1111-4111-8111-111111111111",
+          "project": {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "name": "Bombbar · Август",
+            "progress_percent": 80,
+            "current_stage": "review"
+          },
+          "projects": [
+            {
+              "id": "11111111-1111-4111-8111-111111111111",
+              "name": "Bombbar · Август",
+              "progress_percent": 80,
+              "current_stage": "review"
+            }
+          ],
+          "counts": {
+            "files": 12,
+            "generation_jobs": 2,
+            "reviews": 2,
+            "placements": 1,
+            "metric_snapshots": 0,
+            "notifications_unread": 5
+          },
+          "stages": [
+            { "code": "files", "state": "done", "count": 12 },
+            { "code": "generation", "state": "done", "count": 2 },
+            { "code": "review", "state": "current", "count": 2 },
+            { "code": "placement", "state": "future", "count": 1 },
+            { "code": "stats", "state": "future", "count": 0 }
+          ]
+        }
+      </script>
+    </div>
+    <div id="toast-region" aria-live="polite"></div>
+
+    <script type="module">
+      const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
+      const SURFACE_SELECTOR = "iframe[data-ce-v4-window-surface]";
+
+      const delay = (milliseconds = 0) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+
+      async function waitFor(predicate, label, timeout = 12000) {
+        const deadline = performance.now() + timeout;
+        let lastError = null;
+        while (performance.now() < deadline) {
+          try {
+            if (predicate()) return true;
+          } catch (error) {
+            lastError = error;
+          }
+          await delay(25);
+        }
+        throw new Error(`${label}${lastError ? `: ${lastError.message}` : ""}`);
+      }
+
+      function visible(node) {
+        if (!(node instanceof HTMLElement) || node.hidden) return false;
+        const style = getComputedStyle(node);
+        const rect = node.getBoundingClientRect();
+        return style.display !== "none"
+          && style.visibility !== "hidden"
+          && Number(style.opacity || 1) > 0
+          && rect.width > 40
+          && rect.height > 40;
+      }
+
+      function windowRecords() {
+        return [...document.querySelectorAll("[data-ce-v4-window]")].map((shell) => ({
+          shell,
+          windowId: String(shell.dataset.ceV4WindowId || ""),
+          surface: shell.querySelector(SURFACE_SELECTOR),
+        }));
+      }
+
+      function childReady(record) {
+        try {
+          return record.surface instanceof HTMLIFrameElement
+            && record.surface.contentWindow
+            && record.surface.contentDocument?.readyState === "complete"
+            && record.surface.contentDocument.body?.dataset.ceWindowChild === "true"
+            && record.surface.contentDocument.body?.dataset.ceWindowChildReady === "true";
+        } catch {
+          return false;
+        }
+      }
+
+      function captureIdentity(records) {
+        return records.map((record) => {
+          const childBody = record.surface.contentDocument.body;
+          const input = record.surface.contentDocument.querySelector("#ce-window-live-input");
+          return {
+            ...record,
+            childWindow: record.surface.contentWindow,
+            childDocument: record.surface.contentDocument,
+            source: record.surface.getAttribute("src"),
+            childLocation: record.surface.contentWindow.location.href,
+            bootId: String(childBody.dataset.fixtureBootId || ""),
+            inputValue: String(input?.value || ""),
+          };
+        });
+      }
+
+      function identityAndStatePreserved(snapshot) {
+        return snapshot.every((record) => {
+          const currentSurface = record.shell.querySelector(SURFACE_SELECTOR);
+          const currentDocument = currentSurface?.contentDocument;
+          return record.shell.isConnected
+            && currentSurface === record.surface
+            && currentSurface?.isConnected
+            && currentSurface.contentWindow === record.childWindow
+            && currentDocument === record.childDocument
+            && currentSurface.getAttribute("src") === record.source
+            && currentSurface.contentWindow.location.href === record.childLocation
+            && currentDocument?.body?.dataset.fixtureBootId === record.bootId
+            && currentDocument.querySelector("#ce-window-live-input")?.value === record.inputValue;
+        });
+      }
+
+      function pointer(target, type, options) {
+        const PointerEventConstructor = target.ownerDocument?.defaultView?.PointerEvent || PointerEvent;
+        target.dispatchEvent(new PointerEventConstructor(type, {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          button: 0,
+          buttons: type === "pointerup" ? 0 : 1,
+          pointerType: "mouse",
+          ...options,
+        }));
+      }
+
+      function mark(name, value) {
+        document.body.dataset[name] = String(Boolean(value));
+      }
+
+      try {
+        document.body.dataset.fixtureTrueMultiPhase = "import";
+        window.location.hash = `#/workspace/ai?project_id=${PROJECT_ID}`;
+        await import("../../web/app/workspace-os-v4.js?fixture=true-multiwindow-v1");
+        await window.ContentEngineDesktopV4.flush();
+
+        document.body.dataset.fixtureTrueMultiPhase = "open-second-window";
+        const boardRoute = `/workspace/board?project_id=${PROJECT_ID}`;
+        const boardNavigation = new Promise((resolve) => {
+          window.addEventListener("hashchange", resolve, { once: true });
+        });
+        window.ContentEngineDesktopV4.navigate(boardRoute);
+        await boardNavigation;
+        await window.ContentEngineDesktopV4.flush();
+
+        document.body.dataset.fixtureTrueMultiPhase = "wait-for-live-children";
+        await waitFor(() => {
+          const records = windowRecords();
+          return records.length === 2 && records.every(childReady);
+        }, "two same-origin child documents did not become ready");
+        // Shells use a 240ms enter transition. The headless `--dump-dom`
+        // clock can exhaust its virtual-time budget between animation frames,
+        // so finish only the already-running enter animations before sampling.
+        windowRecords().forEach(({ shell }) => {
+          shell.getAnimations().forEach((animation) => animation.finish());
+        });
+        await waitFor(() => {
+          const records = windowRecords();
+          return records.length === 2 && records.every((record) => visible(record.shell));
+        }, "two window shells did not finish their enter transition");
+
+        document.body.dataset.fixtureTrueMultiPhase = "exercise-lifecycle";
+        const records = windowRecords();
+        const shells = records.map((record) => record.shell);
+        const surfaces = records.map((record) => record.surface);
+        const childDocuments = records.map((record) => record.surface.contentDocument);
+        const childWindows = records.map((record) => record.surface.contentWindow);
+        const childRoutes = childDocuments.map((childDocument) => childDocument.body.dataset.ceWindowRoute || "");
+        const childIds = childDocuments.map((childDocument) => childDocument.body.dataset.ceWindowId || "");
+
+        mark("fixtureTrueMultiTwoVisibleShells", shells.length === 2 && shells.every(visible));
+        mark("fixtureTrueMultiTwoSurfaces", surfaces.length === 2 && surfaces.every((surface) => (
+          surface instanceof HTMLIFrameElement && visible(surface)
+        )));
+        mark("fixtureTrueMultiBothSurfacesInteractive", surfaces.every((surface) => (
+          !surface.hidden
+          && !surface.hasAttribute("inert")
+          && surface.getAttribute("aria-hidden") !== "true"
+          && getComputedStyle(surface).pointerEvents !== "none"
+        )));
+        mark("fixtureTrueMultiDistinctWindows", new Set(childWindows).size === 2);
+        mark("fixtureTrueMultiDistinctDocuments", new Set(childDocuments).size === 2);
+        mark("fixtureTrueMultiChildrenHaveNoNestedDesktop", childDocuments.every((childDocument) => (
+          !childDocument.querySelector(
+            ".ce-v4-menubar,.ce-v4-dock,.ce-v4-desktop,[data-ce-v4-window]",
+          )
+        )));
+        mark("fixtureTrueMultiSameOrigin", records.every((record) => {
+          try {
+            return record.surface.contentWindow.location.origin === window.location.origin;
+          } catch {
+            return false;
+          }
+        }));
+        mark("fixtureTrueMultiWindowIdsBound", childIds.length === 2
+          && new Set(childIds).size === 2
+          && records.every((record, index) => childIds[index] === record.windowId));
+        mark("fixtureTrueMultiIndependentRoutes", childRoutes.some((route) => route.startsWith("/workspace/ai"))
+          && childRoutes.some((route) => route.startsWith("/workspace/board"))
+          && new Set(childRoutes).size === 2);
+        mark("fixtureTrueMultiScopedQuery", surfaces.every((surface) => {
+          const url = new URL(surface.src, window.location.href);
+          return url.origin === window.location.origin
+            && url.searchParams.get("ce_window") === "1"
+            && Boolean(url.searchParams.get("ce_window_id"));
+        }));
+
+        const parentIds = [...document.querySelectorAll("[id]")].map((node) => node.id).filter(Boolean);
+        const parentFormIds = [...document.querySelectorAll("form[id]")].map((node) => node.id);
+        mark("fixtureTrueMultiParentIdsUnique", new Set(parentIds).size === parentIds.length);
+        mark("fixtureTrueMultiParentHasNoChildForm", parentFormIds.every((id) => id !== "ce-window-live-form")
+          && document.querySelectorAll("#ce-window-live-form").length === 0);
+        mark("fixtureTrueMultiChildFormIdsIsolated", childDocuments.every((childDocument) => (
+          childDocument.querySelectorAll("#ce-window-live-form").length === 1
+          && childDocument.querySelectorAll("#ce-window-live-input").length === 1
+        )));
+
+        childDocuments.forEach((childDocument, index) => {
+          const input = childDocument.querySelector("#ce-window-live-input");
+          input.value = `preserved-state-${index + 1}`;
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          const submit = childDocument.querySelector("#ce-window-live-submit");
+          submit.click();
+          if (index === 0) submit.click();
+        });
+        mark("fixtureTrueMultiFormsIndependent", childDocuments[0].body.dataset.fixtureChangeCount === "2"
+          && childDocuments[1].body.dataset.fixtureChangeCount === "1"
+          && childDocuments[0].querySelector("#ce-window-live-input").value !== childDocuments[1].querySelector("#ce-window-live-input").value);
+
+        const identity = captureIdentity(records);
+        const heartbeatsBeforeFocus = childDocuments.map((childDocument) => Number(childDocument.body.dataset.fixtureHeartbeat || 0));
+        await delay(160);
+        mark("fixtureTrueMultiBothChildrenRunning", childDocuments.every((childDocument, index) => (
+          Number(childDocument.body.dataset.fixtureHeartbeat || 0) > heartbeatsBeforeFocus[index]
+        )));
+
+        const focusRecord = records.find((record) => record.shell.dataset.ceV4WindowActive === "false") || records[0];
+        const titlebar = focusRecord.shell.querySelector("[data-ce-v4-window-titlebar]");
+        const focusInput = focusRecord.surface.contentDocument.querySelector("#ce-window-live-input");
+        pointer(focusInput, "pointerdown", { pointerId: 601, clientX: 20, clientY: 20 });
+        focusInput.focus();
+        pointer(focusInput, "pointerup", { pointerId: 601, clientX: 20, clientY: 20 });
+        await waitFor(
+          () => focusRecord.shell.dataset.ceV4WindowActive === "true",
+          "an interaction inside the inactive child did not focus its parent shell",
+        );
+        mark("fixtureTrueMultiChildFocusRaisesShell", focusRecord.surface.contentDocument.activeElement === focusInput);
+        mark("fixtureTrueMultiFocusPreservesChildren", identityAndStatePreserved(identity));
+
+        const beforeDrag = window.ContentEngineDesktopV4.windowState().windows.find((item) => (
+          item.windowId === focusRecord.windowId
+        ));
+        const activeTitlebarRect = titlebar.getBoundingClientRect();
+        const dragX = activeTitlebarRect.left + Math.min(240, activeTitlebarRect.width * .5);
+        const dragY = activeTitlebarRect.top + Math.min(20, activeTitlebarRect.height * .5);
+        pointer(titlebar, "pointerdown", { pointerId: 602, clientX: dragX, clientY: dragY });
+        pointer(titlebar, "pointermove", { pointerId: 602, clientX: dragX + 54, clientY: dragY + 38 });
+        pointer(titlebar, "pointerup", { pointerId: 602, clientX: dragX + 54, clientY: dragY + 38 });
+        const afterDrag = window.ContentEngineDesktopV4.windowState().windows.find((item) => (
+          item.windowId === focusRecord.windowId
+        ));
+        mark("fixtureTrueMultiDragMovesShell", beforeDrag && afterDrag && (
+          beforeDrag.position.x !== afterDrag.position.x || beforeDrag.position.y !== afterDrag.position.y
+        ));
+        mark("fixtureTrueMultiDragPreservesChildren", identityAndStatePreserved(identity));
+
+        const minimize = focusRecord.shell.querySelector('[data-ce-v4-window-action="minimize"]');
+        minimize.click();
+        await waitFor(() => focusRecord.shell.hidden, "window did not minimize");
+        mark("fixtureTrueMultiMinimizeKeepsChildren", identityAndStatePreserved(identity)
+          && focusRecord.surface.isConnected
+          && focusRecord.surface.contentDocument.body.dataset.ceWindowChildReady === "true");
+
+        window.ContentEngineDesktopV4.windowContextAction(focusRecord.windowId, "restore");
+        await waitFor(() => !focusRecord.shell.hidden, "window did not restore");
+        mark("fixtureTrueMultiRestorePreservesChildren", identityAndStatePreserved(identity));
+
+        const desktopControl = focusRecord.shell.querySelector('[data-ce-v4-window-action="desktop"]');
+        desktopControl.click();
+        await waitFor(() => window.location.hash.startsWith("#/workspace/home"), "desktop route did not activate");
+        await waitFor(() => records.every((record) => record.shell.hidden), "desktop did not hide every shell");
+        mark("fixtureTrueMultiDesktopHidesShells", records.every((record) => record.shell.hidden && !visible(record.shell)));
+        mark("fixtureTrueMultiDesktopKeepsChildren", identityAndStatePreserved(identity)
+          && records.every((record) => record.surface.isConnected && childReady(record)));
+        mark("fixtureTrueMultiDesktopVisible", visible(document.querySelector("[data-ce-v4-desktop]")));
+
+        const finalParentIds = [...document.querySelectorAll("[id]")].map((node) => node.id).filter(Boolean);
+        mark("fixtureTrueMultiFinalParentIdsUnique", new Set(finalParentIds).size === finalParentIds.length);
+        document.body.dataset.fixtureTrueMultiReady = "true";
+        document.body.dataset.fixtureTrueMultiFailed = "false";
+        document.body.dataset.fixtureTrueMultiPhase = "complete";
+      } catch (error) {
+        document.body.dataset.fixtureTrueMultiReady = "false";
+        document.body.dataset.fixtureTrueMultiFailed = "true";
+        document.body.dataset.fixtureTrueMultiError = String(error?.stack || error?.message || error).slice(0, 1000);
+      }
+    </script>
+  </body>
+</html>

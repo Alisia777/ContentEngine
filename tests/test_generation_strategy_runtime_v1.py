@@ -55,12 +55,15 @@ def _evaluate(expression: str) -> object:
             "  spec_id: ids.spec, spec_version: 7, spec_hash: hashes.spec,\n"
             "  generation_strategy: {\n"
             "    version: '2026-08-14.v1', strategy_id: 'viral_avatar_ugc',\n"
-            "    recipe_version: '2026-06', duration_seconds: 4, ratio: '720:1280',\n"
+            # «Дуэт»: один ассет — исходник; кадр задаёт он же.
+            "    recipe_version: '2026-06', duration_seconds: 4, resolution: '720p',\n"
             "    audio: false,\n"
             "    assets: [\n"
-            "      {role: 'source_video', media_id: ids.sourceMedia},\n"
-            "      {role: 'avatar_image', media_id: ids.avatar},\n"
-            "      {role: 'product_image', media_id: ids.productMedia},\n"
+            # Длительность исходника обязательна обеим правкам готового
+            # видео: у «Дуэта» по ней считаются деньги — ставка
+            # посекундная, и без длины считать нечего.
+            "      {role: 'source_video', media_id: ids.sourceMedia,\n"
+            "       duration_seconds: 4},\n"
             "    ],\n"
             "    attestations: {\n"
             "      source_media_rights_confirmed: true,\n"
@@ -182,13 +185,13 @@ def _evaluate(expression: str) -> object:
             "    strategy_id: 'viral_avatar_ugc', selection_hash: hashes.selection,\n"
             "    source_basis: 'exact_source_video', source_binding_id: ids.sourceBinding,\n"
             "    source_binding_hash: hashes.source,\n"
+            # «Дуэт»: реестр из одного исходника. Ведущего даёт библиотека
+            # проекта, поэтому ни товарного фото, ни creator_avatar в
+            # привязке нет.
             "    role_assets: [\n"
-            "      {role: 'product_primary', ordinal: 1, media_object_id: ids.productMedia,\n"
-            "       sha256: hashes.product, kind: 'product_photo', mime_type: 'image/png',\n"
-            "       product_id: ids.product, rights_confirmed: true, likeness_consent: false},\n"
-            "      {role: 'creator_avatar', ordinal: 1, media_object_id: ids.avatar,\n"
-            "       sha256: hashes.avatar, kind: 'creator_reference', mime_type: 'image/jpeg',\n"
-            "       product_id: null, rights_confirmed: true, likeness_consent: true},\n"
+            "      {role: 'source_video', ordinal: 1, media_object_id: ids.sourceMedia,\n"
+            "       sha256: hashes.source, kind: 'source_video', mime_type: 'video/mp4',\n"
+            "       product_id: null, rights_confirmed: true, likeness_consent: false},\n"
             "    ],\n"
             "    strategy_snapshot_hash: hashes.snapshot, binding_hash: hashes.binding,\n"
             "    bound_at: '2026-08-14T08:00:00.000Z',\n"
@@ -202,8 +205,10 @@ def _evaluate(expression: str) -> object:
             "  price: {\n"
             "    version: 'generation-strategy-price-snapshot-v1',\n"
             "    strategy_id: 'viral_avatar_ugc', provider: 'runway', recipe: 'product_ugc',\n"
-            "    input_mode: 'character_and_product_images', duration_seconds: 4,\n"
-            "    resolution: '720p', ratio: '720:1280', audio: false,\n"
+            "    input_mode: 'video_and_avatar_images', duration_seconds: 4,\n"
+            # Кадр приходит из исходника: снимок цены называет его "source",
+            # как и у «Копии» — обе они правки готового видео.
+            "    resolution: '720p', ratio: 'source', audio: false,\n"
             "    estimated_credits: 192, estimated_pre_tax_usd_minor: 192,\n"
             "    estimated_cost_minor: 192, estimated_cost_usd: '1.92', currency: 'USD',\n"
             "    credit_unit_cost_minor: 1, catalog_version: '2026-08-14.v1',\n"
@@ -269,6 +274,7 @@ def test_runtime_is_pure_and_has_no_legacy_model_or_side_effect_channel() -> Non
         "bindResolved": "BIND_RESOLVED",
         "humanConfirmed": "HUMAN_CONFIRMED",
         "invalidate": "INVALIDATE",
+        "preflightRefreshRequested": "PREFLIGHT_REFRESH_REQUESTED",
         "preflightResolved": "PREFLIGHT_RESOLVED",
         "reset": "RESET",
         "select": "SELECT",
@@ -311,7 +317,28 @@ def test_fingerprint_is_canonical_exact_and_does_not_retain_raw_consent() -> Non
             depicted_people_consent_confirmed: true,
           };
           const second = runtime.createGenerationStrategyRuntimeFingerprint(reordered);
-          const changedAssetOrder = context();
+          // Порядок ассетов обязан менять отпечаток. У «Дуэта» ассет ровно
+          // один — исходник, который комментируем, — и перестановка на нём
+          // ничего не покажет. Поэтому проверка идёт на «Копии»: у неё ассетов
+          // три, и порядок там значим по-настоящему.
+          const swapContext = () => {
+            const value = context();
+            value.generation_strategy.strategy_id = 'viral_product_swap';
+            value.generation_strategy.assets = [
+              // Исходник «Копии» уходит провайдеру, поэтому несёт измеренную
+              // длительность — без неё контекст не соберётся.
+              {role: 'source_video', media_id: ids.sourceMedia, duration_seconds: 4},
+              {role: 'original_product_image', media_id: ids.avatar},
+              {role: 'new_product_image', media_id: ids.productMedia, view: 'front'},
+            ];
+            delete value.generation_strategy.attestations
+              .avatar_likeness_consent_confirmed;
+            return value;
+          };
+          const orderBase = runtime.createGenerationStrategyRuntimeFingerprint(
+            swapContext(),
+          );
+          const changedAssetOrder = swapContext();
           changedAssetOrder.generation_strategy.assets.reverse();
           const third = runtime.createGenerationStrategyRuntimeFingerprint(changedAssetOrder);
           const changedSpec = context(); changedSpec.spec_version = 8;
@@ -325,7 +352,7 @@ def test_fingerprint_is_canonical_exact_and_does_not_retain_raw_consent() -> Non
           const serialized = JSON.stringify(state);
           return {
             first, same: first.fingerprint === second.fingerprint,
-            assetOrderChanges: first.fingerprint !== third.fingerprint,
+            assetOrderChanges: orderBase.fingerprint !== third.fingerprint,
             specChanges: first.fingerprint !== fourth.fingerprint,
             invalid,
             state: {
@@ -346,18 +373,15 @@ def test_fingerprint_is_canonical_exact_and_does_not_retain_raw_consent() -> Non
             {
                 "context": {
                     "generation_strategy": {
+                        # «Дуэт»: один ассет — исходник, который комментируем.
+                        # Его длительность входит в отпечаток: у дуэта ставка
+                        # посекундная, и длина исходника — это цена запуска, а
+                        # не подробность. Подменить её незаметно нельзя.
                         "assets": [
                             {
+                                "duration_seconds": 4,
                                 "media_id": "99999999-9999-4999-8999-999999999999",
                                 "role": "source_video",
-                            },
-                            {
-                                "media_id": "55555555-5555-4555-8555-555555555555",
-                                "role": "avatar_image",
-                            },
-                            {
-                                "media_id": "66666666-6666-4666-8666-666666666666",
-                                "role": "product_image",
                             },
                         ],
                         "attestations": {
@@ -369,7 +393,7 @@ def test_fingerprint_is_canonical_exact_and_does_not_retain_raw_consent() -> Non
                         },
                         "audio": False,
                         "duration_seconds": 4,
-                        "ratio": "720:1280",
+                        "resolution": "720p",
                         "recipe_version": "2026-06",
                         "strategy_id": "viral_avatar_ugc",
                         "version": "2026-08-14.v1",
@@ -444,7 +468,9 @@ def test_bind_request_is_exact_and_carries_no_browser_authority_fields() -> None
             "strategy_id",
             "recipe_version",
             "duration_seconds",
-            "ratio",
+            # «Дуэт» измеряется разрешением: кадр задаёт исходник, а не выбор
+            # соотношения сторон — ролик комментируют, а не переснимают.
+            "resolution",
             "audio",
             "assets",
             "attestations",
@@ -472,17 +498,22 @@ def test_bind_response_normalizer_is_exact_deep_frozen_and_context_bound() -> No
           const price = bindResponse(); price.price.estimated_cost_minor = 1;
           const selection = bindResponse(); selection.binding.selection_hash = '9'.repeat(64);
           const contract = bindResponse(); contract.contract.provider_call_started = true;
-          const role = bindResponse(); role.binding.role_assets[1].likeness_consent = false;
+          // У исходника согласия на внешность быть не может: он не задаёт
+          // ничьё лицо. Отметка согласия на нём — признак чужой формы.
+          const role = bindResponse(); role.binding.role_assets[0].likeness_consent = true;
+          // Единственный ассет дуэта подменён фотографией: сам по себе такой
+          // ассет допустим, но комментировать становится нечего.
           const roleSet = bindResponse();
-          roleSet.binding.role_assets[1] = {
-            ...roleSet.binding.role_assets[1], role: 'style_reference',
-            likeness_consent: false,
+          roleSet.binding.role_assets[0] = {
+            ...roleSet.binding.role_assets[0], role: 'creator_avatar',
+            kind: 'creator_reference', mime_type: 'image/jpeg',
+            likeness_consent: true,
           };
           const nonCanonical = bindResponse();
           nonCanonical.price.spend_confirmation =
             ` ${nonCanonical.price.spend_confirmation}`;
           const assetIdentity = bindResponse();
-          assetIdentity.binding.role_assets[1].media_object_id = ids.sourceBinding;
+          assetIdentity.binding.role_assets[0].media_object_id = ids.sourceBinding;
           const normalize = (value) => runtime.normalizeGenerationStrategyBindResponse(value, context());
           const frozen = (value) => !value || typeof value !== 'object' || (
             Object.isFrozen(value) && Object.values(value).every(frozen)
@@ -699,8 +730,14 @@ def test_all_three_strategy_selections_are_exact_and_swap_requires_server_durati
           delete missingProbe.generation_strategy.assets[0].duration_seconds;
           const extraAttestation = clone(rebuild);
           extraAttestation.generation_strategy.attestations.unversioned = true;
-          const missingSource = context();
+          // Исходник выброшен у «Копии»: там после него остаются два товарных
+          // фото, и отвергает набор именно счётчик ролей.
+          const missingSource = clone(swap);
           missingSource.generation_strategy.assets.shift();
+          // У «Дуэта» тот же выброс оставляет пустой набор — комментировать
+          // становится нечего, и это отдельный отказ, более ранний.
+          const emptyDuet = context();
+          emptyDuet.generation_strategy.assets = [];
           const wrongDimension = clone(swap);
           delete wrongDimension.generation_strategy.resolution;
           wrongDimension.generation_strategy.ratio = '720:1280';
@@ -711,6 +748,7 @@ def test_all_three_strategy_selections_are_exact_and_swap_requires_server_durati
             missingProbe: runtime.createGenerationStrategyRuntimeFingerprint(missingProbe),
             extraAttestation: runtime.createGenerationStrategyRuntimeFingerprint(extraAttestation),
             missingSource: runtime.createGenerationStrategyRuntimeFingerprint(missingSource),
+            emptyDuet: runtime.createGenerationStrategyRuntimeFingerprint(emptyDuet),
             wrongDimension: runtime.createGenerationStrategyRuntimeFingerprint(wrongDimension),
           };
         })()
@@ -722,6 +760,7 @@ def test_all_three_strategy_selections_are_exact_and_swap_requires_server_durati
     assert result["missingProbe"]["error"]["code"] == "asset_duration_required"
     assert result["extraAttestation"]["error"]["code"] == "object_keys_mismatch"
     assert result["missingSource"]["error"]["code"] == "asset_role_count_invalid"
+    assert result["emptyDuet"]["error"]["code"] == "assets_invalid"
     assert result["wrongDimension"]["error"]["code"] == "selection_dimension_invalid"
 
 
@@ -978,6 +1017,75 @@ def test_human_confirmed_preflight_refresh_rotates_only_receipt_authority() -> N
     }
 
 
+def test_unconfirmed_preflight_refresh_returns_to_bound_without_rebinding() -> None:
+    result = _evaluate(
+        """
+        (() => {
+          const ready = stateThroughPreflight();
+          const receipt = ready.preflight.receipt;
+          const requested = runtime.reduceGenerationStrategyRuntimeState(ready, {
+            type: runtime.GENERATION_STRATEGY_RUNTIME_ACTIONS.preflightRefreshRequested,
+            fingerprint: ready.fingerprint,
+            receipt_id: receipt.id,
+            receipt_hash: receipt.receipt_hash,
+          });
+          const plan = runtime.generationStrategyRuntimePreflightRequest(
+            requested, 'strategy.preflight.refresh:unconfirmed-key-1',
+          );
+          const wrongReceipt = runtime.reduceGenerationStrategyRuntimeState(ready, {
+            type: runtime.GENERATION_STRATEGY_RUNTIME_ACTIONS.preflightRefreshRequested,
+            fingerprint: ready.fingerprint,
+            receipt_id: ids.otherCampaign,
+            receipt_hash: receipt.receipt_hash,
+          });
+          return {
+            requested: {
+              phase: requested.phase,
+              fingerprint: requested.fingerprint,
+              bindingId: requested.bind?.binding.id,
+              bindingHash: requested.bind?.binding.binding_hash,
+              preflight: requested.preflight,
+              campaign: requested.campaign_id,
+              startContext: requested.start_context_fingerprint,
+            },
+            prior: {
+              phase: ready.phase,
+              fingerprint: ready.fingerprint,
+              bindingId: ready.bind.binding.id,
+              bindingHash: ready.bind.binding.binding_hash,
+              receiptId: ready.preflight.receipt.id,
+            },
+            plan: {
+              ok: plan.ok,
+              action: plan.request?.action,
+              bindingId: plan.request?.binding_id,
+              idempotency: plan.request?.idempotency_key,
+            },
+            wrongReceipt,
+          };
+        })()
+        """
+    )
+    assert result["requested"] == {
+        "phase": "bound",
+        "fingerprint": result["prior"]["fingerprint"],
+        "bindingId": result["prior"]["bindingId"],
+        "bindingHash": result["prior"]["bindingHash"],
+        "preflight": None,
+        "campaign": None,
+        "startContext": None,
+    }
+    assert result["prior"]["phase"] == "preflight_ready"
+    assert result["plan"] == {
+        "ok": True,
+        "action": "strategy_preflight",
+        "bindingId": result["prior"]["bindingId"],
+        "idempotency": "strategy.preflight.refresh:unconfirmed-key-1",
+    }
+    assert result["wrongReceipt"]["phase"] == "invalid"
+    assert result["wrongReceipt"]["bind"] is None
+
+
 @pytest.mark.parametrize(
     ("setup", "expected_code"),
     (
@@ -1221,6 +1329,7 @@ def test_start_status_parser_is_exact_correlated_and_drops_raw_selection() -> No
             idempotency_key: reserved.start_attempt_idempotency_key,
             response: statusResponse(),
           });
+          const projection = runtime.generationStrategyRuntimeSafeProjection(started);
           const statusRequest = runtime.generationStrategyRuntimeStatusRequest(started);
           const serialized = JSON.stringify(valid.value);
           return {
@@ -1240,7 +1349,13 @@ def test_start_status_parser_is_exact_correlated_and_drops_raw_selection() -> No
               extraSelection, reserved,
             ),
             leakedSpend: runtime.normalizeGenerationStrategyStartResponse(leakedSpend, reserved),
-            started: {phase: started.phase, job: started.status?.job.id},
+            started: {
+              phase: started.phase,
+              job: started.status?.job.id,
+              jobStatus: projection?.job?.status,
+              providerStatus: projection?.job?.provider_status,
+              canPoll: projection?.can_poll,
+            },
             statusRequest,
             statusRequestKeys: Object.keys(statusRequest.request || {}).sort(),
           };
@@ -1272,6 +1387,9 @@ def test_start_status_parser_is_exact_correlated_and_drops_raw_selection() -> No
     assert result["started"] == {
         "phase": "status",
         "job": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        "jobStatus": "submitted",
+        "providerStatus": "submitted",
+        "canPoll": True,
     }
     assert result["statusRequest"]["ok"] is True
     assert result["statusRequestKeys"] == sorted(
@@ -1381,6 +1499,91 @@ def test_status_reducer_is_monotonic_and_mismatched_poll_fails_closed() -> None:
     ):
         assert result[key]["phase"] == "invalid"
         assert result[key]["status"] is None
+
+
+def test_post_reconcile_no_submission_status_has_one_safe_nullable_billing_pair() -> None:
+    result = _evaluate(
+        """
+        (() => {
+          const reserved = stateThroughStartOnce();
+          const ambiguousResponse = statusResponse(
+            'starting', '2026-08-14T08:03:00.000Z',
+          );
+          ambiguousResponse.dispatch = {
+            result_id: ids.dispatch, result_hash: hashes.dispatch,
+            outcome: 'ambiguous', provider_post_started: true,
+            provider_http_status: null,
+            recorded_at: '2026-08-14T08:02:30.000Z',
+          };
+          ambiguousResponse.reconciliation = {
+            required: true, incident_id: ids.incident,
+            reason_code: 'provider_create_response_unknown',
+            required_at: '2026-08-14T08:02:31.000Z',
+          };
+          const ambiguous = runtime.reduceGenerationStrategyRuntimeState(reserved, {
+            type: runtime.GENERATION_STRATEGY_RUNTIME_ACTIONS.startResolved,
+            fingerprint: reserved.fingerprint,
+            start_context_fingerprint: reserved.start_context_fingerprint,
+            idempotency_key: reserved.start_attempt_idempotency_key,
+            response: ambiguousResponse,
+          });
+          const reconciled = clone(ambiguousResponse);
+          reconciled.job.status = 'failed';
+          reconciled.job.actual_cost_minor = 0;
+          reconciled.job.updated_at = '2026-08-14T08:05:00.000Z';
+          reconciled.reconciliation = {
+            required: false, incident_id: ids.incident,
+            resolution: 'confirmed_not_submitted',
+            reconciled_at: '2026-08-14T08:05:00.000Z',
+          };
+          reconciled.error = {
+            code: 'provider_submission_not_found',
+            provider_billing_outcome: null,
+          };
+          const unsafePair = clone(reconciled);
+          unsafePair.error.code = 'provider_task_failed';
+
+          const submittedResponse = statusResponse(
+            'submitted', '2026-08-14T08:03:00.000Z',
+          );
+          const submitted = runtime.reduceGenerationStrategyRuntimeState(reserved, {
+            type: runtime.GENERATION_STRATEGY_RUNTIME_ACTIONS.startResolved,
+            fingerprint: reserved.fingerprint,
+            start_context_fingerprint: reserved.start_context_fingerprint,
+            idempotency_key: reserved.start_attempt_idempotency_key,
+            response: submittedResponse,
+          });
+          const paidUnknown = statusResponse(
+            'failed', '2026-08-14T08:05:00.000Z',
+          );
+          return {
+            reconciled: runtime.normalizeGenerationStrategyStatusResponse(
+              reconciled, ambiguous,
+            ),
+            unsafePair: runtime.normalizeGenerationStrategyStatusResponse(
+              unsafePair, ambiguous,
+            ),
+            paidUnknown: runtime.normalizeGenerationStrategyStatusResponse(
+              paidUnknown, submitted,
+            ),
+          };
+        })()
+        """
+    )
+    assert result["reconciled"]["ok"] is True
+    assert result["reconciled"]["value"]["error"] == {
+        "code": "provider_submission_not_found",
+        "provider_billing_outcome": None,
+    }
+    assert result["unsafePair"]["ok"] is False
+    assert result["unsafePair"]["error"]["code"] == (
+        "status_billing_outcome_invalid"
+    )
+    assert result["paidUnknown"]["ok"] is True
+    assert result["paidUnknown"]["value"]["error"] == {
+        "code": "provider_generation_failed",
+        "provider_billing_outcome": "unknown",
+    }
 
 
 def test_safe_projection_is_ui_ready_without_raw_authority_and_campaign_invalidation() -> None:

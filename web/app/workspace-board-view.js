@@ -452,6 +452,42 @@ function normalizeItem(item, index, fallbackType = "") {
   const aiReceipt = asRecord(source.ai_receipt ?? source.aiReceipt);
   const aiDeepLink = safeWorkspaceDeepLink(aiReceipt.deep_link ?? aiReceipt.deepLink);
   const metadata = asRecord(source.metadata);
+  const imagePreviewUrl = safeText(
+    source.poster_url
+      ?? source.posterUrl
+      ?? source.poster
+      ?? source.thumbnail_url
+      ?? source.thumbnailUrl
+      ?? source.thumbnail
+      ?? source.preview_image_url
+      ?? source.previewImageUrl
+      ?? source.preview_image
+      ?? source.image_url
+      ?? source.imageUrl
+      ?? source.image
+      ?? metadata.poster_url
+      ?? metadata.posterUrl
+      ?? metadata.poster
+      ?? metadata.thumbnail_url
+      ?? metadata.thumbnailUrl
+      ?? metadata.thumbnail
+      ?? metadata.preview_image_url
+      ?? metadata.previewImageUrl
+      ?? metadata.preview_image
+      ?? metadata.image_url
+      ?? metadata.imageUrl
+      ?? metadata.image,
+    2_000,
+  );
+  const accessPreviewUrl = safeText(
+    source.signed_url
+      ?? source.preview_url
+      ?? source.previewUrl
+      ?? source.access_url
+      ?? source.accessUrl
+      ?? (mimeType.startsWith("image/") ? source.thumbnail_url ?? source.thumbnailUrl : ""),
+    2_000,
+  );
   const durationSeconds = optionalFiniteNumber(
     source.duration_seconds,
     source.durationSeconds,
@@ -508,10 +544,8 @@ function normalizeItem(item, index, fallbackType = "") {
       ? lifecycleStage
       : "",
     mimeType,
-    previewUrl: safeText(
-      source.signed_url ?? source.preview_url ?? source.access_url ?? source.thumbnail_url,
-      2_000,
-    ),
+    previewUrl: accessPreviewUrl,
+    imagePreviewUrl,
     sizeBytes: Math.max(0, finiteNumber(source.size_bytes, source.sizeBytes)),
     createdAt: safeText(source.created_at ?? source.createdAt, 80),
     updatedAt: safeText(source.updated_at ?? source.updatedAt, 80),
@@ -1327,13 +1361,17 @@ function workspaceBoardOverviewMarkup(board, busy) {
 
 function itemPreviewMarkup(item, detailed = false) {
   const previewUrl = safePreviewUrl(item.previewUrl);
-  if (previewUrl && item.mimeType.startsWith("image/")) {
-    return `<img src="${escapeHtml(previewUrl)}" alt="" loading="lazy" decoding="async" />`;
+  const imagePreviewUrl = safePreviewUrl(item.imagePreviewUrl);
+  if (previewUrl && item.mimeType.startsWith("video/") && detailed) {
+    return `<video src="${escapeHtml(previewUrl)}" controls preload="none" playsinline${imagePreviewUrl ? ` poster="${escapeHtml(imagePreviewUrl)}"` : ""} aria-label="Видео: ${escapeHtml(item.title)}"></video>`;
   }
-  if (previewUrl && item.mimeType === "video/mp4" && detailed) {
-    return `<video src="${escapeHtml(previewUrl)}" controls preload="none" playsinline aria-label="Видео: ${escapeHtml(item.title)}"></video>`;
+  if (item.mimeType.startsWith("image/") && (previewUrl || imagePreviewUrl)) {
+    return `<img src="${escapeHtml(detailed ? previewUrl || imagePreviewUrl : imagePreviewUrl || previewUrl)}" alt="" loading="lazy" decoding="async" />`;
   }
-  if (previewUrl && item.mimeType === "video/mp4") {
+  if (imagePreviewUrl) {
+    return `<img src="${escapeHtml(imagePreviewUrl)}" alt="" loading="lazy" decoding="async" />`;
+  }
+  if (previewUrl && item.mimeType.startsWith("video/")) {
     return `<span class="workspace-board__preview-symbol" aria-hidden="true">▶</span>`;
   }
   return `<span class="workspace-board__preview-symbol" aria-hidden="true">${escapeHtml(ENTITY_ICONS[item.entityType] || "◇")}</span>`;

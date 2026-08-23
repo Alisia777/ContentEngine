@@ -1,0 +1,309 @@
+/*
+ * ContentEngine window colour orientation.
+ *
+ * The window manager already exposes a stable route, app label and focus state
+ * on every shell. This layer only strengthens those visual wayfinding cues; it
+ * does not own window geometry, behaviour or the macOS traffic-light controls.
+ */
+
+body.contentengine-desktop-v4 .ce-v4-window {
+  --ce-v4-header-accent: var(--ce-v4-window-accent, #98a9bd);
+  --ce-v4-header-accent-secondary: var(--ce-v4-window-accent, #98a9bd);
+  --ce-v4-header-glow-opacity: .76;
+  --ce-v4-header-edge-opacity: .72;
+  border-color: color-mix(in srgb, var(--ce-v4-header-accent) 22%, rgba(255,255,255,.1));
+  transition:
+    border-color 170ms ease,
+    box-shadow 170ms ease;
+}
+
+/* Project overview / desktop — warm champagne with a quiet violet horizon. */
+body.contentengine-desktop-v4 .ce-v4-window:is(
+  [data-ce-v4-window-route="/workspace/home"],
+  [data-ce-v4-window-app="Рабочий стол"]
+) {
+  --ce-v4-window-accent: #efb65f !important;
+  --ce-v4-header-accent: #efb65f;
+  --ce-v4-header-accent-secondary: #9876ff;
+}
+
+/* Finder and its media alias — cool cyan / blue. */
+body.contentengine-desktop-v4 .ce-v4-window:is(
+  [data-ce-v4-window-route="/workspace/board"],
+  [data-ce-v4-window-route="/workspace/media"],
+  [data-ce-v4-window-app="Finder"]
+) {
+  --ce-v4-window-accent: #69d9ff !important;
+  --ce-v4-header-accent: #69d9ff;
+  --ce-v4-header-accent-secondary: #4a8fff;
+}
+
+/* Create — recognisable production gold with a restrained orange depth. */
+body.contentengine-desktop-v4 .ce-v4-window:is(
+  [data-ce-v4-window-route="/workspace/generation"],
+  [data-ce-v4-window-app="Создать"]
+) {
+  --ce-v4-window-accent: #ffc35e !important;
+  --ce-v4-header-accent: #ffc35e;
+  --ce-v4-header-accent-secondary: #ff914d;
+}
+
+/* Human review — coral, distinct from both Create and AI. */
+body.contentengine-desktop-v4 .ce-v4-window:is(
+  [data-ce-v4-window-route="/workspace/review"],
+  [data-ce-v4-window-app="Проверить"]
+) {
+  --ce-v4-window-accent: #ff718d !important;
+  --ce-v4-header-accent: #ff718d;
+  --ce-v4-header-accent-secondary: #c06dff;
+}
+
+/* Publication — electric cyan / teal. */
+body.contentengine-desktop-v4 .ce-v4-window:is(
+  [data-ce-v4-window-route="/workspace/placement"],
+  [data-ce-v4-window-app="Публикация"]
+) {
+  --ce-v4-window-accent: #42dced !important;
+  --ce-v4-header-accent: #42dced;
+  --ce-v4-header-accent-secondary: #2dd4bf;
+}
+
+/* Results and payouts — measurable green rather than Finder cyan. */
+body.contentengine-desktop-v4 .ce-v4-window:is(
+  [data-ce-v4-window-route="/workspace/stats"],
+  [data-ce-v4-window-route="/workspace/payouts"],
+  [data-ce-v4-window-app="Результаты"]
+) {
+  --ce-v4-window-accent: #43dfa5 !important;
+  --ce-v4-header-accent: #43dfa5;
+  --ce-v4-header-accent-secondary: #20b985;
+}
+
+/* Research — clean blue with a cyan source signal. */
+body.contentengine-desktop-v4 .ce-v4-window:is(
+  [data-ce-v4-window-route="/workspace/research"],
+  [data-ce-v4-window-app="Исследования"]
+) {
+  --ce-v4-window-accent: #669fff !important;
+  --ce-v4-header-accent: #669fff;
+  --ce-v4-header-accent-secondary: #35d0ec;
+}
+
+/* Governed AI — violet / magenta, visually separate from human review. */
+body.contentengine-desktop-v4 .ce-v4-window:is(
+  [data-ce-v4-window-route="/workspace/ai"],
+  [data-ce-v4-window-app="ИИ-центр"]
+) {
+  --ce-v4-window-accent: #a77bff !important;
+  --ce-v4-header-accent: #a77bff;
+  --ce-v4-header-accent-secondary: #dc70ff;
+}
+
+/* People and settings — calm periwinkle, including the future Settings label. */
+body.contentengine-desktop-v4 .ce-v4-window:is(
+  [data-ce-v4-window-route="/workspace/team"],
+  [data-ce-v4-window-app="Команда"],
+  [data-ce-v4-window-app="Настройки"]
+) {
+  --ce-v4-window-accent: #8eb8ff !important;
+  --ce-v4-header-accent: #8eb8ff;
+  --ce-v4-header-accent-secondary: #8b91ff;
+}
+
+/* Help — warm but softer than Create. */
+body.contentengine-desktop-v4 .ce-v4-window:is(
+  [data-ce-v4-window-route="/workspace/feedback"],
+  [data-ce-v4-window-app="Помощь"]
+) {
+  --ce-v4-window-accent: #f1bd70 !important;
+  --ce-v4-header-accent: #f1bd70;
+  --ce-v4-header-accent-secondary: #fb7f83;
+}
+
+/* Assigned processes and personal queue — blue-led operational states. */
+body.contentengine-desktop-v4 .ce-v4-window:is(
+  [data-ce-v4-window-route="/workspace/tasks"],
+  [data-ce-v4-window-app="Процессы"]
+) {
+  --ce-v4-window-accent: #7399ff !important;
+  --ce-v4-header-accent: #7399ff;
+  --ce-v4-header-accent-secondary: #ffab54;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window:is(
+  [data-ce-v4-window-route="/workspace/work"],
+  [data-ce-v4-window-app="Моя работа"]
+) {
+  --ce-v4-window-accent: #62b6ff !important;
+  --ce-v4-header-accent: #62b6ff;
+  --ce-v4-header-accent-secondary: #39d9b1;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window::before {
+  height: 2px;
+  opacity: var(--ce-v4-header-edge-opacity);
+  background: linear-gradient(
+    90deg,
+    transparent 0,
+    var(--ce-v4-header-accent) 14%,
+    color-mix(in srgb, var(--ce-v4-header-accent) 58%, white) 46%,
+    var(--ce-v4-header-accent-secondary) 82%,
+    transparent 100%
+  );
+  box-shadow: 0 0 22px color-mix(in srgb, var(--ce-v4-header-accent) 34%, transparent);
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__titlebar {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-bottom-color: color-mix(in srgb, var(--ce-v4-header-accent) 15%, rgba(255,255,255,.075));
+  background:
+    linear-gradient(
+      102deg,
+      color-mix(in srgb, var(--ce-v4-header-accent) 15%, #101923) 0%,
+      #101923 43%,
+      color-mix(in srgb, var(--ce-v4-header-accent-secondary) 11%, #101923) 100%
+    );
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.055),
+    inset 0 -1px 0 rgba(0,0,0,.2);
+  transition:
+    border-color 170ms ease,
+    background-color 170ms ease,
+    box-shadow 170ms ease;
+}
+
+/* Decorative atmosphere is deliberately non-interactive. Controls stay above it. */
+body.contentengine-desktop-v4 .ce-v4-window__titlebar::before,
+body.contentengine-desktop-v4 .ce-v4-window__titlebar::after {
+  position: absolute;
+  z-index: 0;
+  content: "";
+  pointer-events: none;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__titlebar::before {
+  top: -34px;
+  bottom: -34px;
+  left: 14%;
+  width: min(42%, 520px);
+  opacity: var(--ce-v4-header-glow-opacity);
+  background: radial-gradient(
+    ellipse at center,
+    color-mix(in srgb, var(--ce-v4-header-accent) 18%, transparent),
+    transparent 72%
+  );
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__titlebar::after {
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 1px;
+  opacity: .58;
+  background: linear-gradient(
+    90deg,
+    transparent 4%,
+    color-mix(in srgb, var(--ce-v4-header-accent) 48%, transparent) 28%,
+    color-mix(in srgb, var(--ce-v4-header-accent-secondary) 36%, transparent) 72%,
+    transparent 96%
+  );
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__titlebar > * {
+  position: relative;
+  z-index: 1;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__heading > svg {
+  color: color-mix(in srgb, var(--ce-v4-header-accent) 78%, white);
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--ce-v4-header-accent) 28%, transparent));
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__heading-copy small {
+  color: color-mix(in srgb, var(--ce-v4-header-accent) 72%, white);
+  text-shadow: 0 0 14px color-mix(in srgb, var(--ce-v4-header-accent) 22%, transparent);
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__project {
+  box-sizing: border-box;
+  padding: 5px 9px;
+  border: 1px solid color-mix(in srgb, var(--ce-v4-header-accent) 16%, rgba(255,255,255,.06));
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--ce-v4-header-accent) 28%, #c8d0da);
+  background: color-mix(in srgb, var(--ce-v4-header-accent) 6%, rgba(7,12,19,.72));
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__desktop,
+body.contentengine-desktop-v4 .ce-v4-window__mission {
+  border-color: color-mix(in srgb, var(--ce-v4-header-accent) 18%, rgba(255,255,255,.075));
+  color: color-mix(in srgb, var(--ce-v4-header-accent) 34%, #c6ced8);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--ce-v4-header-accent) 9%, rgba(255,255,255,.045)), transparent),
+    #182432;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window.is-active {
+  --ce-v4-header-glow-opacity: .92;
+  --ce-v4-header-edge-opacity: .94;
+  border-color: color-mix(in srgb, var(--ce-v4-header-accent) 36%, rgba(255,255,255,.12));
+  box-shadow:
+    0 42px 125px rgba(0,0,0,.58),
+    0 12px 36px rgba(0,0,0,.32),
+    0 0 38px color-mix(in srgb, var(--ce-v4-header-accent) 11%, transparent),
+    inset 0 1px 0 rgba(255,255,255,.075);
+}
+
+body.contentengine-desktop-v4 .ce-v4-window.is-active .ce-v4-window__titlebar {
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.075),
+    inset 0 -1px 0 color-mix(in srgb, var(--ce-v4-header-accent) 16%, rgba(0,0,0,.22));
+}
+
+/* Every visible window remains fully active. Keyboard focus is represented by
+   z-order and `.is-key-window`, never by dimming or muting another app. */
+
+body.contentengine-desktop-v4 .ce-v4-window.is-dragging {
+  --ce-v4-header-glow-opacity: 1;
+  --ce-v4-header-edge-opacity: 1;
+  border-color: color-mix(in srgb, var(--ce-v4-header-accent) 48%, rgba(255,255,255,.14));
+}
+
+body.contentengine-desktop-v4 .ce-v4-window.is-zoomed {
+  border-color: color-mix(in srgb, var(--ce-v4-header-accent) 29%, rgba(255,255,255,.1));
+}
+
+/* The manager hides minimized windows; this still defines their visual state
+   for the short minimise transition and future non-hidden snapshots. */
+body.contentengine-desktop-v4 .ce-v4-window.is-minimized {
+  --ce-v4-header-glow-opacity: .12;
+  --ce-v4-header-edge-opacity: .18;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ce-v4-header-accent) 72%, white);
+  outline-offset: 3px;
+}
+
+@media (prefers-contrast: more) {
+  body.contentengine-desktop-v4 .ce-v4-window {
+    border-color: color-mix(in srgb, var(--ce-v4-header-accent) 56%, white);
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__titlebar {
+    border-bottom-color: color-mix(in srgb, var(--ce-v4-header-accent) 54%, white);
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__heading-copy small,
+  body.contentengine-desktop-v4 .ce-v4-window__project {
+    color: white;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.contentengine-desktop-v4 .ce-v4-window,
+  body.contentengine-desktop-v4 .ce-v4-window__titlebar {
+    transition: none;
+  }
+}

@@ -23,9 +23,9 @@ def test_review_is_a_first_class_versioned_workspace_stage() -> None:
     assert "review: renderContentReviewSection" in APP
     assert 'section === "review"' in APP
     assert 'state.api.contentReviewCatalog({ limit: 50, projectId })' in APP
-    assert './content-review-view.js?v=20260814.os4.41' in APP
+    assert './content-review-view.js?v=20260823.copy-engines.45' in APP
     assert './content-review.css?v=20260814.os4.41' in INDEX
-    assert './app.js?v=20260814.os4.41' in INDEX
+    assert './app.js?v=20260823.copy-engines.45' in INDEX
     assert "20260716.1" not in INDEX
     assert "20260716.1" not in "\n".join(
         line for line in APP.splitlines() if line.startswith("import ")
@@ -764,6 +764,46 @@ def test_generated_video_qa_is_serial_recoverable_and_never_auto_approves() -> N
     ]
     assert "markGeneratedVideoQaEvidenceConsumed(media.id, review.record.id)" in submit
     assert "clearContentReviewDraft();" in submit
+
+
+def test_generated_video_category_dead_end_gets_honest_confirmation_path() -> None:
+    markup = APP[
+        APP.index("function generatedVideoTechnicalQaMarkup") :
+        APP.index("function generationActionsMarkup")
+    ]
+    assert "const categoryRequired = entry?.categoryRequired === true" in markup
+    category_branch = markup[
+        markup.index("const reviewStartControl = categoryRequired") :
+        markup.index("Повторить AI-проверку")
+    ]
+    assert 'data-action="open-generated-content-review"' in category_branch
+    assert "Подтвердить категорию — открыть проверку контента" in category_branch
+    assert "Руководитель один раз подтверждает категорию товара" in markup
+    assert "${categoryRequiredHint}" in markup
+
+    starter = APP[
+        APP.index("async function startGeneratedVideoReviewFromEvidence") :
+        APP.index("function resumeGeneratedVideoReviewAutopilot")
+    ]
+    assert 'const errorCode = String(error?.code || "");' in starter
+    assert (
+        'categoryRequired: errorCode === "generated_video_review_category_required",'
+        in starter
+    )
+    assert "categoryRequired: false," in starter
+    assert starter.index("categoryRequired: false,") < starter.index(
+        'const errorCode = String(error?.code || "");'
+    )
+
+    autopilot = APP[
+        APP.index("function resumeGeneratedVideoReviewAutopilot") :
+        APP.index("async function loadGeneratedVideoQaMedia")
+    ]
+    assert "&& entry.categoryRequired !== true" in autopilot
+
+    assert (
+        "Категория товара наследуется автоматически из платного запуска" in API
+    )
 
 
 def test_content_review_edge_errors_keep_safe_specific_user_guidance() -> None:

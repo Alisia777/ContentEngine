@@ -9,20 +9,53 @@
  */
 
 import {
+  FAL_GROK_IMAGINE_PER_SECOND_PRICING_VERSION,
+  FAL_GROK_IMAGINE_REFERENCE_MODEL,
+  FAL_HAPPY_HORSE_PER_SECOND_PRICING_VERSION,
+  FAL_HAPPY_HORSE_REFERENCE_MODEL,
+  FAL_HAPPY_HORSE_REFERENCE_PER_SECOND_PRICING_VERSION,
+  FAL_HAPPY_HORSE_VIDEO_EDIT_MODEL,
+  FAL_KLING_O3_STANDARD_EDIT_MODEL,
+  FAL_KLING_STANDARD_PER_SECOND_PRICING_VERSION,
+  FAL_MINIMAX_H3_PER_SECOND_PRICING_VERSION,
+  FAL_MINIMAX_H3_REFERENCE_MODEL,
+  FAL_PER_SECOND_PRICING_VERSION,
+  FAL_RECIPE_PRICING_VERSION,
+  FAL_SEEDANCE_2_5_PER_SECOND_PRICING_VERSION,
+  FAL_SEEDANCE_2_5_REFERENCE_MODEL,
   GENERATION_STRATEGY_CATALOG_VERSION,
   generationStrategyCatalogEntry,
+  generationStrategyDurationBounds,
+  HEYGEN_PER_SECOND_PRICING_VERSION,
+  isKnownStrategyPricingVersion,
+  isKnownStrategyProvider,
   RUNWAY_RECIPE_PRICING_VERSION,
   RUNWAY_RECIPE_VERSION,
   validateGenerationStrategySelection,
 } from "./generation-strategy-catalog.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+const FAL_REQUEST_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const SHA256 = /^[0-9a-f]{64}$/u;
 const TASK_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
 const SAFE_CODE = /^[a-z][a-z0-9_]{1,95}$/u;
+// fal exposes a machine-readable `error_type` on terminal COMPLETED statuses.
+// Accept only a short identifier token. Human `error`/`detail` prose, URLs and
+// arbitrary provider payloads must never become a ledger or diagnostic code.
+const FAL_ERROR_TYPE =
+  /^[A-Za-z0-9](?:[A-Za-z0-9_.:-]{0,78}[A-Za-z0-9])?$/u;
+const FAL_QUEUE_ORIGIN = "https://queue.fal.run";
+const FAL_PLATFORM_API_ORIGIN = "https://api.fal.ai";
+// Рецепты, которые правят готовый ролик, а не собирают новый. У них кадр задаёт
+// исходник, поэтому снимок цены несёт ratio = "source".
+const RESOLUTION_FRAMED_RECIPES = new Set(["product_swap", "product_ugc"]);
+
 const PROVIDER_PATHS = Object.freeze({
   viral_avatar_ugc: "/v1/recipes/product_ugc",
-  viral_product_swap: "/v1/recipes/product_swap",
+  // Product Swap dispatches to the real Runway video_to_video endpoint
+  // (Gen-4 Aleph). The /v1/recipes/* paths do not exist on the provider.
+  viral_product_swap: "/v1/video_to_video",
   viral_rebuild: "/v1/recipes/product_ad",
 });
 const RECIPES = Object.freeze({
@@ -30,6 +63,102 @@ const RECIPES = Object.freeze({
   viral_product_swap: "product_swap",
   viral_rebuild: "product_ad",
 });
+// Exact server-executable policy routes.  The database carries prices and the
+// enabled/recommended switches, but an enabled row is not sufficient by
+// itself: this code must know the exact provider/model/path tuple before it
+// can accept launch authority.  Unknown tuples fail closed.
+const PROVIDER_POLICY_ROUTES = Object.freeze({
+  viral_avatar_ugc: Object.freeze({
+    // «Дуэт» исполняет HeyGen: он делает ГОВОРЯЩЕГО ВЕДУЩЕГО, а комментируемый
+    // ролик остаётся нетронутым и соединяется с ведущим у нас. Провайдер не
+    // получает ни одного медиа — только текст речи и постоянную личность.
+    //
+    // Прежняя строка называла runway:gen4_turbo по адресу /v1/recipes/
+    // product_ugc. Такого маршрута нет ни в реестре, ни у самого провайдера:
+    // пути /v1/recipes/* Runway не существуют. Дуэт упирался в этот запрет
+    // ПОСЛЕ резерва денег, то есть оставлял повисшую бронь.
+    // С 23.08.2026 — v2: фоновое видео + ведущий в углу, готовый MP4.
+    "heygen:avatar_v3": Object.freeze({
+      providerPath: "/v2/video/generate",
+      pollKind: "heygen_video",
+      pricingVersion: HEYGEN_PER_SECOND_PRICING_VERSION,
+    }),
+  }),
+  viral_product_swap: Object.freeze({
+    "runway:aleph2": Object.freeze({
+      providerPath: "/v1/video_to_video",
+      pollKind: "runway_task",
+      pricingVersion: RUNWAY_RECIPE_PRICING_VERSION,
+    }),
+    "fal:fal-ai/pika/v2/pikaswaps": Object.freeze({
+      providerPath: "fal-ai/pika/v2/pikaswaps",
+      pollKind: "fal_request",
+      pricingVersion: FAL_RECIPE_PRICING_VERSION,
+    }),
+    "fal:fal-ai/kling-video/o3/pro/video-to-video/edit": Object.freeze({
+      providerPath: "fal-ai/kling-video/o3/pro/video-to-video/edit",
+      pollKind: "fal_request",
+      pricingVersion: FAL_PER_SECOND_PRICING_VERSION,
+    }),
+    // Движки, заведённые 23.08.2026. Имя модели берётся из каталога, чтобы
+    // адрес отправки, адрес опроса и форма тела были одной и той же строкой.
+    [`fal:${FAL_KLING_O3_STANDARD_EDIT_MODEL}`]: Object.freeze({
+      providerPath: FAL_KLING_O3_STANDARD_EDIT_MODEL,
+      pollKind: "fal_request",
+      pricingVersion: FAL_KLING_STANDARD_PER_SECOND_PRICING_VERSION,
+    }),
+    [`fal:${FAL_HAPPY_HORSE_VIDEO_EDIT_MODEL}`]: Object.freeze({
+      providerPath: FAL_HAPPY_HORSE_VIDEO_EDIT_MODEL,
+      pollKind: "fal_request",
+      pricingVersion: FAL_HAPPY_HORSE_PER_SECOND_PRICING_VERSION,
+    }),
+    [`fal:${FAL_SEEDANCE_2_5_REFERENCE_MODEL}`]: Object.freeze({
+      providerPath: FAL_SEEDANCE_2_5_REFERENCE_MODEL,
+      pollKind: "fal_request",
+      pricingVersion: FAL_SEEDANCE_2_5_PER_SECOND_PRICING_VERSION,
+    }),
+    [`fal:${FAL_MINIMAX_H3_REFERENCE_MODEL}`]: Object.freeze({
+      providerPath: FAL_MINIMAX_H3_REFERENCE_MODEL,
+      pollKind: "fal_request",
+      pricingVersion: FAL_MINIMAX_H3_PER_SECOND_PRICING_VERSION,
+    }),
+  }),
+  viral_rebuild: Object.freeze({
+    "runway:gen4_turbo": Object.freeze({
+      providerPath: "/v1/recipes/product_ad",
+      pollKind: "runway_task",
+      pricingVersion: RUNWAY_RECIPE_PRICING_VERSION,
+    }),
+    // Движки «Создания» на fal, заведены 23.08.2026 (миграция 202608230021).
+    [`fal:${FAL_MINIMAX_H3_REFERENCE_MODEL}`]: Object.freeze({
+      providerPath: FAL_MINIMAX_H3_REFERENCE_MODEL,
+      pollKind: "fal_request",
+      pricingVersion: FAL_MINIMAX_H3_PER_SECOND_PRICING_VERSION,
+    }),
+    [`fal:${FAL_GROK_IMAGINE_REFERENCE_MODEL}`]: Object.freeze({
+      providerPath: FAL_GROK_IMAGINE_REFERENCE_MODEL,
+      pollKind: "fal_request",
+      pricingVersion: FAL_GROK_IMAGINE_PER_SECOND_PRICING_VERSION,
+    }),
+    [`fal:${FAL_HAPPY_HORSE_REFERENCE_MODEL}`]: Object.freeze({
+      providerPath: FAL_HAPPY_HORSE_REFERENCE_MODEL,
+      pollKind: "fal_request",
+      pricingVersion: FAL_HAPPY_HORSE_REFERENCE_PER_SECOND_PRICING_VERSION,
+    }),
+    [`fal:${FAL_SEEDANCE_2_5_REFERENCE_MODEL}`]: Object.freeze({
+      providerPath: FAL_SEEDANCE_2_5_REFERENCE_MODEL,
+      pollKind: "fal_request",
+      pricingVersion: FAL_SEEDANCE_2_5_PER_SECOND_PRICING_VERSION,
+    }),
+  }),
+});
+const FAL_QUEUE_MODEL_PATHS = new Set(
+  Object.values(PROVIDER_POLICY_ROUTES).flatMap((routes) =>
+    Object.values(routes)
+      .filter((route) => route.pollKind === "fal_request")
+      .map((route) => route.providerPath)
+  ),
+);
 const DETERMINISTIC_REJECTION = new Set([
   400,
   401,
@@ -69,6 +198,15 @@ function integer(value, minimum = 0, maximum = Number.MAX_SAFE_INTEGER) {
   return Number.isSafeInteger(value) && value >= minimum && value <= maximum;
 }
 
+// Длительность в пределах СВОЕЙ стратегии. Незнакомая стратегия предела не
+// имеет, и это отказ, а не свобода: без строки реестра сказать, сколько секунд
+// допустимо, нечем.
+function durationWithinStrategyBounds(strategyId, value) {
+  const bounds = generationStrategyDurationBounds(strategyId);
+  if (bounds === null) return false;
+  return integer(value, bounds.minimum, bounds.maximum);
+}
+
 function forbiddenTextControl(value) {
   for (let index = 0; index < value.length; index += 1) {
     const code = value.charCodeAt(index);
@@ -86,13 +224,15 @@ function text(value, minimum, maximum) {
     !forbiddenTextControl(value);
 }
 
-function strategyIdentity(strategyId, recipe) {
+// Stable strategy/recipe identity is independent from the selected provider
+// route.  The public catalog still describes the recipe family with its
+// original Runway defaults, while provider/model/path/pricing is validated by
+// PROVIDER_POLICY_ROUTES at the policy boundary below.
+function strategyRecipeIdentity(strategyId, recipe) {
   if (RECIPES[strategyId] !== recipe) return false;
   const entry = generationStrategyCatalogEntry(strategyId);
-  return entry?.provider === "runway" && entry.recipe === recipe &&
-    entry.recipe_version === RUNWAY_RECIPE_VERSION &&
-    entry.pricing_version === RUNWAY_RECIPE_PRICING_VERSION &&
-    entry.server?.provider_path === PROVIDER_PATHS[strategyId];
+  return entry?.recipe === recipe &&
+    entry.recipe_version === RUNWAY_RECIPE_VERSION;
 }
 
 function immutableStrategy(value, withJobSnapshot) {
@@ -122,10 +262,10 @@ function immutableStrategy(value, withJobSnapshot) {
     : common;
   return exact(value, keys) &&
     value.version === "generation-strategy-immutable-execution-v1" &&
-    strategyIdentity(value.strategy_id, value.recipe) &&
+    strategyRecipeIdentity(value.strategy_id, value.recipe) &&
     value.catalog_version === GENERATION_STRATEGY_CATALOG_VERSION &&
     value.recipe_version === RUNWAY_RECIPE_VERSION &&
-    value.pricing_version === RUNWAY_RECIPE_PRICING_VERSION &&
+    isKnownStrategyPricingVersion(value.pricing_version) &&
     uuid(value.binding_id) && hash(value.binding_hash) &&
     uuid(value.receipt_id) && hash(value.receipt_hash) &&
     hash(value.selection_hash) && hash(value.price_hash) &&
@@ -154,25 +294,51 @@ function recipeContext(value, expectedStrategy) {
       "userConceptHash",
     ])
   ) return null;
+  // Предел длительности — свойство стратегии, а не общее число. «Дуэт»
+  // комментирует чужой ролик целиком, и пятнадцатисекундный потолок отвергал
+  // бы его уже ПОСЛЕ резерва денег. Незнакомая стратегия предела не получает.
   if (
     value.strategyVersion !== GENERATION_STRATEGY_CATALOG_VERSION ||
     value.recipeVersion !== RUNWAY_RECIPE_VERSION ||
     value.strategyId !== expectedStrategy.strategy_id ||
     value.recipe !== expectedStrategy.recipe ||
-    !strategyIdentity(value.strategyId, value.recipe) ||
-    !integer(value.durationSeconds, 4, 15) || typeof value.audio !== "boolean"
+    !strategyRecipeIdentity(value.strategyId, value.recipe) ||
+    !durationWithinStrategyBounds(value.strategyId, value.durationSeconds) ||
+    typeof value.audio !== "boolean"
   ) return null;
-  const swap = value.recipe === "product_swap";
-  if (swap) {
+  // Кадр приходит ИЗ ИСХОДНИКА у обеих правок готового видео: и «Копия», и
+  // «Дуэт» отдают вертикаль исходного ролика, а не выбирают её. Развилка
+  // опиралась на один product_swap, поэтому дуэт попадал в чужую половину и
+  // падал на требовании resolution === null — снова после резерва.
+  const sourceFramed = value.recipe === "product_swap" ||
+    value.recipe === "product_ugc";
+  if (sourceFramed) {
+    // The swap price snapshot stores ratio as the literal marker "source"
+    // (output follows the source video); the SQL attempt context forwards it
+    // verbatim. Rejecting it here killed every paid dispatch before the
+    // provider POST (generation_dispatch_state_unavailable with a dangling
+    // attempt). Both the marker and null are valid for product_swap.
+    // У «Дуэта» userConcept — это РЕЧЬ ведущего, а не задание модели: пустая
+    // речь означает, что платить пришлось бы за молчание. Поблажка «прежних
+    // запусков» принадлежит «Копии» и только ей.
+    //
+    // Верхняя граница длины остаётся общей и намеренно широкой. Настоящий
+    // предел речи — длительность × 15 знаков — держит снимок указания в базе
+    // (202608230004), и повторять его здесь значило бы завести второй источник
+    // одного правила.
+    const legacyConcept = value.recipe === "product_swap" &&
+      value.userConcept === null && value.userConceptHash === null;
+    const approvedConcept =
+      text(value.userConcept, 1, 3_500) && hash(value.userConceptHash);
+    const legacyProduct =
+      value.productInfo === null && value.productInfoHash === null;
+    const approvedProduct =
+      text(value.productInfo, 1, 2_500) && hash(value.productInfoHash);
     if (
-      value.ratio !== null ||
+      !(value.ratio === null || value.ratio === "source") ||
       !new Set(["720p", "1080p"]).has(value.resolution) ||
-      value.userConcept !== null || value.userConceptHash !== null ||
-      !(
-        value.productInfo === null || text(value.productInfo, 1, 2_500)
-      ) || !(
-        value.productInfoHash === null || hash(value.productInfoHash)
-      )
+      !(legacyConcept || approvedConcept) ||
+      !(legacyProduct || approvedProduct)
     ) return null;
   } else {
     if (
@@ -182,6 +348,42 @@ function recipeContext(value, expectedStrategy) {
     ) return null;
   }
   return value;
+}
+
+async function promptTextHashMatches(value, expectedHash, maximum) {
+  if (value === null || expectedHash === null) {
+    return value === null && expectedHash === null;
+  }
+  if (!text(value, 1, maximum) || !hash(expectedHash)) return false;
+  try {
+    const digest = await globalThis.crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(value),
+    );
+    const actualHash = Array.from(new Uint8Array(digest), (byte) =>
+      byte.toString(16).padStart(2, "0")
+    ).join("");
+    return actualHash === expectedHash;
+  } catch {
+    return false;
+  }
+}
+
+// Cryptographic half of the recipe-context reader. The structural readers
+// above require exact null/null or text/hash pairs; this async seam verifies
+// that each server-returned hash belongs to its accompanying text before any
+// provider request can be constructed. Missing WebCrypto fails closed.
+export async function generationStrategyPromptHashesMatch(recipeContext) {
+  if (!record(recipeContext)) return false;
+  return await promptTextHashMatches(
+    recipeContext.productInfo,
+    recipeContext.productInfoHash,
+    2_500,
+  ) && await promptTextHashMatches(
+    recipeContext.userConcept,
+    recipeContext.userConceptHash,
+    3_500,
+  );
 }
 
 function assetContext(value, strategyId) {
@@ -219,8 +421,10 @@ function assetContext(value, strategyId) {
       !(asset.view === null ||
         new Set(["front", "side", "back"]).has(asset.view))
     ) return null;
+    // У «Дуэта» исходник провайдеру НЕ уходит: он подложка для сборки и
+    // источник длительности. Поэтому поля провайдера у него нет — null.
     const expectedFields = strategyId === "viral_avatar_ugc"
-      ? { avatar_image: "characterImage", product_image: "productImage" }
+      ? { source_video: null }
       : strategyId === "viral_product_swap"
       ? {
         source_video: "referenceVideo",
@@ -243,8 +447,7 @@ function assetContext(value, strategyId) {
     output.push(asset);
   }
   const valid = strategyId === "viral_avatar_ugc"
-    ? counts.get("avatar_image") === 1 && counts.get("product_image") === 1 &&
-      value.length === 2
+    ? counts.get("source_video") === 1 && value.length === 1
     : strategyId === "viral_product_swap"
     ? counts.get("source_video") === 1 &&
       counts.get("original_product_image") === 1 &&
@@ -397,10 +600,10 @@ export function readGenerationStrategyReadiness(value, expected) {
     receipt.selection_hash !== expected.selectionHash ||
     receipt.price_hash !== expected.priceHash ||
     receipt.spend_confirmation !== expected.spendConfirmation ||
-    !strategyIdentity(receipt.strategy_id, receipt.recipe) ||
+    !strategyRecipeIdentity(receipt.strategy_id, receipt.recipe) ||
     receipt.catalog_version !== GENERATION_STRATEGY_CATALOG_VERSION ||
     receipt.recipe_version !== RUNWAY_RECIPE_VERSION ||
-    receipt.pricing_version !== RUNWAY_RECIPE_PRICING_VERSION ||
+    !isKnownStrategyPricingVersion(receipt.pricing_version) ||
     !hash(receipt.strategy_prompt_hash) || typeof receipt.ready !== "boolean" ||
     !(receipt.failure_code === null ||
       new Set([
@@ -492,7 +695,7 @@ export function readGenerationStrategyProviderPolicy(value, expected) {
       "launch_enabled",
       "contract",
     ]) || value.ok !== true ||
-    value.version !== "generation-strategy-provider-policy-response-v1" ||
+    value.version !== "generation-strategy-provider-policy-response-v2" ||
     !record(value.execution_capabilities) ||
     !exact(value.execution_capabilities, [expected.strategyId]) ||
     !exact(value.execution_capabilities[expected.strategyId], [
@@ -500,26 +703,40 @@ export function readGenerationStrategyProviderPolicy(value, expected) {
       "catalog_version",
       "strategy_id",
       "provider",
+      "model_key",
       "recipe",
       "recipe_version",
       "provider_path",
+      "poll_kind",
       "pricing_version",
     ])
   ) return null;
   const capability = value.execution_capabilities[expected.strategyId];
+  const policyRoutes = PROVIDER_POLICY_ROUTES[expected.strategyId];
+  const route = record(policyRoutes)
+    ? policyRoutes[`${capability.provider}:${capability.model_key}`]
+    : null;
   if (
     typeof capability.enabled !== "boolean" ||
     capability.strategy_id !== expected.strategyId ||
-    !strategyIdentity(capability.strategy_id, capability.recipe) ||
-    capability.provider !== "runway" ||
+    !strategyRecipeIdentity(capability.strategy_id, capability.recipe) ||
+    capability.provider !== expected.provider ||
+    !isKnownStrategyProvider(capability.provider) ||
+    !record(route) ||
     capability.catalog_version !== GENERATION_STRATEGY_CATALOG_VERSION ||
     capability.recipe_version !== RUNWAY_RECIPE_VERSION ||
-    capability.provider_path !== PROVIDER_PATHS[expected.strategyId] ||
-    capability.pricing_version !== RUNWAY_RECIPE_PRICING_VERSION ||
+    capability.provider_path !== route.providerPath ||
+    capability.poll_kind !== route.pollKind ||
+    capability.pricing_version !== route.pricingVersion ||
+    capability.pricing_version !== expected.pricingVersion ||
+    !isKnownStrategyPricingVersion(capability.pricing_version) ||
     !exact(value.context, [
       "strategy_id",
       "provider",
+      "model_key",
       "recipe",
+      "provider_path",
+      "poll_kind",
       "binding_id",
       "binding_hash",
       "provider_readiness_receipt_id",
@@ -528,20 +745,24 @@ export function readGenerationStrategyProviderPolicy(value, expected) {
       "recipe_version",
       "pricing_version",
     ]) || value.context.strategy_id !== expected.strategyId ||
-    value.context.provider !== "runway" ||
+    value.context.provider !== capability.provider ||
+    value.context.model_key !== capability.model_key ||
     value.context.recipe !== capability.recipe ||
+    value.context.provider_path !== capability.provider_path ||
+    value.context.poll_kind !== capability.poll_kind ||
     value.context.binding_id !== expected.bindingId ||
     value.context.binding_hash !== expected.bindingHash ||
     value.context.provider_readiness_receipt_id !== expected.receiptId ||
     value.context.provider_readiness_receipt_hash !== expected.receiptHash ||
     value.context.catalog_version !== GENERATION_STRATEGY_CATALOG_VERSION ||
     value.context.recipe_version !== RUNWAY_RECIPE_VERSION ||
-    value.context.pricing_version !== RUNWAY_RECIPE_PRICING_VERSION ||
+    value.context.pricing_version !== capability.pricing_version ||
     !exact(value.checks, [
       "strategy_binding_current",
       "generation_spec_approved",
       "provider_readiness_receipt_current",
       "provider_readiness_receipt_unconsumed",
+      "provider_route_current",
       "sql_provider_configuration_enabled",
       "start_path_integrated",
     ]) ||
@@ -551,6 +772,9 @@ export function readGenerationStrategyProviderPolicy(value, expected) {
       typeof item !== "string" || !SAFE_CODE.test(item)
     ) ||
     typeof value.launch_enabled !== "boolean" ||
+    value.launch_enabled !==
+      Object.values(value.checks).every((item) => item === true) ||
+    value.launch_enabled !== (value.blockers.length === 0) ||
     value.launch_enabled !== capability.enabled ||
     !exact(value.contract, [
       "read_only",
@@ -566,10 +790,16 @@ export function readGenerationStrategyProviderPolicy(value, expected) {
     value.contract.receipt_single_use !== true ||
     value.contract.launch_enabled !== value.launch_enabled
   ) return null;
-  return { launchEnabled: value.launch_enabled, blockers: [...value.blockers] };
+  return {
+    launchEnabled: value.launch_enabled,
+    blockers: [...value.blockers],
+    provider: capability.provider,
+    modelKey: capability.model_key,
+    pollKind: capability.poll_kind,
+  };
 }
 
-export function readGenerationStrategyStartClaim(value, expected) {
+export async function readGenerationStrategyStartClaim(value, expected) {
   if (
     !exact(value, [
       "ok",
@@ -627,8 +857,17 @@ export function readGenerationStrategyStartClaim(value, expected) {
     !integer(value.job.estimated_credits) ||
     value.job.currency !== "USD" ||
     value.job.campaign_id !== expected.campaignId ||
-    !strategyIdentity(value.strategy?.strategy_id, value.job.model_identity) ||
-    !integer(value.job.duration_seconds, 4, 15) ||
+    !strategyRecipeIdentity(
+      value.strategy?.strategy_id,
+      value.job.model_identity,
+    ) ||
+    // Предел по стратегии, а не общий. Наряд «Дуэта» длиной с исходный ролик —
+    // обычное дело, и упереться он должен в строку реестра, а не в число,
+    // переехавшее сюда от первой стратегии.
+    !durationWithinStrategyBounds(
+      value.strategy?.strategy_id,
+      value.job.duration_seconds,
+    ) ||
     typeof value.job.audio !== "boolean" ||
     !immutableStrategy(value.strategy, true) ||
     value.strategy.receipt_id !== expected.receiptId ||
@@ -659,11 +898,40 @@ export function readGenerationStrategyStartClaim(value, expected) {
   ) return null;
   const context = recipeContext(value.recipe_context, value.strategy);
   const assets = assetContext(value.asset_context, value.strategy.strategy_id);
-  if (context === null || assets === null) return null;
+  if (
+    context === null || assets === null ||
+    !(await generationStrategyPromptHashesMatch(context))
+  ) return null;
   return { ...value, recipe_context: context, asset_context: assets };
 }
 
-export function readGenerationStrategyDispatchAttempt(value, expected) {
+// Попытка отправки несёт провайдера: он взят из квитанции готовности и подписан
+// вместе с ценой. Без него сторона отправки не знает, к какому движку идти.
+//
+// Принимаются ДВЕ формы, и это не послабление, а окно разворачивания: база
+// и функция обновляются разными выкатками, и жёсткий набор ключей означал бы
+// полный отказ отправки у ВСЕХ стратегий на время окна. Само значение при
+// этом не подразумевается: если ключа нет, вызывающая сторона обязана отказать
+// ДО запроса к провайдеру, а не выбирать движок по умолчанию.
+function dispatchAttemptRow(value) {
+  const legacy = [
+    "id",
+    "attempt_hash",
+    "dispatch_token",
+    "claim_id",
+    "claim_hash",
+    "generation_job_id",
+    "reserved_at",
+  ];
+  if (exact(value, legacy)) return true;
+  if (!exact(value, [...legacy, "provider", "product_category"])) return false;
+  return isKnownStrategyProvider(value.provider) &&
+    (value.product_category === null ||
+      (typeof value.product_category === "string" &&
+        SAFE_CODE.test(value.product_category)));
+}
+
+export async function readGenerationStrategyDispatchAttempt(value, expected) {
   if (
     !exact(value, [
       "ok",
@@ -680,15 +948,8 @@ export function readGenerationStrategyDispatchAttempt(value, expected) {
     value.version !== "generation-strategy-dispatch-attempt-response-v1" ||
     typeof value.dispatch_allowed !== "boolean" ||
     typeof value.replay !== "boolean" ||
-    !exact(value.attempt, [
-      "id",
-      "attempt_hash",
-      "dispatch_token",
-      "claim_id",
-      "claim_hash",
-      "generation_job_id",
-      "reserved_at",
-    ]) || !uuid(value.attempt.id) || !hash(value.attempt.attempt_hash) ||
+    !dispatchAttemptRow(value.attempt) ||
+    !uuid(value.attempt.id) || !hash(value.attempt.attempt_hash) ||
     !uuid(value.attempt.dispatch_token) ||
     value.attempt.claim_id !== expected.claimId ||
     value.attempt.claim_hash !== expected.claimHash ||
@@ -735,7 +996,10 @@ export function readGenerationStrategyDispatchAttempt(value, expected) {
     : Array.isArray(value.asset_context) && value.asset_context.length === 0
     ? []
     : null;
-  if (context === null || assets === null) return null;
+  if (
+    context === null || assets === null ||
+    !(await generationStrategyPromptHashesMatch(context))
+  ) return null;
   if (
     value.dispatch_allowed && (value.replay || value.terminal_result !== null)
   ) return null;
@@ -747,12 +1011,22 @@ export function classifyRunwayRecipeCreateOutcome(result) {
     return null;
   }
   if (result.kind === "network") {
+    // Diagnostic enrichment (2026-08-17): the dispatch catch passes the thrown
+    // error's name so the recorded result distinguishes network failure
+    // classes (TypeError, AbortError, deadline, …). Money semantics are
+    // unchanged — the outcome stays ambiguous with provider_post_started=true.
+    // Callers without an errorName keep the legacy ambiguous code.
+    const errorName = typeof result.errorName === "string"
+      ? result.errorName.toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 40)
+      : null;
     return Object.freeze({
       outcome: "ambiguous",
       provider_post_started: true,
       provider_http_status: null,
       provider_task_id: null,
-      failure_code: "provider_submission_ambiguous",
+      failure_code: errorName === null
+        ? "provider_submission_ambiguous"
+        : `provider_network_${errorName || "unknown"}`,
     });
   }
   const status = result.status;
@@ -986,18 +1260,57 @@ export function isRunwayTaskId(value) {
   return typeof value === "string" && TASK_ID.test(value);
 }
 
+// Форму выбора проверяет канонический валидатор: длительность, кадр, разрешение,
+// набор ассетов и подтверждения прав обязаны сойтись, и это не зависит от того,
+// каким движком исполняется рецепт.
+//
+// А вот ЦЕНУ он всегда считает рунвеевскую: статический каталог знает только
+// ступени кредитов Runway и всегда возвращает его же версию прайса. Сверять по
+// ней снимок маршрута fal значило объявлять удачный платный запуск отказом:
+// снимок несёт fal-usd-per-run-2026-08-18.v1 и 47 «кредитов», сверка не
+// сходилась, readPublicGenerationStrategyStatus возвращал null, наружу уходило
+// generation_unavailable — а деньги были уже зарезервированы и задача уже шла у
+// провайдера. Резерв в такой развилке не снимался никогда.
+//
+// Поэтому версия прайса здесь больше не сверяется со статическим каталогом: её
+// и число кредитов сверяет safeStatusPrice с ценой, замороженной в квитанции
+// маршрута (price_hash подписан вместе с ней). Для Runway ничего не
+// ослабляется — его ступени по-прежнему проходят через канонический
+// калькулятор, см. safeStatusPrice.
 function safeStatusSelection(value, strategy) {
   const validated = validateGenerationStrategySelection(value);
   return validated.ok === true &&
       validated.strategy_id === strategy.strategy_id &&
       validated.recipe === strategy.recipe &&
-      validated.recipe_version === strategy.recipe_version &&
-      validated.pricing_version === strategy.pricing_version
+      validated.recipe_version === strategy.recipe_version
     ? validated
     : null;
 }
 
 function safeStatusPrice(value, strategy, selection) {
+  if (!record(value)) return null;
+  // Ступени кредитов считает только Runway, и для него сверка с каноническим
+  // калькулятором остаётся обязательной слово в слово. У маршрута с собственной
+  // ставкой (fal — фиксированная цена за ролик) рунвеевская арифметика цену не
+  // описывает вовсе, поэтому у него проверяется внутренняя согласованность
+  // ЗАМОРОЖЕННОГО снимка: «кредиты», доналоговая сумма и сумма списания обязаны
+  // описывать одни и те же деньги (проверки ниже), а сам снимок обязан совпасть
+  // с подписанным price_hash квитанции. Ослаблением это не является:
+  // расхождение по-прежнему отвергается.
+  const runwayCredits = value.provider === "runway";
+  if (
+    runwayCredits && value.estimated_credits !== selection.estimated_credits
+  ) return null;
+  // Версия прайса берётся не из каталога, а из подписанного снимка стратегии:
+  // цена и движок подписаны вместе, поэтому назвать другую версию прайса в
+  // снимке цены — это подмена, а не расхождение версий. И движок обязан
+  // соответствовать своему прайсу: рунвеевские ступени принадлежат только
+  // Runway, чужой маршрут не может ими считаться.
+  if (
+    value.pricing_version !== strategy.pricing_version ||
+    runwayCredits !==
+      (value.pricing_version === RUNWAY_RECIPE_PRICING_VERSION)
+  ) return null;
   if (
     !exact(value, [
       "version",
@@ -1021,24 +1334,28 @@ function safeStatusPrice(value, strategy, selection) {
       "price_hash",
     ]) || value.version !== "generation-strategy-price-snapshot-v1" ||
     value.strategy_id !== strategy.strategy_id ||
-    value.provider !== "runway" || value.recipe !== strategy.recipe ||
+    !isKnownStrategyProvider(value.provider) ||
+    value.recipe !== strategy.recipe ||
     value.catalog_version !== GENERATION_STRATEGY_CATALOG_VERSION ||
-    value.pricing_version !== RUNWAY_RECIPE_PRICING_VERSION ||
+    !isKnownStrategyPricingVersion(value.pricing_version) ||
     value.recipe_version !== RUNWAY_RECIPE_VERSION ||
     value.duration_seconds !== selection.output.duration_seconds ||
     value.audio !== selection.output.audio ||
     value.resolution !== selection.output.resolution ||
+    // «Копия» и «Дуэт» кадр не выбирают — он приходит из исходника, и снимок
+    // цены называет его словом "source". У «Копии» потому, что она переписывает
+    // сам ролик; у «Дуэта» — потому, что ролик остаётся подложкой и задаёт
+    // размер холста. «Создание» по-прежнему несёт соотношение сторон из выбора.
     value.ratio !==
-      (strategy.recipe === "product_swap"
+      (RESOLUTION_FRAMED_RECIPES.has(strategy.recipe)
         ? "source"
         : selection.output.ratio) ||
     value.input_mode !== ({
-        product_ugc: "character_and_product_images",
+        product_ugc: "video_and_avatar_images",
         product_swap: "video_and_product_images",
         product_ad: "product_images",
       })[strategy.recipe] ||
     !integer(value.estimated_credits, 1, 1_000_000) ||
-    value.estimated_credits !== selection.estimated_credits ||
     value.estimated_pre_tax_usd_minor !== value.estimated_credits ||
     value.estimated_cost_minor !== value.estimated_credits ||
     typeof value.estimated_cost_usd !== "string" ||
@@ -1122,11 +1439,25 @@ function safeStatusOutput(value) {
     : undefined;
 }
 
-function safeStatusError(value) {
+function safeStatusError(value, job, dispatch, reconciliation) {
   if (value === null) return null;
-  return exact(value, ["code", "provider_billing_outcome"]) &&
-      typeof value.code === "string" && SAFE_CODE.test(value.code) &&
-      value.provider_billing_outcome === "unknown"
+  if (
+    !exact(value, ["code", "provider_billing_outcome"]) ||
+    typeof value.code !== "string" || !SAFE_CODE.test(value.code)
+  ) return undefined;
+  // Provider failures keep the conservative `unknown` billing outcome.  The
+  // sole nullable outcome is stronger evidence, not weaker evidence: an
+  // owner/admin resolved the exact ambiguous dispatch as not submitted, the
+  // job has no provider task, and its actual cost is zero.  A null paired with
+  // any other failure or reconciliation shape remains invalid.
+  if (value.provider_billing_outcome === "unknown") return value;
+  return value.provider_billing_outcome === null &&
+      value.code === "provider_submission_not_found" &&
+      job.status === "failed" && job.actual_cost_minor === 0 &&
+      job.provider_status === null && job.provider_task_id === null &&
+      dispatch?.outcome === "ambiguous" &&
+      reconciliation?.required === false &&
+      reconciliation.resolution === "confirmed_not_submitted"
     ? value
     : undefined;
 }
@@ -1194,6 +1525,10 @@ export function readPublicGenerationStrategyStatus(value, expected) {
       "cancelled",
     ]).has(value.job.status) ||
     !(value.job.provider_status === null || new Set([
+      // The dispatch writer records this first provider event atomically with
+      // job.status = "submitted".  Rejecting the marker made an already paid,
+      // provider-accepted job unprojectable until the first provider poll.
+      "submitted",
       "processing",
       "succeeded",
       "failed",
@@ -1217,7 +1552,12 @@ export function readPublicGenerationStrategyStatus(value, expected) {
   const dispatch = safeStatusDispatch(value.dispatch);
   const reconciliation = safeStatusReconciliation(value.reconciliation);
   const output = safeStatusOutput(value.output);
-  const error = safeStatusError(value.error);
+  const error = safeStatusError(
+    value.error,
+    value.job,
+    dispatch,
+    reconciliation,
+  );
   if (
     price === null || dispatch === undefined ||
     reconciliation === undefined || output === undefined ||
@@ -1231,7 +1571,14 @@ export function readPublicGenerationStrategyStatus(value, expected) {
       (error !== null)) ||
     (reconciliation?.required === true && dispatch?.outcome !== "ambiguous") ||
     (dispatch?.outcome === "submitted" &&
-      value.job.provider_task_id === null)
+      value.job.provider_task_id === null) ||
+    // `submitted` is a durable local dispatch receipt, not a provider poll
+    // result. Accept it only in the exact state written by
+    // system_record_generation_strategy_dispatch_result. This keeps the
+    // reader fail-closed for manufactured or stale phase combinations while
+    // allowing strategy_start to return the normal public status envelope.
+    (value.job.provider_status === "submitted" &&
+      (value.job.status !== "submitted" || dispatch?.outcome !== "submitted"))
   ) return null;
   if (
     !exact(value.contract, [
@@ -1254,6 +1601,113 @@ export function readPublicGenerationStrategyStatus(value, expected) {
     value.contract.signed_urls_returned !== false ||
     value.contract.manual_human_review_required !==
       (value.job.status === "succeeded")
+  ) return null;
+  return value;
+}
+
+// The only automatic recoveries allowed for a terminal strategy job are the
+// two historical fal result-route defects. In both cases the provider POST was
+// accepted, the exact request was recorded and billed, and only a GET against
+// a queue result route failed. 405 was produced by the obsolete guessed
+// `/response` handling; 413 was produced after the provider-owned
+// `response_url` was stripped to a bare app-root route. Re-run the complete
+// public status reader first so a caller cannot manufacture only this subset.
+export function readFalResultHttp405RecoveryCandidate(value, expected) {
+  return readFalResultHttpRecoveryCandidate(
+    value,
+    expected,
+    "provider_result_http_405",
+  );
+}
+
+export function readFalResultHttp413RecoveryCandidate(value, expected) {
+  return readFalResultHttpRecoveryCandidate(
+    value,
+    expected,
+    "provider_result_http_413",
+  );
+}
+
+function readFalResultHttpRecoveryCandidate(value, expected, failureCode) {
+  if (
+    !record(expected) || !uuid(expected.projectId) ||
+    !uuid(expected.generationJobId) ||
+    !new Set([
+      "provider_result_http_405",
+      "provider_result_http_413",
+    ]).has(failureCode)
+  ) return null;
+  const current = readPublicGenerationStrategyStatus(value, expected);
+  if (current === null) return null;
+  const job = current.job;
+  const strategy = current.strategy;
+  const price = current.price;
+  const dispatch = current.dispatch;
+  const error = current.error;
+  if (
+    job.status !== "failed" || job.provider_status !== "failed" ||
+    typeof job.provider_task_id !== "string" ||
+    !FAL_REQUEST_ID.test(job.provider_task_id) ||
+    !integer(job.estimated_cost_minor, 1) ||
+    job.actual_cost_minor !== job.estimated_cost_minor ||
+    strategy.strategy_id !== "viral_product_swap" ||
+    strategy.recipe !== "product_swap" || price.provider !== "fal" ||
+    dispatch === null || dispatch.outcome !== "submitted" ||
+    dispatch.provider_post_started !== true ||
+    dispatch.provider_http_status !== 200 || current.reconciliation !== null ||
+    current.output !== null || error === null ||
+    error.code !== failureCode ||
+    error.provider_billing_outcome !== "unknown" ||
+    current.contract.poll_provider_allowed !== false ||
+    current.contract.second_post_allowed !== false
+  ) return null;
+  return {
+    providerTaskId: job.provider_task_id,
+    recipe: strategy.recipe,
+    failureCode,
+  };
+}
+
+// Response from the one-shot ledger-preserving recovery writer. It may only
+// turn the exact failed fal event into success; it cannot retry the provider
+// POST, change billing or suppress the mandatory human review.
+export function readGenerationStrategyProviderResultRecovery(value, expected) {
+  if (
+    !record(expected) || !uuid(expected.generationJobId) ||
+    typeof expected.providerTaskId !== "string" ||
+    !FAL_REQUEST_ID.test(expected.providerTaskId) ||
+    !exact(value, [
+      "ok",
+      "version",
+      "replay",
+      "event",
+      "output",
+      "contract",
+    ]) || value.ok !== true ||
+    value.version !==
+      "generation-strategy-provider-result-recovery-response-v1" ||
+    typeof value.replay !== "boolean" || !exact(value.event, [
+      "generation_job_id",
+      "provider_task_id",
+      "previous_status",
+      "provider_status",
+    ]) || value.event.generation_job_id !== expected.generationJobId ||
+    value.event.provider_task_id !== expected.providerTaskId ||
+    value.event.previous_status !== "failed" ||
+    value.event.provider_status !== "succeeded" || !exact(value.output, [
+      "media_id",
+      "mime_type",
+      "size_bytes",
+    ]) || !uuid(value.output.media_id) ||
+    value.output.mime_type !== "video/mp4" ||
+    !integer(value.output.size_bytes, 1, 52_428_800) ||
+    !exact(value.contract, [
+      "provider_post_retried",
+      "ledger_mutated",
+      "manual_human_review_required",
+    ]) || value.contract.provider_post_retried !== false ||
+    value.contract.ledger_mutated !== false ||
+    value.contract.manual_human_review_required !== true
   ) return null;
   return value;
 }
@@ -1291,10 +1745,489 @@ export function runwayStrategyProviderStatus(value) {
   return null;
 }
 
+// Ответ очереди fal на создание задачи. Адреса статуса и результата приходят
+// в этом же ответе — собирать их самостоятельно нельзя, они принадлежат
+// провайдеру и могут измениться.
+// Идентификатор задачи HeyGen: непрозрачная строка провайдера. Проверяем не
+// смысл, а границы — иначе в адрес опроса уехало бы что угодно.
+const HEYGEN_VIDEO_ID = /^[A-Za-z0-9_-]{8,128}$/u;
+
+/*
+ * Ответ на создание ведущего. Идентификатор лежит ещё глубже, чем у ролика:
+ * data.avatar_item.id против data.video_id. Разобрать одно другим нельзя.
+ */
+export function parseCreatedHeygenAvatar(value) {
+  if (!record(value) || !record(value.data)) return null;
+  const item = value.data.avatar_item;
+  if (!record(item)) return null;
+  const id = item.id;
+  if (typeof id !== "string" || !HEYGEN_VIDEO_ID.test(id)) return null;
+  const groupId = record(value.data.avatar_group) &&
+      typeof value.data.avatar_group.id === "string" &&
+      HEYGEN_VIDEO_ID.test(value.data.avatar_group.id)
+    ? value.data.avatar_group.id
+    : null;
+  // Состояние может прийти сразу: обучение асинхронное, но короткое фото иногда
+  // готово к моменту ответа.
+  const status = typeof item.status === "string" ? item.status : null;
+  return { id, groupId, status };
+}
+
+/*
+ * Состояние обучения ведущего.
+ *
+ * pending_consent — НЕ отказ и НЕ готовность: провайдер ждёт подтверждения на
+ * использование внешности. Смешать его с failed значило бы выбросить уже
+ * оплаченного ведущего, а с completed — выдать за готового того, кем работать
+ * ещё нельзя.
+ */
+export function heygenAvatarStatus(value, expectedAvatarId) {
+  if (!record(value) || !record(value.data)) return null;
+  const item = record(value.data.avatar_item) ? value.data.avatar_item : value.data;
+  if (typeof item.status !== "string") return null;
+  if (
+    typeof item.id === "string" && typeof expectedAvatarId === "string" &&
+    item.id !== expectedAvatarId
+  ) return null;
+
+  if (item.status === "processing") {
+    return { avatarStatus: "training", avatarId: null, failureCode: null };
+  }
+  if (item.status === "pending_consent") {
+    return { avatarStatus: "awaiting_consent", avatarId: null, failureCode: null };
+  }
+  if (item.status === "completed") {
+    const id = typeof item.id === "string" && HEYGEN_VIDEO_ID.test(item.id)
+      ? item.id
+      : typeof expectedAvatarId === "string"
+      ? expectedAvatarId
+      : null;
+    // Готовность без идентификатора готовностью не является: работать с таким
+    // ведущим всё равно нечем, а запись о нём была бы ложью.
+    if (id === null) return null;
+    return { avatarStatus: "ready", avatarId: id, failureCode: null };
+  }
+  if (item.status === "failed") {
+    const raw = typeof item.failure_code === "string"
+      ? item.failure_code.trim().toLowerCase().replace(/[^a-z0-9_]+/gu, "_")
+        .slice(0, 80)
+      : "provider_avatar_failed";
+    return {
+      avatarStatus: "failed",
+      avatarId: null,
+      failureCode: SAFE_CODE.test(raw) && raw ? raw : "provider_avatar_failed",
+    };
+  }
+  return null;
+}
+
+/*
+ * Ответ HeyGen на создание задачи ведущего.
+ *
+ * Проверено 22.08.2026: идентификатор приходит как data.video_id — во
+ * вложенном объекте, а не в корне, и называется иначе, чем у обоих других
+ * провайдеров (Runway — id, очередь fal — request_id).
+ *
+ * Адресов статуса и результата в ответе нет и не должно быть: у HeyGen адрес
+ * статуса предсказуем и собирается из идентификатора. Это отличает его от
+ * очереди fal, где собирать адреса самостоятельно нельзя — они принадлежат
+ * провайдеру и меняются на его стороне.
+ */
+export function parseCreatedHeygenVideo(value) {
+  if (!record(value) || !record(value.data)) return null;
+  const id = value.data.video_id;
+  if (typeof id !== "string" || !HEYGEN_VIDEO_ID.test(id)) return null;
+  return { id };
+}
+
+export function parseCreatedFalRequest(value) {
+  if (!record(value)) return null;
+  const id = value.request_id;
+  if (typeof id !== "string" || !isRunwayTaskId(id)) return null;
+  const statusUrl = falQueueUrl(value.status_url);
+  const responseUrl = falQueueUrl(value.response_url);
+  if (statusUrl === null || responseUrl === null) return null;
+  return { id, statusUrl, responseUrl };
+}
+
+function falQueueUrl(value) {
+  if (typeof value !== "string" || value.length > 1_024) return null;
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  return url.origin === FAL_QUEUE_ORIGIN && !url.username && !url.password
+    ? url.toString()
+    : null;
+}
+
+// Nested fal endpoints are submitted by their full model path, while queue
+// status URLs can be rooted either at the owning app (`fal-ai/pika`) or at the
+// full endpoint. Both are read-only candidates; the exact request id remains
+// bound into every URL. These synthesized fallbacks use fal's documented bare
+// result operation; a validated provider-owned `/response` URL is handled
+// separately and always goes first.
+export function falQueueUrlCandidates(modelKey, requestId) {
+  if (
+    !FAL_QUEUE_MODEL_PATHS.has(modelKey) ||
+    typeof requestId !== "string" ||
+    !TASK_ID.test(requestId)
+  ) return [];
+  const segments = modelKey.split("/");
+  const roots = [`${segments[0]}/${segments[1]}`];
+  if (!roots.includes(modelKey)) roots.push(modelKey);
+  return roots.map((root) => {
+    const resultUrl = `${FAL_QUEUE_ORIGIN}/${root}/requests/${requestId}`;
+    return { statusUrl: `${resultUrl}/status`, resultUrl };
+  });
+}
+
+function normalizeFalQueueResultUrl(value, requestId) {
+  if (
+    typeof requestId !== "string" ||
+    !TASK_ID.test(requestId)
+  ) return null;
+  const parsedValue = falQueueUrl(value);
+  if (parsedValue === null) return null;
+  const url = new URL(parsedValue);
+  const pathname = url.pathname.replace(/\/+$/u, "");
+  if (
+    !pathname.endsWith(`/requests/${requestId}`) &&
+    !pathname.endsWith(`/requests/${requestId}/response`)
+  ) return null;
+  url.pathname = pathname;
+  url.hash = "";
+  return url.toString();
+}
+
+function bareFalQueueResultUrl(value, requestId) {
+  const normalized = normalizeFalQueueResultUrl(value, requestId);
+  if (normalized === null) return null;
+  const url = new URL(normalized);
+  const pathname = url.pathname.replace(/\/+$/u, "");
+  if (pathname.endsWith("/response")) {
+    url.pathname = pathname.slice(0, -"/response".length);
+  }
+  url.hash = "";
+  return url.toString();
+}
+
+// COMPLETED status payloads include a provider-owned response_url. Validate
+// its authority and request binding, but preserve it exactly: fal documents
+// this `/response` convenience URL in submit/status responses even though its
+// generic REST example also documents a bare request URL.
+export function falQueueResultUrl(value, requestId) {
+  if (!record(value)) return null;
+  return normalizeFalQueueResultUrl(value.response_url, requestId);
+}
+
+// fal's model-request Platform API is an independent, read-only projection of
+// stored request IO. It is the documented recovery path when a COMPLETED queue
+// request exists but its queue result route cannot return the stored payload.
+// Build the URL only from the executable model allowlist and a canonical fal
+// request UUID; no provider-supplied authority or query fragment is accepted.
+export function falModelRequestPayloadUrl(modelKey, requestId) {
+  if (
+    !FAL_QUEUE_MODEL_PATHS.has(modelKey) ||
+    typeof requestId !== "string" ||
+    !FAL_REQUEST_ID.test(requestId)
+  ) return null;
+  const url = new URL(
+    "/v1/models/requests/by-endpoint",
+    FAL_PLATFORM_API_ORIGIN,
+  );
+  url.searchParams.set("endpoint_id", modelKey);
+  url.searchParams.set("request_id", requestId);
+  url.searchParams.set("expand", "payloads");
+  // Two rows are requested so `items.length === 1` plus the pagination fields
+  // can prove that the exact filter produced one row, not merely one page.
+  url.searchParams.set("limit", "2");
+  return url.toString();
+}
+
+// The query is already exact, but the response is independently rebound to
+// both identities before any media URL can be consumed. Multiple rows,
+// mismatches and non-200 model executions are not recovery evidence.
+export function readFalModelRequestOutput(
+  value,
+  modelKey,
+  requestId,
+  responseStatus,
+) {
+  if (
+    responseStatus !== 200 ||
+    !FAL_QUEUE_MODEL_PATHS.has(modelKey) ||
+    typeof requestId !== "string" ||
+    !FAL_REQUEST_ID.test(requestId) ||
+    !record(value) ||
+    !Array.isArray(value.items) ||
+    value.items.length !== 1 ||
+    value.has_more !== false ||
+    value.next_cursor !== null
+  ) return null;
+  const item = value.items[0];
+  if (
+    !record(item) ||
+    item.request_id !== requestId ||
+    item.endpoint_id !== modelKey ||
+    item.status_code !== 200 ||
+    !record(item.json_output)
+  ) return null;
+  return {
+    statusCode: 200,
+    output: item.json_output,
+  };
+}
+
+// The requester is injected so this contract module never owns network
+// access, while the exact production fetch order remains executable under the
+// Node harness. The validated provider-owned response_url is tried first, then
+// its documented bare form and the bounded model/app-root fallbacks. 404, 405
+// and 413 mean only that a result route did not match this queue deployment;
+// they must not terminalize an already-paid, already-COMPLETED provider task.
+export async function fetchFalQueueResult({
+  statusValue,
+  requestId,
+  resultUrls,
+  resultClasses,
+  fetchJson,
+}) {
+  if (!Array.isArray(resultUrls) || typeof fetchJson !== "function") {
+    return { response: null, refusedStatus: null, attempts: [] };
+  }
+  const candidates = [];
+  const pushCandidate = (candidateClass, value) => {
+    const normalized = normalizeFalQueueResultUrl(value, requestId);
+    if (
+      normalized !== null &&
+      !candidates.some((candidate) => candidate.url === normalized)
+    ) {
+      candidates.push({ candidateClass, url: normalized });
+    }
+  };
+  const statusResultUrl = falQueueResultUrl(statusValue, requestId);
+  const statusBareResultUrl = bareFalQueueResultUrl(
+    statusResultUrl,
+    requestId,
+  );
+  pushCandidate("provider_response_exact", statusResultUrl);
+  pushCandidate("provider_response_bare", statusBareResultUrl);
+  const suppliedClasses = Array.isArray(resultClasses) ? resultClasses : [];
+  for (let index = 0; index < resultUrls.length; index += 1) {
+    // fal-js resolves nested endpoints through their owning app for result
+    // reads (`fal-ai/pika/v2/pikaswaps` -> `fal-ai/pika`). Keep the second,
+    // full-model route as a bounded compatibility fallback, and attach only a
+    // closed class label so recovery diagnostics never need the URL itself.
+    const suppliedClass = suppliedClasses[index];
+    const candidateClass = suppliedClass === "app_root" ||
+        suppliedClass === "full_model"
+      ? suppliedClass
+      : index === 0
+      ? "app_root"
+      : "full_model";
+    pushCandidate(candidateClass, resultUrls[index]);
+  }
+  let refusedStatus = null;
+  const attempts = [];
+  for (const candidate of candidates) {
+    let attempt;
+    try {
+      attempt = await fetchJson(candidate.url, { method: "GET" });
+    } catch {
+      attempts.push({
+        candidateClass: candidate.candidateClass,
+        outcome: "thrown",
+        status: null,
+      });
+      continue;
+    }
+    if (
+      !record(attempt) ||
+      typeof attempt.ok !== "boolean" ||
+      !integer(attempt.status, 100, 599)
+    ) {
+      attempts.push({
+        candidateClass: candidate.candidateClass,
+        outcome: "invalid",
+        status: null,
+      });
+      continue;
+    }
+    const outcome = attempt.ok
+      ? "ok"
+      : attempt.status >= 300 && attempt.status < 400
+      ? "redirect"
+      : "http";
+    attempts.push({
+      candidateClass: candidate.candidateClass,
+      outcome,
+      status: attempt.status,
+    });
+    if (attempt.ok) {
+      return { response: attempt, refusedStatus: null, attempts };
+    }
+    if (
+      attempt.status === 404 || attempt.status === 405 ||
+      attempt.status === 413
+    ) continue;
+    if (attempt.status >= 400 && refusedStatus === null) {
+      refusedStatus = attempt.status;
+    }
+  }
+  return { response: null, refusedStatus, attempts };
+}
+
+// Статус задачи fal. Готовый ролик лежит в теле результата, а не в статусе,
+// поэтому succeeded здесь означает «пора забрать результат по response_url».
+/*
+ * Ответ HeyGen на опрос статуса ведущего.
+ *
+ * Проверено 22.08.2026 по https://developers.heygen.com/docs/quick-start :
+ *   GET https://api.heygen.com/v3/videos/{video_id}
+ *   { "data": { "id", "status", "video_url", "duration",
+ *               "failure_code", "failure_message" } }
+ *   status: "generating" | "completed" | "failed"
+ *
+ * ЧЕМ ЭТОТ ОТВЕТ ОТЛИЧАЕТСЯ ОТ ДВУХ ДРУГИХ. У Runway поля лежат в корне, у
+ * очереди fal готовый ролик приходится забирать вторым запросом по отдельному
+ * адресу. HeyGen отдаёт и статус, и ссылку на результат сразу, но всё это —
+ * внутри вложенного `data`. Разбирать его тем же кодом, что и остальных,
+ * нельзя: поля просто не найдутся, и наряд навсегда останется «в работе» при
+ * уже списанных деньгах.
+ *
+ * ЛИЧНОСТЬ ЗАДАЧИ СВЕРЯЕТСЯ. Ответ обязан говорить о той задаче, о которой
+ * спрашивали: чужой идентификатор означает, что мы читаем не свой запуск, и
+ * принять его результат было бы хуже, чем не принять никакого.
+ */
+
+export function heygenStrategyProviderStatus(value, expectedVideoId) {
+  if (!record(value) || !record(value.data)) return null;
+  const data = value.data;
+  if (typeof data.status !== "string") return null;
+  // Сверка личности задачи. Идентификатор необязателен в ответе лишь потому,
+  // что документация его не гарантирует для всех состояний; но если он есть и
+  // не совпадает — это чужая задача, и ответ не наш.
+  if (typeof data.id === "string" && typeof expectedVideoId === "string") {
+    if (!HEYGEN_VIDEO_ID.test(data.id) || data.id !== expectedVideoId) {
+      return null;
+    }
+  }
+
+  // v3 отвечает generating/pending, v1 (/v1/video_status.get) — pending/
+  // waiting/processing. Все — «ещё делается».
+  if (
+    data.status === "generating" || data.status === "pending" ||
+    data.status === "waiting" || data.status === "processing"
+  ) {
+    return { providerStatus: "processing", outputUrl: null, failureCode: null };
+  }
+
+  if (data.status === "completed") {
+    // Успех без ссылки на файл успехом не является: платить за ролик, который
+    // некому забрать, нельзя. Такой ответ — неразобранный, а не готовый.
+    if (typeof data.video_url !== "string" || !data.video_url) return null;
+    return {
+      providerStatus: "succeeded",
+      outputUrl: data.video_url,
+      failureCode: null,
+    };
+  }
+
+  if (data.status === "failed") {
+    // Код отказа приводится к тому же низкоэнтропийному словарю, что и у двух
+    // других провайдеров: в журнал не должно попадать ничего, кроме короткого
+    // машинного кода. failure_message провайдера сюда не переносится вовсе —
+    // это свободный текст чужой системы.
+    // v3 несёт failure_code, v1 — error.code; оба — чужие строки, которые
+    // приводятся к короткому машинному коду.
+    const rawSource = typeof data.failure_code === "string"
+      ? data.failure_code
+      : record(data.error) && typeof data.error.code === "string"
+      ? data.error.code
+      : "";
+    const raw = rawSource
+      ? rawSource.trim().toLowerCase().replace(/[^a-z0-9_]+/gu, "_").slice(0, 80)
+      : "provider_task_failed";
+    return {
+      providerStatus: "failed",
+      outputUrl: null,
+      failureCode: SAFE_CODE.test(raw) && raw ? raw : "provider_task_failed",
+    };
+  }
+
+  return null;
+}
+
+export function falStrategyProviderStatus(value) {
+  if (!record(value) || typeof value.status !== "string") return null;
+  if (new Set(["IN_QUEUE", "IN_PROGRESS"]).has(value.status)) {
+    return { providerStatus: "processing", outputUrl: null, failureCode: null };
+  }
+  if (value.status === "COMPLETED") {
+    const rawErrorType = value.error_type;
+    if (typeof rawErrorType === "string" && FAL_ERROR_TYPE.test(rawErrorType)) {
+      const normalizedErrorType = rawErrorType.toLowerCase().replace(
+        /[_.:-]+/gu,
+        "_",
+      );
+      const failureCode = `provider_${normalizedErrorType}`;
+      // Keep the result compatible with the shared low-entropy diagnostic
+      // vocabulary as well as the provider-status ledger contract.
+      if (
+        failureCode.length <= 80 &&
+        SAFE_CODE.test(failureCode) &&
+        normalizedErrorType.split("_").every((part) => part.length <= 24)
+      ) {
+        return {
+          providerStatus: "failed",
+          outputUrl: null,
+          failureCode,
+        };
+      }
+    }
+    return { providerStatus: "succeeded", outputUrl: null, failureCode: null };
+  }
+  // Очередь умеет заканчивать задачу отказом, и такой ответ обязан закрывать
+  // наряд. Неразобранный отказ оставлял его «в работе» навсегда: деньги
+  // числились потраченными, а лимит одного открытого запуска — занятым.
+  if (new Set(["FAILED", "ERROR"]).has(value.status)) {
+    return {
+      providerStatus: "failed",
+      outputUrl: null,
+      failureCode: "provider_task_failed",
+    };
+  }
+  if (new Set(["CANCELED", "CANCELLED"]).has(value.status)) {
+    return {
+      providerStatus: "cancelled",
+      outputUrl: null,
+      failureCode: "provider_task_cancelled",
+    };
+  }
+  return null;
+}
+
+// Тело результата fal: ссылка на готовый ролик.
+export function readFalResultVideoUrl(value) {
+  if (!record(value) || !record(value.video)) return null;
+  const url = value.video.url;
+  if (typeof url !== "string" || url.length > 2_048) return null;
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  return parsed.protocol === "https:" ? parsed.toString() : null;
+}
+
 export const GENERATION_STRATEGY_EDGE_CONTRACT = Object.freeze({
   catalogVersion: GENERATION_STRATEGY_CATALOG_VERSION,
   recipeVersion: RUNWAY_RECIPE_VERSION,
   pricingVersion: RUNWAY_RECIPE_PRICING_VERSION,
   recipes: RECIPES,
   providerPaths: PROVIDER_PATHS,
+  providerPolicyRoutes: PROVIDER_POLICY_ROUTES,
 });

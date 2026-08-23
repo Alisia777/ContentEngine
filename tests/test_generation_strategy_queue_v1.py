@@ -53,12 +53,13 @@ const context = (index) => ({
     strategy_id: 'viral_avatar_ugc',
     recipe_version: '2026-06',
     duration_seconds: 4,
-    ratio: '720:1280',
+    // «Дуэт» измеряется разрешением: кадр задаёт исходник, а не выбор
+    // соотношения сторон — ролик комментируют, а не переснимают.
+    resolution: '720p',
     audio: false,
+    // Ассет ровно один: ведущего даёт библиотека проекта, а не фотография.
     assets: [
-      {role: 'source_video', media_id: sourceId(index)},
-      {role: 'avatar_image', media_id: uuid(20, index)},
-      {role: 'product_image', media_id: uuid(30, index)},
+      {role: 'source_video', media_id: sourceId(index), duration_seconds: 4},
     ],
     attestations: {
       source_media_rights_confirmed: true,
@@ -87,18 +88,11 @@ const bindResponse = (index) => ({
     source_binding_hash: hash(41, index),
     role_assets: [
       {
-        role: 'product_primary', ordinal: 1,
-        media_object_id: uuid(30, index), sha256: hash(30, index),
-        kind: 'product_photo', mime_type: 'image/png',
-        product_id: uuid(4, 0), rights_confirmed: true,
-        likeness_consent: false,
-      },
-      {
-        role: 'creator_avatar', ordinal: 1,
-        media_object_id: uuid(20, index), sha256: hash(20, index),
-        kind: 'creator_reference', mime_type: 'image/jpeg',
+        role: 'source_video', ordinal: 1,
+        media_object_id: sourceId(index), sha256: hash(41, index),
+        kind: 'source_video', mime_type: 'video/mp4',
         product_id: null, rights_confirmed: true,
-        likeness_consent: true,
+        likeness_consent: false,
       },
     ],
     strategy_snapshot_hash: hash(42, index),
@@ -118,10 +112,11 @@ const bindResponse = (index) => ({
     strategy_id: 'viral_avatar_ugc',
     provider: 'runway',
     recipe: 'product_ugc',
-    input_mode: 'character_and_product_images',
+    input_mode: 'video_and_avatar_images',
     duration_seconds: 4,
+    // Кадр приходит из исходника: снимок цены называет его "source".
     resolution: '720p',
-    ratio: '720:1280',
+    ratio: 'source',
     audio: false,
     estimated_credits: 192,
     estimated_pre_tax_usd_minor: 192,
@@ -396,11 +391,12 @@ def _evaluate(expression: str) -> object:
 
 
 def test_queue_imports_frozen_runtime_and_is_pure_planning_only() -> None:
-    assert hashlib.sha256(RUNTIME_MODULE.read_bytes()).hexdigest() == (
-        "70387d40a78f9fd4ec5401fbe3ca558f8969afc7bfc12511c743e653ba961ced"
+    canonical_runtime = RUNTIME_MODULE.read_bytes().replace(b"\r\n", b"\n")
+    assert hashlib.sha256(canonical_runtime).hexdigest() == (
+        "940fe34f2ee241e1d7206443c48389aa9541b06e4c897d31801d0a79fe7e56b0"
     )
     assert (
-        'from "./generation-strategy-runtime.js?v=20260814.os4.41";'
+        'from "./generation-strategy-runtime.js?v=20260823.copy-engines.45";'
         in QUEUE_SOURCE
     )
     for forbidden in (
@@ -631,6 +627,57 @@ def test_safe_projection_and_aggregate_review_are_redacted_display_only() -> Non
     assert result["underlyingPhases"] == ["preflight_ready"] * 10
 
 
+def test_unconfirmed_receipt_refresh_keeps_queue_binding_and_request_keys() -> None:
+    result = _evaluate(
+        """
+        (() => {
+          const ready = readyAll();
+          const before = ready.rows.get(sourceId(0));
+          const receipt = before.runtime_state.preflight.receipt;
+          const updated = queueContract.updateGenerationStrategyQueueRow(
+            ready,
+            sourceId(0),
+            {
+              type: runtime.GENERATION_STRATEGY_RUNTIME_ACTIONS.preflightRefreshRequested,
+              fingerprint: before.runtime_state.fingerprint,
+              receipt_id: receipt.id,
+              receipt_hash: receipt.receipt_hash,
+            },
+          );
+          const after = updated.queue.rows.get(sourceId(0));
+          return {
+            ok: updated.ok,
+            phase: after.runtime_state.phase,
+            fingerprint: after.runtime_state.fingerprint,
+            bindingId: after.runtime_state.bind?.binding.id,
+            bindingHash: after.runtime_state.bind?.binding.binding_hash,
+            beforeFingerprint: before.runtime_state.fingerprint,
+            beforeBindingId: before.runtime_state.bind.binding.id,
+            beforeBindingHash: before.runtime_state.bind.binding.binding_hash,
+            sameKeys: JSON.stringify(after.idempotency_keys) ===
+              JSON.stringify(before.idempotency_keys),
+            bindKey: after.idempotency_keys.bind,
+            phases: [...updated.queue.rows.values()].map((row) =>
+              row.runtime_state.phase),
+          };
+        })()
+        """
+    )
+    assert result == {
+        "ok": True,
+        "phase": "bound",
+        "fingerprint": result["beforeFingerprint"],
+        "bindingId": result["beforeBindingId"],
+        "bindingHash": result["beforeBindingHash"],
+        "beforeFingerprint": result["beforeFingerprint"],
+        "beforeBindingId": result["beforeBindingId"],
+        "beforeBindingHash": result["beforeBindingHash"],
+        "sameKeys": True,
+        "bindKey": "strategy.bind:row-1",
+        "phases": ["bound"] + ["preflight_ready"] * 9,
+    }
+
+
 def test_free_work_plan_is_ordered_descriptor_only_and_hard_capped_at_three() -> None:
     result = _evaluate(
         """
@@ -852,6 +899,127 @@ def test_safe_nonterminal_status_advances_polling_independently_but_ambiguity_ha
     assert result["globallyHalted"]["plan"]["blocker"] == "reconciliation_required"
     assert result["globallyHalted"]["plan"]["blocking_source_media_id"] == (
         result["laterAmbiguousSourceId"]
+    )
+
+
+def test_resolved_reconciliation_unblocks_sequential_starts_without_second_post() -> None:
+    result = _evaluate(
+        """
+        (() => {
+          const makeAmbiguous = () => {
+            const reserved = reserveStart(confirmAll(), 0);
+            const state = reserved.rows.get(sourceId(0)).runtime_state;
+            return update(reserved, 0, {
+              type: runtime.GENERATION_STRATEGY_RUNTIME_ACTIONS.startResolved,
+              fingerprint: state.fingerprint,
+              start_context_fingerprint: state.start_context_fingerprint,
+              idempotency_key: reserved.rows.get(sourceId(0))
+                .idempotency_keys.start,
+              response: reconciliationRequiredResponse(0),
+            });
+          };
+          const resolveIncident = (queue, response) => {
+            const state = queue.rows.get(sourceId(0)).runtime_state;
+            return update(queue, 0, {
+              type: runtime.GENERATION_STRATEGY_RUNTIME_ACTIONS.statusResolved,
+              fingerprint: state.fingerprint,
+              start_context_fingerprint: state.start_context_fingerprint,
+              generation_job_id: state.status.job.id,
+              response,
+            });
+          };
+
+          const attachedResponse = reconciliationRequiredResponse(0);
+          attachedResponse.job.status = 'submitted';
+          attachedResponse.job.provider_status = 'submitted';
+          attachedResponse.job.provider_task_id = 'runway-task-reconciled-1';
+          attachedResponse.job.actual_cost_minor = 192;
+          attachedResponse.job.updated_at = '2026-08-14T08:05:00.000Z';
+          attachedResponse.reconciliation = {
+            required: false,
+            incident_id: uuid(65, 0),
+            resolution: 'provider_task_attached',
+            reconciled_at: '2026-08-14T08:05:00.000Z',
+          };
+          attachedResponse.contract.poll_provider_allowed = true;
+
+          const notSubmittedResponse = reconciliationRequiredResponse(0);
+          notSubmittedResponse.job.status = 'failed';
+          notSubmittedResponse.job.actual_cost_minor = 0;
+          notSubmittedResponse.job.updated_at = '2026-08-14T08:05:00.000Z';
+          notSubmittedResponse.error = {
+            code: 'provider_submission_not_found',
+            provider_billing_outcome: null,
+          };
+          notSubmittedResponse.reconciliation = {
+            required: false,
+            incident_id: uuid(65, 0),
+            resolution: 'confirmed_not_submitted',
+            reconciled_at: '2026-08-14T08:05:00.000Z',
+          };
+
+          const unresolvedOnlyResponse = reconciliationRequiredResponse(0);
+          unresolvedOnlyResponse.reconciliation = null;
+          const unresolvedReserved = reserveStart(confirmAll(), 0);
+          const unresolvedState = unresolvedReserved.rows.get(sourceId(0))
+            .runtime_state;
+          const unresolvedOnly = update(unresolvedReserved, 0, {
+            type: runtime.GENERATION_STRATEGY_RUNTIME_ACTIONS.startResolved,
+            fingerprint: unresolvedState.fingerprint,
+            start_context_fingerprint: unresolvedState.start_context_fingerprint,
+            idempotency_key: unresolvedReserved.rows.get(sourceId(0))
+              .idempotency_keys.start,
+            response: unresolvedOnlyResponse,
+          });
+
+          const blockedBefore =
+            queueContract.planGenerationStrategyQueueSequentialStarts(
+              makeAmbiguous(),
+            );
+          const attached = resolveIncident(makeAmbiguous(), attachedResponse);
+          const attachedPlan =
+            queueContract.planGenerationStrategyQueueSequentialStarts(attached);
+          const notSubmitted = resolveIncident(
+            makeAmbiguous(),
+            notSubmittedResponse,
+          );
+          const notSubmittedPlan =
+            queueContract.planGenerationStrategyQueueSequentialStarts(
+              notSubmitted,
+            );
+          const unresolvedPlan =
+            queueContract.planGenerationStrategyQueueSequentialStarts(
+              unresolvedOnly,
+            );
+          return {
+            blockedBefore,
+            attachedPlan,
+            notSubmittedPlan,
+            unresolvedPlan,
+            attachedStatus: attached.rows.get(sourceId(0)).runtime_state.status,
+            notSubmittedStatus: notSubmitted.rows.get(sourceId(0))
+              .runtime_state.status,
+          };
+        })()
+        """
+    )
+    assert result["blockedBefore"]["plan"]["blocker"] == "reconciliation_required"
+    # An ambiguous dispatch with no incident record yet stays frozen.
+    assert result["unresolvedPlan"]["plan"]["blocker"] == "reconciliation_required"
+    # A resolved incident (either verdict) releases the queue for the next
+    # sequential start while the ambiguous dispatch record stays immutable.
+    for plan_name in ("attachedPlan", "notSubmittedPlan"):
+        plan = result[plan_name]["plan"]
+        assert plan["state"] == "ready"
+        assert plan["blocker"] is None
+        assert plan["next"]["idempotency_key"] == "strategy.start:row-2"
+    assert result["attachedStatus"]["dispatch"]["outcome"] == "ambiguous"
+    assert result["attachedStatus"]["reconciliation"]["required"] is False
+    assert result["attachedStatus"]["reconciliation"]["resolution"] == (
+        "provider_task_attached"
+    )
+    assert result["notSubmittedStatus"]["reconciliation"]["resolution"] == (
+        "confirmed_not_submitted"
     )
 
 

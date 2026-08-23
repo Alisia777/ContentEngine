@@ -1,0 +1,36 @@
+# syntax=docker/dockerfile:1.7
+FROM python:3.12-slim
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Local workstations often sit behind transient proxies. Keep the production
+# Dockerfile untouched while making the local media toolchain retry-safe.
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get -o Acquire::Retries=5 update \
+    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
+        ffmpeg \
+        tesseract-ocr \
+        tesseract-ocr-eng \
+        tesseract-ocr-rus \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --retries 5 -r requirements.txt
+
+COPY . .
+
+RUN useradd --create-home --uid 10001 contentengine \
+    && mkdir -p /app/media /app/logs /app/.local-data \
+    && chown -R contentengine:contentengine /app/media /app/logs /app/.local-data
+
+USER contentengine
+
+EXPOSE 8014
+STOPSIGNAL SIGTERM
+CMD ["python", "scripts/run_web.py"]

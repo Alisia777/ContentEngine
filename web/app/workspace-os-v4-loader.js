@@ -7,11 +7,17 @@
  * in favour of one deterministic stability coordinator.
  */
 
-import { workspaceActionKey } from "./workspace-action-key.js?v=20260814.os4.41";
+import { workspaceActionKey } from "./workspace-action-key.js?v=20260823.copy-engines.45";
+import {
+  contentEngineEmbeddedWindowRequest,
+  installContentEngineEmbeddedWindowRuntime,
+} from "./workspace-embedded-window-runtime.js?v=20260822.live-child.2";
 
-const BUILD = "20260814.os4.41";
-const GENERATION_HOTFIX_BUILD = `${BUILD}.strategy-interactions-1`;
-const GENERATION_INTAKE_BUILD = "20260814.intake2.1";
+const BUILD = "20260823.copy-engines.45";
+const DESKTOP_CORE_BUILD = "20260822.live-windows.5";
+const EMBEDDED_WINDOW_BUILD = "20260822.live-child.2";
+const GENERATION_HOTFIX_BUILD = "20260823.copy-engines.45";
+const GENERATION_INTAKE_BUILD = "20260823.copy-engines.45";
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;
@@ -19,6 +25,9 @@ let routeEpoch = 0;
 let lastScheduledActionKey = "";
 let corePromise = null;
 let retryPromise = null;
+let embeddedReadyState = null;
+let embeddedReadyAdapterRegistered = false;
+let embeddedRuntime = null;
 
 window.CONTENTENGINE_DESKTOP_V4 = true;
 
@@ -37,7 +46,7 @@ const ROUTE_ASSETS = Object.freeze({
     match: (route) => route === "/workspace/generation",
     styles: [
       `workspace-os-v4-generation-guided.css?v=${BUILD}`,
-      `generation-strategy-intake-v2.css?v=${GENERATION_INTAKE_BUILD}`,
+      `generation-strategy-intake-v4.css?v=${GENERATION_INTAKE_BUILD}`,
     ],
     modules: [
       `workspace-os-v4-generation-guided.js?v=${GENERATION_HOTFIX_BUILD}`,
@@ -63,12 +72,22 @@ function routePath() {
     .replace(/\/$/, "") || "/";
 }
 
+const embeddedRequest = contentEngineEmbeddedWindowRequest();
+if (embeddedRequest) {
+  embeddedRuntime = installContentEngineEmbeddedWindowRuntime({
+    request: embeddedRequest,
+    route: routePath,
+    actionKey: workspaceActionKey,
+  });
+}
+
 function isManagedRoute(route = routePath()) {
   return route.startsWith("/workspace/");
 }
 
 function setLoading(active, route = routePath()) {
   if (!isManagedRoute(route)) {
+    cancelEmbeddedRouteReady();
     clearRouteFailure();
     delete document.documentElement.dataset.ceV4Loading;
     delete document.documentElement.dataset.ceV4Ready;
@@ -76,7 +95,9 @@ function setLoading(active, route = routePath()) {
     return;
   }
   if (active) {
+    cancelEmbeddedRouteReady();
     clearRouteFailure();
+    embeddedRuntime?.markLoading?.(route);
     const entering = document.querySelector("#main-content.route-enter");
     entering?.querySelector("#workspace-content")?.classList.remove("ce-v4-content-reveal");
     document.documentElement.dataset.ceV4Loading = "true";
@@ -144,10 +165,12 @@ function renderRouteFailure(route = routePath()) {
 
 function setFailed(route = routePath(), error = null) {
   if (!isManagedRoute(route) || route !== routePath()) return;
+  cancelEmbeddedRouteReady();
   delete document.documentElement.dataset.ceV4Loading;
   delete document.documentElement.dataset.ceV4Ready;
   document.documentElement.dataset.ceV4Failed = "true";
   renderRouteFailure(route);
+  embeddedRuntime?.markFailed?.(route);
   window.dispatchEvent(new CustomEvent("contentengine:v4-route-failed", {
     detail: Object.freeze({ route, build: BUILD, retryable: true, reason: error ? "asset-load" : "unknown" }),
   }));
@@ -196,9 +219,60 @@ function reconcileStaleLoad(epoch) {
   return false;
 }
 
+function cancelEmbeddedRouteReady() {
+  embeddedReadyState = null;
+}
+
+function embeddedRouteMounted(route, actionKey) {
+  const shell = document.querySelector(".workspace-shell-v4[data-workspace-route]");
+  const content = shell?.querySelector("#workspace-content");
+  const main = content?.closest("#main-content");
+  const nestedDesktop = document.querySelector(
+    ".ce-v4-menubar, .ce-v4-dock, .ce-v4-desktop, [data-ce-v4-window]",
+  );
+  if (
+    !(shell instanceof HTMLElement)
+    || !(content instanceof HTMLElement)
+    || !(main instanceof HTMLElement)
+    || nestedDesktop
+  ) return false;
+  if (shell.dataset.workspaceRoute !== route || content.childElementCount === 0) return false;
+  const mountedActionKey = String(shell.dataset.workspaceActionKey || "");
+  return !mountedActionKey || mountedActionKey === actionKey;
+}
+
+function armEmbeddedRouteReady(route, actionKey, epoch) {
+  if (!embeddedRuntime) return;
+  embeddedReadyState = Object.freeze({ route, actionKey, epoch });
+  if (!embeddedReadyAdapterRegistered) {
+    window.ContentEngineDesktopV4.registerAdapter("embedded-window-ready", () => {
+      const pending = embeddedReadyState;
+      if (!pending) return;
+      const {
+        route: pendingRoute,
+        actionKey: pendingActionKey,
+        epoch: pendingEpoch,
+      } = pending;
+      if (
+        pendingEpoch !== routeEpoch
+        || pendingRoute !== routePath()
+        || pendingActionKey !== workspaceActionKey()
+        || !embeddedRouteMounted(pendingRoute, pendingActionKey)
+      ) return;
+      embeddedReadyState = null;
+      embeddedRuntime.markReady(pendingRoute);
+    }, { priority: 1000 });
+    embeddedReadyAdapterRegistered = true;
+  }
+  window.ContentEngineDesktopV4.requestMount();
+}
+
 async function loadRoute(route = routePath(), actionKey = workspaceActionKey()) {
   const epoch = ++routeEpoch;
   setLoading(true, route);
+  if (embeddedRuntime) {
+    await ensureStyle(`workspace-embedded-window.css?v=${EMBEDDED_WINDOW_BUILD}`);
+  }
   ensureCore();
   await corePromise;
   const matches = Object.values(ROUTE_ASSETS).filter((entry) => entry.match(route));
@@ -221,6 +295,7 @@ async function loadRoute(route = routePath(), actionKey = workspaceActionKey()) 
   window.dispatchEvent(new CustomEvent("contentengine:v4-route-ready", {
     detail: Object.freeze({ route, actionKey, build: BUILD }),
   }));
+  armEmbeddedRouteReady(route, actionKey, epoch);
   return true;
 }
 
@@ -234,9 +309,9 @@ function ensureCore() {
       ensureStyle(`workspace-os-v4-stability.css?v=${BUILD}`),
       ensureStyle(`workspace-os-v4-motion.css?v=${BUILD}`),
     ]);
-    await ensureModule(`workspace-os-v4.js?v=${BUILD}`);
+    await ensureModule(`workspace-os-v4.js?v=${DESKTOP_CORE_BUILD}`);
     await ensureModule(`workspace-os-v4-trash-rpc-alias.js?v=${BUILD}`);
-    await ensureModule(`workspace-os-v4-context-trash.js?v=${BUILD}`);
+    await ensureModule(`workspace-os-v4-context-trash.js?v=${GENERATION_HOTFIX_BUILD}`);
   })().catch((error) => {
     corePromise = null;
     throw error;
@@ -321,6 +396,8 @@ schedule();
 
 window.ContentEngineDesktopV4Loader = Object.freeze({
   build: BUILD,
+  embedded: Boolean(embeddedRuntime),
+  windowId: embeddedRuntime?.windowId || "",
   route: routePath,
   actionKey: workspaceActionKey,
   load: () => loadCurrentRoute(),

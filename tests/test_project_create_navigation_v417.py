@@ -81,7 +81,10 @@ def test_projects_dock_and_project_menu_have_explicit_unscoped_routes() -> None:
 
     assert 'ceV4AllProjects = "true"' in menu
     assert 'ceV4CreateProject = "true"' in menu
-    assert '"owner", "admin", "producer"' in menu
+    # Роли, которым можно создавать проект, живут в отдельном помощнике
+    # (workspaceCanCreateProject); переключатель спрашивает его.
+    assert "const canCreateProject = workspaceCanCreateProject();" in menu
+    assert '"owner", "admin", "producer"' in _function(CORE, "function workspaceCanCreateProject(")
     assert 'if (target?.closest("[data-ce-v4-home]")) navigate("/workspace/home")' in menubar
     assert 'navigate("/workspace/home?view=new", { preserveProject: false })' in menubar
     assert 'navigate("/workspace/home?view=projects", { preserveProject: false })' in menubar

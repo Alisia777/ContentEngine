@@ -1,0 +1,769 @@
+/* ContentEngine team workspace — reference-aligned navy/glass presentation.
+   Behaviour, permissions and server actions stay owned by app.js. */
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] {
+  --team-v2-text: #f4f7ff;
+  --team-v2-copy: #bdc9da;
+  --team-v2-muted: #8291a8;
+  --team-v2-dim: #65748c;
+  --team-v2-line: rgba(176, 201, 235, 0.12);
+  --team-v2-line-strong: rgba(176, 201, 235, 0.2);
+  --team-v2-panel: rgba(10, 22, 38, 0.88);
+  --team-v2-panel-strong: rgba(13, 27, 46, 0.96);
+  --team-v2-panel-soft: rgba(15, 31, 52, 0.7);
+  --team-v2-gold: #f7c96f;
+  --team-v2-gold-bright: #ffdc8e;
+  --team-v2-teal: #62ddd0;
+  --team-v2-blue: #76a8ff;
+  --team-v2-violet: #b18bff;
+  --team-v2-danger: #ff7f92;
+  --team-v2-radius: 18px;
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  max-width: none;
+  min-height: 100%;
+  margin: 0;
+  padding: clamp(18px, 2vw, 32px);
+  color: var(--team-v2-copy);
+  background:
+    radial-gradient(58rem 30rem at 82% -12%, rgba(92, 84, 220, 0.1), transparent 70%),
+    radial-gradient(38rem 24rem at 2% 40%, rgba(30, 186, 200, 0.055), transparent 72%);
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] *,
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] *::before,
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] *::after {
+  box-sizing: border-box;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] :is(h1, h2, h3, h4, strong) {
+  color: var(--team-v2-text);
+  font-family: inherit !important;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] :is(.muted, .tiny, .field-hint) {
+  color: var(--team-v2-muted) !important;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .eyebrow {
+  color: var(--team-v2-gold) !important;
+  font-family: inherit;
+  font-size: 0.69rem;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+/* “Сейчас” is the primary orientation strip for this workspace. */
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .workspace-action-guide {
+  position: relative;
+  display: grid;
+  min-height: 96px;
+  margin: 0 0 16px;
+  padding: 17px 20px;
+  overflow: hidden;
+  border: 1px solid rgba(247, 201, 111, 0.2) !important;
+  border-radius: var(--team-v2-radius) !important;
+  grid-template-columns: 40px minmax(0, 1fr) minmax(190px, auto);
+  align-items: center;
+  gap: 10px 16px;
+  color: var(--team-v2-copy);
+  background:
+    radial-gradient(28rem 12rem at 0 0, rgba(247, 201, 111, 0.105), transparent 72%),
+    radial-gradient(24rem 13rem at 100% 0, rgba(177, 139, 255, 0.08), transparent 72%),
+    linear-gradient(135deg, rgba(18, 33, 54, 0.96), rgba(8, 18, 31, 0.95)) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045), 0 18px 50px rgba(0, 0, 0, 0.18) !important;
+  backdrop-filter: blur(18px) saturate(125%);
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .workspace-action-guide::before {
+  position: absolute;
+  top: 0;
+  right: 16%;
+  left: 2%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(247, 201, 111, 0.8), rgba(177, 139, 255, 0.45), transparent);
+  content: "";
+  pointer-events: none;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .workspace-action-guide__step {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(247, 201, 111, 0.36);
+  border-radius: 12px;
+  place-items: center;
+  color: var(--team-v2-gold-bright);
+  background: linear-gradient(145deg, rgba(247, 201, 111, 0.16), rgba(247, 201, 111, 0.045));
+  box-shadow: 0 0 26px rgba(247, 201, 111, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  font-weight: 850;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .workspace-action-guide small {
+  color: var(--team-v2-gold) !important;
+  font-size: 0.67rem;
+  letter-spacing: 0.12em;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .workspace-action-guide__now strong {
+  font-size: clamp(0.94rem, 1.3vw, 1.08rem);
+  line-height: 1.35;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .workspace-action-guide__now > span,
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .workspace-action-guide > p {
+  color: var(--team-v2-muted);
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .workspace-action-guide__next a {
+  color: var(--team-v2-gold-bright);
+  text-underline-offset: 4px;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .workspace-action-guide > p {
+  border-top-color: rgba(176, 201, 235, 0.08);
+}
+
+/* Route notice. */
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] > .alert {
+  min-height: 50px;
+  margin: 0 0 14px;
+  padding: 12px 15px;
+  border: 1px solid rgba(98, 221, 208, 0.2) !important;
+  border-radius: 15px;
+  color: #b8e5e2 !important;
+  background: linear-gradient(90deg, rgba(41, 139, 142, 0.13), rgba(19, 40, 61, 0.7)) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] > .alert > strong {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border: 1px solid rgba(98, 221, 208, 0.3);
+  border-radius: 8px;
+  place-items: center;
+  color: var(--team-v2-teal);
+  background: rgba(98, 221, 208, 0.08);
+}
+
+/* Stable group navigation: one row of four work areas plus a compact context row. */
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-action-switch {
+  border: 1px solid var(--team-v2-line) !important;
+  color: var(--team-v2-copy);
+  background: rgba(5, 14, 25, 0.68) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+  backdrop-filter: blur(15px) saturate(120%);
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-action-switch--groups {
+  display: grid;
+  width: 100%;
+  margin: 0 0 14px;
+  padding: 5px;
+  border-radius: 15px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  overflow: visible;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-action-switch a {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 15px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  overflow: hidden;
+  color: #98a7bd;
+  background: transparent;
+  font-size: 0.82rem;
+  font-weight: 750;
+  line-height: 1.15;
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: border-color 170ms ease, color 170ms ease, background 170ms ease, transform 170ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-action-switch--groups a::before {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border: 1px solid rgba(176, 201, 235, 0.14);
+  border-radius: 8px;
+  place-items: center;
+  color: #9aabc2;
+  background: rgba(176, 201, 235, 0.045);
+  font-size: 0.76rem;
+  content: "";
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-action-switch--groups a:nth-child(1)::before { content: "●"; }
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-action-switch--groups a:nth-child(2)::before { content: "✓"; }
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-action-switch--groups a:nth-child(3)::before { content: "↗"; }
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-action-switch--groups a:nth-child(4)::before { content: "◇"; }
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-action-switch a:is(:hover, :focus-visible) {
+  border-color: rgba(118, 168, 255, 0.2);
+  color: var(--team-v2-text);
+  background: rgba(118, 168, 255, 0.07);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-action-switch a:is(.is-active, [aria-current="page"]) {
+  border-color: rgba(247, 201, 111, 0.27) !important;
+  color: var(--team-v2-text) !important;
+  background:
+    linear-gradient(105deg, rgba(247, 201, 111, 0.12), rgba(177, 139, 255, 0.055)) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045), 0 8px 28px rgba(0, 0, 0, 0.12) !important;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-action-switch--groups a:is(.is-active, [aria-current="page"])::before {
+  border-color: rgba(247, 201, 111, 0.34);
+  color: var(--team-v2-gold-bright);
+  background: rgba(247, 201, 111, 0.1);
+  box-shadow: 0 0 18px rgba(247, 201, 111, 0.08);
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-action-switch--context {
+  display: flex;
+  width: max-content;
+  max-width: 100%;
+  margin: -3px 0 18px;
+  padding: 4px;
+  border-radius: 13px;
+  gap: 3px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-action-switch--context::-webkit-scrollbar {
+  display: none;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-action-switch--context a {
+  min-height: 36px;
+  padding-inline: 13px;
+  border-radius: 9px;
+  font-size: 0.76rem;
+}
+
+/* Shared team surfaces. Specificity and !important intentionally neutralise
+   the old obsidian/brown portal layer without leaking into other routes. */
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] :is(
+  .team-members-panel,
+  .project-access-panel,
+  .team-invite-panel > .card,
+  .team-access-panel .access-center,
+  .team-reviews-panel > *,
+  .team-health-panel > *,
+  .team-spend-panel > *
+) {
+  border-color: var(--team-v2-line) !important;
+  border-radius: var(--team-v2-radius) !important;
+  color: var(--team-v2-copy) !important;
+  background:
+    radial-gradient(32rem 16rem at 100% 0, rgba(98, 114, 225, 0.065), transparent 72%),
+    linear-gradient(150deg, rgba(15, 30, 50, 0.92), rgba(7, 17, 30, 0.95)) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035), 0 20px 56px rgba(0, 0, 0, 0.15) !important;
+  backdrop-filter: blur(18px) saturate(120%);
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] :is(
+  .team-members-panel,
+  .project-access-panel,
+  .team-invite-panel > .card
+) {
+  overflow: hidden;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-members-panel {
+  margin: 0;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] :is(.card-header, .project-access-panel > .card-header) {
+  min-height: 78px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--team-v2-line) !important;
+  background: linear-gradient(90deg, rgba(247, 201, 111, 0.045), transparent 38%) !important;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .project-access-panel > .card-header {
+  margin-top: 14px;
+  padding-inline: 0 !important;
+  border-top: 1px solid var(--team-v2-line);
+  background: transparent !important;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] :is(.card-header h2, .card-header h3, .card > h2, .project-access-panel > h2) {
+  margin: 0;
+  color: var(--team-v2-text) !important;
+  font: 750 clamp(1.12rem, 1.8vw, 1.38rem)/1.25 Inter, ui-sans-serif, sans-serif !important;
+  letter-spacing: -0.018em;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .project-access-panel {
+  margin-top: 18px !important;
+  padding: clamp(19px, 2vw, 26px) !important;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-invite-panel {
+  margin-top: 0 !important;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  gap: 16px;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-invite-panel > .card:first-child {
+  padding: clamp(19px, 2vw, 26px);
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-invite-panel h2[style],
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .project-access-panel h2[style] {
+  font: 750 clamp(1.12rem, 1.8vw, 1.38rem)/1.25 Inter, ui-sans-serif, sans-serif !important;
+  letter-spacing: -0.018em;
+}
+
+/* Controls */
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] :is(input, textarea, select) {
+  border: 1px solid rgba(176, 201, 235, 0.14) !important;
+  border-radius: 11px;
+  color: var(--team-v2-text) !important;
+  background: rgba(4, 12, 22, 0.78) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  font-family: inherit;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] textarea {
+  min-height: 210px;
+  resize: vertical;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] :is(input, textarea, select):is(:hover, :focus) {
+  border-color: rgba(118, 168, 255, 0.48) !important;
+  outline: 3px solid rgba(118, 168, 255, 0.08) !important;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .field > span {
+  color: #dce5f3;
+  font-size: 0.78rem;
+  font-weight: 720;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .btn {
+  border-color: rgba(247, 201, 111, 0.32) !important;
+  color: #0b1320 !important;
+  background: linear-gradient(180deg, #ffdc8c, #e6a83c) !important;
+  box-shadow: 0 8px 24px rgba(230, 168, 60, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.48) !important;
+  font-family: inherit;
+  font-weight: 800;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .btn:is(.btn-secondary, .btn-ghost) {
+  border-color: rgba(176, 201, 235, 0.16) !important;
+  color: #d8e2f1 !important;
+  background: rgba(15, 29, 48, 0.86) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035) !important;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .btn:is(:hover, :focus-visible) {
+  border-color: rgba(255, 220, 142, 0.54) !important;
+  filter: brightness(1.06);
+  outline: 3px solid rgba(247, 201, 111, 0.1);
+  transform: translateY(-1px);
+}
+
+/* Participant ledger */
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-members-panel .table-wrap,
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .project-access-panel .table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border: 0 !important;
+  border-radius: 0;
+  background: rgba(4, 12, 22, 0.24) !important;
+  scrollbar-color: rgba(118, 168, 255, 0.32) rgba(255, 255, 255, 0.025);
+  scrollbar-width: thin;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .data-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: separate;
+  border-spacing: 0;
+  color: var(--team-v2-copy) !important;
+  background: transparent !important;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .data-table :is(th, td) {
+  padding: 15px 18px;
+  border-bottom: 1px solid rgba(176, 201, 235, 0.085) !important;
+  color: inherit;
+  background: transparent !important;
+  vertical-align: middle;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .data-table th {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  color: #8f9db2 !important;
+  background: rgba(6, 15, 27, 0.96) !important;
+  font-size: 0.66rem;
+  font-weight: 820;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .data-table tbody tr {
+  color: var(--team-v2-copy);
+  background: rgba(12, 25, 42, 0.18) !important;
+  transition: background-color 170ms ease, box-shadow 170ms ease;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .data-table tbody tr:nth-child(even) {
+  background: rgba(18, 33, 52, 0.26) !important;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .data-table tbody tr:is(:hover, :focus-within) {
+  color: var(--team-v2-text);
+  background: rgba(70, 112, 184, 0.11) !important;
+  box-shadow: inset 2px 0 0 rgba(118, 168, 255, 0.52);
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .data-table td:first-child {
+  min-width: 210px;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .data-table td:first-child > strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--team-v2-text) !important;
+  font-size: 0.82rem;
+  font-weight: 760;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .data-table td:first-child > strong::before {
+  display: inline-block;
+  width: 29px;
+  height: 29px;
+  flex: 0 0 29px;
+  border: 1px solid rgba(247, 201, 111, 0.26);
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 50% 35%, #ffdc8e 0 12%, transparent 13%),
+    radial-gradient(ellipse at 50% 82%, rgba(247, 201, 111, 0.75) 0 24%, transparent 25%),
+    linear-gradient(145deg, rgba(247, 201, 111, 0.14), rgba(177, 139, 255, 0.08));
+  box-shadow: 0 0 18px rgba(247, 201, 111, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  content: "";
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .data-table td:first-child small {
+  display: inline-block;
+  max-width: 240px;
+  margin: 4px 0 0 39px;
+  overflow: hidden;
+  color: var(--team-v2-muted) !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] :is(.badge, .status-badge, .count-badge) {
+  min-height: 25px;
+  padding: 4px 9px;
+  border: 1px solid rgba(176, 201, 235, 0.14) !important;
+  border-radius: 999px;
+  color: #c6d0df !important;
+  background: rgba(176, 201, 235, 0.065) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+  font-family: inherit;
+  font-size: 0.68rem;
+  font-weight: 780;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] :is(.badge-success, .status-passed, .status-active, .status-done, .status-approved) {
+  border-color: rgba(98, 221, 208, 0.26) !important;
+  color: #8aeee4 !important;
+  background: rgba(40, 154, 148, 0.12) !important;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] :is(.badge-warning, .status-pending, .status-queued, .status-todo) {
+  border-color: rgba(247, 201, 111, 0.28) !important;
+  color: var(--team-v2-gold-bright) !important;
+  background: rgba(195, 137, 35, 0.12) !important;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] :is(.badge-danger, .status-failed, .status-inactive, .status-revoked) {
+  border-color: rgba(255, 127, 146, 0.27) !important;
+  color: #ff9aaa !important;
+  background: rgba(178, 54, 79, 0.13) !important;
+}
+
+/* Access centre is an older standalone component; reset its light variables
+   locally so every subview remains part of the same desktop. */
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .access-center {
+  --portal-surface: #0a1728;
+  --portal-primary: #76a8ff;
+  --portal-ink: #f4f7ff;
+  --portal-ink-soft: #8c9bb1;
+  --portal-info-bg: rgba(44, 112, 163, 0.14);
+  --portal-info-ink: #9bd8f1;
+  --portal-danger-bg: rgba(177, 53, 77, 0.13);
+  --portal-danger-ink: #ff9aaa;
+  margin-top: 0;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .access-center::after {
+  border-color: rgba(177, 139, 255, 0.12);
+  background: radial-gradient(circle, rgba(177, 139, 255, 0.1), transparent 68%);
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .access-center :is(
+  .access-center-form,
+  .access-center-record,
+  .access-center-facts > div,
+  .access-center-empty
+) {
+  border-color: var(--team-v2-line) !important;
+  color: var(--team-v2-copy) !important;
+  background: rgba(5, 14, 25, 0.62) !important;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .access-center :is(h2, h3, dd) {
+  color: var(--team-v2-text) !important;
+  font-family: inherit !important;
+}
+
+/* Narrow windows turn the participant table into readable person cards. */
+@media (max-width: 900px) {
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] {
+    padding: 16px;
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .workspace-action-guide {
+    grid-template-columns: 40px minmax(0, 1fr);
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .workspace-action-guide__next {
+    grid-column: 2;
+    justify-items: start;
+    text-align: left;
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .workspace-action-guide > p {
+    grid-column: 1 / -1;
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-action-switch--groups {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-invite-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-members-panel {
+    padding: 12px;
+    overflow: visible;
+    background: transparent !important;
+    box-shadow: none !important;
+    backdrop-filter: none;
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-members-panel .card-header {
+    min-height: 0;
+    margin-bottom: 10px;
+    padding: 4px 2px 13px;
+    border-bottom-color: var(--team-v2-line) !important;
+    background: transparent !important;
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-members-panel .table-wrap {
+    overflow: visible;
+    background: transparent !important;
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-members-panel .data-table,
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-members-panel .data-table tbody {
+    display: block;
+    min-width: 0;
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-members-panel .data-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-members-panel .data-table tbody {
+    display: grid;
+    gap: 11px;
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-members-panel .data-table tbody tr {
+    display: grid;
+    padding: 15px;
+    border: 1px solid var(--team-v2-line) !important;
+    border-radius: 15px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 18px;
+    background:
+      radial-gradient(18rem 10rem at 100% 0, rgba(118, 168, 255, 0.06), transparent 72%),
+      rgba(10, 22, 38, 0.9) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-members-panel .data-table td {
+    display: grid;
+    min-width: 0;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(176, 201, 235, 0.07) !important;
+    grid-template-columns: minmax(72px, 0.65fr) minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-members-panel .data-table td::before {
+    color: var(--team-v2-dim);
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-members-panel .data-table td:nth-child(2)::before { content: "Роль"; }
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-members-panel .data-table td:nth-child(3)::before { content: "Курсы"; }
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-members-panel .data-table td:nth-child(4)::before { content: "Экзамен"; }
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-members-panel .data-table td:nth-child(5)::before { content: "Задачи"; }
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-members-panel .data-table td:nth-child(6)::before { content: "Публикации"; }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-members-panel .data-table td:first-child {
+    display: block;
+    min-width: 0;
+    padding-top: 0;
+    padding-bottom: 13px;
+    grid-column: 1 / -1;
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-members-panel .data-table td:first-child small {
+    margin-left: 39px;
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-members-panel .data-table td:nth-last-child(-n + 2) {
+    border-bottom: 0 !important;
+  }
+}
+
+@media (max-width: 520px) {
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] {
+    padding: 12px;
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .workspace-action-guide {
+    padding: 14px;
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-action-switch--groups {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-action-switch--groups a {
+    justify-content: flex-start;
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .card-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .card-header .btn {
+    width: 100%;
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-members-panel .data-table tbody tr {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-members-panel .data-table td,
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-members-panel .data-table td:first-child {
+    grid-column: 1;
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .team-members-panel .data-table td:nth-last-child(2) {
+    border-bottom: 1px solid rgba(176, 201, 235, 0.07) !important;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] > :is(
+    .workspace-action-guide,
+    .alert,
+    .team-action-switch,
+    .team-members-panel,
+    .project-access-panel,
+    .team-invite-panel,
+    .team-access-panel,
+    .team-reviews-panel,
+    .team-health-panel,
+    .team-spend-panel
+  ) {
+    animation: team-v2-enter 360ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] > :nth-child(2) { animation-delay: 35ms; }
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] > :nth-child(3) { animation-delay: 65ms; }
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] > :nth-child(4) { animation-delay: 95ms; }
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] > :nth-child(n + 5) { animation-delay: 125ms; }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .data-table tbody tr {
+    animation: team-v2-row-enter 300ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .data-table tbody tr:nth-child(2) { animation-delay: 35ms; }
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .data-table tbody tr:nth-child(3) { animation-delay: 70ms; }
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .data-table tbody tr:nth-child(4) { animation-delay: 105ms; }
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] .data-table tbody tr:nth-child(n + 5) { animation-delay: 140ms; }
+}
+
+@keyframes team-v2-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes team-v2-row-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view],
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] *,
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] *::before,
+  body.contentengine-desktop-v4 .ce-v4-window__body [data-team-view] *::after {
+    scroll-behavior: auto !important;
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -193,6 +193,7 @@ jobs:
           deno lint supabase/functions/creator-click/index.ts
           deno lint supabase/functions/auth-email-webhook/index.ts
           deno lint supabase/functions/_shared/internal-worker-auth.ts
+          deno lint supabase/functions/_shared/provider-output-archive.ts supabase/functions/_shared/provider-output-archive_test.ts
 
       - name: Type-check function
         run: |
@@ -209,6 +210,7 @@ jobs:
           deno check supabase/functions/creator-click/index.ts
           deno check supabase/functions/auth-email-webhook/index.ts
           deno check supabase/functions/_shared/internal-worker-auth.ts
+          deno check supabase/functions/_shared/provider-output-archive.ts supabase/functions/_shared/provider-output-archive_test.ts
 
       - name: Test creator product research
         run: deno test supabase/functions/creator-product-research/index_test.ts
@@ -221,6 +223,9 @@ jobs:
 
       - name: Test automatic research source dispatch
         run: deno test supabase/functions/creator-background-worker/index_test.ts
+
+      - name: Test provider output streaming archive
+        run: deno test --allow-net=127.0.0.1 supabase/functions/_shared/provider-output-archive_test.ts
 
   reference-postgres-migration:
     name: Validate reference Alembic/PostgreSQL model

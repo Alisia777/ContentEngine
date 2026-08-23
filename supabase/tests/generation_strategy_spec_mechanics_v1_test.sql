@@ -53,7 +53,11 @@ select ok(
     where constraint_row.conrelid =
       'content_factory.generation_spec_versions'::regclass
       and constraint_row.conname =
-        'generation_spec_versions_v1_v2_or_strategy_scope_check'
+        -- Ограничение переименовано миграцией 202608210001, когда рядом с
+        -- объёмом v1 появился провайдер-независимый v2: имя стало называть
+        -- обе версии сразу. Проверяемое свойство не изменилось — ветка
+        -- стратегического объёма существует и провалидирована.
+        'generation_spec_versions_v1_v2_strategy_v1_v2_scope_check'
       and constraint_row.contype = 'c'
       and constraint_row.convalidated
   ),
@@ -141,26 +145,24 @@ select is(
   'trivial mechanics fail closed'
 );
 
+-- «Дуэт» с 22.08.2026: РОВНО ОДИН ассет — комментируемый ролик. Ведущего задаёт
+-- запись в библиотеке проекта, а не фотография: в теле запроса к провайдеру
+-- медиа нет вовсе. Кадр приходит из исходника, поэтому измерение идёт
+-- разрешением, а длительность ассета обязательна — по ней считается посекундная
+-- цена ведущего (миграция 202608220014).
 with selection_value as (
   select jsonb_build_object(
     'version', '2026-08-14.v1',
     'strategy_id', 'viral_avatar_ugc',
     'recipe_version', '2026-06',
     'duration_seconds', 4,
-    'ratio', '720:1280',
+    'resolution', '720p',
     'audio', true,
     'assets', jsonb_build_array(
       jsonb_build_object(
         'role', 'source_video',
-        'media_id', '10000000-0000-4000-8000-000000000001'
-      ),
-      jsonb_build_object(
-        'role', 'avatar_image',
-        'media_id', '20000000-0000-4000-8000-000000000002'
-      ),
-      jsonb_build_object(
-        'role', 'product_image',
-        'media_id', '30000000-0000-4000-8000-000000000003'
+        'media_id', '10000000-0000-4000-8000-000000000001',
+        'duration_seconds', 4
       )
     ),
     'attestations', jsonb_build_object(
@@ -176,9 +178,45 @@ select ok(
   content_factory_private.generation_strategy_selection_snapshot_valid_v1(
     value
   ),
-  'UGC exact selection is valid without a GenerationModel identity'
+  'duet exact selection is valid with a single commented source video'
 )
 from selection_value;
+
+-- Прежняя форма обязана ОТВЕРГАТЬСЯ, а не просто «больше не встречаться».
+-- Фотография лица у дуэта не значит ничего: провайдеру она не уходит, и обещать
+-- выбор, которого нет, — это тот же обман, что показать одну цену и списать
+-- другую.
+select ok(
+  not content_factory_private.generation_strategy_selection_snapshot_valid_v1(
+    jsonb_build_object(
+      'version', '2026-08-14.v1',
+      'strategy_id', 'viral_avatar_ugc',
+      'recipe_version', '2026-06',
+      'duration_seconds', 4,
+      'resolution', '720p',
+      'audio', true,
+      'assets', jsonb_build_array(
+        jsonb_build_object(
+          'role', 'source_video',
+          'media_id', '10000000-0000-4000-8000-000000000001',
+          'duration_seconds', 4
+        ),
+        jsonb_build_object(
+          'role', 'avatar_image',
+          'media_id', '20000000-0000-4000-8000-000000000002'
+        )
+      ),
+      'attestations', jsonb_build_object(
+        'source_media_rights_confirmed', true,
+        'transformative_use_confirmed', true,
+        'product_assets_rights_confirmed', true,
+        'depicted_people_consent_confirmed', true,
+        'avatar_likeness_consent_confirmed', true
+      )
+    )
+  ),
+  'duet refuses the retired avatar photo asset'
+);
 
 with selection_value as (
   select jsonb_build_object(
@@ -220,6 +258,22 @@ select ok(
 )
 from selection_value;
 
+-- «Дуэт» с 22.08.2026: объём работы описывает ОДИН комментируемый ролик.
+--
+-- Что изменилось против прежней редакции и почему:
+--   • ассет один — ведущего даёт библиотека проекта, а не фотография
+--     (202608220014);
+--   • цель работы — САМ ролик: он и есть то, ПРО ЧТО делается запуск
+--     (202608220015), поэтому primary_media_id и media_ids указывают на него;
+--   • кадр приходит из исходника, значит ratio = "source", а измерение идёт
+--     разрешением (202608230001);
+--   • ссылок ноль: раньше их было две — фотография лица и фотография товара;
+--   • reference_video остаётся false, и это НЕ то же самое, что кадр: исходник
+--     провайдеру не уходит вовсе, ведущего снимают отдельно.
+--
+-- Разбор механики обязателен и здесь настоящий: модель ведущего исходного
+-- ролика не видит, и разбор — единственный источник того, о чём он будет
+-- говорить (202608220006).
 with
 selection_value as (
   select jsonb_build_object(
@@ -227,20 +281,13 @@ selection_value as (
     'strategy_id', 'viral_avatar_ugc',
     'recipe_version', '2026-06',
     'duration_seconds', 4,
-    'ratio', '720:1280',
+    'resolution', '720p',
     'audio', true,
     'assets', jsonb_build_array(
       jsonb_build_object(
         'role', 'source_video',
-        'media_id', '10000000-0000-4000-8000-000000000001'
-      ),
-      jsonb_build_object(
-        'role', 'avatar_image',
-        'media_id', '20000000-0000-4000-8000-000000000002'
-      ),
-      jsonb_build_object(
-        'role', 'product_image',
-        'media_id', '30000000-0000-4000-8000-000000000003'
+        'media_id', '10000000-0000-4000-8000-000000000001',
+        'duration_seconds', 4
       )
     ),
     'attestations', jsonb_build_object(
@@ -262,7 +309,9 @@ source_value as (
     'media_object_id', '10000000-0000-4000-8000-000000000001',
     'media_sha256', repeat('c', 64),
     'size_bytes', 4096,
-    'duration_seconds', 'null'::jsonb
+    -- Длительность исходника теперь измерена: по ней считается посекундная
+    -- цена ведущего, и приблизительной она быть не может.
+    'duration_seconds', 4
   ) as value
 ),
 asset_snapshot_value as (
@@ -275,26 +324,6 @@ asset_snapshot_value as (
       'kind', 'source_video',
       'mime_type', 'video/mp4',
       'product_id', 'null'::jsonb,
-      'rights_confirmed', true
-    ),
-    jsonb_build_object(
-      'selection_role', 'avatar_image',
-      'selection_ordinal', 2,
-      'media_id', '20000000-0000-4000-8000-000000000002',
-      'sha256', repeat('d', 64),
-      'kind', 'creator_reference',
-      'mime_type', 'image/jpeg',
-      'product_id', 'null'::jsonb,
-      'rights_confirmed', true
-    ),
-    jsonb_build_object(
-      'selection_role', 'product_image',
-      'selection_ordinal', 3,
-      'media_id', '30000000-0000-4000-8000-000000000003',
-      'sha256', repeat('e', 64),
-      'kind', 'product_photo',
-      'mime_type', 'image/png',
-      'product_id', '70000000-0000-4000-8000-000000000007',
       'rights_confirmed', true
     )
   ) as value
@@ -332,23 +361,23 @@ scope_value as (
   select jsonb_build_object(
     'version', 'generation-strategy-spec-scope-v1',
     'authority_kind', 'strategy_recipe',
-    'primary_media_id', '30000000-0000-4000-8000-000000000003',
+    'primary_media_id', '10000000-0000-4000-8000-000000000001',
     'media_ids', jsonb_build_array(
-      '30000000-0000-4000-8000-000000000003'
+      '10000000-0000-4000-8000-000000000001'
     ),
     'platform', 'tiktok',
     'provider', 'runway',
     'strategy_id', 'viral_avatar_ugc',
     'recipe', 'product_ugc',
-    'input_mode', 'character_and_product_images',
+    'input_mode', 'video_and_avatar_images',
     'duration_seconds', 4,
     'product_category', 'other',
-    'format', '720:1280',
-    'ratio', '720:1280',
+    'format', 'source',
+    'ratio', 'source',
     'resolution', '720p',
     'audio', true,
     'spoken_dialogue', false,
-    'reference_count', 2,
+    'reference_count', 0,
     'reference_video', false,
     'first_frame', false,
     'last_frame', false,
@@ -372,7 +401,7 @@ scope_value as (
 select is(
   content_factory_private.generation_strategy_spec_scope_v1(value),
   value,
-  'UGC recipe scope exact-matches selection, source and mechanics hashes'
+  'duet recipe scope exact-matches selection, source and mechanics hashes'
 )
 from scope_value;
 

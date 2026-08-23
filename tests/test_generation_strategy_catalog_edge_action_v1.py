@@ -7,6 +7,15 @@ STRATEGY_SQL_PATH = (
     ROOT
     / "supabase/migrations/202608130007_generation_strategy_execution_v1.sql"
 )
+# 202608170006 re-creates the catalog policy function with the real Runway
+# video_to_video path for product_swap; it is the latest SQL authority for
+# that function and the shape contract below must match it, not the stale
+# 202608130007 body.
+STRATEGY_POLICY_SQL_PATH = (
+    ROOT
+    / "supabase/migrations/"
+      "202608170006_generation_strategy_product_swap_video_to_video_v1.sql"
+)
 MULTIMODEL_SQL_PATH = (
     ROOT
     / "supabase/migrations/202608130002_generation_multimodel_authority.sql"
@@ -88,7 +97,7 @@ def test_strategy_catalog_action_is_lightweight_authenticated_and_fail_closed() 
 
 def test_sql_policy_shape_matches_the_existing_strict_edge_reader() -> None:
     edge = _text(EDGE_PATH)
-    sql = _text(STRATEGY_SQL_PATH)
+    sql = _text(STRATEGY_POLICY_SQL_PATH)
     reader = _slice(
         edge,
         "function readGenerationStrategyCatalogPolicy(",
@@ -144,7 +153,9 @@ def test_sql_policy_shape_matches_the_existing_strict_edge_reader() -> None:
 
     expected_rows = {
         "viral_avatar_ugc": ("product_ugc", "/v1/recipes/product_ugc"),
-        "viral_product_swap": ("product_swap", "/v1/recipes/product_swap"),
+        # Product Swap dispatches to the real Runway video_to_video endpoint;
+        # /v1/recipes/product_swap does not exist on the provider.
+        "viral_product_swap": ("product_swap", "/v1/video_to_video"),
         "viral_rebuild": ("product_ad", "/v1/recipes/product_ad"),
     }
     assert "Object.keys(capabilities).length !== expectedIds.size" in reader

@@ -537,7 +537,7 @@ def test_theme_archive_motion_and_interface_hooks_are_wired_into_the_spa() -> No
         r'from "\./portal-experience\.js\?v=([^"]+)";',
         APP,
     )
-    assert portal_experience_imports == ["20260814.os4.41"]
+    assert portal_experience_imports == ["20260823.copy-engines.45"]
     for hook in (
         "PORTAL_THEMES",
         "themePickerMarkup",

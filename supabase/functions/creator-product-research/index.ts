@@ -1523,6 +1523,20 @@ const PRODUCT_RESEARCH_SCHEMA: Json = strictObject({
         minLength: 10,
         maxLength: 400,
       },
+      // Какой из трёх способов завода подходит сценарию: «Копия» (правка
+      // чужого ролика под наш товар), «Дуэт» (ведущий комментирует ролик),
+      // «Создание» (новый ролик по механике). Совет ИИ-центра о способе —
+      // то, чего экрану создания не хватало: советчик движка работает уже
+      // внутри выбранного способа.
+      recommended_strategy: {
+        type: "string",
+        enum: ["viral_product_swap", "viral_avatar_ugc", "viral_rebuild"],
+      },
+      strategy_reason: {
+        type: "string",
+        minLength: 10,
+        maxLength: 400,
+      },
       hook: { type: "string", minLength: 3, maxLength: 500 },
       spoken_script: { type: "string", minLength: 0, maxLength: 4_000 },
       shot_list: {
@@ -2413,6 +2427,8 @@ export function readResearchResult(
         "goal",
         "recommended_generation_mode",
         "generation_mode_reason",
+        "recommended_strategy",
+        "strategy_reason",
         "hook",
         "spoken_script",
         "shot_list",
@@ -2430,6 +2446,17 @@ export function readResearchResult(
         String(scenario.recommended_generation_mode),
       ) ||
       !isBoundedText(scenario.generation_mode_reason, 10, 400) ||
+      !new Set(["viral_product_swap", "viral_avatar_ugc", "viral_rebuild"]).has(
+        String(scenario.recommended_strategy),
+      ) ||
+      !isBoundedText(scenario.strategy_reason, 10, 400) ||
+      // Статичное фото нельзя «скопировать» или «прокомментировать» из
+      // ролика — оно собирается с нуля; а «Копия» сохраняет звук исходника и
+      // речи ведущего не знает.
+      (scenario.recommended_generation_mode === "real_photo" &&
+        scenario.recommended_strategy !== "viral_rebuild") ||
+      (scenario.recommended_generation_mode === "real_seedance" &&
+        scenario.recommended_strategy === "viral_product_swap") ||
       !isBoundedText(scenario.hook, 3, 500) ||
       !isBoundedText(scenario.cta, 3, 400) ||
       !isTextArray(scenario.proof_points, 1, 8) ||
@@ -2725,6 +2752,15 @@ Product Research v2 requirements:
    platform верни только как одно из точных значений входного массива platforms:
    instagram, youtube, vk, wildberries или ozon.
    В generation_mode_reason кратко объясни выбор через структуру сценария, не цену.
+   Для каждого сценария также выбери recommended_strategy — способ, которым
+   завод сделает ролик: viral_product_swap («Копия») — взять разобранный чужой
+   ролик и заменить в нём товар на наш, сохранив сцену, движение и звук;
+   viral_avatar_ugc («Дуэт») — оставить чужой ролик нетронутым, а ведущий
+   компании комментирует его из угла кадра, spoken_script — его реплика;
+   viral_rebuild («Создание») — снять новый ролик по механике референсов из
+   фотографий нашего товара. Для real_photo всегда viral_rebuild; real_seedance
+   не сочетается с viral_product_swap. В strategy_reason одной-двумя фразами
+   объясни, почему именно этот способ даст лучший результат для этого сценария.
 8. creative_potential — эвристическая оценка качества замысла до публикации, а не
    вероятность вирусности, просмотров или продаж. В assumptions и risks явно опиши
    ограничения прогноза: аккаунт, монтаж, подача, сезонность и дистрибуция неизвестны.

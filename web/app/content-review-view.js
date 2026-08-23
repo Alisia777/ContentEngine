@@ -1249,6 +1249,7 @@ function reviewResultMarkup(run, canDecide, { restorePlacement = false } = {}) {
         : ""}
       <header class="card content-review-result__header">
         <div><p class="eyebrow">Проверка завершена</p><h2>${escapeHtml(run.media?.name || "Материал")}</h2><p>${escapeHtml(PLATFORM_LABELS[run.input.platform] || run.input.platform || "Площадка не указана")} · ${escapeHtml(CONTENT_KIND_LABELS[run.input.contentKind] || run.input.contentKind || "Статус не указан")}</p></div>
+        ${reviewSummaryPosterMarkup(run)}
         <span class="content-review-result__date">${formatDate(run.completedAt || run.updatedAt || run.createdAt)}</span>
       </header>
       ${routedCanDecide ? "" : reviewReadonlyMediaMarkup(run)}
@@ -1278,6 +1279,39 @@ function reviewResultMarkup(run, canDecide, { restorePlacement = false } = {}) {
       ${rulesetMarkup(run)}
     </article>
   `;
+}
+
+function reviewSummaryPosterMarkup(run) {
+  const media = run?.media || {};
+  const isVideo = media.isVideo === true || media.kind === "generated_video";
+  const mediaAvailable = Boolean(media.url)
+    && run.mediaIsStale !== true
+    && (!media.status || media.status === "ready");
+  const mediaName = media.name || (isVideo ? "Проверяемый MP4" : "Проверяемое изображение");
+  const kindLabel = isVideo ? "Проверяемый MP4" : "Проверяемое изображение";
+  const stateLabel = mediaAvailable
+    ? isVideo
+      ? "Ключевой кадр появится из точного player"
+      : "Миниатюра появится из точного файла"
+    : run.mediaIsStale
+      ? "Версия файла изменилась — обновите проверку"
+      : "Защищённый файл временно недоступен";
+  return `
+    <figure class="content-review-summary-poster is-${isVideo ? "video" : "image"} ${mediaAvailable ? "" : "is-unavailable"}"
+            data-content-review-summary-poster
+            data-summary-poster-state="${mediaAvailable ? "loading" : "unavailable"}"
+            data-media-kind="${isVideo ? "video" : "image"}"
+            aria-label="Неинтерактивная визуальная сводка: ${escapeHtml(mediaName)}">
+      <canvas class="content-review-summary-poster__canvas" width="640" height="360" aria-hidden="true"></canvas>
+      <span class="content-review-summary-poster__placeholder" aria-hidden="true">
+        <i></i><b>${isVideo ? "▶" : "◇"}</b><u></u>
+      </span>
+      <figcaption>
+        <small>${kindLabel}</small>
+        <strong>Визуальная сводка</strong>
+        <span data-content-review-summary-poster-label>${escapeHtml(stateLabel)}</span>
+      </figcaption>
+    </figure>`;
 }
 
 function reviewReadonlyMediaMarkup(run) {

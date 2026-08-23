@@ -106,6 +106,7 @@ export function buildGenerationFormDraft(value = {}, {
             ? "5"
             : "",
       campaign_id: optionalUuid(value.campaign_id),
+      campaign_selection_required: value.campaign_selection_required === true,
       sku: boundedText(value.sku, 120),
       product_name: boundedText(value.product_name, 180),
       product_category: PRODUCT_CATEGORIES.has(productCategory)

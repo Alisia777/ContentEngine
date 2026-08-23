@@ -1,0 +1,13 @@
+{
+  "package": "@supabase/supabase-js",
+  "version": "2.57.4",
+  "source": "https://registry.npmjs.org/@supabase/supabase-js/-/supabase-js-2.57.4.tgz",
+  "retrieved_utc": "2026-08-20",
+  "license": "MIT",
+  "npm_tarball_sha1": "fccc541efaaabbf0b0fb5cb7dce5b686de7d3149",
+  "npm_tarball_integrity": "sha512-LcbTzFhHYdwfQ7TRPfol0z04rLEyHabpGYANME6wkQ/kLtKNmI+Vy+WEM8HxeOZAtByUFxoUTTLwhXmrh+CcVw==",
+  "vendored_file": "supabase-js-2.57.4.umd.js",
+  "vendored_file_sha256": "7e94b62086deecef8c0ba3b38f514e2a1944ff6c81d92fb3ff967828c406c38f",
+  "license_file": "supabase-js-2.57.4.LICENSE.txt",
+  "license_file_sha256": "334dd6820e2eaeab2064e7c59001b810566728a28a41a7c1dbf69bbee17d0936"
+}

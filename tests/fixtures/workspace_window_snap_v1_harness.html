@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ContentEngine window snap v1 harness</title>
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4.css?v=window-snap-v1" />
+    <link rel="stylesheet" href="../../web/app/workspace-os-v4-stability.css?v=window-snap-v1" />
+    <style>
+      html, body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      .fixture-bootstrap-page { display: grid; gap: 12px; min-height: 440px; padding: 24px; color: #eef3f8; background: #0c1622; }
+      .fixture-bootstrap-page h1 { margin: 0; }
+      .fixture-bootstrap-page p { max-width: 60ch; margin: 0; color: #8392a4; }
+    </style>
+  </head>
+  <body>
+    <div id="app" class="app-root">
+      <div
+        class="workspace-shell workspace-shell-v4"
+        data-workspace-section="ai"
+        data-workspace-role="operator"
+        data-workspace-authorized-routes="/workspace/home /workspace/board /workspace/generation /workspace/review /workspace/placement /workspace/stats /workspace/research /workspace/ai /workspace/tasks /workspace/work"
+        data-project-id="11111111-1111-4111-8111-111111111111"
+        data-project-name="Bombbar · Август"
+      >
+        <main class="workspace-main">
+          <div id="main-content">
+            <div id="workspace-content">
+              <section class="page-wrap fixture-bootstrap-page">
+                <h1>Проверка живых раскладок</h1>
+                <p>Все формы живут в собственных same-origin документах и не перезагружаются при snap/reflow.</p>
+              </section>
+            </div>
+          </div>
+        </main>
+      </div>
+      <script id="workspace-project-flow-snapshot" type="application/json">
+        {
+          "project_id": "11111111-1111-4111-8111-111111111111",
+          "project": {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "name": "Bombbar · Август",
+            "progress_percent": 80,
+            "current_stage": "review"
+          },
+          "projects": [
+            {
+              "id": "11111111-1111-4111-8111-111111111111",
+              "name": "Bombbar · Август",
+              "progress_percent": 80,
+              "current_stage": "review"
+            }
+          ],
+          "counts": {
+            "files": 12,
+            "generation_jobs": 2,
+            "reviews": 2,
+            "placements": 1,
+            "metric_snapshots": 0,
+            "notifications_unread": 5
+          },
+          "stages": [
+            { "code": "files", "state": "done", "count": 12 },
+            { "code": "generation", "state": "done", "count": 2 },
+            { "code": "review", "state": "current", "count": 2 },
+            { "code": "placement", "state": "future", "count": 1 },
+            { "code": "stats", "state": "future", "count": 0 }
+          ]
+        }
+      </script>
+    </div>
+    <div id="toast-region" aria-live="polite"></div>
+
+    <script type="module">
+      const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
+      const SURFACE_SELECTOR = "iframe[data-ce-v4-window-surface]";
+      const delay = (milliseconds = 0) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+
+      async function waitFor(predicate, label, timeout = 14000) {
+        const deadline = performance.now() + timeout;
+        let lastError = null;
+        while (performance.now() < deadline) {
+          try {
+            if (predicate()) return true;
+          } catch (error) {
+            lastError = error;
+          }
+          await delay(25);
+        }
+        throw new Error(`${label}${lastError ? `: ${lastError.message}` : ""}`);
+      }
+
+      function visible(node) {
+        if (!(node instanceof HTMLElement) || node.hidden) return false;
+        const style = getComputedStyle(node);
+        const rect = node.getBoundingClientRect();
+        return style.display !== "none"
+          && style.visibility !== "hidden"
+          && Number(style.opacity || 1) > 0
+          && rect.width > 40
+          && rect.height > 40;
+      }
+
+      function windowRecords() {
+        return [...document.querySelectorAll("[data-ce-v4-window]")].map((shell) => ({
+          shell,
+          windowId: String(shell.dataset.ceV4WindowId || ""),
+          surface: shell.querySelector(SURFACE_SELECTOR),
+        }));
+      }
+
+      function childReady(record) {
+        try {
+          return record.surface instanceof HTMLIFrameElement
+            && record.surface.contentWindow
+            && record.surface.contentDocument?.readyState === "complete"
+            && record.surface.contentDocument.body?.dataset.ceWindowChildReady === "true";
+        } catch {
+          return false;
+        }
+      }
+
+      function captureIdentity(records) {
+        return records.map((record, index) => {
+          const childDocument = record.surface.contentDocument;
+          const input = childDocument.querySelector("#ce-window-live-input");
+          input.value = `snap-preserved-${index + 1}`;
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          return {
+            ...record,
+            childWindow: record.surface.contentWindow,
+            childDocument,
+            source: record.surface.getAttribute("src"),
+            bootId: String(childDocument.body.dataset.fixtureBootId || ""),
+            inputValue: String(input.value || ""),
+          };
+        });
+      }
+
+      function identityPreserved(snapshot) {
+        return snapshot.every((record) => {
+          const currentSurface = record.shell.querySelector(SURFACE_SELECTOR);
+          return record.shell.isConnected
+            && currentSurface === record.surface
+            && currentSurface?.isConnected
+            && currentSurface.contentWindow === record.childWindow
+            && currentSurface.contentDocument === record.childDocument
+            && currentSurface.getAttribute("src") === record.source
+            && currentSurface.contentDocument.body.dataset.fixtureBootId === record.bootId
+            && currentSurface.contentDocument.querySelector("#ce-window-live-input")?.value === record.inputValue;
+        });
+      }
+
+      function allInteractive(records) {
+        return records.every(({ shell, surface }) => (
+          visible(shell)
+          && visible(surface)
+          && !shell.hasAttribute("inert")
+          && !surface.hasAttribute("inert")
+          && surface.getAttribute("aria-hidden") !== "true"
+          && getComputedStyle(surface).pointerEvents !== "none"
+          && surface.tabIndex === 0
+        ));
+      }
+
+      function pointer(target, type, options) {
+        const PointerEventConstructor = target.ownerDocument?.defaultView?.PointerEvent || PointerEvent;
+        target.dispatchEvent(new PointerEventConstructor(type, {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          button: 0,
+          buttons: type === "pointerup" ? 0 : 1,
+          pointerType: "mouse",
+          ...options,
+        }));
+      }
+
+      function mark(name, value) {
+        document.body.dataset[name] = String(Boolean(value));
+      }
+
+      function stateFor(windowId) {
+        return window.ContentEngineDesktopV4.windowState().windows.find((item) => item.windowId === windowId);
+      }
+
+      function geometryFor(record) {
+        const state = stateFor(record.windowId);
+        return state ? {
+          x: state.position.x,
+          y: state.position.y,
+          width: state.size.width,
+          height: state.size.height,
+        } : null;
+      }
+
+      function sameGeometry(left, right, tolerance = 2) {
+        return left && right && ["x", "y", "width", "height"].every((key) => (
+          Math.abs(left[key] - right[key]) <= tolerance
+        ));
+      }
+
+      function expectedSnap(index, count) {
+        const host = document.querySelector("#main-content");
+        const margin = 8;
+        const gap = 12;
+        const width = Math.max(280, Math.floor((host.clientWidth - margin * 2 - gap * (count - 1)) / count));
+        return {
+          x: margin + index * (width + gap),
+          y: margin,
+          width,
+          height: Math.max(220, host.clientHeight - margin * 2),
+        };
+      }
+
+      async function navigate(route) {
+        const changed = new Promise((resolve) => window.addEventListener("hashchange", resolve, { once: true }));
+        window.ContentEngineDesktopV4.navigate(route);
+        await changed;
+        await window.ContentEngineDesktopV4.flush();
+      }
+
+      async function dragTo(record, target, pointerId) {
+        const titlebar = record.shell.querySelector("[data-ce-v4-window-titlebar]");
+        const titleRect = titlebar.getBoundingClientRect();
+        const hostRect = document.querySelector("#main-content").getBoundingClientRect();
+        const startX = titleRect.left + titleRect.width * .5;
+        const startY = titleRect.top + Math.min(20, titleRect.height * .5);
+        const endX = target === "left"
+          ? hostRect.left + 1
+          : target === "right"
+            ? hostRect.right - 1
+            : hostRect.left + hostRect.width * .5;
+        const endY = target === "top" ? hostRect.top + 1 : hostRect.top + Math.min(120, hostRect.height * .25);
+        pointer(titlebar, "pointerdown", { pointerId, clientX: startX, clientY: startY });
+        pointer(titlebar, "pointermove", { pointerId, clientX: endX, clientY: endY });
+        pointer(titlebar, "pointerup", { pointerId, clientX: endX, clientY: endY });
+        await delay(60);
+        await window.ContentEngineDesktopV4.flush();
+      }
+
+      function snapSlots(records) {
+        return records.map(({ shell }) => String(shell.dataset.ceV4WindowSnap || "")).filter(Boolean).sort();
+      }
+
+      try {
+        window.location.hash = `#/workspace/ai?project_id=${PROJECT_ID}`;
+        await import("../../web/app/workspace-os-v4.js?fixture=window-snap-v1");
+        await window.ContentEngineDesktopV4.flush();
+        await navigate(`/workspace/board?project_id=${PROJECT_ID}`);
+        await navigate(`/workspace/generation?project_id=${PROJECT_ID}`);
+
+        await waitFor(() => {
+          const records = windowRecords();
+          return records.length === 3 && records.every(childReady);
+        }, "three same-origin child documents did not become ready");
+        windowRecords().forEach(({ shell }) => shell.getAnimations().forEach((animation) => animation.finish()));
+        await waitFor(() => windowRecords().every(({ shell }) => visible(shell)), "three shells did not become visible");
+
+        const records = windowRecords();
+        const identity = captureIdentity(records);
+        const active = records.find(({ shell }) => shell.dataset.ceV4WindowActive === "true") || records.at(-1);
+        const zoom = active.shell.querySelector('[data-ce-v4-window-action="zoom"]');
+
+        // `dblclick` is the browser's terminal double-click event. The source
+        // contract separately pins the force=true argument, while this probe
+        // verifies that the real event reaches the green control and zooms.
+        zoom.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true, detail: 2 }));
+        await waitFor(() => stateFor(active.windowId)?.zoomed === true, "green double-click did not zoom");
+        const firstForced = stateFor(active.windowId)?.zoomed === true
+          && active.shell.classList.contains("is-zoomed")
+          && zoom.getAttribute("aria-pressed") === "true";
+        document.body.dataset.fixtureSnapZoomDebug = JSON.stringify({
+          firstState: stateFor(active.windowId)?.zoomed,
+          firstClass: active.shell.classList.contains("is-zoomed"),
+          firstPressed: zoom.getAttribute("aria-pressed"),
+        });
+        mark("fixtureSnapGreenDoubleClickForcesZoom", firstForced);
+        mark("fixtureSnapZoomPreservesSurfaces", identityPreserved(identity) && allInteractive(records));
+
+        // Restore ordinary geometry before titlebar drag.
+        zoom.click();
+        await waitFor(() => stateFor(active.windowId)?.zoomed === false, "window did not leave fullscreen");
+
+        await dragTo(active, "left", 801);
+        mark("fixtureSnapLeftHalf", active.shell.dataset.ceV4WindowSnap === "left"
+          && sameGeometry(geometryFor(active), expectedSnap(0, 2)));
+        mark("fixtureSnapLeftPreservesSurfaces", identityPreserved(identity) && allInteractive(records));
+
+        await dragTo(active, "right", 802);
+        mark("fixtureSnapRightHalf", active.shell.dataset.ceV4WindowSnap === "right"
+          && sameGeometry(geometryFor(active), expectedSnap(1, 2)));
+        mark("fixtureSnapRightPreservesSurfaces", identityPreserved(identity) && allInteractive(records));
+
+        await dragTo(active, "top", 803);
+        await waitFor(() => document.querySelector("[data-ce-v4-window-snap-assist]"), "top drag did not open chooser");
+        const firstAssist = document.querySelector("[data-ce-v4-window-snap-assist]");
+        const labelledBy = firstAssist.getAttribute("aria-labelledby");
+        const firstChoices = [...firstAssist.querySelectorAll("[data-ce-v4-window-snap-layout]")];
+        mark("fixtureSnapTopOpensAccessibleChooser", firstAssist.getAttribute("role") === "dialog"
+          && firstAssist.getAttribute("aria-modal") === "false"
+          && Boolean(labelledBy)
+          && document.getElementById(labelledBy)?.textContent.trim() === "Как закрепить окно?"
+          && firstChoices.map((button) => button.dataset.ceV4WindowSnapLayout).join(",") === "full,two,three"
+          && firstChoices.every((button) => Boolean(button.textContent.trim()))
+          && firstChoices.every((button) => !button.disabled));
+
+        firstAssist.querySelector('[data-ce-v4-window-snap-layout="two"]').click();
+        await waitFor(() => !document.querySelector("[data-ce-v4-window-snap-assist]"), "two-column chooser did not close");
+        await delay(40);
+        const twoSlots = snapSlots(records);
+        mark("fixtureSnapTwoLayoutGeometry", twoSlots.join(",") === "left,right"
+          && records.filter(({ shell }) => shell.dataset.ceV4WindowSnap).every((record, index, snapped) => {
+            const slot = record.shell.dataset.ceV4WindowSnap;
+            return sameGeometry(geometryFor(record), expectedSnap(slot === "left" ? 0 : 1, 2));
+          }));
+        mark("fixtureSnapTwoLayoutAllSurfacesLive", identityPreserved(identity) && allInteractive(records));
+
+        await dragTo(active, "top", 804);
+        await waitFor(() => document.querySelector('[data-ce-v4-window-snap-layout="three"]'), "three-column choice did not open");
+        const threeChoice = document.querySelector('[data-ce-v4-window-snap-layout="three"]');
+        mark("fixtureSnapThreeChoiceAvailable", !threeChoice.disabled);
+        threeChoice.click();
+        await waitFor(() => snapSlots(records).length === 3, "three-column layout was not applied");
+        await delay(40);
+        const threeSlots = snapSlots(records);
+        const ordered = records.slice().sort((left, right) => geometryFor(left).x - geometryFor(right).x);
+        mark("fixtureSnapThreeLayoutGeometry", threeSlots.join(",") === "column-1,column-2,column-3"
+          && ordered.every((record, index) => sameGeometry(geometryFor(record), expectedSnap(index, 3))));
+        mark("fixtureSnapThreeLayoutAllSurfacesLive", identityPreserved(identity) && allInteractive(records));
+
+        const geometryBeforeResize = new Map(records.map((record) => [record.windowId, geometryFor(record)]));
+        const host = document.querySelector("#main-content");
+        const nextWidth = Math.max(1120, host.clientWidth - 280);
+        const nextHeight = Math.max(620, host.clientHeight - 90);
+        host.style.setProperty("width", `${nextWidth}px`, "important");
+        host.style.setProperty("height", `${nextHeight}px`, "important");
+        window.dispatchEvent(new Event("resize"));
+        await delay(120);
+        await window.ContentEngineDesktopV4.flush();
+        await waitFor(() => ordered.every((record, index) => sameGeometry(geometryFor(record), expectedSnap(index, 3))), "snapped windows did not reflow");
+        const geometryChanged = records.some((record) => !sameGeometry(
+          geometryFor(record),
+          geometryBeforeResize.get(record.windowId),
+        ));
+        mark("fixtureSnapResizeReflows", geometryChanged
+          && snapSlots(records).join(",") === "column-1,column-2,column-3");
+        mark("fixtureSnapResizePreservesSurfaceIdentity", identityPreserved(identity));
+        mark("fixtureSnapResizeKeepsAllInteractive", allInteractive(records));
+        mark("fixtureSnapAllSourcesStable", records.every((record, index) => (
+          record.surface.getAttribute("src") === identity[index].source
+          && record.surface.contentWindow === identity[index].childWindow
+        )));
+
+        document.body.dataset.fixtureSnapReady = "true";
+        document.body.dataset.fixtureSnapFailed = "false";
+      } catch (error) {
+        document.body.dataset.fixtureSnapReady = "false";
+        document.body.dataset.fixtureSnapFailed = "true";
+        document.body.dataset.fixtureSnapError = String(error?.stack || error?.message || error).slice(0, 1400);
+      }
+    </script>
+  </body>
+</html>

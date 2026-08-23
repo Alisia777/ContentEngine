@@ -164,9 +164,12 @@ def test_finder_browse_and_organize_do_not_mix_action_surfaces() -> None:
     assert mode.count('query.get("create") === "project"') == 1
     assert 'runtime.board.dataset.ceV4FinderMode = mode' in mode
     assert 'document.body.dataset.ceV4FinderMode = mode' in mode
-    assert 'control.setAttribute("aria-current", active ? "page" : "false")' in mode
-    assert toolbar.count("#/workspace/board?view=browse") == 1
-    assert toolbar.count("#/workspace/board?view=organize") == 1
+    assert 'control.setAttribute("aria-pressed", String(active))' in mode
+    assert 'browse.type = "button"' in toolbar
+    assert 'organize.type = "button"' in toolbar
+    assert toolbar.count('dataset.action = "finder-mode"') == 2
+    assert 'if (action === "finder-mode")' in APP
+    assert 'navigate(`/workspace/board?${query.toString()}`)' in APP
 
     assert 'body[data-ce-v4-finder-mode="browse"] :is(' in FINDER_CSS
     browse_rule = _between(
@@ -240,7 +243,9 @@ def test_generation_and_content_review_fetch_and_render_only_the_requested_uuid(
     review = _between(APP, "function renderContentReviewSection(", "function selectPendingContentReviewMedia(")
 
     for marker in (
-        'state.api.realGenerationStatus(routeGenerationJobId, { projectId })',
+        "generationDeepLinkStatusKind(",
+        "state.api.generationStrategyStatus(strategyRequest)",
+        "state.api.realGenerationStatus(",
         'String(deepLinkJob?.id || "") === routeGenerationJobId',
         "mergeGenerationDeepLinkedBatch(",
         'state.api.contentReviewStatus(routeReviewId, { projectId })',

@@ -59,6 +59,9 @@ def test_generation_spec_preparation_failure_exposes_exact_non_generic_blockers(
         function generationVideoReferenceForForm() {{
           return {{ present: true, ready: false, code: "generation_video_reference_mechanics_invalid" }};
         }}
+        function generationSpecPreparationRoute() {{
+          return {{ legacyAllowed: true, code: "", message: "" }};
+        }}
         {failure}
         const form = ({{
           dataset: {{}},
@@ -224,6 +227,7 @@ def test_background_spend_and_status_updates_do_not_full_render_a_live_create_fo
     runtime = _node_json(
         f"""
         let fullRenders = 0;
+        let campaignSyncs = 0;
         let spendSyncs = 0;
         let readinessSyncs = 0;
         let archiveSyncs = 0;
@@ -238,19 +242,21 @@ def test_background_spend_and_status_updates_do_not_full_render_a_live_create_fo
           querySelector: (selector) => selector === "#mock-batch-form" ? form : null,
         }};
         const render = () => fullRenders += 1;
+        const syncGenerationCampaignSelectUi = () => campaignSyncs += 1;
         const syncGenerationSpendSnapshotUi = () => spendSyncs += 1;
         const syncGenerationFormReadiness = () => readinessSyncs += 1;
         const syncGenerationArchiveCardUi = () => archiveSyncs += 1;
         {background}
         const returned = renderGenerationBackgroundUpdate();
         process.stdout.write(JSON.stringify({{
-          returned, fullRenders, spendSyncs, readinessSyncs, archiveSyncs,
+          returned, fullRenders, campaignSyncs, spendSyncs, readinessSyncs, archiveSyncs,
         }}));
         """
     )
     assert runtime == {
         "returned": False,
         "fullRenders": 0,
+        "campaignSyncs": 1,
         "spendSyncs": 1,
         "readinessSyncs": 1,
         "archiveSyncs": 1,

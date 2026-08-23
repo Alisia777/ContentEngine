@@ -67,10 +67,10 @@ process.stdout.write(JSON.stringify(value));
     return json.loads(completed.stdout)
 
 
-def test_exact_ten_order_and_limit_are_deterministic() -> None:
+def test_rebuild_exact_ten_order_and_limit_are_deterministic() -> None:
     result = _run(
         """
-let state=createGenerationStrategySourcePicker('viral_product_swap',candidates);
+let state=createGenerationStrategySourcePicker('viral_rebuild',candidates.map((item, index) => candidate(index + 1, 'viral_rebuild')));
 for(let i=0;i<10;i+=1) state=reduceGenerationStrategySourcePicker(state,{type:A.toggle,source_media_id:uuid(i+1)});
 const ten=generationStrategySourcePickerProjection(state);
 state=reduceGenerationStrategySourcePicker(state,{type:A.toggle,source_media_id:uuid(11)});
@@ -90,17 +90,64 @@ return {ten,after:generationStrategySourcePickerProjection(state),selection:gene
     assert result["after"]["error"] == "source_limit_reached"
 
 
+def test_product_swap_requires_exactly_one_source() -> None:
+    result = _run(
+        """
+const swapCandidates=[candidate(1,'viral_product_swap'),candidate(2,'viral_product_swap')];
+let state=createGenerationStrategySourcePicker('viral_product_swap',swapCandidates);
+state=reduceGenerationStrategySourcePicker(state,{type:A.toggle,source_media_id:uuid(1)});
+const one=generationStrategySourcePickerProjection(state);
+state=reduceGenerationStrategySourcePicker(state,{type:A.toggle,source_media_id:uuid(2)});
+return {one,after:generationStrategySourcePickerProjection(state),selection:generationStrategySourcePickerSelection(state)};
+"""
+    )
+    assert result["one"]["required_count"] == 1
+    assert result["one"]["exact_required_selected"] is True
+    assert result["one"]["all_selected_ready"] is True
+    assert result["selection"] == ["00000001-1111-4111-8111-000000000001"]
+    assert result["after"]["selected_count"] == 1
+    assert result["after"]["error"] == "source_limit_reached"
+
+
+def test_product_swap_accepts_direct_mp4_and_rejects_unattached_video() -> None:
+    result = _run(
+        """
+const direct={
+  ...candidate(1,'viral_product_swap'),
+  exact_youtube_attached:false,
+  direct_mp4_attached:true,
+};
+const unattached={
+  ...candidate(2,'viral_product_swap'),
+  exact_youtube_attached:false,
+  direct_mp4_attached:false,
+};
+let state=createGenerationStrategySourcePicker('viral_product_swap',[direct,unattached]);
+state=reduceGenerationStrategySourcePicker(state,{type:A.toggle,source_media_id:uuid(1)});
+return {
+  projection:generationStrategySourcePickerProjection(state),
+  candidateIds:state.candidates.map((item)=>item.id),
+  selection:generationStrategySourcePickerSelection(state),
+};
+"""
+    )
+    assert result["candidateIds"] == ["00000001-1111-4111-8111-000000000001"]
+    assert result["projection"]["exact_required_selected"] is True
+    assert result["projection"]["all_selected_ready"] is True
+    assert result["selection"] == ["00000001-1111-4111-8111-000000000001"]
+
+
 def test_probe_required_is_selectable_but_cannot_authorize_queue() -> None:
     result = _run(
         """
-const list=[candidate(1,'viral_product_swap',true),...candidates.slice(1,10)];
+const list=[candidate(1,'viral_product_swap',true)];
 let state=createGenerationStrategySourcePicker('viral_product_swap',list);
-for(let i=0;i<10;i+=1) state=reduceGenerationStrategySourcePicker(state,{type:A.toggle,source_media_id:uuid(i+1)});
+state=reduceGenerationStrategySourcePicker(state,{type:A.toggle,source_media_id:uuid(1)});
 return {projection:generationStrategySourcePickerProjection(state),selection:generationStrategySourcePickerSelection(state)};
 """
     )
     assert result["selection"] is None
-    assert result["projection"]["exactly_ten_selected"] is True
+    assert result["projection"]["exact_required_selected"] is True
     assert result["projection"]["all_selected_ready"] is False
     assert result["projection"]["probe_required_source_ids"] == [
         "00000001-1111-4111-8111-000000000001"
@@ -110,10 +157,11 @@ return {projection:generationStrategySourcePickerProjection(state),selection:gen
 def test_candidate_refresh_preserves_order_and_drops_only_missing_source() -> None:
     result = _run(
         """
-let state=createGenerationStrategySourcePicker('viral_product_swap',candidates);
+const rebuildCandidates=candidates.map((item,index)=>candidate(index+1,'viral_rebuild'));
+let state=createGenerationStrategySourcePicker('viral_rebuild',rebuildCandidates);
 for(let i=0;i<10;i+=1) state=reduceGenerationStrategySourcePicker(state,{type:A.toggle,source_media_id:uuid(i+1)});
 const before=state.revision;
-state=reduceGenerationStrategySourcePicker(state,{type:A.replaceCandidates,strategy_id:'viral_product_swap',candidates:candidates.filter((_,index)=>index!==4)});
+state=reduceGenerationStrategySourcePicker(state,{type:A.replaceCandidates,strategy_id:'viral_rebuild',candidates:rebuildCandidates.filter((_,index)=>index!==4)});
 return {before,projection:generationStrategySourcePickerProjection(state)};
 """
     )

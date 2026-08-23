@@ -123,7 +123,7 @@ def test_strategy_catalog_client_is_exact_and_independent_from_model_catalog() -
         "viral_rebuild",
     ]
     assert result["acceptedLabels"] == [
-        "Новый UGC с аватаром и товаром",
+        "Добавить ведущего, комментирующего ролик",
         "Заменить товар в исходном ролике",
         "Создать новый ролик по механике референса",
     ]

@@ -30,6 +30,13 @@ DEPLOYMENT_LOCK_NAME = "contentengine_deploy:production"
 MAX_RESPONSE_BYTES = 1_048_576
 MAX_PRIVATE_SQL_BYTES = 1_048_576
 MAX_PRIVATE_TRAINING_KEYS_BYTES = 262_144
+MAX_CHECKSUM_COMPATIBILITY_BYTES = 65_536
+CHECKSUM_COMPATIBILITY_SCHEMA = (
+    "contentengine-supabase-migration-checksum-compatibility-v1"
+)
+DEFAULT_CHECKSUM_COMPATIBILITY_PATH = Path(__file__).with_name(
+    "supabase_migration_checksum_compatibility.json"
+)
 MIGRATION_NAME = re.compile(
     r"^(?P<version>[0-9]{12,20})_[a-z0-9][a-z0-9_]*[.]sql$"
 )
@@ -72,6 +79,13 @@ class Migration:
 
 
 @dataclass(frozen=True)
+class MigrationChecksumCompatibility:
+    version: str
+    deployed_sha256: str
+    repository_sha256: str
+
+
+@dataclass(frozen=True)
 class SqlStatement:
     raw: str
     tokens: tuple[str, ...]
@@ -79,6 +93,88 @@ class SqlStatement:
 
 def _sql_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
+
+
+def _json_object_without_duplicate_keys(
+    pairs: list[tuple[str, Any]],
+) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ConfigurationError(
+                "Supabase checksum compatibility manifest has duplicate keys"
+            )
+        value[key] = item
+    return value
+
+
+def load_checksum_compatibility(
+    path: Path = DEFAULT_CHECKSUM_COMPATIBILITY_PATH,
+) -> frozenset[MigrationChecksumCompatibility]:
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        raise ConfigurationError(
+            "Supabase checksum compatibility manifest is unavailable"
+        ) from None
+    if len(raw) > MAX_CHECKSUM_COMPATIBILITY_BYTES:
+        raise ConfigurationError(
+            "Supabase checksum compatibility manifest is too large"
+        )
+    try:
+        payload = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=_json_object_without_duplicate_keys,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise ConfigurationError(
+            "Supabase checksum compatibility manifest is invalid"
+        ) from None
+
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"schema", "compatibility"}
+        or payload.get("schema") != CHECKSUM_COMPATIBILITY_SCHEMA
+        or not isinstance(payload.get("compatibility"), list)
+    ):
+        raise ConfigurationError(
+            "Supabase checksum compatibility manifest has an invalid shape"
+        )
+
+    compatibility: set[MigrationChecksumCompatibility] = set()
+    versions: set[str] = set()
+    for raw_item in payload["compatibility"]:
+        if (
+            not isinstance(raw_item, dict)
+            or set(raw_item)
+            != {"version", "deployed_sha256", "repository_sha256"}
+        ):
+            raise ConfigurationError(
+                "Supabase checksum compatibility manifest has an invalid entry"
+            )
+        version = raw_item["version"]
+        deployed_sha256 = raw_item["deployed_sha256"]
+        repository_sha256 = raw_item["repository_sha256"]
+        if (
+            not isinstance(version, str)
+            or MIGRATION_NAME.fullmatch(f"{version}_migration.sql") is None
+            or not isinstance(deployed_sha256, str)
+            or HEX_SHA256.fullmatch(deployed_sha256) is None
+            or not isinstance(repository_sha256, str)
+            or HEX_SHA256.fullmatch(repository_sha256) is None
+            or deployed_sha256 == repository_sha256
+            or version in versions
+        ):
+            raise ConfigurationError(
+                "Supabase checksum compatibility manifest has invalid data"
+            )
+        versions.add(version)
+        compatibility.add(MigrationChecksumCompatibility(
+            version=version,
+            deployed_sha256=deployed_sha256,
+            repository_sha256=repository_sha256,
+        ))
+    return frozenset(compatibility)
 
 
 def _top_level_statements(sql: str, *, source_label: str) -> list[SqlStatement]:
@@ -1014,16 +1110,35 @@ def read_remote_history(client: ManagementApiClient) -> dict[str, str]:
 def _validate_history_prefix(
     migrations: Iterable[Migration],
     remote_history: dict[str, str],
+    checksum_compatibility: frozenset[MigrationChecksumCompatibility] = frozenset(),
 ) -> None:
     local = list(migrations)
     local_by_version = {migration.version: migration for migration in local}
+    for allowed in checksum_compatibility:
+        migration = local_by_version.get(allowed.version)
+        if (
+            migration is None
+            or migration.sha256 != allowed.repository_sha256
+        ):
+            raise DeploymentError(
+                "Migration checksum compatibility manifest does not match "
+                "this checkout"
+            )
+
     for version, checksum in remote_history.items():
         migration = local_by_version.get(version)
         if migration is None:
             raise DeploymentError(
                 "Remote migration history is not present in this checkout"
             )
-        if migration.sha256 != checksum:
+        if (
+            migration.sha256 != checksum
+            and MigrationChecksumCompatibility(
+                version=version,
+                deployed_sha256=checksum,
+                repository_sha256=migration.sha256,
+            ) not in checksum_compatibility
+        ):
             raise DeploymentError(
                 f"Immutable checksum mismatch for migration {version}"
             )
@@ -1102,7 +1217,10 @@ def deploy(
     *,
     client: ManagementApiClient,
     migrations: list[Migration],
-    private_exam_sql_body: str,
+    private_exam_sql_body: str | None,
+    checksum_compatibility: frozenset[
+        MigrationChecksumCompatibility
+    ] = frozenset(),
 ) -> list[str]:
     try:
         history_exists = remote_history_exists(client)
@@ -1127,7 +1245,11 @@ def deploy(
         raise DeploymentError(
             f"Supabase migration history read failed: {exc}"
         ) from None
-    _validate_history_prefix(migrations, remote_history)
+    _validate_history_prefix(
+        migrations,
+        remote_history,
+        checksum_compatibility,
+    )
 
     applied: list[str] = []
     for migration in migrations:
@@ -1147,17 +1269,18 @@ def deploy(
         remote_history[migration.version] = migration.sha256
         applied.append(migration.version)
 
-    private_sql, _ = _deployment_transaction(
-        migrations=[],
-        remote_history=remote_history,
-        private_exam_sql_body=private_exam_sql_body,
-    )
-    try:
-        client.execute(private_sql)
-    except DeploymentError as exc:
-        raise DeploymentError(
-            f"Private grading data deployment failed: {exc}"
-        ) from None
+    if private_exam_sql_body is not None:
+        private_sql, _ = _deployment_transaction(
+            migrations=[],
+            remote_history=remote_history,
+            private_exam_sql_body=private_exam_sql_body,
+        )
+        try:
+            client.execute(private_sql)
+        except DeploymentError as exc:
+            raise DeploymentError(
+                f"Private grading data deployment failed: {exc}"
+            ) from None
     return applied
 
 
@@ -1170,6 +1293,14 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("supabase/migrations"),
     )
+    parser.add_argument(
+        "--skip-private-grading",
+        action="store_true",
+        help=(
+            "apply immutable migrations without reading or provisioning "
+            "private exam and training grading data"
+        ),
+    )
     return parser
 
 
@@ -1178,23 +1309,27 @@ def main(argv: list[str] | None = None) -> int:
     try:
         project_ref = os.environ.get("SUPABASE_PROJECT_REF", "").strip()
         access_token = os.environ.get("SUPABASE_ACCESS_TOKEN", "")
-        private_exam_encoded = os.environ.get("SUPABASE_EXAM_KEYS_B64", "")
-        private_training_encoded = os.environ.get(
-            "SUPABASE_TRAINING_KEYS_B64", ""
-        )
         client = ManagementApiClient(
             project_ref=project_ref,
             access_token=access_token,
         )
         migrations = load_migrations(args.migrations_dir)
-        private_exam_sql_body = "\n".join((
-            decode_private_exam_sql(private_exam_encoded),
-            decode_private_training_keys(private_training_encoded),
-        ))
+        checksum_compatibility = load_checksum_compatibility()
+        private_exam_sql_body: str | None = None
+        if not args.skip_private_grading:
+            private_exam_encoded = os.environ.get("SUPABASE_EXAM_KEYS_B64", "")
+            private_training_encoded = os.environ.get(
+                "SUPABASE_TRAINING_KEYS_B64", ""
+            )
+            private_exam_sql_body = "\n".join((
+                decode_private_exam_sql(private_exam_encoded),
+                decode_private_training_keys(private_training_encoded),
+            ))
         applied = deploy(
             client=client,
             migrations=migrations,
             private_exam_sql_body=private_exam_sql_body,
+            checksum_compatibility=checksum_compatibility,
         )
     except DeploymentError as exc:
         print(f"Supabase deployment stopped: {exc}", file=sys.stderr)
@@ -1208,7 +1343,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Applied {len(applied)} immutable Supabase migration(s).")
     else:
         print("Supabase migrations are already current.")
-    print("Private grading data was provisioned without logging its contents.")
+    if args.skip_private_grading:
+        print("Private grading data provisioning was explicitly skipped.")
+    else:
+        print("Private grading data was provisioned without logging its contents.")
     return 0
 
 

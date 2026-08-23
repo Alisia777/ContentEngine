@@ -23,6 +23,7 @@
       .fixture-card p { margin: 8px 0 0; color: #778493; font-size: 12px; line-height: 1.45; }
       .fixture-action { min-height: 42px; padding: 0 16px; border: 1px solid #f4d17a; border-radius: 11px; color: #231604; background: linear-gradient(#fff4c9, #c8972f); font-weight: 820; box-shadow: inset 0 1px white; cursor: pointer; }
       .fixture-proof { color: #778493; font-size: 12px; }
+      .ce-v4-window__surface { width: 100%; height: 100%; }
       @media (max-width: 700px) { .fixture-grid { grid-template-columns: 1fr; } .fixture-hero { align-items: start; flex-direction: column; } }
     </style>
   </head>
@@ -214,7 +215,271 @@
         document.body.dataset.fixtureAfterActionContentParked = String(
           document.querySelector("#workspace-content")?.dataset.ceV4DesktopParked === "true",
         );
+        document.body.dataset.fixtureAfterActionSurfaceCount = String(
+          document.querySelectorAll("iframe[data-ce-v4-window-surface]").length,
+        );
         document.body.dataset.fixtureAfterActionRoute = window.location.hash;
+      }
+      if (fixtureParams.get("probe") === "multiwindow") {
+        const boardRoute = "/workspace/board?project_id=11111111-1111-4111-8111-111111111111";
+        const boardNavigationFinished = new Promise((resolve) => {
+          window.addEventListener("hashchange", resolve, { once: true });
+        });
+        window.ContentEngineDesktopV4.navigate(boardRoute);
+        await boardNavigationFinished;
+        await window.ContentEngineDesktopV4.flush();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+
+        const managerBeforeHome = window.ContentEngineDesktopV4.windowState();
+        const shellsBeforeHome = [...document.querySelectorAll("[data-ce-v4-window]")];
+        const surfacesBeforeHome = shellsBeforeHome.map((shell) => (
+          shell.querySelector("iframe[data-ce-v4-window-surface]")
+        ));
+        const visibleShellsBeforeHome = shellsBeforeHome.filter((node) => (
+          !node.hidden && getComputedStyle(node).display !== "none"
+        ));
+        const activeShell = document.querySelector('[data-ce-v4-window-active="true"]');
+        const boardWindow = managerBeforeHome.windows.find((item) => item.appId === "app:board");
+        const aiWindow = managerBeforeHome.windows.find((item) => item.appId === "app:ai");
+        const staleContent = document.createElement("div");
+        staleContent.id = "workspace-content";
+        staleContent.dataset.fixtureStaleBusinessUi = "true";
+        const stalePaidForm = document.createElement("form");
+        stalePaidForm.dataset.fixturePaidSubmitAuthority = "duplicate";
+        stalePaidForm.append(document.createElement("button"));
+        staleContent.append(stalePaidForm);
+        document.querySelector("#main-content").append(staleContent);
+        window.ContentEngineDesktopV4.requestMount();
+        await window.ContentEngineDesktopV4.flush();
+        document.body.dataset.fixtureMultiDuplicateBusinessUiRemoved = String(Boolean(
+          !staleContent.isConnected
+          && document.querySelectorAll("#workspace-content").length === 1
+          && document.querySelectorAll('[data-fixture-paid-submit-authority="duplicate"]').length === 0
+        ));
+        const desktopDuringWindows = document.querySelector("[data-ce-v4-desktop]");
+        document.body.dataset.fixtureMultiDesktopObscured = String(Boolean(
+          desktopDuringWindows?.hidden
+          && desktopDuringWindows.hasAttribute("inert")
+          && desktopDuringWindows.getAttribute("aria-hidden") === "true"
+        ));
+        const menubarRect = document.querySelector(".ce-v4-menubar")?.getBoundingClientRect();
+        const dockRuntimeRect = document.querySelector(".ce-v4-dock__glass")?.getBoundingClientRect();
+        document.body.dataset.fixtureMultiWindowsAvoidChrome = String(Boolean(
+          menubarRect
+          && dockRuntimeRect
+          && shellsBeforeHome.every((shell) => {
+            const rect = shell.getBoundingClientRect();
+            return rect.top >= menubarRect.bottom - 1 && rect.bottom <= dockRuntimeRect.top + 1;
+          })
+        ));
+
+        document.body.dataset.fixtureMultiShellCount = String(shellsBeforeHome.length);
+        document.body.dataset.fixtureMultiVisibleShellCount = String(visibleShellsBeforeHome.length);
+        document.body.dataset.fixtureMultiSurfaceCount = String(
+          surfacesBeforeHome.filter(Boolean).length,
+        );
+        document.body.dataset.fixtureMultiParentCoordinatorParked = String(Boolean(
+          document.querySelectorAll("#workspace-content").length === 1
+          && document.querySelector("#workspace-content")?.dataset.ceV4DesktopParked === "true"
+          && !document.querySelector("#workspace-content")?.closest("[data-ce-v4-window]"),
+        ));
+        document.body.dataset.fixtureMultiBothSurfacesInteractive = String(
+          surfacesBeforeHome.length === 2
+          && surfacesBeforeHome.every((surface) => (
+            surface instanceof HTMLIFrameElement
+            && !surface.hidden
+            && !surface.hasAttribute("inert")
+            && surface.getAttribute("aria-hidden") !== "true"
+            && getComputedStyle(surface).pointerEvents !== "none"
+          )),
+        );
+        const inactiveShell = shellsBeforeHome.find((shell) => shell.dataset.ceV4WindowActive === "false");
+        const tiledWindows = managerBeforeHome.windows
+          .filter((item) => !item.minimized)
+          .sort((left, right) => left.position.x - right.position.x);
+        document.body.dataset.fixtureMultiInitialWindowsTiled = String(Boolean(
+          tiledWindows.length === 2
+          && tiledWindows[0].size.width === tiledWindows[1].size.width
+          && tiledWindows[0].size.height === tiledWindows[1].size.height
+          && tiledWindows[0].position.y === tiledWindows[1].position.y
+          && tiledWindows[0].position.x + tiledWindows[0].size.width <= tiledWindows[1].position.x
+        ));
+        const inactiveTitlebar = inactiveShell?.querySelector("[data-ce-v4-window-titlebar]");
+        const inactiveTitlebarRect = inactiveTitlebar?.getBoundingClientRect();
+        const exposedTitlebarTarget = inactiveTitlebarRect
+          ? document.elementFromPoint(inactiveTitlebarRect.left + 170, inactiveTitlebarRect.top + 12)
+          : null;
+        document.body.dataset.fixtureMultiInactiveTitlebarExposed = String(Boolean(
+          exposedTitlebarTarget?.closest("[data-ce-v4-window-id]") === inactiveShell
+        ));
+        document.body.dataset.fixtureMultiManagerWindowCount = String(managerBeforeHome.windows.length);
+        document.body.dataset.fixtureMultiBoardWidth = String(boardWindow?.size.width || 0);
+        document.body.dataset.fixtureMultiAiWidth = String(aiWindow?.size.width || 0);
+        document.body.dataset.fixtureMultiRouteGeometry = String(Boolean(
+          boardWindow
+          && aiWindow
+          && boardWindow.size.width === aiWindow.size.width
+          && boardWindow.size.height === aiWindow.size.height
+          && boardWindow.position.x >= 0
+          && aiWindow.position.x >= 0
+          && boardWindow.position.x + boardWindow.size.width <= window.innerWidth
+          && aiWindow.position.x + aiWindow.size.width <= window.innerWidth,
+        ));
+
+        const inactiveBeforeDrag = managerBeforeHome.windows.find((item) => (
+          item.windowId === inactiveShell?.dataset.ceV4WindowId
+        ));
+        const activeBeforeDrag = managerBeforeHome.windows.find((item) => (
+          item.windowId === activeShell?.dataset.ceV4WindowId
+        ));
+        const dragStartX = inactiveTitlebarRect.left + Math.min(360, inactiveTitlebarRect.width * .5);
+        const dragStartY = inactiveTitlebarRect.top + 24;
+        const parentRouteBeforeFocus = window.location.hash;
+        inactiveTitlebar.dispatchEvent(new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerId: 71,
+          clientX: dragStartX,
+          clientY: dragStartY,
+        }));
+        const managerAfterPointerDown = window.ContentEngineDesktopV4.windowState();
+        inactiveTitlebar.dispatchEvent(new PointerEvent("pointermove", {
+          bubbles: true,
+          button: 0,
+          pointerId: 71,
+          clientX: dragStartX + 96,
+          clientY: dragStartY + 72,
+        }));
+        inactiveTitlebar.dispatchEvent(new PointerEvent("pointerup", {
+          bubbles: true,
+          button: 0,
+          pointerId: 71,
+          clientX: dragStartX + 96,
+          clientY: dragStartY + 72,
+        }));
+        await window.ContentEngineDesktopV4.flush();
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const managerAfterDrag = window.ContentEngineDesktopV4.windowState();
+        const draggedWindow = managerAfterDrag.windows.find((item) => item.windowId === inactiveBeforeDrag.windowId);
+        const raisedWindow = managerAfterPointerDown.windows.find((item) => item.windowId === inactiveBeforeDrag.windowId);
+        const previousTopWindow = managerAfterPointerDown.windows.find((item) => item.windowId === activeBeforeDrag.windowId);
+        document.body.dataset.fixtureWindowTitlebarDragMoves = String(Boolean(
+          draggedWindow
+          && (
+            draggedWindow.position.x > inactiveBeforeDrag.position.x
+            || draggedWindow.position.y > inactiveBeforeDrag.position.y
+          )
+          && draggedWindow.position.x <= inactiveBeforeDrag.position.x + 96
+          && draggedWindow.position.y <= inactiveBeforeDrag.position.y + 72
+        ));
+        document.body.dataset.fixtureWindowPointerFocusRaises = String(Boolean(
+          raisedWindow && previousTopWindow && raisedWindow.zIndex > previousTopWindow.zIndex
+        ));
+        document.body.dataset.fixtureWindowFocusKeepsParentRoute = String(
+          window.location.hash === parentRouteBeforeFocus,
+        );
+
+        const activeAfterDrag = document.querySelector('[data-ce-v4-window-active="true"]');
+        const minimizeControl = activeAfterDrag?.querySelector('[data-ce-v4-window-action="minimize"]');
+        const beforeControlPointer = window.ContentEngineDesktopV4.windowState().windows.find((item) => (
+          item.windowId === inactiveBeforeDrag.windowId
+        ));
+        minimizeControl.dispatchEvent(new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerId: 72,
+          clientX: dragStartX,
+          clientY: dragStartY,
+        }));
+        minimizeControl.dispatchEvent(new PointerEvent("pointermove", {
+          bubbles: true,
+          button: 0,
+          pointerId: 72,
+          clientX: dragStartX + 120,
+          clientY: dragStartY + 90,
+        }));
+        minimizeControl.dispatchEvent(new PointerEvent("pointerup", {
+          bubbles: true,
+          button: 0,
+          pointerId: 72,
+          clientX: dragStartX + 120,
+          clientY: dragStartY + 90,
+        }));
+        const afterControlPointer = window.ContentEngineDesktopV4.windowState().windows.find((item) => (
+          item.windowId === inactiveBeforeDrag.windowId
+        ));
+        document.body.dataset.fixtureWindowControlDoesNotDrag = String(Boolean(
+          beforeControlPointer
+          && afterControlPointer
+          && beforeControlPointer.position.x === afterControlPointer.position.x
+          && beforeControlPointer.position.y === afterControlPointer.position.y
+        ));
+
+        minimizeControl.click();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        await window.ContentEngineDesktopV4.flush();
+        const minimizedWindow = window.ContentEngineDesktopV4.windowState().windows.find((item) => (
+          item.windowId === inactiveBeforeDrag.windowId
+        ));
+        document.body.dataset.fixtureWindowMinimizeWorks = String(Boolean(
+          minimizedWindow?.minimized
+          && document.querySelector(`[data-ce-v4-window-id="${inactiveBeforeDrag.windowId}"]`)?.hidden
+        ));
+
+        window.ContentEngineDesktopV4.windowContextAction(inactiveBeforeDrag.windowId, "restore");
+        await window.ContentEngineDesktopV4.flush();
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const restoredWindow = window.ContentEngineDesktopV4.windowState().windows.find((item) => (
+          item.windowId === inactiveBeforeDrag.windowId
+        ));
+        document.body.dataset.fixtureWindowRestoreWorks = String(Boolean(
+          restoredWindow
+          && restoredWindow.minimized === false
+          && document.querySelector(`[data-ce-v4-window-id="${inactiveBeforeDrag.windowId}"]`)?.hidden === false
+        ));
+
+        const desktopControl = document.querySelector(
+          '[data-ce-v4-window-active="true"] [data-ce-v4-window-action="desktop"]',
+        );
+        const homeNavigationFinished = new Promise((resolve) => {
+          window.addEventListener("hashchange", resolve, { once: true });
+        });
+        desktopControl.click();
+        await homeNavigationFinished;
+        await window.ContentEngineDesktopV4.flush();
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+
+        const managerOnHome = window.ContentEngineDesktopV4.windowState();
+        const shellsOnHome = [...document.querySelectorAll("[data-ce-v4-window]")];
+        const surfacesOnHome = shellsOnHome.map((shell) => (
+          shell.querySelector("iframe[data-ce-v4-window-surface]")
+        ));
+        const parkedOnHome = document.querySelector("#workspace-content");
+        document.body.dataset.fixtureMultiManagerSurvivesHome = String(Boolean(
+          managerOnHome.windows.length === 2
+          && shellsOnHome.length === 2
+          && surfacesOnHome.every((surface, index) => surface === surfacesBeforeHome[index])
+          && document.querySelectorAll("#workspace-content").length === 1
+          && parkedOnHome?.dataset.ceV4DesktopParked === "true"
+          && parkedOnHome.hasAttribute("inert")
+          && parkedOnHome.getAttribute("aria-hidden") === "true",
+        ));
+        document.body.dataset.fixtureWindowDesktopControlWorks = String(Boolean(
+          desktopControl
+          && window.location.hash.startsWith("#/workspace/home")
+          && document.body.dataset.ceV4DesktopHome === "true"
+        ));
+        document.body.dataset.fixtureMultiHomeVisibleShellCount = String(
+          shellsOnHome.filter((node) => !node.hidden && getComputedStyle(node).display !== "none").length,
+        );
+        const desktopOnHome = document.querySelector("[data-ce-v4-desktop]");
+        document.body.dataset.fixtureMultiDesktopRestoredOnHome = String(Boolean(
+          desktopOnHome
+          && desktopOnHome.hidden === false
+          && !desktopOnHome.hasAttribute("inert")
+          && !desktopOnHome.hasAttribute("aria-hidden")
+        ));
+        document.body.dataset.fixtureMultiReady = "true";
       }
       if (fixtureParams.get("probe") === "logout") {
         document.querySelector("#app").innerHTML = '<main id="main-content"><h1>Вход</h1><input id="login-email" /></main>';

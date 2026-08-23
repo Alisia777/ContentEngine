@@ -2,6 +2,97 @@
 
 Единый AI-контур от товара и ролика до публикации, метрик и следующей гипотезы.
 
+## Постоянный локальный workbench
+
+Локальный профиль fail-closed: принудительно используются mock providers и
+`QVF_ALLOW_REAL_SPEND=false`. Профиль генерирует `.local/site/config.js` и
+overlay `.local/supabase/`; production-файл `web/app/config.js` не
+перезаписывается.
+
+```powershell
+python scripts/dev_workbench.py dev-up
+python scripts/dev_workbench.py dev-status
+python scripts/dev_workbench.py dev-browser-smoke
+python scripts/dev_workbench.py dev-test
+python scripts/dev_workbench.py dev-reset
+python scripts/dev_workbench.py dev-down
+```
+
+Там, где установлен Make, доступны эквивалентные цели `make dev-up`,
+`make dev-test` и остальные команды. Основной интерфейс — настоящий рабочий
+стол ContentEngine на `http://127.0.0.1:8767/`. `dev-up` идемпотентно создаёт
+через `creator_create_workspace_project` один локальный проект и записывает
+только его UUID в игнорируемый `.local/project.local.json`. Точный маршрут
+создания можно открыть так:
+
+```powershell
+$project = (Get-Content .local\project.local.json | ConvertFrom-Json).project_id
+Start-Process "http://127.0.0.1:8767/#/workspace/generation?project_id=$project"
+```
+
+Диагностический экран остаётся на
+`http://127.0.0.1:8767/workbench/#/copy`, но `dev-browser-smoke` проверяет прежде
+всего реальный `#mock-batch-form`: Product Swap и Character Performance в
+компактных формах, затем полный шестишаговый Viral Rebuild. Его три release-PNG
+находятся в `.dev-artifacts/browser-smoke/` под именами
+`copy-product-swap.png`, `avatar-character-performance.png` и
+`strategy-viral-rebuild.png`.
+
+Локальное API доступно на `http://127.0.0.1:8014`, Supabase API — на
+`http://127.0.0.1:54321`, Studio — на `http://127.0.0.1:54323`, Inbucket — на
+`http://127.0.0.1:54324`.
+
+Все новые изменяемые данные прикладного Docker-профиля остаются внутри этой
+копии проекта на диске E: медиа — в `.local/docker/media/`, SQLite — в
+`.local/docker/data/qharisma.db`. В контейнерах это `/app/media` и
+`/app/.local-data/qharisma.db`. Локальные тома Supabase CLI этим overlay не
+переопределяются. Старые Docker named volumes `local-media` и `local-data`
+автоматически не удаляются и не изменяются; новый профиль их больше не
+подключает.
+
+Временный профиль Chrome для `dev-browser-smoke` создаётся только под
+`.dev-artifacts/browser-smoke/profiles/` и удаляется после каждого запуска,
+включая ошибочный. Скриншоты и Copy E2E также остаются в игнорируемой
+`.dev-artifacts/` этого проекта.
+
+`dev-test` является обязательным pre-push gate: полный pytest, Node parsing,
+reset и lint Supabase migrations, pgTAP, smoke трёх browser-маршрутов,
+локальный Copy media E2E, настоящий Storage → `creator-generate` → DB/archive
+mock E2E и `git diff --check`. Finder smoke тем же локальным проектом проверяет
+кнопки «Организация», «Список» и «Добавить материал». До полного зелёного
+результата пушить текущие изменения или создавать PR нельзя.
+
+Полный pytest внутри `dev-test` по умолчанию делится на шесть параллельных
+изолированных шардов. Их журналы и JUnit-отчёты сохраняются в
+`.dev-artifacts/pytest-runs/`; число шардов при необходимости можно задать через
+`QVF_DEV_TEST_SHARDS` (от 1 до 32), не меняя состав полного тестового набора.
+
+## Безопасный staging workbench
+
+Отдельный статический staging-контур собирается в
+`.local/staging/site/` и обслуживается только на
+`http://127.0.0.1:8768`. Он использует browser-public координаты отдельного
+Supabase staging-проекта, не изменяет `web/app/config.js`, не принимает
+service-role/provider secrets и не выполняет `supabase link`, `db push` или
+deploy Edge Functions.
+
+```powershell
+Copy-Item .env.staging.example .env.staging
+# Заполнить URL, 20-символьный project ref и sb_publishable_* отдельного staging.
+python scripts/staging_workbench.py staging-build
+python scripts/staging_workbench.py staging-up
+python scripts/staging_workbench.py staging-status
+python scripts/staging_workbench.py staging-test
+python scripts/staging_workbench.py staging-down
+```
+
+Staging preview разрешает только бесплатные mock-потоки. Его generated config
+жёстко содержит `CREATOR_GENERATE_MOCK_ONLY=true`,
+`REAL_GENERATION_ENABLED=false`, `ALLOW_REAL_SPEND=false` и выключенный
+Character Performance. Controlled paid smoke остаётся отдельной операцией в
+специально настроенном non-local окружении после явного разрешения человека.
+Подробный контракт: [docs/STAGING_WORKBENCH.md](docs/STAGING_WORKBENCH.md).
+
 Основной production-интерфейс для человека без опыта публикуется из `web/app`
 в GitHub Pages. Продуктовый путь и правила измерения описаны в
 [docs/NOVICE_FIRST_CONTENT_FACTORY.md](docs/NOVICE_FIRST_CONTENT_FACTORY.md).

@@ -12,13 +12,29 @@ export const GENERATION_STRATEGY_SPEC_PREPARE_REQUEST_VERSION =
 export const GENERATION_STRATEGY_SPEC_PREPARE_RESPONSE_VERSION =
   "generation-strategy-spec-prepare-response-v1";
 export const GENERATION_STRATEGY_SPEC_SCOPE_VERSION =
+  "generation-strategy-spec-scope-v2";
+export const GENERATION_STRATEGY_SPEC_LEGACY_SCOPE_VERSION =
   "generation-strategy-spec-scope-v1";
+export const GENERATION_STRATEGY_ROUTE_POLICY_VERSION =
+  "generation-strategy-route-policy-v1";
 export const GENERATION_STRATEGY_SPEC_MECHANICS_VERSION =
   "generation-strategy-mechanics-summary-v1";
 export const GENERATION_STRATEGY_SPEC_CONTROL_VERSION =
   "generation-spec-control-v1";
 
 const CATALOG_VERSION = "2026-08-14.v1";
+
+// Пределы длительности ИСХОДНОГО ролика, в секундах с дробной частью.
+// Это НЕ то же, что пределы выбранной длительности ролика: те целые и
+// живут в реестре маршрутов. Здесь измеренная длина файла, и нижняя
+// граница 1.8 повторяет проверку привязки в базе (202608230005).
+//
+// Стратегия вне этого набора длительность исходника не принимает
+// вовсе: у «Создания» исходника нет, и число там говорило бы ни о чём.
+const SOURCE_DURATION_BOUNDS = Object.freeze({
+  viral_product_swap: Object.freeze({ minimum: 1.8, maximum: 15 }),
+  viral_avatar_ugc: Object.freeze({ minimum: 1.8, maximum: 60 }),
+});
 const RECIPE_VERSION = "2026-06";
 const SOURCE_VERSION = "generation-strategy-exact-source-snapshot-v1";
 const MECHANICS_SNAPSHOT_VERSION =
@@ -84,6 +100,29 @@ const PREPARE_REQUEST_KEYS = Object.freeze([
   "version",
   ...PREPARE_INPUT_KEYS,
 ]);
+// Товар «Дуэта» приходит ЯВНЫМ полем, а не выводится из фотографий: фотографий
+// товара у него нет вовсе. У «Копии» и «Создания» товар уже назван снимками, и
+// принимать его вторым путём нельзя — два источника одного факта однажды
+// разойдутся, и разойдутся молча.
+const DUET_PRODUCT_STRATEGY = "viral_avatar_ugc";
+const PREPARE_INPUT_KEYS_WITH_PRODUCT = Object.freeze([
+  ...PREPARE_INPUT_KEYS,
+  "product_id",
+]);
+const PREPARE_REQUEST_KEYS_WITH_PRODUCT = Object.freeze([
+  "version",
+  ...PREPARE_INPUT_KEYS_WITH_PRODUCT,
+]);
+function prepareKeysFor(value, withVersion) {
+  const duet = isPlainObject(value?.selection)
+    && value.selection.strategy_id === DUET_PRODUCT_STRATEGY;
+  if (duet) {
+    return withVersion
+      ? PREPARE_REQUEST_KEYS_WITH_PRODUCT
+      : PREPARE_INPUT_KEYS_WITH_PRODUCT;
+  }
+  return withVersion ? PREPARE_REQUEST_KEYS : PREPARE_INPUT_KEYS;
+}
 const PREPARE_RESPONSE_KEYS = Object.freeze([
   "ok",
   "version",
@@ -103,13 +142,12 @@ const CONTROL_RESPONSE_KEYS = Object.freeze([
   "automatic_spend",
   "automatic_generation",
 ]);
-const SCOPE_KEYS = Object.freeze([
+const SCOPE_COMMON_KEYS = Object.freeze([
   "version",
   "authority_kind",
   "primary_media_id",
   "media_ids",
   "platform",
-  "provider",
   "strategy_id",
   "recipe",
   "input_mode",
@@ -133,6 +171,24 @@ const SCOPE_KEYS = Object.freeze([
   "mechanics",
   "mechanics_hash",
 ]);
+const LEGACY_SCOPE_KEYS = Object.freeze([
+  ...SCOPE_COMMON_KEYS,
+  "provider",
+]);
+const SCOPE_KEYS = Object.freeze([
+  ...SCOPE_COMMON_KEYS,
+  "route_policy",
+]);
+const ROUTE_POLICY_KEYS = Object.freeze([
+  "version",
+  "authority",
+  "binding",
+]);
+const ROUTE_POLICY = deepFreeze({
+  version: GENERATION_STRATEGY_ROUTE_POLICY_VERSION,
+  authority: "generation_strategy_provider_routes",
+  binding: "deferred_until_preflight",
+});
 const ASSET_SNAPSHOT_KEYS = Object.freeze([
   "selection_role",
   "selection_ordinal",
@@ -245,29 +301,64 @@ const APPROVED_CONTEXT_KEYS = Object.freeze([
   "approved_at",
 ]);
 
+// Рецепты, у которых исходник становится НАСТОЯЩИМ ВХОДОМ ПРОВАЙДЕРА.
+//
+// Это единственная «Копия»: только она переписывает сам ролик. У «Дуэта» кадр
+// тоже приходит из исходника, но провайдеру он не отдаётся — ведущего снимают
+// отдельно, а соединение делает наш ffmpeg. У «Создания» исходник и вовсе
+// только механика.
+//
+// Ранняя редакция (21.08.2026) держала здесь и product_ugc: тогда «Аватар»
+// считался заменой человека в кадре. Владелец это отменил 22.08.2026, и признак
+// «уходит провайдеру» разошёлся с признаком «кадр из исходника» — их больше
+// нельзя выражать одним набором.
+const PROVIDER_SOURCE_INPUT_RECIPES = new Set(["product_swap"]);
+
 const STRATEGY_RULES = deepFreeze({
+  // «Аватар» с 22.08.2026 правит готовый ролик, а не снимает новый UGC про
+  // товар: измерение разрешением (кадр задаёт исходник), товара нет, фотография
+  // аватара необязательна — его можно задать описанием, которое исполняет
+  // Runway Aleph. Верхняя граница четыре — предел ссылок на изображения у Kling.
   viral_avatar_ugc: {
     recipe: "product_ugc",
-    inputMode: "character_and_product_images",
-    dimension: "ratio",
+    inputMode: "video_and_avatar_images",
+    // Цель работы «Дуэта» — САМ КОММЕНТИРУЕМЫЙ РОЛИК (решение владельца
+    // 22.08.2026). Ведущий приходит из библиотеки проекта и медиа-объектом
+    // формы не бывает, а товар остаётся полем учёта: дуэт снимают, чтобы
+    // продать наш товар, даже когда разбирают чужую рекламу.
+    //
+    // Пустой список здесь тоже был возможен — сборщик объёма умеет отсутствие
+    // цели, — но тогда дуэт выпал бы из фильтров архива и разрезов бюджета по
+    // товару, а версия ТЗ требует непустого целевого медиа.
+    targetRoles: ["source_video"],
+    dimension: "resolution",
     dimensions: {
-      "720:1280": "720p",
-      "1080:1920": "1080p",
+      "720p": "source",
+      "1080p": "source",
     },
+    // Ровно один ассет: ведущего задаёт запись в библиотеке, а не фотография.
+    // В теле запроса к HeyGen медиа нет вовсе — личность приходит avatar_id.
     roles: {
       source_video: [1, 1],
-      avatar_image: [1, 1],
-      product_image: [1, 1],
     },
     attestationKeys: [
       ...COMMON_ATTESTATIONS,
       "avatar_likeness_consent_confirmed",
     ],
+    // ДУЭТ: исходный ролик остаётся собой, а снизу врезается сгенерированный
+    // ведущий и КОММЕНТИРУЕТ происходящее. Модель ведущего исходное видео не
+    // получает вовсе — она делает говорящего человека, и всё, что он скажет,
+    // приходит текстом. Значит разбор ролика тут не лишний шаг, а источник
+    // речи: комментатор, не знающий, что в ролике, скажет только общие слова.
+    //
+    // «Копия» разбора по-прежнему не требует: она правит сам ролик, и сцена
+    // доезжает до модели целиком, а не пересказом.
     mechanicsRequired: true,
   },
   viral_product_swap: {
     recipe: "product_swap",
     inputMode: "video_and_product_images",
+    targetRoles: ["new_product_image"],
     dimension: "resolution",
     dimensions: {
       "720p": "source",
@@ -284,6 +375,7 @@ const STRATEGY_RULES = deepFreeze({
   viral_rebuild: {
     recipe: "product_ad",
     inputMode: "product_images",
+    targetRoles: ["product_image"],
     dimension: "ratio",
     dimensions: {
       "1280:720": "720p",
@@ -565,13 +657,21 @@ function normalizeSelectionAsset(value, strategyId, index) {
       ? ["role", "media_id", "duration_seconds"]
       : ["role", "media_id"];
     exactObject(value, keys, field);
-    if (strategyId === "viral_product_swap" && !hasOwn(value, "duration_seconds")) {
+    // Длительность исходника обязательна обеим правкам готового видео.
+    // Сервер требует её и у «Дуэта» (duration_source = 'source_video' в
+    // строке реестра), а браузер её не просил — запуск обрывался
+    // на generation_strategy_source_duration_mismatch.
+    const durationBounds = SOURCE_DURATION_BOUNDS[strategyId] ?? null;
+    if (durationBounds !== null && !hasOwn(value, "duration_seconds")) {
       throw new StrategySpecContractError("source_duration_required", field);
     }
     const duration = hasOwn(value, "duration_seconds")
       ? positiveNumber(value.duration_seconds, `${field}.duration_seconds`)
       : null;
-    if (strategyId === "viral_product_swap" && (duration < 1.8 || duration > 15)) {
+    if (
+      durationBounds !== null &&
+      (duration < durationBounds.minimum || duration > durationBounds.maximum)
+    ) {
       throw new StrategySpecContractError("source_duration_unsupported", field);
     }
     return {
@@ -629,7 +729,10 @@ function normalizeSelection(value, field = "selection") {
     throw new StrategySpecContractError("selection_dimension_invalid", `${field}.${dimensionKey}`);
   }
   const audio = exactBoolean(value.audio, `${field}.audio`);
-  if (!Array.isArray(value.assets) || value.assets.length < 2 || value.assets.length > 15) {
+  // Нижняя граница — один ассет: у «Дуэта» в выборе ровно один исходник.
+  // Точный состав ролей каждой стратегии проверяется ниже счётчиком —
+  // здесь только защита от пустого и непомерного набора.
+  if (!Array.isArray(value.assets) || value.assets.length < 1 || value.assets.length > 15) {
     throw new StrategySpecContractError("selection_assets_invalid", `${field}.assets`);
   }
   const assets = value.assets.map((asset, index) => (
@@ -676,7 +779,7 @@ function normalizeSelection(value, field = "selection") {
 }
 
 function normalizePrepareRequest(value, field = "request") {
-  const source = exactObject(value, PREPARE_REQUEST_KEYS, field);
+  const source = exactObject(value, prepareKeysFor(value, true), field);
   if (source.version !== GENERATION_STRATEGY_SPEC_PREPARE_REQUEST_VERSION) {
     throw new StrategySpecContractError("prepare_version_invalid", `${field}.version`);
   }
@@ -701,10 +804,16 @@ function normalizePrepareRequest(value, field = "request") {
   if (!IDEMPOTENCY_PATTERN.test(idempotencyKey)) {
     throw new StrategySpecContractError("idempotency_key_invalid", `${field}.idempotency_key`);
   }
+  const duet = selection.strategy_id === DUET_PRODUCT_STRATEGY;
   return {
     version: GENERATION_STRATEGY_SPEC_PREPARE_REQUEST_VERSION,
     organization_id: exactUuid(source.organization_id, `${field}.organization_id`),
     project_id: exactUuid(source.project_id, `${field}.project_id`),
+    // Товар только у «Дуэта»: состав ключей уже проверен выше по стратегии,
+    // здесь остаётся назвать его точным идентификатором.
+    ...(duet
+      ? { product_id: exactUuid(source.product_id, `${field}.product_id`) }
+      : {}),
     platform,
     product_category: category,
     selection,
@@ -718,7 +827,7 @@ function normalizePrepareRequest(value, field = "request") {
 }
 
 function createPrepareRequest(value) {
-  const source = exactObject(value, PREPARE_INPUT_KEYS, "input");
+  const source = exactObject(value, prepareKeysFor(value, false), "input");
   return normalizePrepareRequest({
     version: GENERATION_STRATEGY_SPEC_PREPARE_REQUEST_VERSION,
     ...source,
@@ -788,7 +897,12 @@ function normalizeAssetSnapshot(value, selection, field = "exact_scope.asset_sna
       asset.selection_role,
     ))
     .map((asset) => asset.product_id);
-  if (new Set(targetProducts).size !== 1) {
+  // Все товарные фотографии обязаны принадлежать ОДНОМУ товару — иначе в один
+  // ролик собрали бы разные изделия. Но проверять это имеет смысл только там,
+  // где товарные фотографии есть: у «Аватара» их нет вовсе с 22.08.2026, и
+  // пустой набор нарушить правило не может. Требовать «ровно один товар» от
+  // стратегии без товара значило бы запретить её саму.
+  if (targetProducts.length && new Set(targetProducts).size !== 1) {
     throw new StrategySpecContractError("asset_snapshot_product_mismatch", field);
   }
   return normalized;
@@ -901,15 +1015,40 @@ function normalizeMechanicsSnapshot(
   };
 }
 
-function normalizeStrategyScope(value, field = "generation_spec.exact_scope") {
-  const source = exactObject(value, SCOPE_KEYS, field);
+function normalizeRoutePolicy(value, field) {
+  const source = exactObject(value, ROUTE_POLICY_KEYS, field);
   if (
-    source.version !== GENERATION_STRATEGY_SPEC_SCOPE_VERSION
+    source.version !== ROUTE_POLICY.version
+    || source.authority !== ROUTE_POLICY.authority
+    || source.binding !== ROUTE_POLICY.binding
+  ) {
+    throw new StrategySpecContractError("strategy_route_policy_invalid", field);
+  }
+  return ROUTE_POLICY;
+}
+
+function normalizeStrategyScope(value, field = "generation_spec.exact_scope") {
+  if (!isPlainObject(value)) {
+    throw new StrategySpecContractError("object_required", field);
+  }
+  const legacy = value.version === GENERATION_STRATEGY_SPEC_LEGACY_SCOPE_VERSION;
+  const source = exactObject(value, legacy ? LEGACY_SCOPE_KEYS : SCOPE_KEYS, field);
+  if (
+    (!legacy && source.version !== GENERATION_STRATEGY_SPEC_SCOPE_VERSION)
     || source.authority_kind !== "strategy_recipe"
-    || source.provider !== "runway"
+    || (legacy && source.provider !== "runway")
   ) {
     throw new StrategySpecContractError("strategy_scope_identity_invalid", field);
   }
+  // Scope v1 stored a Runway-era implementation hint as if it were the
+  // execution provider. The provider was never part of the approved recipe:
+  // the paid preflight resolves an engine from the server route registry and
+  // binds it into the signed readiness receipt/runtime fingerprint. Preserve
+  // old approved specs, but normalize that legacy hint to the same deferred,
+  // provider-neutral policy emitted by scope v2.
+  const routePolicy = legacy
+    ? ROUTE_POLICY
+    : normalizeRoutePolicy(source.route_policy, `${field}.route_policy`);
   const selection = normalizeSelection(source.selection, `${field}.selection`);
   const rules = STRATEGY_RULES[selection.strategy_id];
   const strategyId = exactCode(source.strategy_id, `${field}.strategy_id`);
@@ -929,7 +1068,9 @@ function normalizeStrategyScope(value, field = "generation_spec.exact_scope") {
     || source.audio !== selection.audio
     || source.spoken_dialogue !== false
     || source.reference_count !== selection.assets.length - 1
-    || source.reference_video !== (strategyId === "viral_product_swap")
+    // Признак берётся по рецепту, а не по литералу стратегии: следующая правка
+    // видео добавляется в набор, а не новым сравнением.
+    || source.reference_video !== PROVIDER_SOURCE_INPUT_RECIPES.has(rules.recipe)
     || source.first_frame !== false
     || source.last_frame !== false
   ) {
@@ -938,8 +1079,10 @@ function normalizeStrategyScope(value, field = "generation_spec.exact_scope") {
   if (!PLATFORMS.has(source.platform) || !PRODUCT_CATEGORIES.has(source.product_category)) {
     throw new StrategySpecContractError("strategy_scope_taxonomy_invalid", field);
   }
+  // Цель работы — то, ПРО ЧТО делается ролик. У «Копии» и «Создания» это товар,
+  // у «Аватара» с 22.08.2026 — персонаж: товара у него нет вовсе.
   const targetMediaIds = selection.assets
-    .filter((asset) => ["product_image", "new_product_image"].includes(asset.role))
+    .filter((asset) => rules.targetRoles.includes(asset.role))
     .map((asset) => asset.media_id);
   const mediaIds = Array.isArray(source.media_ids)
     ? source.media_ids.map((mediaId, index) => exactUuid(
@@ -948,9 +1091,15 @@ function normalizeStrategyScope(value, field = "generation_spec.exact_scope") {
     ))
     : [];
   const expectedMediaIds = targetMediaIds.slice(0, 5);
-  const primaryMediaId = exactUuid(source.primary_media_id, `${field}.primary_media_id`);
+  // Цели может не быть вовсе: «Аватара» задают ЛИБО фотографией, либо
+  // описанием, и во втором случае медиа-объекта, про который делается ролик, не
+  // существует. Тогда сервер кладёт null — и это правда, а не пропущенная
+  // проверка: сам состав ассетов проверяется отдельно счётчиком ролей.
+  const primaryMediaId = targetMediaIds.length
+    ? exactUuid(source.primary_media_id, `${field}.primary_media_id`)
+    : source.primary_media_id ?? null;
   if (
-    primaryMediaId !== targetMediaIds[0]
+    primaryMediaId !== (targetMediaIds[0] ?? null)
     || !sameValue(mediaIds, expectedMediaIds)
   ) {
     throw new StrategySpecContractError("strategy_scope_media_mismatch", field);
@@ -980,12 +1129,15 @@ function normalizeStrategyScope(value, field = "generation_spec.exact_scope") {
     `${field}.mechanics`,
   );
   return {
+    // Canonical client representation is always v2. This makes subsequent
+    // local validation unambiguous: a v1-shaped object without its historical
+    // provider field is never accepted as wire data.
     version: GENERATION_STRATEGY_SPEC_SCOPE_VERSION,
     authority_kind: "strategy_recipe",
     primary_media_id: primaryMediaId,
     media_ids: mediaIds,
     platform: source.platform,
-    provider: "runway",
+    route_policy: routePolicy,
     strategy_id: strategyId,
     recipe: rules.recipe,
     input_mode: rules.inputMode,
@@ -997,7 +1149,9 @@ function normalizeStrategyScope(value, field = "generation_spec.exact_scope") {
     audio: selection.audio,
     spoken_dialogue: false,
     reference_count: selection.assets.length - 1,
-    reference_video: strategyId === "viral_product_swap",
+    // Тот же признак, что и в сверке выше: собранное и проверяемое обязаны
+    // считаться одним выражением, иначе повторная сверка падает сама об себя.
+    reference_video: PROVIDER_SOURCE_INPUT_RECIPES.has(rules.recipe),
     first_frame: false,
     last_frame: false,
     selection,
@@ -1487,6 +1641,7 @@ export function generationStrategySpecSafeProjection(value) {
     return deepFreeze({
       version: GENERATION_STRATEGY_SPEC_PREPARE_RESPONSE_VERSION,
       identity,
+      execution_route: scope.route_policy,
       output: {
         duration_seconds: scope.duration_seconds,
         ratio: scope.ratio,

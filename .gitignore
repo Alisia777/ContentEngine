@@ -12,6 +12,8 @@ env/
 .env
 .env.*
 !.env.example
+!.env.local.example
+!.env.staging.example
 
 *.db
 *.db-journal
@@ -37,6 +39,8 @@ Thumbs.db
 .vscode/
 .idea/
 supabase/.temp/
+.local/
+.dev-artifacts/
 
 *.log
 *.mp4
