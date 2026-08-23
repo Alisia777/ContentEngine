@@ -1,0 +1,65 @@
+{
+  "schema": "contentengine-supabase-migration-checksum-compatibility-v1",
+  "compatibility": [
+    {
+      "version": "202608170004",
+      "deployed_sha256": "9823275126659b5946abd3ee133f4384318c72f5834e37503cd2c7843e78ef42",
+      "repository_sha256": "98fdaf8f8aa32c5b14460e83562167822a65e4be4adf2d60376d1d007802f242"
+    },
+    {
+      "version": "202608170005",
+      "deployed_sha256": "55d14d923fcdbfdbbcf3dfd98ef21ce127194e4cd6e17ad3c2d81ec5795e0733",
+      "repository_sha256": "00e718642fb03e0f7b36d7292cc024c33f93e9bbfa348e911c9d614adcab65d6"
+    },
+    {
+      "version": "202608170006",
+      "deployed_sha256": "c6500af339ae7974210a762afce7715e80ef38b11a3754c0fab64b15cb01c618",
+      "repository_sha256": "4bdca1aba76d773804b7948370d9e9447da60ba7d1be47f4aa9c1ffe195e1fa4"
+    },
+    {
+      "version": "202608180001",
+      "deployed_sha256": "f01a1d71a73613c6909012639a6b3b3c71a031e50890078efa00e36b8157b64d",
+      "repository_sha256": "45d6c0aa1ac37d95c336a56a033a0826b8d2571fb5775271b994a6808720f824"
+    },
+    {
+      "version": "202608180002",
+      "deployed_sha256": "f7d25096e1064ad9be7f85118f296db188990edbaa0010c81614d5561f33abb9",
+      "repository_sha256": "f9e134bd76c343a8ec1fc7c98ce7c2d4869dcf6f69fdd735f819b269dc49499f"
+    },
+    {
+      "version": "202608180003",
+      "deployed_sha256": "cdb01b4e5f4be43ad08825c560dcaa1d61789534544b11d8d0075dcba831f792",
+      "repository_sha256": "781fc88b2e73c16a09ef64dfafb0318ffc3c2bc9101d570a5dd8ab2a9b6ac928"
+    },
+    {
+      "version": "202608180004",
+      "deployed_sha256": "8e3531bbb08e38bbc823eb3fe80d0b1e366bcdef1ea28560bd89587f55f21c11",
+      "repository_sha256": "2c9473a90b3bd5d0e6869bad1c48c2e6749c4241d9103159b05b898516799853"
+    },
+    {
+      "version": "202608180005",
+      "deployed_sha256": "4be94c2acbdcc2e39d328513c247d2e8ce5cff65eb08ee3f9320474e0441cdb4",
+      "repository_sha256": "e85fbb6eb9dba2b5463b4fe125875483018a860057cc80777cdf833160bdae01"
+    },
+    {
+      "version": "202608180006",
+      "deployed_sha256": "b7f1ff59f4b0aefb51ceb617f2da626e32965e437931ef7786f45d9827134d41",
+      "repository_sha256": "f5c651239c9221fefc08f7ec13376fd7e94f91685870b2b6b7731fd1db84f603"
+    },
+    {
+      "version": "202608180007",
+      "deployed_sha256": "ea33dd9b31e093bd6b44acb157f1d185ce8c3e128eaa665ddcb5fbc286ba8ca1",
+      "repository_sha256": "d1339f78fdaa7fc3e1f98f43041d9476b5cb9b42fe5eb8e9cf7bbda2ee029cdd"
+    },
+    {
+      "version": "202608180008",
+      "deployed_sha256": "d5eea2829f9b1e7838153e002cdbc835a2c6d564c3cd8625bbf1d425213cb539",
+      "repository_sha256": "a03b01ddf5e1c6580c72139a6b6cb6a44e8c61f0b00266962227b911dc637d4e"
+    },
+    {
+      "version": "202608190001",
+      "deployed_sha256": "1d81ea0573763eaa92ba49f2d883020f52dea76a56e025218b3c0287b84ac7aa",
+      "repository_sha256": "e7881c6b0dc5136bf3684015d2b785e27086cb9a5bf7ed246d942f776c9fd389"
+    }
+  ]
+}

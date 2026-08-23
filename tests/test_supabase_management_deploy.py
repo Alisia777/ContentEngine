@@ -9,15 +9,21 @@ from urllib import error
 
 import pytest
 
+import scripts.deploy_supabase_management_api as deployment_runner
 from scripts.deploy_supabase_management_api import (
+    DEFAULT_CHECKSUM_COMPATIBILITY_PATH,
     ConfigurationError,
     DeploymentError,
     EXPECTED_PROJECT_REF,
     ManagementApiClient,
+    MigrationChecksumCompatibility,
+    _validate_history_prefix,
     decode_private_exam_sql,
     decode_private_training_keys,
     deploy,
+    load_checksum_compatibility,
     load_migrations,
+    main,
 )
 
 
@@ -72,6 +78,70 @@ end;
 $catalog_contract$;
 commit;
 """
+
+
+EXPECTED_CHECKSUM_COMPATIBILITY = frozenset({
+    (
+        "202608170004",
+        "9823275126659b5946abd3ee133f4384318c72f5834e37503cd2c7843e78ef42",
+        "98fdaf8f8aa32c5b14460e83562167822a65e4be4adf2d60376d1d007802f242",
+    ),
+    (
+        "202608170005",
+        "55d14d923fcdbfdbbcf3dfd98ef21ce127194e4cd6e17ad3c2d81ec5795e0733",
+        "00e718642fb03e0f7b36d7292cc024c33f93e9bbfa348e911c9d614adcab65d6",
+    ),
+    (
+        "202608170006",
+        "c6500af339ae7974210a762afce7715e80ef38b11a3754c0fab64b15cb01c618",
+        "4bdca1aba76d773804b7948370d9e9447da60ba7d1be47f4aa9c1ffe195e1fa4",
+    ),
+    (
+        "202608180001",
+        "f01a1d71a73613c6909012639a6b3b3c71a031e50890078efa00e36b8157b64d",
+        "45d6c0aa1ac37d95c336a56a033a0826b8d2571fb5775271b994a6808720f824",
+    ),
+    (
+        "202608180002",
+        "f7d25096e1064ad9be7f85118f296db188990edbaa0010c81614d5561f33abb9",
+        "f9e134bd76c343a8ec1fc7c98ce7c2d4869dcf6f69fdd735f819b269dc49499f",
+    ),
+    (
+        "202608180003",
+        "cdb01b4e5f4be43ad08825c560dcaa1d61789534544b11d8d0075dcba831f792",
+        "781fc88b2e73c16a09ef64dfafb0318ffc3c2bc9101d570a5dd8ab2a9b6ac928",
+    ),
+    (
+        "202608180004",
+        "8e3531bbb08e38bbc823eb3fe80d0b1e366bcdef1ea28560bd89587f55f21c11",
+        "2c9473a90b3bd5d0e6869bad1c48c2e6749c4241d9103159b05b898516799853",
+    ),
+    (
+        "202608180005",
+        "4be94c2acbdcc2e39d328513c247d2e8ce5cff65eb08ee3f9320474e0441cdb4",
+        "e85fbb6eb9dba2b5463b4fe125875483018a860057cc80777cdf833160bdae01",
+    ),
+    (
+        "202608180006",
+        "b7f1ff59f4b0aefb51ceb617f2da626e32965e437931ef7786f45d9827134d41",
+        "f5c651239c9221fefc08f7ec13376fd7e94f91685870b2b6b7731fd1db84f603",
+    ),
+    (
+        "202608180007",
+        "ea33dd9b31e093bd6b44acb157f1d185ce8c3e128eaa665ddcb5fbc286ba8ca1",
+        "d1339f78fdaa7fc3e1f98f43041d9476b5cb9b42fe5eb8e9cf7bbda2ee029cdd",
+    ),
+    (
+        "202608180008",
+        "d5eea2829f9b1e7838153e002cdbc835a2c6d564c3cd8625bbf1d425213cb539",
+        "a03b01ddf5e1c6580c72139a6b6cb6a44e8c61f0b00266962227b911dc637d4e",
+    ),
+    (
+        "202608190001",
+        "1d81ea0573763eaa92ba49f2d883020f52dea76a56e025218b3c0287b84ac7aa",
+        "e7881c6b0dc5136bf3684015d2b785e27086cb9a5bf7ed246d942f776c9fd389",
+    ),
+})
 
 
 def _catalog_case_select_sql(*, case_count: int = 12) -> str:
@@ -209,6 +279,145 @@ def test_repository_migrations_match_the_production_transaction_contract() -> No
     assert migrations
 
 
+def test_checked_in_checksum_compatibility_is_the_exact_recovered_set() -> None:
+    repository_root = Path(__file__).resolve().parents[1]
+    migrations = load_migrations(repository_root / "supabase" / "migrations")
+    local_by_version = {migration.version: migration for migration in migrations}
+
+    compatibility = load_checksum_compatibility(
+        DEFAULT_CHECKSUM_COMPATIBILITY_PATH
+    )
+
+    assert frozenset(
+        (
+            item.version,
+            item.deployed_sha256,
+            item.repository_sha256,
+        )
+        for item in compatibility
+    ) == EXPECTED_CHECKSUM_COMPATIBILITY
+    assert all(
+        local_by_version[item.version].sha256 == item.repository_sha256
+        for item in compatibility
+    )
+    simulated_history = {
+        migration.version: migration.sha256 for migration in migrations
+    }
+    simulated_history.update({
+        item.version: item.deployed_sha256 for item in compatibility
+    })
+    _validate_history_prefix(
+        migrations,
+        simulated_history,
+        compatibility,
+    )
+
+
+def test_exact_checksum_compatibility_tuple_is_accepted_without_rewrite(
+    tmp_path: Path,
+) -> None:
+    migrations = _fixture_migrations(tmp_path)
+    migration = migrations[0]
+    deployed_sha256 = "0" * 64
+    compatibility = frozenset({MigrationChecksumCompatibility(
+        version=migration.version,
+        deployed_sha256=deployed_sha256,
+        repository_sha256=migration.sha256,
+    )})
+    fake_http = FakeManagementApi({migration.version: deployed_sha256})
+
+    applied = deploy(
+        client=_client(fake_http),
+        migrations=migrations[:1],
+        private_exam_sql_body=None,
+        checksum_compatibility=compatibility,
+    )
+
+    assert applied == []
+    assert fake_http.history == {migration.version: deployed_sha256}
+    assert len(fake_http.requests) == 2  # probe and immutable history read only
+
+
+def test_checksum_compatibility_never_changes_fresh_database_receipts(
+    tmp_path: Path,
+) -> None:
+    migrations = _fixture_migrations(tmp_path)
+    migration = migrations[0]
+    compatibility = frozenset({MigrationChecksumCompatibility(
+        version=migration.version,
+        deployed_sha256="0" * 64,
+        repository_sha256=migration.sha256,
+    )})
+    fake_http = FakeManagementApi()
+
+    applied = deploy(
+        client=_client(fake_http),
+        migrations=migrations,
+        private_exam_sql_body=None,
+        checksum_compatibility=compatibility,
+    )
+
+    assert applied == [migration.version for migration in migrations]
+    assert fake_http.history == {
+        item.version: item.sha256 for item in migrations
+    }
+
+
+def test_checksum_compatibility_rejects_unknown_deployed_hash(
+    tmp_path: Path,
+) -> None:
+    migrations = _fixture_migrations(tmp_path)
+    migration = migrations[0]
+    compatibility = frozenset({MigrationChecksumCompatibility(
+        version=migration.version,
+        deployed_sha256="0" * 64,
+        repository_sha256=migration.sha256,
+    )})
+
+    with pytest.raises(DeploymentError, match="Immutable checksum mismatch"):
+        _validate_history_prefix(
+            migrations,
+            {migration.version: "1" * 64},
+            compatibility,
+        )
+
+
+def test_checksum_compatibility_rejects_unknown_repository_hash(
+    tmp_path: Path,
+) -> None:
+    migrations = _fixture_migrations(tmp_path)
+    migration = migrations[0]
+    compatibility = frozenset({MigrationChecksumCompatibility(
+        version=migration.version,
+        deployed_sha256="0" * 64,
+        repository_sha256="1" * 64,
+    )})
+
+    with pytest.raises(DeploymentError, match="does not match this checkout"):
+        _validate_history_prefix(
+            migrations,
+            {migration.version: "0" * 64},
+            compatibility,
+        )
+
+
+def test_checksum_compatibility_rejects_unknown_version(tmp_path: Path) -> None:
+    migrations = _fixture_migrations(tmp_path)
+    migration = migrations[0]
+    compatibility = frozenset({MigrationChecksumCompatibility(
+        version="202607139999",
+        deployed_sha256="0" * 64,
+        repository_sha256=migration.sha256,
+    )})
+
+    with pytest.raises(DeploymentError, match="does not match this checkout"):
+        _validate_history_prefix(
+            migrations,
+            {migration.version: "0" * 64},
+            compatibility,
+        )
+
+
 def _client(fake_http: FakeManagementApi) -> ManagementApiClient:
     return ManagementApiClient(
         project_ref=EXPECTED_PROJECT_REF,
@@ -320,6 +529,108 @@ def test_applied_migrations_are_idempotently_skipped(tmp_path: Path) -> None:
         for item in fake_http.requests
     )
     assert sum("test_only" in item["query"] for item in fake_http.requests) == 1
+
+
+def test_skip_private_grading_makes_no_private_management_api_write(
+    tmp_path: Path,
+) -> None:
+    migrations = _fixture_migrations(tmp_path)
+    fake_http = FakeManagementApi(
+        {migration.version: migration.sha256 for migration in migrations}
+    )
+
+    applied = deploy(
+        client=_client(fake_http),
+        migrations=migrations,
+        private_exam_sql_body=None,
+    )
+
+    assert applied == []
+    assert len(fake_http.requests) == 2  # history probe and immutable read
+    assert all(
+        "pg_advisory_xact_lock" not in item["query"]
+        for item in fake_http.requests
+    )
+
+
+def test_cli_skip_private_grading_ignores_private_secrets_and_is_explicit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    migrations = _fixture_migrations(tmp_path)
+    captured: dict[str, object] = {}
+    fake_client = object()
+
+    def fake_client_factory(**kwargs):
+        captured["client_configuration"] = kwargs
+        return fake_client
+
+    def fake_deploy(**kwargs):
+        captured["deploy"] = kwargs
+        return [migrations[-1].version]
+
+    monkeypatch.setenv("SUPABASE_PROJECT_REF", EXPECTED_PROJECT_REF)
+    monkeypatch.setenv("SUPABASE_ACCESS_TOKEN", "test-access-token")
+    # Malformed values prove the opt-in path does not read or decode them.
+    monkeypatch.setenv("SUPABASE_EXAM_KEYS_B64", "not-valid-base64")
+    monkeypatch.setenv("SUPABASE_TRAINING_KEYS_B64", "not-valid-json")
+    monkeypatch.setattr(deployment_runner, "ManagementApiClient", fake_client_factory)
+    monkeypatch.setattr(deployment_runner, "deploy", fake_deploy)
+
+    result = main([
+        "--migrations-dir",
+        str(tmp_path),
+        "--skip-private-grading",
+    ])
+
+    assert result == 0
+    assert captured["deploy"] == {
+        "client": fake_client,
+        "migrations": migrations,
+        "private_exam_sql_body": None,
+        "checksum_compatibility": load_checksum_compatibility(),
+    }
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert "Applied 1 immutable Supabase migration(s)." in output.out
+    assert "Private grading data provisioning was explicitly skipped." in output.out
+
+
+def test_cli_default_remains_fail_closed_without_private_secrets(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _fixture_migrations(tmp_path)
+    fake_client = object()
+    deploy_called = False
+
+    def fake_deploy(**_kwargs):
+        nonlocal deploy_called
+        deploy_called = True
+        return []
+
+    monkeypatch.setenv("SUPABASE_PROJECT_REF", EXPECTED_PROJECT_REF)
+    monkeypatch.setenv("SUPABASE_ACCESS_TOKEN", "test-access-token")
+    monkeypatch.delenv("SUPABASE_EXAM_KEYS_B64", raising=False)
+    monkeypatch.delenv("SUPABASE_TRAINING_KEYS_B64", raising=False)
+    monkeypatch.setattr(
+        deployment_runner,
+        "ManagementApiClient",
+        lambda **_kwargs: fake_client,
+    )
+    monkeypatch.setattr(deployment_runner, "deploy", fake_deploy)
+
+    result = main(["--migrations-dir", str(tmp_path)])
+
+    assert result == 1
+    assert deploy_called is False
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == (
+        "Supabase deployment stopped: SUPABASE_EXAM_KEYS_B64 is required\n"
+    )
 
 
 def test_existing_history_skips_repeated_production_ddl(tmp_path: Path) -> None:
