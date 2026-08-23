@@ -50,14 +50,14 @@ MECHANICS = {
 }
 
 
-def make_variants(source: Path, count: int, directory: Path) -> list[Path]:
+def make_variants(source: Path, count: int, directory: Path, run_nonce: str = "") -> list[Path]:
     """Ten playable copies with distinct sha256: a trailing ISO BMFF `free` box."""
     data = source.read_bytes()
     variants = []
     for index in range(count):
-        payload = f"contentengine-probe-variant-{index:02d}".encode("ascii")
+        payload = f"contentengine-probe-variant-{index:02d}-{run_nonce}".encode("ascii")
         box = struct.pack(">I4s", 8 + len(payload), b"free") + payload
-        target = directory / f"{source.stem}-v{index:02d}.mp4"
+        target = directory / f"{source.stem}-v{index:02d}{"-" + run_nonce if run_nonce else ""}.mp4"
         target.write_bytes(data + box)
         variants.append(target)
     return variants
@@ -68,6 +68,8 @@ def main() -> int:
     parser.add_argument("--mp4", type=Path, default=UPLOAD_PROBE_MP4)
     parser.add_argument("--photo", type=Path, default=DEFAULT_PHOTO)
     parser.add_argument("--step-timeout", type=float, default=120.0)
+    parser.add_argument("--in-window", action="store_true",
+                        help="work inside the live window iframe, the way a person sees the screen")
     args = parser.parse_args()
     from websockets.sync.client import connect
 
@@ -75,7 +77,9 @@ def main() -> int:
     project_id = local_project_id()
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix="contentengine-rebuild-flow-"))
-    variants = make_variants(args.mp4, 10, work)
+    # Уникальные варианты на каждый прогон: проект копит исходники, и пикер
+    # не предлагает то, что уже знает по sha256.
+    variants = make_variants(args.mp4, 10, work, run_nonce=f"{int(time.time())}")
     profile = work / "profile"
     process = subprocess.Popen([
         chrome_path(), "--headless=new", "--disable-gpu", "--disable-extensions", "--no-sandbox",
@@ -166,7 +170,7 @@ def main() -> int:
 
             def drain_toasts(label: str) -> None:
                 nonlocal toasts_seen
-                entries = json.loads(evaluate("JSON.stringify(window.__ceToasts || [])") or "[]")
+                entries = json.loads(evaluate("JSON.stringify(__ceWin().__ceToasts || [])") or "[]")
                 for entry in entries[toasts_seen:]:
                     print(f"  [{label}] toast {entry['type']}: {entry['text']}")
                     if "error" in entry["type"]:
@@ -175,10 +179,10 @@ def main() -> int:
 
             def native_state() -> dict:
                 return evaluate(
-                    "(() => { const form = document.querySelector('#mock-batch-form');"
+                    "(() => { const form = __ceDoc().querySelector('#mock-batch-form');"
                     " const submit = form?.querySelector('#generation-submit');"
-                    " const status = document.querySelector(" + json.dumps(PANEL + " [data-generation-intake-status]") + ");"
-                    " const projection = window.ContentEngineGenerationGuidedV4?.getStrategySourcePickerProjection?.(form);"
+                    " const status = __ceDoc().querySelector(" + json.dumps(PANEL + " [data-generation-intake-status]") + ");"
+                    " const projection = __ceWin().ContentEngineGenerationGuidedV4?.getStrategySourcePickerProjection?.(form);"
                     " return { status: status?.textContent?.trim() || '', busy: form?.dataset?.busy || '',"
                     " strategy: form?.elements?.generation_strategy_id?.value || '',"
                     " submit: submit?.textContent?.trim() || '', submitDisabled: Boolean(submit?.disabled),"
@@ -210,7 +214,7 @@ def main() -> int:
                 return state
 
             def set_files(selector: str, paths: list[Path]) -> None:
-                located = cdp("Runtime.evaluate", {"expression": "document.querySelector(" + json.dumps(selector) + ")", "returnByValue": False})
+                located = cdp("Runtime.evaluate", {"expression": "__ceDoc().querySelector(" + json.dumps(selector) + ")", "returnByValue": False})
                 object_id = located["result"]["result"].get("objectId")
                 if not object_id:
                     raise AssertionError(f"no element for {selector}")
@@ -218,7 +222,7 @@ def main() -> int:
 
             def click(selector: str) -> bool:
                 return evaluate(
-                    "(() => { const node = document.querySelector(" + json.dumps(selector) + ");"
+                    "(() => { const node = __ceDoc().querySelector(" + json.dumps(selector) + ");"
                     " if (!node) return false; node.scrollIntoView({ block: 'center' }); node.click(); return true; })()"
                 ) is True
 
@@ -234,6 +238,26 @@ new MutationObserver((records) => {
     }
   }
 }).observe(document, { childList: true, subtree: true });
+// Живые окна: реальный экран живёт во встроенном iframe, верхний документ —
+// скрытый legacy. В режиме --in-window зонд работает с документом окна, как
+// человек; пока окно не поднялось — отдаёт пустой документ (ожидания крутятся).
+window.__ceInWindow = """ + json.dumps(bool(args.in_window)) + """;
+window.__ceDoc = () => {
+  if (!window.__ceInWindow) return document;
+  // Видимое окно рабочего стола: у каждого экрана («Создать», «Материалы»)
+  // свой iframe, зонд работает с тем, который сейчас показан.
+  const frames = [...document.querySelectorAll("iframe[data-ce-v4-window-surface]")]
+    .filter((frame) => frame.getClientRects().length > 0 && frame.contentDocument?.querySelector("#main-content"));
+  // Ключевое окно (фокус и верх z-order) — то, с которым работает человек.
+  const key = frames.find((frame) => frame.closest('[data-ce-v4-window-active="true"]'));
+  const pick = key || frames.sort((a, b) => {
+    const z = (frame) => Number(frame.closest(".ce-v4-window")?.style?.zIndex || 0);
+    return z(a) - z(b);
+  }).pop();
+  if (pick) return pick.contentDocument;
+  return document.implementation.createHTMLDocument("");
+};
+window.__ceWin = () => window.__ceDoc().defaultView || {};
 """})
             cdp("Emulation.setDeviceMetricsOverride", {"width": 1440, "height": 1400, "deviceScaleFactor": 1, "mobile": False})
             cdp("Page.navigate", {"url": f"{LOCAL_DESKTOP_ORIGIN}/"})
@@ -253,33 +277,33 @@ new MutationObserver((records) => {
             if not wait_js("location.hash.startsWith('#/workspace/') && Boolean(document.querySelector('#main-content'))", 20):
                 raise SystemExit("workspace did not open")
             cdp("Page.navigate", {"url": f"{LOCAL_DESKTOP_ORIGIN}/#/workspace/generation?project_id={project_id}"})
-            if not wait_js("Boolean(document.querySelector('#mock-batch-form')?.dataset.generationIntakeV4Bound)", 30):
+            if not wait_js("Boolean(__ceDoc().querySelector('#mock-batch-form')?.dataset.generationIntakeV4Bound)", 30):
                 raise SystemExit("generation form did not bind")
 
             print(f"step 1 · «Материалы»: upload 10 MP4 variants of {args.mp4.name} as source_video")
             cdp("Page.navigate", {"url": f"{LOCAL_DESKTOP_ORIGIN}/#/workspace/media?project_id={project_id}"})
-            if not wait_js("Boolean(document.querySelector('#media-upload-form #media-file'))", 30):
+            if not wait_js("Boolean(__ceDoc().querySelector('#media-upload-form #media-file'))", 30):
                 raise SystemExit("materials upload form did not appear")
             time.sleep(0.5)
             set_files("#media-upload-form #media-file", variants)
             time.sleep(0.5)
             prepared = evaluate(
-                "(() => { const form = document.querySelector('#media-upload-form'); if (!form) return 'missing';"
+                "(() => { const form = __ceDoc().querySelector('#media-upload-form'); if (!form) return 'missing';"
                 " const kind = form.elements.kind; kind.value = 'source_video'; kind.dispatchEvent(new Event('change', { bubbles: true }));"
                 " const rights = form.elements.rights_confirmed; if (rights && !rights.checked) rights.click();"
                 " return { files: form.elements.file?.files?.length, kind: kind.value, rights: rights?.checked,"
                 "   invalid: [...form.elements].filter((n) => typeof n.checkValidity === 'function' && !n.checkValidity()).map((n) => n.name) }; })()"
             )
             print("   upload form:", json.dumps(prepared, ensure_ascii=False))
-            evaluate("document.querySelector('#media-upload-form').requestSubmit(); true")
+            evaluate("__ceDoc().querySelector('#media-upload-form').requestSubmit(); true")
             stop = time.monotonic() + args.step_timeout * 2
             last = None
             while time.monotonic() < stop:
                 drain_toasts("materials")
                 count = evaluate(
-                    "(() => { const form = document.querySelector('#media-upload-form'); const busy = form?.dataset?.busy || '';"
-                    " const cards = document.querySelectorAll('.media-grid .media-card, .media-grid [data-media-id]').length;"
-                    " const summary = document.querySelector('#selected-file-summary')?.textContent?.trim() || '';"
+                    "(() => { const form = __ceDoc().querySelector('#media-upload-form'); const busy = form?.dataset?.busy || '';"
+                    " const cards = __ceDoc().querySelectorAll('.media-grid .media-card, .media-grid [data-media-id]').length;"
+                    " const summary = __ceDoc().querySelector('#selected-file-summary')?.textContent?.trim() || '';"
                     " return { busy, cards, summary: summary.slice(0, 120) }; })()"
                 )
                 key = json.dumps(count, ensure_ascii=False)
@@ -291,12 +315,34 @@ new MutationObserver((records) => {
                 time.sleep(1.0)
             screenshot("1-materials")
 
+            # «Материалы» только регистрируют файл. Исходником стратегии ролик
+            # становится после привязки прямого MP4 (contentengine_attach_
+            # generation_direct_mp4) — ровно так его привязывает экран «Копии»/
+            # «Дуэта» при загрузке; без привязки пикер «Создания» ролик не
+            # предлагает (каталог кандидатов отдаёт только привязанные).
+            print("step 1b · attach the ten uploads as direct MP4 sources")
+            names = [variant.name for variant in variants]
+            attached = evaluate(
+                "(async () => { const api = window.ContentEngineWorkspaceRuntime.getApi(); const names = " + json.dumps(names) + ";"
+                " const cards = [...__ceDoc().querySelectorAll('.media-grid [data-media-id]')];"
+                " const ids = names.map((name) => cards.find((card) => (card.textContent || '').includes(name))?.dataset.mediaId || null);"
+                " const out = []; for (const id of ids) { if (!id) { out.push(null); continue; }"
+                "   try { const res = await api.call('contentengine_attach_generation_direct_mp4', api.withOrganization({"
+                "     project_id: " + json.dumps(project_id) + ", media_id: id, idempotency_key: 'generation-direct-mp4-' + id }));"
+                "     out.push((res?.data ?? res)?.attachment?.status || 'ok'); } catch (error) { out.push('error:' + String(error?.message || error)); } }"
+                " return out; })()",
+                timeout=120,
+            )
+            print("   attached:", json.dumps(attached, ensure_ascii=False))
+            if not attached or sum(1 for item in attached if item in ("attached", "ok")) != len(names):
+                problems.append(f"direct MP4 attachment incomplete: {attached}")
+
             print("step 2 · generation → «Видео по стратегии» → viral_rebuild")
             cdp("Page.navigate", {"url": f"{LOCAL_DESKTOP_ORIGIN}/#/workspace/generation?project_id={project_id}"})
-            if not wait_js("Boolean(document.querySelector('#mock-batch-form')?.dataset.generationIntakeV4Bound)", 30):
+            if not wait_js("Boolean(__ceDoc().querySelector('#mock-batch-form')?.dataset.generationIntakeV4Bound)", 30):
                 raise SystemExit("generation form did not bind")
             click('[data-generation-intake-route="strategy_video"]')
-            if not wait_js("document.querySelector('#mock-batch-form')?.elements?.generation_strategy_id?.value === 'viral_rebuild'", 20):
+            if not wait_js("__ceDoc().querySelector('#mock-batch-form')?.elements?.generation_strategy_id?.value === 'viral_rebuild'", 20):
                 problems.append("strategy did not switch to viral_rebuild")
             time.sleep(1.5)
             state = wait_settled("open", 30)
@@ -316,7 +362,7 @@ new MutationObserver((records) => {
                     # Пикер перерисовывается после каждого клика: отмечаем по одному
                     # и ждём новый DOM, иначе клики уходят в отсоединённые узлы.
                     picked = evaluate(
-                        "(() => { const box = [...document.querySelectorAll('#mock-batch-form input[name=generation_strategy_source_selection]')]"
+                        "(() => { const box = [...__ceDoc().querySelectorAll('#mock-batch-form input[name=generation_strategy_source_selection]')]"
                         "   .find((b) => !b.checked && !b.disabled); if (!box) return null; box.click(); return box.value; })()"
                     )
                     if picked is None:
@@ -331,16 +377,16 @@ new MutationObserver((records) => {
 
             print("step 4 · mechanics for every selected source, product photo, attestations, output, brief")
             sources = evaluate(
-                "JSON.stringify((window.ContentEngineGenerationGuidedV4?.getStrategySourcePickerProjection?.(document.querySelector('#mock-batch-form'))?.selected || []).map((s) => s.source_media_id))"
+                "JSON.stringify((__ceWin().ContentEngineGenerationGuidedV4?.getStrategySourcePickerProjection?.(__ceDoc().querySelector('#mock-batch-form'))?.selected || []).map((s) => s.source_media_id))"
             )
             source_ids = json.loads(sources or "[]")
             applied = evaluate(
-                "(() => { const form = document.querySelector('#mock-batch-form'); const ids = " + json.dumps(source_ids) + ";"
-                " return ids.map((id) => window.ContentEngineGenerationGuidedV4?.setStrategyMechanicsDraft?.(form, id, " + json.dumps(MECHANICS, ensure_ascii=False) + ")); })()"
+                "(() => { const form = __ceDoc().querySelector('#mock-batch-form'); const ids = " + json.dumps(source_ids) + ";"
+                " return ids.map((id) => __ceWin().ContentEngineGenerationGuidedV4?.setStrategyMechanicsDraft?.(form, id, " + json.dumps(MECHANICS, ensure_ascii=False) + ")); })()"
             )
             print(f"   mechanics applied: {applied}")
             product = evaluate(
-                "(() => { const form = document.querySelector('#mock-batch-form');"
+                "(() => { const form = __ceDoc().querySelector('#mock-batch-form');"
                 " const boxes = [...form.querySelectorAll('input[name=media_id]')].filter((b) => !b.disabled);"
                 " if (!boxes.length) return 'no product photos'; const box = boxes[0]; if (!box.checked) box.click();"
                 " const primary = form.querySelector('input[name=primary_media_id][value=\"' + box.value + '\"]'); if (primary && !primary.checked) primary.click();"
@@ -348,33 +394,34 @@ new MutationObserver((records) => {
             )
             print("   product:", json.dumps(product, ensure_ascii=False))
             attest = evaluate(
-                "(() => { const boxes = [...document.querySelectorAll('#generation-strategy-assets input[data-generation-strategy-attestation]')];"
+                "(() => { const boxes = [...__ceDoc().querySelectorAll('#generation-strategy-assets input[data-generation-strategy-attestation]')];"
                 " boxes.forEach((b) => { if (!b.checked && !b.disabled) b.click(); }); return boxes.map((b) => [b.dataset.generationStrategyAttestation, b.checked]); })()"
             )
             print("   attestations:", attest)
             output = evaluate(
-                "(() => { const form = document.querySelector('#mock-batch-form'); const out = {};"
+                "(() => { const form = __ceDoc().querySelector('#mock-batch-form'); const out = {};"
                 " for (const name of ['generation_strategy_audio', 'generation_strategy_ratio', 'generation_strategy_resolution']) {"
-                "   const select = form.elements[name]; if (!(select instanceof HTMLSelectElement) || select.disabled) { out[name] = 'n/a'; continue; }"
+                # tagName, не instanceof: в режиме окна элемент из другого realm.
+                "   const select = form.elements[name]; if (select?.tagName !== 'SELECT' || select.disabled) { out[name] = 'n/a'; continue; }"
                 "   if (!select.value) { const option = [...select.options].find((o) => o.value && !o.disabled && (name !== 'generation_strategy_audio' || o.value === 'false')) || [...select.options].find((o) => o.value && !o.disabled);"
                 "     if (option) { select.value = option.value; select.dispatchEvent(new Event('change', { bubbles: true })); } }"
                 "   out[name] = select.value; } return out; })()"
             )
             print("   output:", json.dumps(output))
             category = evaluate(
-                "(() => { const select = document.querySelector('#mock-batch-form')?.elements?.product_category; if (!select) return 'missing';"
+                "(() => { const select = __ceDoc().querySelector('#mock-batch-form')?.elements?.product_category; if (!select) return 'missing';"
                 " if (!select.value) { select.value = 'sports_food'; select.dispatchEvent(new Event('change', { bubbles: true })); } return select.value; })()"
             )
             print("   product_category:", category)
             brief = evaluate(
-                "(() => { const brief = document.querySelector('#mock-batch-form')?.elements?.brief; if (!brief) return 'missing';"
+                "(() => { const brief = __ceDoc().querySelector('#mock-batch-form')?.elements?.brief; if (!brief) return 'missing';"
                 " if (!brief.value.trim()) { brief.value = 'Новый рекламный ролик про домашний гриль: быстро, честно, с крупными планами мяса и финальной тарелкой.';"
                 "   brief.dispatchEvent(new Event('input', { bubbles: true })); brief.dispatchEvent(new Event('change', { bubbles: true })); } return brief.value.length; })()"
             )
             print("   brief length:", brief)
             state = wait_settled("inputs", 20)
             invalid = evaluate(
-                "JSON.stringify([...document.querySelector('#mock-batch-form').elements].filter((n) => typeof n.checkValidity === 'function' && !n.checkValidity())"
+                "JSON.stringify([...__ceDoc().querySelector('#mock-batch-form').elements].filter((n) => typeof n.checkValidity === 'function' && !n.checkValidity())"
                 ".map((n) => ({ name: n.name, visible: Boolean(n.offsetParent), message: n.validationMessage })))"
             )
             print("   invalid controls:", invalid)
@@ -385,7 +432,7 @@ new MutationObserver((records) => {
             for attempt in range(1, 40):
                 state = native_state()
                 approvals = evaluate(
-                    "(() => { const boxes = [...document.querySelectorAll('#mock-batch-form input[name=generation_strategy_spec_approval]')];"
+                    "(() => { const boxes = [...__ceDoc().querySelectorAll('#mock-batch-form input[name=generation_strategy_spec_approval]')];"
                     " const pending = boxes.filter((box) => !box.checked && !box.disabled); pending.forEach((box) => box.click()); return [boxes.length, pending.length]; })()"
                 )
                 if approvals and approvals[1]:
@@ -397,13 +444,13 @@ new MutationObserver((records) => {
                     continue
                 if not state.get("submitDisabled") and state.get("phase") not in ("strategy_product_swap_paid_review", "strategy_rebuild_paid_review"):
                     print(f"   click native «{state.get('submit')}» (phase {state.get('phase')})")
-                    before = evaluate("document.querySelector('#mock-batch-form')?.dataset?.generationStrategyLastFailureAt || ''")
+                    before = evaluate("__ceDoc().querySelector('#mock-batch-form')?.dataset?.generationStrategyLastFailureAt || ''")
                     click("#generation-submit")
                     time.sleep(0.8)
                     after_state = wait_settled(f"native{attempt}", args.step_timeout)
-                    after = evaluate("document.querySelector('#mock-batch-form')?.dataset?.generationStrategyLastFailureAt || ''")
+                    after = evaluate("__ceDoc().querySelector('#mock-batch-form')?.dataset?.generationStrategyLastFailureAt || ''")
                     if after and after != before:
-                        reason = evaluate("document.querySelector('#mock-batch-form')?.dataset?.generationStrategyLastFailure || ''")
+                        reason = evaluate("__ceDoc().querySelector('#mock-batch-form')?.dataset?.generationStrategyLastFailure || ''")
                         print(f"   server refused: {reason}")
                         boundary = "сервису генерации не настроен" in str(reason)
                         if not boundary:
@@ -416,7 +463,7 @@ new MutationObserver((records) => {
                     if after_state.get("submit") == state.get("submit") and after_state.get("phase") == state.get("phase"):
                         print("   native button did not move; stopping")
                         invalid = evaluate(
-                            "JSON.stringify([...document.querySelector('#mock-batch-form').elements].filter((n) => typeof n.checkValidity === 'function' && !n.checkValidity())"
+                            "JSON.stringify([...__ceDoc().querySelector('#mock-batch-form').elements].filter((n) => typeof n.checkValidity === 'function' && !n.checkValidity())"
                             ".map((n) => ({ name: n.name, visible: Boolean(n.offsetParent), message: n.validationMessage })))"
                         )
                         print("   invalid controls:", invalid)

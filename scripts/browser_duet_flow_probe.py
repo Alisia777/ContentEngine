@@ -52,6 +52,8 @@ def main() -> int:
     parser.add_argument("--name", default="Пробный товар дуэта")
     parser.add_argument("--category", default="sports_food")
     parser.add_argument("--step-timeout", type=float, default=90.0)
+    parser.add_argument("--in-window", action="store_true",
+                        help="work inside the live window iframe, the way a person sees the screen")
     args = parser.parse_args()
     from websockets.sync.client import connect
 
@@ -166,7 +168,7 @@ def main() -> int:
 
             def drain_toasts(label: str) -> None:
                 nonlocal toasts_seen
-                entries = json.loads(evaluate("JSON.stringify(window.__ceToasts || [])") or "[]")
+                entries = json.loads(evaluate("JSON.stringify(__ceWin().__ceToasts || [])") or "[]")
                 for entry in entries[toasts_seen:]:
                     print(f"  [{label}] toast {entry['type']}: {entry['text']}")
                     if "error" in entry["type"]:
@@ -175,9 +177,9 @@ def main() -> int:
 
             def panel_state(panel: str) -> dict:
                 return evaluate(
-                    "(() => { const panel = document.querySelector(" + json.dumps(panel) + ");"
+                    "(() => { const panel = __ceDoc().querySelector(" + json.dumps(panel) + ");"
                     " const status = panel?.querySelector('[data-generation-intake-status]');"
-                    " const form = document.querySelector('#mock-batch-form');"
+                    " const form = __ceDoc().querySelector('#mock-batch-form');"
                     " const submit = form?.querySelector('#generation-submit');"
                     " return { status: status?.textContent?.trim() || '', statusState: status?.dataset?.state || '',"
                     " mode: form?.dataset?.generationIntakeV4Mode || '', route: form?.dataset?.generationIntakeV4Route || '',"
@@ -216,7 +218,7 @@ def main() -> int:
                 return state
 
             def set_files(selector: str, path: Path) -> None:
-                located = cdp("Runtime.evaluate", {"expression": "document.querySelector(" + json.dumps(selector) + ")", "returnByValue": False})
+                located = cdp("Runtime.evaluate", {"expression": "__ceDoc().querySelector(" + json.dumps(selector) + ")", "returnByValue": False})
                 object_id = located["result"]["result"].get("objectId")
                 if not object_id:
                     raise AssertionError(f"no element for {selector}")
@@ -224,7 +226,7 @@ def main() -> int:
 
             def click(selector: str) -> bool:
                 return evaluate(
-                    "(() => { const node = document.querySelector(" + json.dumps(selector) + ");"
+                    "(() => { const node = __ceDoc().querySelector(" + json.dumps(selector) + ");"
                     " if (!node) return false; node.scrollIntoView({ block: 'center' }); node.click(); return true; })()"
                 ) is True
 
@@ -240,6 +242,26 @@ new MutationObserver((records) => {
     }
   }
 }).observe(document, { childList: true, subtree: true });
+// Живые окна: реальный экран живёт во встроенном iframe, верхний документ —
+// скрытый legacy. В режиме --in-window зонд работает с документом окна, как
+// человек; пока окно не поднялось — отдаёт пустой документ (ожидания крутятся).
+window.__ceInWindow = """ + json.dumps(bool(args.in_window)) + """;
+window.__ceDoc = () => {
+  if (!window.__ceInWindow) return document;
+  // Видимое окно рабочего стола: у каждого экрана («Создать», «Материалы»)
+  // свой iframe, зонд работает с тем, который сейчас показан.
+  const frames = [...document.querySelectorAll("iframe[data-ce-v4-window-surface]")]
+    .filter((frame) => frame.getClientRects().length > 0 && frame.contentDocument?.querySelector("#main-content"));
+  // Ключевое окно (фокус и верх z-order) — то, с которым работает человек.
+  const key = frames.find((frame) => frame.closest('[data-ce-v4-window-active="true"]'));
+  const pick = key || frames.sort((a, b) => {
+    const z = (frame) => Number(frame.closest(".ce-v4-window")?.style?.zIndex || 0);
+    return z(a) - z(b);
+  }).pop();
+  if (pick) return pick.contentDocument;
+  return document.implementation.createHTMLDocument("");
+};
+window.__ceWin = () => window.__ceDoc().defaultView || {};
 """})
             cdp("Emulation.setDeviceMetricsOverride", {"width": 1440, "height": 1300, "deviceScaleFactor": 1, "mobile": False})
             cdp("Page.navigate", {"url": f"{LOCAL_DESKTOP_ORIGIN}/"})
@@ -277,45 +299,72 @@ new MutationObserver((records) => {
                 problems.append(f"presenter registration failed: {registered}")
 
             cdp("Page.navigate", {"url": f"{LOCAL_DESKTOP_ORIGIN}/#/workspace/generation?project_id={project_id}"})
-            if not wait_js("Boolean(document.querySelector('#mock-batch-form')?.dataset.generationIntakeV4Bound)", 30):
+            if not wait_js("Boolean(__ceDoc().querySelector('#mock-batch-form')?.dataset.generationIntakeV4Bound)", 30):
                 raise SystemExit("generation form did not bind")
+            if args.in_window:
+                if not wait_js("__ceDoc() !== document && Boolean(__ceDoc().querySelector('#mock-batch-form')?.dataset.generationIntakeV4Bound)", 30):
+                    raise SystemExit("live window surface did not bind the generation form")
+                print("   live window surface: bound (probing inside the iframe)")
 
             print(f"step 1 · register a product through «Копия» ({args.photo.name}, {args.sku})")
             click('[data-generation-intake-route="copy_video"]')
-            wait_js("document.querySelector('#mock-batch-form')?.dataset.generationIntakeV4Route === 'copy_video'", 10)
+            wait_js("__ceDoc().querySelector('#mock-batch-form')?.dataset.generationIntakeV4Route === 'copy_video'", 10)
             time.sleep(1.0)
             # Регистрация фото идёт только после единой галки прав: без неё
             # очередь ждёт, и на чистой базе у «Дуэта» не было бы товара.
-            evaluate(
-                "(() => { const box = document.querySelector(" + json.dumps(COPY + ' [data-generation-intake-rights="copy_video"]') + ");"
+            rights_ticked = evaluate(
+                "(() => { const box = __ceDoc().querySelector(" + json.dumps(COPY + ' [data-generation-intake-rights="copy_video"]') + ");"
                 " if (box && !box.checked) box.click(); return Boolean(box?.checked); })()"
             )
+            print("   rights ticked:", rights_ticked)
             set_files(COPY + ' input[data-generation-intake-image="product"]', args.photo)
             time.sleep(1.0)
             evaluate(
-                "(() => { const shell = document.querySelector('#mock-batch-form');"
+                "(() => { const shell = __ceDoc().querySelector('#mock-batch-form');"
                 " const assign = (field, value) => { const node = shell.querySelector('[data-generation-intake-identity] [data-generation-intake-field=\"' + field + '\"]');"
                 "   if (!node) return false; node.value = value; node.dispatchEvent(new Event('input', { bubbles: true })); node.dispatchEvent(new Event('change', { bubbles: true })); return true; };"
                 " return [assign('sku', " + json.dumps(args.sku) + "), assign('product_name', " + json.dumps(args.name) + "), assign('product_category', " + json.dumps(args.category) + ")]; })()"
+            )
+            # Регистрация стартует асинхронно после заполнения полей: ждём её
+            # исхода, иначе следующий клик по «Дуэту» упрётся в занятый маршрут.
+            wait_js(
+                "(() => { const s = __ceDoc().querySelector(" + json.dumps(COPY + " [data-generation-intake-status]") + ");"
+                " return Boolean(s) && (s.textContent.includes('зарегистрированы') || s.dataset.state === 'error'); })()",
+                45,
             )
             state = wait_settled("product", COPY, 30)
             screenshot("1-product")
 
             print(f"step 2 · «Дуэт»: MP4 {args.mp4.name}")
             click('[data-generation-intake-route="avatar_video"]')
-            if not wait_js("document.querySelector('#mock-batch-form')?.dataset.generationIntakeV4Route === 'avatar_video'", 10):
+            if not wait_js("__ceDoc().querySelector('#mock-batch-form')?.dataset.generationIntakeV4Route === 'avatar_video'", 10):
+                diagnostics = evaluate(
+                    "(() => { const form = __ceDoc().querySelector('#mock-batch-form');"
+                    " const buttons = [...__ceDoc().querySelectorAll('[data-generation-intake-route]')].map((b) => ({"
+                    "   route: b.dataset.generationIntakeRoute, tag: b.tagName, disabled: Boolean(b.disabled), pressed: b.getAttribute('aria-pressed'),"
+                    "   visible: Boolean(b.offsetParent), text: (b.textContent || '').trim().slice(0, 60) }));"
+                    " return JSON.stringify({ dataset: { ...form?.dataset }, buttons }).slice(0, 2500); })()"
+                )
+                print("   route diagnostics:", diagnostics)
                 raise SystemExit("duet route did not open")
             time.sleep(1.5)
             presenter_options = evaluate(
-                "JSON.stringify([...document.querySelectorAll(" + json.dumps(DUET + " [data-generation-intake-duet-presenter-select] option") + ")].map((o) => [o.value, o.textContent]))"
+                "JSON.stringify([...__ceDoc().querySelectorAll(" + json.dumps(DUET + " [data-generation-intake-duet-presenter-select] option") + ")].map((o) => [o.value, o.textContent]))"
             )
             product_options = evaluate(
-                "JSON.stringify([...document.querySelectorAll(" + json.dumps(DUET + " [data-generation-intake-duet-product-select] option") + ")].map((o) => [o.value, o.textContent]))"
+                "JSON.stringify([...__ceDoc().querySelectorAll(" + json.dumps(DUET + " [data-generation-intake-duet-product-select] option") + ")].map((o) => [o.value, o.textContent]))"
             )
             print("   presenter options:", presenter_options)
             print("   product options:", product_options)
             set_files(DUET + ' input[data-generation-intake-mp4="single"]', args.mp4)
             state = wait_settled("mp4", DUET, 30)
+            summary = evaluate(
+                "(() => { const n = __ceDoc().querySelector(" + json.dumps(DUET + " [data-generation-intake-source-file]") + ");"
+                " return n ? { text: n.textContent, state: n.dataset.state, hidden: n.hidden } : null; })()"
+            )
+            print("   dropzone summary:", json.dumps(summary, ensure_ascii=False))
+            if not summary or summary.get("hidden") or "выбран" not in str(summary.get("text")):
+                problems.append(f"dropzone does not name the chosen MP4: {summary}")
             print("   «Разобрать MP4»")
             click('[data-action="generation-intake-analyze-avatar"]')
             state = wait_settled("analyze", DUET, args.step_timeout)
@@ -323,13 +372,13 @@ new MutationObserver((records) => {
 
             print("step 3 · product, rights, template")
             chosen_product = evaluate(
-                "(() => { const select = document.querySelector(" + json.dumps(DUET + " [data-generation-intake-duet-product-select]") + ");"
+                "(() => { const select = __ceDoc().querySelector(" + json.dumps(DUET + " [data-generation-intake-duet-product-select]") + ");"
                 " if (!select) return 'missing'; const option = [...select.options].find((o) => o.value); if (!option) return 'no products';"
                 " select.value = option.value; select.dispatchEvent(new Event('change', { bubbles: true })); return option.textContent; })()"
             )
             print("   product:", chosen_product)
             rights = evaluate(
-                "(() => { const box = document.querySelector(" + json.dumps(DUET + ' [data-generation-intake-rights="avatar_video"]') + ");"
+                "(() => { const box = __ceDoc().querySelector(" + json.dumps(DUET + ' [data-generation-intake-rights="avatar_video"]') + ");"
                 " if (!box) return 'missing'; if (!box.checked) box.click(); return box.checked; })()"
             )
             print("   rights:", rights)
@@ -346,19 +395,19 @@ new MutationObserver((records) => {
             }
             filled = evaluate(
                 "(() => { const values = " + json.dumps(mechanics, ensure_ascii=False) + ";"
-                " const boxes = [...document.querySelectorAll(" + json.dumps(DUET + " textarea[data-generation-intake-duet-mechanics]") + ")];"
+                " const boxes = [...__ceDoc().querySelectorAll(" + json.dumps(DUET + " textarea[data-generation-intake-duet-mechanics]") + ")];"
                 " boxes.forEach((box) => { const key = box.dataset.generationIntakeDuetMechanics; if (values[key]) { box.value = values[key]; box.dispatchEvent(new Event('input', { bubbles: true })); } });"
                 " return boxes.length; })()"
             )
             print("   mechanics fields filled:", filled)
             # Речь ведущего обязана уложиться в ролик (≈15 знаков/с): для 5 с — до 90.
             evaluate(
-                "(() => { const brief = document.querySelector('#mock-batch-form')?.elements?.brief; if (!brief) return false;"
+                "(() => { const brief = __ceDoc().querySelector('#mock-batch-form')?.elements?.brief; if (!brief) return false;"
                 " brief.value = 'Смотрите, как он переворачивает стейк: вот так жарят дома без хлопот.';"
                 " brief.dispatchEvent(new Event('input', { bubbles: true })); brief.dispatchEvent(new Event('change', { bubbles: true })); return true; })()"
             )
-            brief = evaluate("(document.querySelector('#mock-batch-form')?.elements?.brief?.value || '').length")
-            meta = evaluate("document.querySelector('[data-generation-intake-brief-meta=\"avatar_video\"]')?.textContent || ''")
+            brief = evaluate("(__ceDoc().querySelector('#mock-batch-form')?.elements?.brief?.value || '').length")
+            meta = evaluate("__ceDoc().querySelector('[data-generation-intake-brief-meta=\"avatar_video\"]')?.textContent || ''")
             print("   brief length:", brief, "·", meta)
             state = wait_settled("inputs", DUET, 15)
             screenshot("3-inputs")
@@ -370,10 +419,10 @@ new MutationObserver((records) => {
             if state.get("statusState") in ("error", "warning"):
                 problems.append(f"prepare ended in {state.get('statusState')}: {state.get('status')}")
                 picker = evaluate(
-                    "(() => { const form = document.querySelector('#mock-batch-form');"
+                    "(() => { const form = __ceDoc().querySelector('#mock-batch-form');"
                     " const inputs = [...form.querySelectorAll('input[name=generation_strategy_source_selection]')]"
                     "   .map((i) => ({ value: i.value, checked: i.checked, disabled: i.disabled }));"
-                    " const projection = window.ContentEngineGenerationGuidedV4?.getStrategySourcePickerProjection?.(form);"
+                    " const projection = __ceWin().ContentEngineGenerationGuidedV4?.getStrategySourcePickerProjection?.(form);"
                     " return JSON.stringify({ inputs, projection }, null, 0).slice(0, 1500); })()"
                 )
                 print("  picker:", picker)
@@ -383,7 +432,7 @@ new MutationObserver((records) => {
             for attempt in range(1, 16):
                 state = panel_state(DUET)
                 approvals = evaluate(
-                    "(() => { const boxes = [...document.querySelectorAll('#mock-batch-form input[name=\"generation_strategy_spec_approval\"]')];"
+                    "(() => { const boxes = [...__ceDoc().querySelectorAll('#mock-batch-form input[name=\"generation_strategy_spec_approval\"]')];"
                     " const pending = boxes.filter((box) => !box.checked && !box.disabled); pending.forEach((box) => box.click()); return [boxes.length, pending.length]; })()"
                 )
                 if approvals and approvals[1]:
@@ -395,13 +444,13 @@ new MutationObserver((records) => {
                     continue
                 if state.get("phase") in FREE_PHASES and not state.get("submitDisabled"):
                     print(f"   click native «{state.get('submit')}» (phase {state.get('phase')})")
-                    failure_before = evaluate("document.querySelector('#mock-batch-form')?.dataset?.generationStrategyLastFailureAt || ''")
+                    failure_before = evaluate("__ceDoc().querySelector('#mock-batch-form')?.dataset?.generationStrategyLastFailureAt || ''")
                     click("#generation-submit")
                     time.sleep(0.8)
                     wait_settled(f"native{attempt}", DUET, args.step_timeout)
-                    failure_after = evaluate("document.querySelector('#mock-batch-form')?.dataset?.generationStrategyLastFailureAt || ''")
+                    failure_after = evaluate("__ceDoc().querySelector('#mock-batch-form')?.dataset?.generationStrategyLastFailureAt || ''")
                     if failure_after and failure_after != failure_before:
-                        reason = evaluate("document.querySelector('#mock-batch-form')?.dataset?.generationStrategyLastFailure || ''")
+                        reason = evaluate("__ceDoc().querySelector('#mock-batch-form')?.dataset?.generationStrategyLastFailure || ''")
                         print(f"   server refused: {reason}")
                         boundary = "сервису генерации не настроен" in str(reason)
                         if not boundary:
@@ -413,7 +462,7 @@ new MutationObserver((records) => {
                     break
                 print(f"   native button idle: «{state.get('submit')}» phase={state.get('phase')} blocker={state.get('blocker')}")
                 invalid = evaluate(
-                    "JSON.stringify([...document.querySelector('#mock-batch-form').elements].filter((n) => typeof n.checkValidity === 'function' && !n.checkValidity())"
+                    "JSON.stringify([...__ceDoc().querySelector('#mock-batch-form').elements].filter((n) => typeof n.checkValidity === 'function' && !n.checkValidity())"
                     ".map((n) => ({ name: n.name, visible: Boolean(n.offsetParent), message: n.validationMessage })))"
                 )
                 print("   invalid controls:", invalid)

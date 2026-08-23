@@ -48,6 +48,8 @@ def main() -> int:
     parser.add_argument("--category", default="sports_food", help="empty string = leave the category unset")
     parser.add_argument("--stop-before-launch", action="store_true")
     parser.add_argument("--step-timeout", type=float, default=90.0)
+    parser.add_argument("--in-window", action="store_true",
+                        help="work inside the live window iframe, the way a person sees the screen")
     args = parser.parse_args()
     from websockets.sync.client import connect
 
@@ -152,10 +154,10 @@ def main() -> int:
 
             def panel_state() -> dict:
                 return evaluate(
-                    "(() => { const panel = document.querySelector(" + json.dumps(PANEL) + ");"
+                    "(() => { const panel = __ceDoc().querySelector(" + json.dumps(PANEL) + ");"
                     " const status = panel?.querySelector('[data-generation-intake-status]');"
                     " const prepare = panel?.querySelector('[data-action=\"generation-intake-prepare-copy\"]');"
-                    " const form = document.querySelector('#mock-batch-form');"
+                    " const form = __ceDoc().querySelector('#mock-batch-form');"
                     " return { status: status?.textContent?.trim() || '', statusState: status?.dataset?.state || '',"
                     " prepare: prepare?.textContent?.trim() || '', prepareDisabled: Boolean(prepare?.disabled),"
                     " expressPhase: prepare?.dataset?.expressPhase || '', busy: form?.dataset?.busy || '',"
@@ -166,7 +168,7 @@ def main() -> int:
 
             def drain_toasts(label: str) -> None:
                 nonlocal toasts_seen
-                toasts = evaluate("JSON.stringify(window.__ceToasts || [])")
+                toasts = evaluate("JSON.stringify(__ceWin().__ceToasts || [])")
                 entries = json.loads(toasts or "[]")
                 for entry in entries[toasts_seen:]:
                     print(f"  [{label}] toast {entry['type']}: {entry['text']}")
@@ -176,7 +178,7 @@ def main() -> int:
 
             def native_state() -> dict:
                 return evaluate(
-                    "(() => { const form = document.querySelector('#mock-batch-form');"
+                    "(() => { const form = __ceDoc().querySelector('#mock-batch-form');"
                     " const submit = form?.querySelector('#generation-submit');"
                     " return { submit: submit?.textContent?.trim() || '', submitDisabled: Boolean(submit?.disabled),"
                     " phase: submit?.dataset?.launchPhase || '', blocker: submit?.dataset?.launchBlocker || '',"
@@ -214,7 +216,7 @@ def main() -> int:
                 return state
 
             def set_files(selector: str, path: Path) -> None:
-                located = cdp("Runtime.evaluate", {"expression": "document.querySelector(" + json.dumps(selector) + ")", "returnByValue": False})
+                located = cdp("Runtime.evaluate", {"expression": "__ceDoc().querySelector(" + json.dumps(selector) + ")", "returnByValue": False})
                 object_id = located["result"]["result"].get("objectId")
                 if not object_id:
                     raise AssertionError(f"no element for {selector}")
@@ -222,7 +224,7 @@ def main() -> int:
 
             def click(selector: str) -> None:
                 found = evaluate(
-                    "(() => { const node = document.querySelector(" + json.dumps(selector) + ");"
+                    "(() => { const node = __ceDoc().querySelector(" + json.dumps(selector) + ");"
                     " if (!node) return false; node.scrollIntoView({ block: 'center' }); node.click(); return true; })()"
                 )
                 if found is not True:
@@ -242,6 +244,26 @@ new MutationObserver((records) => {
     }
   }
 }).observe(document, { childList: true, subtree: true });
+// Живые окна: реальный экран живёт во встроенном iframe, верхний документ —
+// скрытый legacy. В режиме --in-window зонд работает с документом окна, как
+// человек; пока окно не поднялось — отдаёт пустой документ (ожидания крутятся).
+window.__ceInWindow = """ + json.dumps(bool(args.in_window)) + """;
+window.__ceDoc = () => {
+  if (!window.__ceInWindow) return document;
+  // Видимое окно рабочего стола: у каждого экрана («Создать», «Материалы»)
+  // свой iframe, зонд работает с тем, который сейчас показан.
+  const frames = [...document.querySelectorAll("iframe[data-ce-v4-window-surface]")]
+    .filter((frame) => frame.getClientRects().length > 0 && frame.contentDocument?.querySelector("#main-content"));
+  // Ключевое окно (фокус и верх z-order) — то, с которым работает человек.
+  const key = frames.find((frame) => frame.closest('[data-ce-v4-window-active="true"]'));
+  const pick = key || frames.sort((a, b) => {
+    const z = (frame) => Number(frame.closest(".ce-v4-window")?.style?.zIndex || 0);
+    return z(a) - z(b);
+  }).pop();
+  if (pick) return pick.contentDocument;
+  return document.implementation.createHTMLDocument("");
+};
+window.__ceWin = () => window.__ceDoc().defaultView || {};
 window.__ceSubmits = [];
 document.addEventListener("submit", (event) => {
   window.__ceSubmits.push({ at: Date.now(), form: event.target?.id || "?", valid: event.target?.checkValidity?.() });
@@ -265,10 +287,14 @@ document.addEventListener("submit", (event) => {
             if not wait_js("location.hash.startsWith('#/workspace/') && Boolean(document.querySelector('#main-content'))", 20):
                 raise SystemExit("workspace did not open")
             cdp("Page.navigate", {"url": f"{LOCAL_DESKTOP_ORIGIN}/#/workspace/generation?project_id={project_id}"})
-            if not wait_js("Boolean(document.querySelector('#mock-batch-form')?.dataset.generationIntakeV4Bound)", 30):
+            if not wait_js("Boolean(__ceDoc().querySelector('#mock-batch-form')?.dataset.generationIntakeV4Bound)", 30):
                 raise SystemExit("generation form did not bind")
+            if args.in_window:
+                if not wait_js("__ceDoc() !== document && Boolean(__ceDoc().querySelector('#mock-batch-form')?.dataset.generationIntakeV4Bound)", 30):
+                    raise SystemExit("live window surface did not bind the generation form")
+                print("   live window surface: bound (probing inside the iframe)")
             click('[data-generation-intake-route="copy_video"]')
-            if not wait_js("document.querySelector('#mock-batch-form')?.dataset.generationIntakeV4Route === 'copy_video'", 10):
+            if not wait_js("__ceDoc().querySelector('#mock-batch-form')?.dataset.generationIntakeV4Route === 'copy_video'", 10):
                 raise SystemExit("route did not switch")
             time.sleep(1.0)
             print("step 1 · panel opened:", json.dumps(panel_state(), ensure_ascii=False))
@@ -276,7 +302,7 @@ document.addEventListener("submit", (event) => {
 
             print(f"step 2 · select MP4 {args.mp4.name} ({args.mp4.stat().st_size} bytes)")
             set_files(PANEL + ' input[data-generation-intake-mp4="single"]', args.mp4)
-            if not wait_js("(document.querySelector(" + json.dumps(PANEL + " [data-generation-intake-status]") + ")?.textContent || '').includes('MP4')", 20):
+            if not wait_js("(__ceDoc().querySelector(" + json.dumps(PANEL + " [data-generation-intake-status]") + ")?.textContent || '').includes('MP4')", 20):
                 problems.append("MP4 selection produced no status")
             state = wait_settled("select", 30)
             screenshot("2-selected")
@@ -290,19 +316,19 @@ document.addEventListener("submit", (event) => {
             set_files(PANEL + ' input[data-generation-intake-image="product"]', args.photo)
             time.sleep(1.0)
             evaluate(
-                "(() => { const shell = document.querySelector('#mock-batch-form');"
+                "(() => { const shell = __ceDoc().querySelector('#mock-batch-form');"
                 " const assign = (field, value) => { const node = shell.querySelector('[data-generation-intake-identity] [data-generation-intake-field=\"' + field + '\"]');"
                 "   if (!node) return false; node.value = value; node.dispatchEvent(new Event('input', { bubbles: true })); node.dispatchEvent(new Event('change', { bubbles: true })); return true; };"
                 " return [assign('sku', " + json.dumps(args.sku) + "), assign('product_name', " + json.dumps(args.name) + "),"
                 + (" assign('product_category', " + json.dumps(args.category) + ")" if args.category else " 'category skipped'") + "]; })()"
             )
             rights = evaluate(
-                "(() => { const box = document.querySelector(" + json.dumps(PANEL + ' [data-generation-intake-rights="copy_video"]') + ");"
+                "(() => { const box = __ceDoc().querySelector(" + json.dumps(PANEL + ' [data-generation-intake-rights="copy_video"]') + ");"
                 " if (!box) return 'missing'; if (!box.checked) box.click(); return box.checked; })()"
             )
             print("   rights:", rights)
             audio = evaluate(
-                "(() => { const select = document.querySelector(" + json.dumps(PANEL + ' [data-generation-intake-field="audio"]') + ");"
+                "(() => { const select = __ceDoc().querySelector(" + json.dumps(PANEL + ' [data-generation-intake-field="audio"]') + ");"
                 " if (!select) return 'missing'; if (select.value !== 'true' && select.value !== 'false') { select.value = 'false'; select.dispatchEvent(new Event('change', { bubbles: true })); } return select.value; })()"
             )
             print("   audio:", audio)
@@ -310,7 +336,7 @@ document.addEventListener("submit", (event) => {
                 click('[data-action="generation-intake-apply-recommendation"][data-route="copy_video"]')
             except AssertionError:
                 print("   template button not visible; checking brief")
-            brief = evaluate("(document.querySelector('#mock-batch-form')?.elements?.brief?.value || '').length")
+            brief = evaluate("(__ceDoc().querySelector('#mock-batch-form')?.elements?.brief?.value || '').length")
             print("   brief length:", brief)
             state = wait_settled("inputs", 15)
             screenshot("4-inputs")
@@ -322,10 +348,10 @@ document.addEventListener("submit", (event) => {
             if state.get("statusState") == "error":
                 problems.append(f"prepare ended in error: {state.get('status')}")
                 diagnostics = evaluate(
-                    "(() => { const form = document.querySelector('#mock-batch-form');"
+                    "(() => { const form = __ceDoc().querySelector('#mock-batch-form');"
                     " const invalid = [...form.elements].filter((node) => typeof node.checkValidity === 'function' && !node.checkValidity())"
                     "   .map((node) => ({ name: node.name, type: node.type, visible: Boolean(node.offsetParent), message: node.validationMessage, value: String(node.value || '').slice(0, 60) }));"
-                    " return JSON.stringify({ invalid, submits: window.__ceSubmits || [], toasts: window.__ceToasts || [],"
+                    " return JSON.stringify({ invalid, submits: window.__ceSubmits || [], toasts: __ceWin().__ceToasts || [],"
                     "   submit: form.querySelector('#generation-submit')?.outerHTML?.slice(0, 400) }); })()"
                 )
                 print("  diagnostics:", diagnostics)

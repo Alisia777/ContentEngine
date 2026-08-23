@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260823.copy-engines.43",
+  "./generation-strategy-intake-v4.css?v=20260823.copy-engines.44",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260823.copy-engines.43"
+  "./generation-engine-advisor.js?v=20260823.copy-engines.44"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -365,6 +365,42 @@ function setStatus(
   });
 }
 
+function fileSizeLabel(bytes) {
+  const size = Number(bytes);
+  if (!Number.isFinite(size) || size <= 0) return "";
+  if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} МБ`;
+  return `${Math.max(1, Math.round(size / 1024))} КБ`;
+}
+
+// Сводка выбранного исходника в зоне выбора файла: имя, размер и то, что с
+// ним сейчас происходит. Пустой текст прячет строку — зона снова «пустая».
+function setSourceFileSummary(panel, text, state = "neutral") {
+  const route = String(panel?.dataset?.generationIntakePanel || "");
+  const targets = new Set();
+  const held = q("[data-generation-intake-source-file]", panel);
+  if (held) targets.add(held);
+  if (route) {
+    qa(`[data-generation-intake-panel="${CSS.escape(route)}"]`).forEach((node) => {
+      const live = q("[data-generation-intake-source-file]", node);
+      if (live) targets.add(live);
+    });
+  }
+  targets.forEach((node) => {
+    if (node.textContent !== text) node.textContent = text;
+    if (node.dataset.state !== state) node.dataset.state = state;
+    if (node.hidden !== !text) node.hidden = !text;
+    const drop = node.closest(".gi-drop");
+    if (drop && drop.dataset.hasFile !== String(Boolean(text))) {
+      drop.dataset.hasFile = String(Boolean(text));
+    }
+  });
+}
+
+function sourceFileLead(file) {
+  const size = fileSizeLabel(file?.size);
+  return `«${cleanText(file?.name, 80) || "файл"}»${size ? ` · ${size}` : ""}`;
+}
+
 const VISUAL_ICON_PATHS = Object.freeze({
   swap: Object.freeze([
     "M7 7h9.5a3.5 3.5 0 0 1 0 7H8",
@@ -573,9 +609,17 @@ function sourceChooser(route, heading = "Исходный ролик *") {
   input.id = `generation-intake-${route}-mp4`;
   const label = el("label", "generation-intake-v4__drop gi-drop");
   label.htmlFor = input.id;
+  // Выбранный файл называется ПРЯМО в зоне выбора. Строка состояния и кнопка
+  // «Разобрать MP4» у длинной панели живут далеко внизу, и после выбора файла
+  // человек видел ту же пустую рамку — «ролик не загружается». Сводка стоит
+  // там, куда он только что кликнул.
+  const summary = el("div", "gi-drop__file");
+  summary.dataset.generationIntakeSourceFile = route;
+  summary.hidden = true;
   label.append(
     el("strong", "", "Перетащите MP4 сюда или выберите файл"),
     el("span", "", "Формат и длительность проверим автоматически"),
+    summary,
     input,
   );
   const select = document.createElement("select");
@@ -2253,6 +2297,16 @@ function copyPanel() {
   return panel;
 }
 
+// Панель «Дуэта» длинная (механика — семь полей), а строка состояния и кнопки
+// стояли в самом её конце: выбрав файл вверху, человек не видел ни «MP4
+// выбран», ни «Разобрать MP4». Подвал липнет к нижнему краю окна.
+function duetFooter(status, actions) {
+  const footer = el("div", "generation-intake-v4__footer");
+  footer.dataset.generationIntakeFooter = "avatar_video";
+  footer.append(status, actions);
+  return footer;
+}
+
 function avatarPanel() {
   const panel = el("section", "generation-intake-v4__panel");
   panel.dataset.generationIntakePanel = "avatar_video";
@@ -2294,8 +2348,7 @@ function avatarPanel() {
       "Текст ниже — речь ведущего: он произнесёт её вслух. Длина дуэта равна длине речи; если речь короче ролика, ролик обрежется на её конце.",
     ),
     campaignNoteBlock(),
-    statusNode(),
-    actions,
+    duetFooter(statusNode(), actions),
   );
   return panel;
 }
@@ -3908,6 +3961,7 @@ async function registerSelectedProductPhotos(form, state) {
     return;
   }
   state.productUploadBusy = true;
+  let registeredAny = false;
   const dropMessages = {
     image_required: "Файл не похож на фотографию.",
     image_too_large: "Фотография больше 16 МБ.",
@@ -3946,6 +4000,14 @@ async function registerSelectedProductPhotos(form, state) {
         "Фото зарегистрированы в проекте и выбраны. Загружать их повторно не нужно — выбор переживает перерисовку.",
         "ready",
       );
+      registeredAny = true;
+    }
+    // Список товаров «Дуэта» выводится из страницы ассетов мастера; без её
+    // перечитывания только что заведённый товар появлялся там лишь после
+    // перезагрузки страницы.
+    if (registeredAny) {
+      await window.ContentEngineGenerationGuidedV4?.refreshStrategyAssets?.(form);
+      renderDuetProducts(form, state);
     }
   } catch (error) {
     console.warn("Copy product photo registration failed", error);
@@ -6373,13 +6435,17 @@ async function reportSelectedSourceDuration(state, route, input) {
     metadata = await videoMetadata(file);
   } catch {
     // Пока читались метаданные, человек мог выбрать другой файл.
-    if (input.files?.[0] === file) setStatus(panel, unreadable, "warning");
+    if (input.files?.[0] === file) {
+      setStatus(panel, unreadable, "warning");
+      setSourceFileSummary(panel, `${sourceFileLead(file)} — длительность измерит сервер`, "warning");
+    }
     return;
   }
   if (input.files?.[0] !== file) return;
   const seconds = Number(metadata?.duration);
   if (!Number.isFinite(seconds) || seconds <= 0) {
     setStatus(panel, unreadable, "warning");
+    setSourceFileSummary(panel, `${sourceFileLead(file)} — длительность измерит сервер`, "warning");
     return;
   }
   const routeState = state.routes?.[route];
@@ -6392,12 +6458,27 @@ async function reportSelectedSourceDuration(state, route, input) {
   }
   if (seconds > limit + 0.05) {
     setStatus(panel, durationTooLongMessage(seconds, limit), "error");
+    setSourceFileSummary(
+      panel,
+      `${sourceFileLead(file)} · ${secondsLabel(seconds)} — длиннее предела ${limit} с, файл не принят`,
+      "error",
+    );
     return;
   }
   if (route === "copy_video" && seconds < MIN_COPY_DURATION - 0.05) {
     setStatus(panel, durationTooShortMessage(seconds), "error");
+    setSourceFileSummary(
+      panel,
+      `${sourceFileLead(file)} · ${secondsLabel(seconds)} — короче ${MIN_COPY_DURATION} с, файл не принят`,
+      "error",
+    );
     return;
   }
+  setSourceFileSummary(
+    panel,
+    `${sourceFileLead(file)} · ${secondsLabel(seconds)} — выбран. Дальше: ${nextStep}`,
+    "ready",
+  );
   setStatus(
     panel,
     copyViewActive() && route === "copy_video"
@@ -6518,6 +6599,7 @@ async function analyzeRoute(form, route) {
         : `${measured}. Исходный ролик готов. Выберите товар и ведущего и нажмите «Подготовить дуэт».`,
       "ready",
     );
+    setSourceFileSummary(panel, `${sourceFileLead(file)} · ${measured} — разобран`, "success");
   } catch (error) {
     const limit = route === "copy_video" ? MAX_COPY_DURATION : MAX_AVATAR_DURATION;
     const messages = {
@@ -6532,6 +6614,7 @@ async function analyzeRoute(form, route) {
       mp4_metadata_timeout: "Файл читается слишком долго и не принят. Выберите другой MP4 или пересохраните этот.",
     };
     setStatus(panel, messages[error?.message] || "Не удалось разобрать MP4. Попробуйте другой файл.", "error");
+    setSourceFileSummary(panel, `${sourceFileLead(file)} — не принят, причина в строке состояния`, "error");
   } finally {
     finishRouteBusy(state);
   }
@@ -7721,6 +7804,13 @@ function bind(form, state) {
             : "Выберите исходный MP4.",
           "neutral",
         );
+        setSourceFileSummary(
+          panelFor(state, route),
+          input.files?.length
+            ? `${sourceFileLead(input.files[0])} — проверяем длительность…`
+            : "",
+          "busy",
+        );
         // Длительность проверяется сразу: слишком длинный ролик обязан получить
         // видимый отказ с цифрами, а не молча остаться в поле.
         if (input.files?.length) {
@@ -7744,7 +7834,10 @@ function bind(form, state) {
       }
       const panel = panelFor(state, route);
       const fileInput = q('input[data-generation-intake-mp4="single"]', panel);
-      if (existingVideo.value && fileInput instanceof HTMLInputElement) fileInput.value = "";
+      if (existingVideo.value && fileInput instanceof HTMLInputElement) {
+        fileInput.value = "";
+        setSourceFileSummary(panel, "");
+      }
       if (route && state.routes[route]) {
         state.routes[route] = {
           sourceFile: null,

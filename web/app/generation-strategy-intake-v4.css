@@ -1019,7 +1019,8 @@
     .generation-intake-v4__storyboard,
     .generation-intake-v4__gate-note,
     .generation-intake-v4__status,
-    .generation-intake-v4__actions
+    .generation-intake-v4__actions,
+    .generation-intake-v4__footer
   ) {
     grid-column: 1 / -1;
   }
@@ -1431,6 +1432,59 @@
 
 .gi-drop strong {
   font-size: 1rem;
+}
+
+/* Сводка выбранного файла внутри зоны выбора: после клика человек видит имя,
+   размер, длительность и следующий шаг там же, где выбирал. */
+.gi-drop__file {
+  margin-top: 10px;
+  padding: 9px 12px;
+  border-radius: 11px;
+  border: 1px solid color-mix(in srgb, var(--border, #d7dde7) 80%, transparent);
+  background: color-mix(in srgb, var(--surface, #fff) 92%, transparent);
+  font-size: 0.92rem;
+  line-height: 1.4;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.gi-drop__file[data-state="busy"] {
+  border-color: color-mix(in srgb, #f59e0b 55%, var(--border, #d7dde7));
+}
+
+.gi-drop__file[data-state="ready"],
+.gi-drop__file[data-state="success"] {
+  border-color: color-mix(in srgb, #16a34a 60%, var(--border, #d7dde7));
+}
+
+.gi-drop__file[data-state="warning"] {
+  border-color: color-mix(in srgb, #f59e0b 65%, var(--border, #d7dde7));
+}
+
+.gi-drop__file[data-state="error"] {
+  border-color: color-mix(in srgb, #dc2626 65%, var(--border, #d7dde7));
+}
+
+.gi-drop[data-has-file="true"] > strong::after {
+  content: " · нажмите, чтобы заменить";
+  font-weight: 500;
+  font-size: 0.85em;
+  opacity: 0.75;
+}
+
+/* Подвал «Дуэта»: строка состояния и кнопки всегда в поле зрения, даже когда
+   человек стоит в начале длинной панели. */
+.generation-intake-v4__footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  display: grid;
+  gap: 9px;
+  margin: 0 -4px;
+  padding: 10px 4px 6px;
+  background: color-mix(in srgb, var(--surface, #fff) 94%, transparent);
+  backdrop-filter: blur(14px);
+  border-top: 1px solid color-mix(in srgb, var(--border, #d7dde7) 70%, transparent);
 }
 
 /* Пустая строка состояния не должна занимать место в правой колонке. */

@@ -13,18 +13,21 @@
   const BUILD = "20260814.os4.41";
   const ASSET_BUILD_OVERRIDES = Object.freeze({
     "workspace-ai-research-training.css":
-      "20260823.copy-engines.43",
+      "20260823.copy-engines.44",
     "workspace-ai-exact-youtube-sources.js":
       "20260814.os4.41",
     "workspace-ai-research-training.js":
-      "20260823.copy-engines.43",
+      "20260823.copy-engines.44",
     // Styles and modules share one asset builder, so the recommendation panel
     // must move as a pair: its stylesheet changed together with the module and
     // has to leave the already released 20260814.os4.41 key behind.
+    // 23.08.2026: модуль рекомендаций переписан (замысел под три способа,
+    // совет о способе), но ключ кэша оставался от 17.08 — браузеры с кэшем
+    // держали бы старый модуль. Ключ обязан двигаться вместе с файлом.
     "workspace-generation-research-recommendations.css":
-      "20260817.os4.42",
+      "20260823.copy-engines.44",
     "workspace-generation-research-recommendations.js":
-      "20260817.os4.42",
+      "20260823.copy-engines.44",
     "workspace-research-failure-recovery.js":
       "20260814.os4.41",
   });
