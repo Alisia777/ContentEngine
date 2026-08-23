@@ -544,6 +544,42 @@ body.ce-v4-generation-guided-route .generation-launch-card > #mock-batch-form {
   gap: 18px;
 }
 
+.ce-v4-model-exact-settings__header {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.78fr);
+  align-items: start;
+  gap: 10px 16px;
+}
+
+.ce-v4-model-exact-settings__header-copy {
+  min-width: 0;
+  grid-column: 1;
+}
+
+.ce-v4-model-exact-settings__authority {
+  grid-column: 1;
+  justify-self: start;
+}
+
+.ce-v4-model-exact-settings__visual-slot {
+  min-width: 0;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.ce-v4-model-exact-settings__visual-slot[hidden] {
+  display: none !important;
+}
+
+.ce-v4-model-exact-settings__visual-frame.ce-v4-model-card__visual--featured {
+  height: clamp(116px, 15cqi, 164px);
+}
+
+.ce-v4-model-recommendation-hero > .ce-v4-model-card__visual--featured {
+  grid-column: 1 / -1;
+}
+
 .ce-v4-model-recommendation-hero__title {
   min-width: 0;
   display: grid;
@@ -887,13 +923,74 @@ body.ce-v4-generation-guided-route .generation-launch-card > #mock-batch-form {
   cursor: pointer;
 }
 
+.ce-v4-model-card__visual {
+  position: relative;
+  width: calc(100% + 24px);
+  height: 136px;
+  margin: -12px -12px 6px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--guided-line);
+  background: #07101c;
+  isolation: isolate;
+}
+
+.ce-v4-model-card__visual::after {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, transparent 54%, rgba(4, 10, 18, 0.72) 100%),
+    linear-gradient(90deg, rgba(4, 10, 18, 0.14), transparent 42%, rgba(4, 10, 18, 0.08));
+  content: "";
+}
+
+.ce-v4-model-card__visual[data-tone="amber"]::after,
+.ce-v4-model-card__visual[data-tone="gold"]::after {
+  box-shadow: inset 0 -1px 0 rgba(253, 208, 110, 0.28);
+}
+
+.ce-v4-model-card__visual[data-tone="cyan"]::after,
+.ce-v4-model-card__visual[data-tone="teal"]::after,
+.ce-v4-model-card__visual[data-tone="emerald"]::after {
+  box-shadow: inset 0 -1px 0 rgba(77, 226, 228, 0.25);
+}
+
+.ce-v4-model-card__visual--featured {
+  width: 100%;
+  height: clamp(166px, 22cqi, 238px);
+  margin: 0;
+  border: 1px solid rgba(176, 196, 226, 0.16);
+  border-radius: 13px;
+}
+
+.ce-v4-model-card__image {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  transform: scale(1.01);
+  transition: transform 420ms cubic-bezier(0.2, 0.72, 0.2, 1), filter 180ms ease;
+}
+
+.ce-v4-model-card:hover:not([data-available="false"]) .ce-v4-model-card__image,
+.ce-v4-model-card.is-selected .ce-v4-model-card__image,
+.ce-v4-model-card[data-recommended="true"] .ce-v4-model-card__image {
+  transform: scale(1.045);
+}
+
+.ce-v4-model-card[data-available="false"] .ce-v4-model-card__image {
+  filter: saturate(0.48) brightness(0.64);
+}
+
 .ce-v4-model-card[data-available="false"] .ce-v4-model-card__choice {
   cursor: not-allowed;
 }
 
 .ce-v4-model-card__choice > input {
   position: absolute;
-  inset: 12px auto auto 12px;
+  inset: 148px auto auto 12px;
+  z-index: 3;
   inline-size: 16px;
   block-size: 16px;
   margin: 0;
@@ -917,6 +1014,10 @@ body.ce-v4-generation-guided-route .generation-launch-card > #mock-batch-form {
   justify-content: space-between;
   gap: 8px;
   padding-left: 23px;
+}
+
+.ce-v4-model-card:not(:has(.ce-v4-model-card__visual)) .ce-v4-model-card__choice > input {
+  inset-block-start: 12px;
 }
 
 .ce-v4-model-card__provider,
@@ -1903,6 +2004,21 @@ body.ce-v4-generation-guided-route .generation-launch-card > #mock-batch-form {
     grid-template-columns: 1fr;
   }
 
+  .ce-v4-model-exact-settings__header {
+    grid-template-columns: 1fr;
+  }
+
+  .ce-v4-model-exact-settings__visual-slot,
+  .ce-v4-model-exact-settings__header-copy,
+  .ce-v4-model-exact-settings__authority {
+    grid-column: 1;
+  }
+
+  .ce-v4-model-exact-settings__visual-slot {
+    grid-row: auto;
+    order: -1;
+  }
+
   .ce-v4-model-selection-summary__row,
   .ce-v4-model-selection-summary__row:nth-child(2n),
   .ce-v4-model-selection-summary__row:nth-last-child(-n + 2) {
@@ -1993,6 +2109,10 @@ body.ce-v4-generation-guided-route .generation-launch-card > #mock-batch-form {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .ce-v4-model-card__image {
+    transition: none !important;
+    transform: none !important;
+  }
   .ce-v4-generation-guided__meter > span {
     transition: none;
   }

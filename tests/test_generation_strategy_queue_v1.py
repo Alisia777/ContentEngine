@@ -53,12 +53,13 @@ const context = (index) => ({
     strategy_id: 'viral_avatar_ugc',
     recipe_version: '2026-06',
     duration_seconds: 4,
-    ratio: '720:1280',
+    // «Дуэт» измеряется разрешением: кадр задаёт исходник, а не выбор
+    // соотношения сторон — ролик комментируют, а не переснимают.
+    resolution: '720p',
     audio: false,
+    // Ассет ровно один: ведущего даёт библиотека проекта, а не фотография.
     assets: [
-      {role: 'source_video', media_id: sourceId(index)},
-      {role: 'avatar_image', media_id: uuid(20, index)},
-      {role: 'product_image', media_id: uuid(30, index)},
+      {role: 'source_video', media_id: sourceId(index), duration_seconds: 4},
     ],
     attestations: {
       source_media_rights_confirmed: true,
@@ -87,18 +88,11 @@ const bindResponse = (index) => ({
     source_binding_hash: hash(41, index),
     role_assets: [
       {
-        role: 'product_primary', ordinal: 1,
-        media_object_id: uuid(30, index), sha256: hash(30, index),
-        kind: 'product_photo', mime_type: 'image/png',
-        product_id: uuid(4, 0), rights_confirmed: true,
-        likeness_consent: false,
-      },
-      {
-        role: 'creator_avatar', ordinal: 1,
-        media_object_id: uuid(20, index), sha256: hash(20, index),
-        kind: 'creator_reference', mime_type: 'image/jpeg',
+        role: 'source_video', ordinal: 1,
+        media_object_id: sourceId(index), sha256: hash(41, index),
+        kind: 'source_video', mime_type: 'video/mp4',
         product_id: null, rights_confirmed: true,
-        likeness_consent: true,
+        likeness_consent: false,
       },
     ],
     strategy_snapshot_hash: hash(42, index),
@@ -118,10 +112,11 @@ const bindResponse = (index) => ({
     strategy_id: 'viral_avatar_ugc',
     provider: 'runway',
     recipe: 'product_ugc',
-    input_mode: 'character_and_product_images',
+    input_mode: 'video_and_avatar_images',
     duration_seconds: 4,
+    // Кадр приходит из исходника: снимок цены называет его "source".
     resolution: '720p',
-    ratio: '720:1280',
+    ratio: 'source',
     audio: false,
     estimated_credits: 192,
     estimated_pre_tax_usd_minor: 192,
@@ -398,10 +393,10 @@ def _evaluate(expression: str) -> object:
 def test_queue_imports_frozen_runtime_and_is_pure_planning_only() -> None:
     canonical_runtime = RUNTIME_MODULE.read_bytes().replace(b"\r\n", b"\n")
     assert hashlib.sha256(canonical_runtime).hexdigest() == (
-        "3588c5ac08d78a91062e52ebda87d1cf34988e584e1f238b07a944964e16956c"
+        "940fe34f2ee241e1d7206443c48389aa9541b06e4c897d31801d0a79fe7e56b0"
     )
     assert (
-        'from "./generation-strategy-runtime.js?v=20260816.paid-runtime-refresh.1";'
+        'from "./generation-strategy-runtime.js?v=20260823.copy-engines.39";'
         in QUEUE_SOURCE
     )
     for forbidden in (
@@ -950,10 +945,11 @@ def test_resolved_reconciliation_unblocks_sequential_starts_without_second_post(
 
           const notSubmittedResponse = reconciliationRequiredResponse(0);
           notSubmittedResponse.job.status = 'failed';
+          notSubmittedResponse.job.actual_cost_minor = 0;
           notSubmittedResponse.job.updated_at = '2026-08-14T08:05:00.000Z';
           notSubmittedResponse.error = {
-            code: 'provider_submission_not_created',
-            provider_billing_outcome: 'unknown',
+            code: 'provider_submission_not_found',
+            provider_billing_outcome: null,
           };
           notSubmittedResponse.reconciliation = {
             required: false,

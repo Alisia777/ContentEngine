@@ -1,4 +1,6 @@
 import { type SupabaseContext, withSupabase } from "npm:@supabase/server@1.3.0";
+// Потоковая приёмка результата провайдера (ролик не буферизуется целиком).
+import { archiveProviderOutputStream } from "../_shared/provider-output-archive.ts";
 import {
   INTERNAL_WORKER_HEADER,
   isInternalWorkerAuthorized,
@@ -23,18 +25,22 @@ import {
 } from "../_shared/generation-provider-adapters.js";
 import {
   estimateGenerationStrategyCredits,
+  falStrategyRequestShape,
   GENERATION_STRATEGY_CATALOG,
   GENERATION_STRATEGY_CATALOG_VERSION,
   generationStrategyCatalogEntry,
   isKnownStrategyPricingVersion,
   isKnownStrategyProvider,
   publicGenerationStrategyCatalog,
-  RUNWAY_RECIPE_PRICING_VERSION,
   RUNWAY_RECIPE_VERSION,
   validateGenerationStrategySelection,
 } from "../_shared/generation-strategy-catalog.js";
 import {
+  buildDuetCommentaryScript,
+  buildFalProductSwapSelection,
   buildFalRecipeRequest,
+  buildHeygenRecipeRequest,
+  buildRunwayProductSwapPrompt,
   buildRunwayRecipeRequest,
 } from "../_shared/generation-recipe-adapters.js";
 import {
@@ -44,29 +50,43 @@ import {
 } from "../_shared/iso-bmff-duration.js";
 import {
   classifyRunwayRecipeCreateOutcome,
+  falModelRequestPayloadUrl,
+  falQueueUrlCandidates,
+  falStrategyProviderStatus,
+  fetchFalQueueResult,
+  heygenStrategyProviderStatus,
   isRunwayTaskId as isStrategyRunwayTaskId,
+  parseCreatedFalRequest,
+  parseCreatedHeygenVideo,
   preDispatchStrategyFailure,
   publicGenerationStrategyProbeResult,
+  readFalModelRequestOutput,
+  readFalResultHttp405RecoveryCandidate,
+  readFalResultHttp413RecoveryCandidate,
+  readFalResultVideoUrl,
   readGenerationStrategyDispatchAttempt,
   readGenerationStrategyDispatchResult,
   readGenerationStrategyProbeContext,
   readGenerationStrategyProviderPolicy,
+  readGenerationStrategyProviderResultRecovery,
   readGenerationStrategyProviderStatusResult,
   readGenerationStrategyReadiness,
   readGenerationStrategyReconciliationResult,
   readGenerationStrategyStartClaim,
-  falStrategyProviderStatus,
-  parseCreatedFalRequest,
-  readFalResultVideoUrl,
   readPublicGenerationStrategyStatus,
   runwayStrategyProviderStatus,
 } from "../_shared/generation-strategy-edge-contract.js";
 
 const PUBLIC_APP_ORIGIN = "https://alisia777.github.io";
 const LOCAL_QA_APP_ORIGIN = "http://127.0.0.1:8767";
+// Exact origin of the local production-site mirror used for authenticated QA.
+// Keep this literal (never localhost-wide or wildcard): browser sessions are
+// origin-bound, and no other local port may inherit generation authority.
+const LOCAL_PRODUCTION_QA_APP_ORIGIN = "http://127.0.0.1:8769";
 const USER_APP_ORIGINS = new Set([
   PUBLIC_APP_ORIGIN,
   LOCAL_QA_APP_ORIGIN,
+  LOCAL_PRODUCTION_QA_APP_ORIGIN,
 ]);
 const RUNWAY_API_ORIGIN = "https://api.dev.runwayml.com";
 const RUNWAY_API_VERSION = "2024-11-06";
@@ -86,26 +106,34 @@ const SEEDANCE_RUSSIAN_DICTION_GUARD =
   "Русская дикция: чётко, без акцента/лишних гласных; все слова/окончания; числа/градусы/названия точно; чёткие паузы.";
 const RUNWAY_OUTPUT_HOST = "dnznrvs05pmza.cloudfront.net";
 const FAL_QUEUE_ORIGIN = "https://queue.fal.run";
-// Pika Swaps просит назвать заменяемую область словами. Фраза выводится из
-// категории товара — она уже проверена сервером, тогда как свободный текст
-// оператора не может управлять тем, что именно вырежут из кадра.
-const FAL_SWAP_REGION_BY_CATEGORY: Record<string, string> = {
-  cosmetics: "the cosmetic product bottle or jar shown in the video",
-  baa: "the supplement package shown in the video",
-  sports_food: "the sports nutrition package shown in the video",
-  food: "the food package shown in the video",
-  household: "the home appliance shown in the video",
-  apparel: "the garment shown in the video",
-  electronics: "the electronic device shown in the video",
-  other: "the product shown in the video",
-};
+// Ведущий для «Дуэта». Отправка и опрос идут по одному origin: генерация
+// отвечает data.video_id, а статус забирается GET /v3/videos/{video_id}.
+// Проверено 22.08.2026 по https://developers.heygen.com/transparent-background-videos
+const HEYGEN_API_ORIGIN = "https://api.heygen.com";
 // Результат скачивается только с известных хостов провайдера: ссылка приходит
 // извне, и без белого списка ею можно было бы увести загрузку куда угодно.
-const FAL_OUTPUT_HOSTS = new Set([
-  "fal.media",
-  "v2.fal.media",
-  "v3.fal.media",
-]);
+// Список именно доменов, а не поддоменов: провайдер раздаёт готовые файлы с
+// меняющихся узлов (v3, v3b и далее), и жёсткий перечень узлов однажды уже
+// оставил бы оплаченный ролик недоступным. Проверка ниже требует либо точного
+// совпадения с доменом, либо суффикса «.fal.media» — чужой хост так не пройдёт.
+const FAL_OUTPUT_DOMAINS = Object.freeze(["fal.media"]);
+
+function falOutputHostAllowed(hostname: string): boolean {
+  return FAL_OUTPUT_DOMAINS.some((domain) =>
+    hostname === domain || hostname.endsWith(`.${domain}`)
+  );
+}
+
+// Хосты выдачи HeyGen. Пример из документации — files.heygen.ai; списком
+// доменов, а не узлов, по той же причине, что и у fal: провайдер меняет узлы
+// раздачи, и жёсткий перечень однажды оставил бы оплаченный ролик недоступным.
+const HEYGEN_OUTPUT_DOMAINS = Object.freeze(["heygen.ai", "heygen.com"]);
+
+function heygenOutputHostAllowed(hostname: string): boolean {
+  return HEYGEN_OUTPUT_DOMAINS.some((domain) =>
+    hostname === domain || hostname.endsWith(`.${domain}`)
+  );
+}
 const STORAGE_BUCKET = "contentengine-private";
 const MAX_BODY_BYTES = 16_384;
 const MAX_PROVIDER_JSON_BYTES = 65_536;
@@ -136,6 +164,12 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
 const TASK_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
+// fal queue request ids are UUIDv7.  The timestamp prefix is useful during
+// reconciliation: unlike Runway, the queue status response does not expose a
+// provider-created timestamp, so the id itself is the only provider-owned
+// clock we can bind to the paid dispatch window.
+const FAL_REQUEST_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const GOOGLE_OPERATION_NAME_PATTERN =
   /^models\/veo-3\.1-lite-generate-preview\/operations\/[A-Za-z0-9][A-Za-z0-9._~-]{0,255}$/u;
 const IDEMPOTENCY_PATTERN = /^[A-Za-z0-9._:-]{8,180}$/u;
@@ -301,6 +335,10 @@ const GENERATION_STRATEGY_BIND_VALIDATION_ERROR_CODES = new Set([
   "generation_strategy_catalog_asset_count_invalid",
   "generation_strategy_role_asset_invalid",
   "generation_strategy_snapshot_invalid",
+  // Посекундный маршрут потребовал длительность исходника, а пришла другая.
+  // Это поправимо человеком прямо в форме, поэтому 422, а не общий отказ:
+  // экран знает измеренную длительность и может выставить её сам.
+  "generation_strategy_source_duration_mismatch",
 ]);
 const GENERATION_STRATEGY_BIND_ACCESS_ERROR_CODES = new Set([
   "generation_strategy_binding_project_access_required",
@@ -313,6 +351,11 @@ const GENERATION_STRATEGY_BIND_CONFLICT_ERROR_CODES = new Set([
   "generation_strategy_source_binding_invalid",
   "generation_strategy_binding_conflict",
   "generation_strategy_binding_invalid",
+  // Замок исполнимого маршрута (миграция 202608230010). Это не ошибка запроса
+  // и не отказ в доступе, а состояние: у стратегии нет ни одной включённой
+  // строки реестра, то есть платить некому и отправлять некуда. Оператор
+  // должен увидеть названную причину, а не общий сбой.
+  "generation_strategy_no_executable_route",
 ]);
 
 type BudgetErrorCode =
@@ -442,6 +485,10 @@ type ContentEngineDatabase = {
         Args: { p_payload: Json };
         Returns: Json;
       };
+      system_recover_generation_strategy_provider_result: {
+        Args: { input_payload: Json };
+        Returns: Json;
+      };
       system_generation_strategy_status: {
         Args: { p_payload: Json };
         Returns: Json;
@@ -467,6 +514,10 @@ type ContentEngineDatabase = {
         Returns: Json;
       };
       system_reconcile_real_generation: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
+      system_generation_strategy_duet_presenter: {
         Args: { p_payload: Json };
         Returns: Json;
       };
@@ -510,6 +561,59 @@ type ContentEngineDatabase = {
           project_id: string;
           actor_id: string;
           generation_job_id: string;
+        };
+        Insert: Record<string, never>;
+        Update: Record<string, never>;
+        Relationships: [];
+      };
+      // Таблицы ниже функция читает напрямую, и до 22.08.2026 их здесь не было.
+      // Отсутствие таблицы в этом типе не «пропускается»: клиент выводит для
+      // такого запроса never, isRecord сужает его до never же, и КАЖДОЕ чтение
+      // поля становится ошибкой типов. Ветка при этом остаётся рабочей —
+      // разваливается только проверка, которая должна была её стеречь.
+      generation_strategy_readiness_receipts: {
+        Row: {
+          id: string;
+          organization_id: string;
+          project_id: string;
+          strategy_id: string;
+          recipe: string;
+          provider: string;
+          pricing_version: string;
+          receipt_hash: string;
+        };
+        Insert: Record<string, never>;
+        Update: Record<string, never>;
+        Relationships: [];
+      };
+      generation_strategy_provider_routes: {
+        Row: {
+          strategy_id: string;
+          provider: string;
+          model_key: string;
+          provider_path: string;
+          poll_kind: string;
+          pricing_version: string;
+        };
+        Insert: Record<string, never>;
+        Update: Record<string, never>;
+        Relationships: [];
+      };
+      memberships: {
+        Row: {
+          organization_id: string;
+          profile_id: string;
+          role: string;
+          status: string;
+        };
+        Insert: Record<string, never>;
+        Update: Record<string, never>;
+        Relationships: [];
+      };
+      profiles: {
+        Row: {
+          id: string;
+          status: string;
         };
         Insert: Record<string, never>;
         Update: Record<string, never>;
@@ -639,6 +743,7 @@ type AdditionalRunwayModel =
 type RunwayModel = ExistingRunwayModel | AdditionalRunwayModel;
 type GoogleModel = typeof GOOGLE_VEO_LITE_MODEL;
 type GenerationProvider = "runway" | "google";
+type ReconciliationProvider = GenerationProvider | "fal";
 type GenerationModel = RunwayModel | GoogleModel;
 type GenerationResolution =
   | "2K"
@@ -724,6 +829,14 @@ type StrategyCatalogPayload = {
   organization_id: string;
 };
 
+// Каталог личностей ведущего из кабинета HeyGen: фото-аватары, видеоаватары и
+// голоса. Только чтение, только для выбора при регистрации ведущего проекта;
+// ключ провайдера в браузер не уходит — списки читает edge.
+type DuetPresenterCatalogPayload = {
+  action: "duet_presenter_catalog";
+  organization_id: string;
+};
+
 type GenerationProviderPolicy = {
   provider: GenerationProvider;
   model: GenerationModel;
@@ -760,6 +873,13 @@ type GenerationStrategyBindPayload = {
   generation_strategy: Record<string, unknown>;
   confirmation: true;
   idempotency_key: string;
+  // Движок каскада. Отсутствие поля — не «движок по умолчанию», а вопрос без
+  // движка: база ответит ценой действующего маршрута, как отвечала всегда.
+  engine?: { provider: string; model_key: string };
+  // Ведущий «Дуэта». Обязателен ему и запрещён остальным стратегиям — правило
+  // держит база (202608230008), и второго его источника здесь заводить нельзя:
+  // разойдясь, они дали бы отказ, который невозможно объяснить оператору.
+  duet_presenter_id?: string;
 };
 type GenerationStrategyMediaProbePayload = {
   action: "strategy_media_probe";
@@ -844,7 +964,11 @@ type GenerationStrategyReconcilePayload = {
   incident_id: string;
   resolution: "attach_existing_task" | "confirm_no_submission";
   provider_task_id?: string;
-  confirmation: "RUNWAY_TASK_ID_VERIFIED" | "RUNWAY_NO_TASK_VERIFIED";
+  confirmation:
+    | "RUNWAY_TASK_ID_VERIFIED"
+    | "RUNWAY_NO_TASK_VERIFIED"
+    | "FAL_REQUEST_ID_VERIFIED"
+    | "FAL_NO_REQUEST_VERIFIED";
   evidence_reference: string;
   reason: string;
   idempotency_key: string;
@@ -863,6 +987,10 @@ type GenerationStrategyWorkerContext = {
   lease_token: string;
   lease_hash: string;
 };
+type GenerationStrategyProviderPollMode =
+  | "record_status"
+  | "recover_fal_result_http_405"
+  | "recover_fal_result_http_413";
 type GenerationStrategySignedRoleAsset = {
   role:
     | "source_video"
@@ -931,6 +1059,8 @@ type ReconcilePayload = {
   confirmation:
     | "RUNWAY_TASK_ID_VERIFIED"
     | "RUNWAY_NO_TASK_VERIFIED"
+    | "FAL_REQUEST_ID_VERIFIED"
+    | "FAL_NO_REQUEST_VERIFIED"
     | "GOOGLE_OPERATION_ID_VERIFIED"
     | "GOOGLE_NO_OPERATION_VERIFIED";
 };
@@ -938,7 +1068,7 @@ type ReconcilePayload = {
 type ReconciliationContext = {
   actorId: string;
   incidentId: string;
-  provider: GenerationProvider;
+  provider: ReconciliationProvider;
   startingAt: string;
   requiredAt: string;
 };
@@ -1120,7 +1250,149 @@ function responseHeaders(request: Request): Headers {
   return headers;
 }
 
+// --- Server-side refusal diagnostics ---------------------------------------
+// The outbound contract stays opaque: the browser keeps receiving nothing but
+// a stable code such as `generation_unavailable`. Operators, however, were left
+// with an empty function log — every refusal path returned silently, so a paid
+// run that died could not be explained without redeploying instrumentation.
+//
+// Every refusal now leaves a breadcrumb keyed by the in-flight Request (a
+// WeakMap, so concurrent invocations inside one isolate never mix trails and
+// nothing is retained after the response is built). The trail is flushed to the
+// function log by `json` whenever a failure response leaves the function.
+//
+// The redaction rule is an allowlist, not a denylist: a breadcrumb may only
+// carry a stage label, a machine failure code, a uuid-shaped identifier and an
+// upstream HTTP status. Values are matched against exact patterns, so provider
+// payloads, secrets, prompts, signed URLs, operator text and database error
+// prose can never reach the log — anything unrecognized collapses to the
+// literal `unclassified`.
+const REFUSAL_STAGE_PATTERN = /^[a-z0-9_.]{3,60}$/u;
+const REFUSAL_CODE_PATTERN = /^[a-z0-9_]{3,110}$/u;
+const REFUSAL_UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
+const REFUSAL_TRAIL_LIMIT = 12;
+const refusalTrails = new WeakMap<Request, string[]>();
+
+// A governed code is a run of short snake_case words (`gen4`, `sha256` and
+// `seedream5` are the only digit-bearing segments in the whole vocabulary, and
+// the longest real word is 15 characters). Requiring that shape is what stops a
+// high-entropy value from being copied into the log verbatim: a leaked key such
+// as `key_live_9f3ab77c...` satisfies a plain [a-z0-9_] match, so the character
+// class alone would not have been a redactor at all.
+const REFUSAL_CODE_SEGMENT_PATTERN = /^(?:[a-z]{1,24}[0-9]{0,3}|[0-9]{1,4})$/u;
+
+function safeRefusalCode(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const code = value.trim();
+  if (!REFUSAL_CODE_PATTERN.test(code)) return null;
+  return code.split("_").every((segment) =>
+      REFUSAL_CODE_SEGMENT_PATTERN.test(segment)
+    )
+    ? code
+    : null;
+}
+
+function safeRefusalId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const id = value.trim().toLowerCase();
+  return REFUSAL_UUID_PATTERN.test(id) ? id : null;
+}
+
+function safeRefusalStatus(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isInteger(value)) return null;
+  return value >= 100 && value <= 599 ? value : null;
+}
+
+// Reads a stable machine code out of a rejected RPC/provider result without
+// ever touching free-form prose: bracket access keeps the raw text out of the
+// call site, and `safeRefusalCode` rejects anything that is not a snake_case
+// identifier, which is exactly what the database raises for governed refusals.
+function refusalCodeFromError(value: unknown): string | null {
+  if (!isRecord(value)) return null;
+  return safeRefusalCode(value["message"]);
+}
+
+function noteGenerationRefusal(
+  request: Request,
+  stage: string,
+  reason?: unknown,
+  detail?: { jobId?: unknown; upstreamStatus?: unknown },
+): void {
+  if (!REFUSAL_STAGE_PATTERN.test(stage)) return;
+  const trail = refusalTrails.get(request) ?? [];
+  if (trail.length >= REFUSAL_TRAIL_LIMIT) return;
+  const code = reason === undefined
+    ? null
+    : safeRefusalCode(reason) ?? refusalCodeFromError(reason);
+  const parts = [`${stage}:${code ?? "unclassified"}`];
+  const jobId = safeRefusalId(detail?.jobId);
+  if (jobId !== null) parts.push(`job=${jobId}`);
+  const upstream = safeRefusalStatus(detail?.upstreamStatus);
+  if (upstream !== null) parts.push(`upstream=${upstream}`);
+  trail.push(parts.join(" "));
+  refusalTrails.set(request, trail);
+}
+
+// Provider taxonomy codes (`SAFETY.INPUT.TEXT`, `RATE_LIMIT`, ...) are already
+// sanitized to this exact charset before the ledger persists them, so they are
+// a closed enumeration rather than provider prose and are safe to log.
+const REFUSAL_PROVIDER_CODE_PATTERN = /^[A-Z0-9][A-Z0-9._-]{0,59}$/u;
+const REFUSAL_PROVIDER_SEGMENT_PATTERN =
+  /^(?:[A-Z]{1,24}[0-9]{0,3}|[0-9]{1,4})$/u;
+
+function safeRefusalProviderCode(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const code = value.trim();
+  if (!REFUSAL_PROVIDER_CODE_PATTERN.test(code)) return null;
+  // Same word-shape rule as the internal codes, so an opaque uppercase blob can
+  // never ride in through the provider slot.
+  return code.split(/[._-]/u).every((segment) =>
+      REFUSAL_PROVIDER_SEGMENT_PATTERN.test(segment)
+    )
+    ? code
+    : null;
+}
+
+// A job that dies at the provider still answers HTTP 200 with a failed job in
+// the body, so it would never reach the refusal flush below. It is logged
+// directly instead — losing paid runs silently is what made triage impossible.
+function logGenerationJobFailure(
+  stage: string,
+  reason: unknown,
+  detail?: { jobId?: unknown; provider?: unknown; providerCode?: unknown },
+): void {
+  if (!REFUSAL_STAGE_PATTERN.test(stage)) return;
+  console.warn("creator-generate job failure", {
+    stage,
+    code: safeRefusalCode(reason) ?? "unclassified",
+    job: safeRefusalId(detail?.jobId) ?? "unidentified",
+    provider: safeRefusalCode(detail?.provider) ?? "unclassified",
+    provider_code: safeRefusalProviderCode(detail?.providerCode) ?? "absent",
+  });
+}
+
+function flushGenerationRefusal(
+  request: Request,
+  body: unknown,
+  status: number,
+): void {
+  const trail = refusalTrails.get(request) ?? [];
+  refusalTrails.delete(request);
+  const outbound = isRecord(body) && body.ok === false
+    ? safeRefusalCode(body.code)
+    : null;
+  if (outbound === null && trail.length === 0) return;
+  // console.warn is the one sink the Edge runtime forwards into function_logs.
+  console.warn("creator-generate refusal", {
+    status,
+    code: outbound ?? "unclassified",
+    reason: trail.length > 0 ? trail : ["not_instrumented"],
+  });
+}
+
 function json(request: Request, body: unknown, status = 200): Response {
+  if (status >= 400) flushGenerationRefusal(request, body, status);
   return new Response(JSON.stringify(body), {
     status,
     headers: responseHeaders(request),
@@ -1795,6 +2067,23 @@ function readStrategyCatalogPayload(
   };
 }
 
+function readDuetPresenterCatalogPayload(
+  value: unknown,
+): DuetPresenterCatalogPayload | null {
+  if (!isRecord(value)) return null;
+  const keys = new Set(["action", "organization_id"]);
+  if (
+    !hasOnlyKeys(value, keys) ||
+    Object.keys(value).length !== keys.size ||
+    value.action !== "duet_presenter_catalog" ||
+    !isUuid(value.organization_id)
+  ) return null;
+  return {
+    action: "duet_presenter_catalog",
+    organization_id: value.organization_id,
+  };
+}
+
 function readGenerationStrategyId(value: unknown): GenerationStrategyId | null {
   return value === "viral_avatar_ugc" || value === "viral_product_swap" ||
       value === "viral_rebuild"
@@ -1809,10 +2098,28 @@ function readRunwayRecipe(value: unknown): RunwayRecipe | null {
     : null;
 }
 
+// Движок, выбранный оператором в каскаде. Поле необязательное: запрос без него
+// остаётся правильным и считается по действующему маршруту реестра, как
+// считался до появления каскада. Форма проверяется целиком — половина движка
+// это не «почти движок», а вопрос, на который нельзя ответить ценой.
+function readGenerationStrategyEngineChoice(
+  value: unknown,
+): { provider: string; model_key: string } | null {
+  if (!hasExactKeys(value, ["provider", "model_key"] as const)) return null;
+  const provider = value.provider;
+  const modelKey = value.model_key;
+  if (
+    typeof provider !== "string" || !isKnownStrategyProvider(provider) ||
+    typeof modelKey !== "string" || modelKey.trim() !== modelKey ||
+    modelKey.length < 2 || modelKey.length > 120
+  ) return null;
+  return { provider, model_key: modelKey };
+}
+
 function readGenerationStrategyBindPayload(
   value: unknown,
 ): GenerationStrategyBindPayload | null {
-  const keys = [
+  const baseKeys = [
     "action",
     "organization_id",
     "project_id",
@@ -1822,6 +2129,14 @@ function readGenerationStrategyBindPayload(
     "generation_strategy",
     "confirmation",
     "idempotency_key",
+  ] as const;
+  const withEngine = isRecord(value) && Object.hasOwn(value, "engine");
+  const withPresenter = isRecord(value) &&
+    Object.hasOwn(value, "duet_presenter_id");
+  const keys = [
+    ...baseKeys,
+    ...(withEngine ? ["engine"] : []),
+    ...(withPresenter ? ["duet_presenter_id"] : []),
   ] as const;
   if (
     !hasExactKeys(value, keys) || value.action !== "strategy_bind" ||
@@ -1848,6 +2163,22 @@ function readGenerationStrategyBindPayload(
     entry.provider !== "runway" || entry.recipe !== recipe ||
     entry.recipe_version !== value.generation_strategy.recipe_version
   ) return null;
+  // Движок здесь только проверяется по форме. Существует ли такой маршрут,
+  // включён ли он и сколько стоит — решает база: реестр там, и второй список
+  // движков в коде разошёлся бы с ним на первой же правке.
+  const engine = withEngine
+    ? readGenerationStrategyEngineChoice(
+      (value as Record<string, unknown>).engine,
+    )
+    : null;
+  if (withEngine && engine === null) return null;
+  // Здесь проверяется только форма. Существует ли такой ведущий, активен ли он
+  // и подтверждено ли согласие на его образ — решает база, читая реестр. Второй
+  // список ведущих в коде разошёлся бы с ним на первой же архивации.
+  const duetPresenterId = withPresenter
+    ? (value as Record<string, unknown>).duet_presenter_id
+    : null;
+  if (withPresenter && !isUuid(duetPresenterId)) return null;
   return {
     action: "strategy_bind",
     organization_id: value.organization_id,
@@ -1858,6 +2189,8 @@ function readGenerationStrategyBindPayload(
     generation_strategy: value.generation_strategy,
     confirmation: true,
     idempotency_key: value.idempotency_key,
+    ...(engine === null ? {} : { engine }),
+    ...(withPresenter ? { duet_presenter_id: duetPresenterId as string } : {}),
   };
 }
 
@@ -2359,6 +2692,13 @@ function readGenerationStrategyReconcilePayload(
   const attach = isRecord(value) &&
     value.resolution === "attach_existing_task";
   const keys = attach ? [...required, "provider_task_id"] : required;
+  const confirmation = isRecord(value) ? value.confirmation : null;
+  const attachIdentityValid = isRecord(value) && (
+    (confirmation === "RUNWAY_TASK_ID_VERIFIED" &&
+      isValidTaskId(value.provider_task_id)) ||
+    (confirmation === "FAL_REQUEST_ID_VERIFIED" &&
+      isFalRequestId(value.provider_task_id))
+  );
   if (
     !hasExactKeys(value, keys) || value.action !== "strategy_reconcile" ||
     !isUuid(value.organization_id) || !isUuid(value.project_id) ||
@@ -2368,13 +2708,13 @@ function readGenerationStrategyReconcilePayload(
     !isBoundedText(value.reason, 20, 1_000) ||
     typeof value.idempotency_key !== "string" ||
     !IDEMPOTENCY_PATTERN.test(value.idempotency_key) ||
-    (attach && (
-      !isValidTaskId(value.provider_task_id) ||
-      value.confirmation !== "RUNWAY_TASK_ID_VERIFIED"
-    )) ||
+    (attach && !attachIdentityValid) ||
     (!attach && (
       value.resolution !== "confirm_no_submission" ||
-      value.confirmation !== "RUNWAY_NO_TASK_VERIFIED"
+      !new Set([
+        "RUNWAY_NO_TASK_VERIFIED",
+        "FAL_NO_REQUEST_VERIFIED",
+      ]).has(String(value.confirmation || ""))
     ))
   ) return null;
   return value as GenerationStrategyReconcilePayload;
@@ -2389,8 +2729,17 @@ function readStrategySpendConfirmation(value: unknown): {
   if (typeof value !== "string") return null;
   // Префикс называет провайдера, потому что цена и списание принадлежат
   // конкретному движку: строка подтверждения обязана быть однозначной.
+  //
+  // HEYGEN добавлен вместе с маршрутом «Дуэта»: SQL собирает строку как
+  // upper(p_provider), и без имени в этом наборе предполётный запрос получал бы
+  // spend === null и отвечал 400 — квитанция готовности не создавалась бы вовсе.
+  //
+  // Верхний предел секунд поднят с 15 до 60 по той же причине: у «Дуэта»
+  // длительность задаёт исходник, а комментарий к минутному ролику — обычное
+  // дело. Прежние маршруты своих пределов не теряют: их держит реестр, а не
+  // этот разбор.
   const match = value.match(
-    /^(RUNWAY|FAL)_(PRODUCT_UGC|PRODUCT_SWAP|PRODUCT_AD)_([1-9]|1[0-5])S_(720P|1080P)_(AUDIO|SILENT)_USD_([0-9]{1,4})[.]([0-9]{2})$/u,
+    /^(RUNWAY|FAL|HEYGEN)_(PRODUCT_UGC|PRODUCT_SWAP|PRODUCT_AD)_([1-9]|[1-5][0-9]|60)S_(720P|1080P)_(AUDIO|SILENT)_USD_([0-9]{1,4})[.]([0-9]{2})$/u,
   );
   if (match === null) return null;
   const provider = match[1].toLocaleLowerCase("en-US");
@@ -2492,7 +2841,20 @@ function withoutOptionalKeys(value: unknown, keys: string[]): unknown {
   return copy;
 }
 
-const GENERATION_ROUTE_PROVIDERS = new Set(["runway", "google", "fal"]);
+// СРОЧНОЕ: витрина маршрутов отдаёт браузеру ВСЕ строки реестра, включая
+// выключенные — так сделано намеренно, чтобы экран мог показать «движок есть, но
+// пока недоступен». Один незнакомый провайдер в любой строке обнуляет ВЕСЬ ответ
+// политики, и оба каталога отвечают 503 generation_unavailable. То есть строка
+// выключенного маршрута «Дуэта» гасила бы и работающую платную «Копию».
+//
+// Отсюда правило: провайдер попадает СЮДА одновременно с появлением его первой
+// строки в реестре, а не тогда, когда маршрут включают.
+const GENERATION_ROUTE_PROVIDERS = new Set([
+  "runway",
+  "google",
+  "fal",
+  "heygen",
+]);
 const GENERATION_ROUTE_TIERS = new Set(["cheap", "medium", "premium"]);
 const GENERATION_ROUTE_PRICE_KINDS = new Set([
   "runway_credit_tiers",
@@ -2500,23 +2862,145 @@ const GENERATION_ROUTE_PRICE_KINDS = new Set([
   "usd_minor_per_run",
 ]);
 
+// Кто задаёт длительность у маршрута: оператор или исходник. Поле
+// необязательное — миграция базы и деплой функции не атомарны, — но известных
+// значений ровно два: незнакомое означало бы, что экран нарисует выбор по
+// правилам, которых он не знает.
+function generationStrategyRouteDurationSourceValid(
+  route: Record<string, unknown>,
+): boolean {
+  if (!Object.hasOwn(route, "duration_source")) return true;
+  return route.duration_source === "operator_choice" ||
+    route.duration_source === "source_video";
+}
+
+// Семейство движка: что он делает с роликом. Поле необязательное (миграция и
+// деплой функции не атомарны), значений ровно три — как в CHECK базы.
+function generationStrategyRouteEngineFamilyValid(
+  route: Record<string, unknown>,
+): boolean {
+  if (!Object.hasOwn(route, "engine_family")) return true;
+  return route.engine_family === "edit" ||
+    route.engine_family === "regenerate" ||
+    route.engine_family === "overlay";
+}
+
+// Профиль входа движка. Форма повторяет функцию базы
+// generation_strategy_input_profile_valid: окно длительности и пределы
+// размера видео, число и способ именования фото, сохраняется ли звук.
+// Поле необязательное по той же причине, что и остальные новые свойства.
+function generationStrategyRouteInputProfileValid(
+  route: Record<string, unknown>,
+): boolean {
+  if (!Object.hasOwn(route, "input_profile")) return true;
+  const profile = route.input_profile;
+  if (
+    !isRecord(profile) ||
+    !hasExactKeys(profile, ["video", "images", "keeps_source_audio"]) ||
+    typeof profile.keeps_source_audio !== "boolean"
+  ) return false;
+  const video = profile.video;
+  const images = profile.images;
+  if (
+    !isRecord(video) ||
+    !hasExactKeys(video, [
+      "min_seconds",
+      "max_seconds",
+      "min_short_side_px",
+      "max_long_side_px",
+    ]) ||
+    !isIntegerInRange(video.min_seconds, 1, 600) ||
+    !isIntegerInRange(video.max_seconds, 1, 600) ||
+    (video.min_seconds as number) > (video.max_seconds as number) ||
+    !(video.min_short_side_px === null ||
+      isIntegerInRange(video.min_short_side_px, 1, 10_000)) ||
+    !(video.max_long_side_px === null ||
+      isIntegerInRange(video.max_long_side_px, 1, 10_000))
+  ) return false;
+  if (
+    !isRecord(images) ||
+    !hasExactKeys(images, ["max", "style"]) ||
+    !isIntegerInRange(images.max, 0, 30) ||
+    !["none", "region", "at_refs", "named_refs"].includes(
+      images.style as string,
+    ) ||
+    ((images.max as number) === 0) !== (images.style === "none")
+  ) return false;
+  return true;
+}
+
+// Пределы длительности маршрута: либо обоих нет, либо оба целые и нижняя не
+// выше верхней. Один предел без другого — это не «половина окна», а окно без
+// одной границы, по которому нельзя ни нарисовать выбор, ни отказать.
+function generationStrategyRouteDurationsValid(
+  route: Record<string, unknown>,
+): boolean {
+  const hasMin = Object.hasOwn(route, "min_duration_seconds");
+  const hasMax = Object.hasOwn(route, "max_duration_seconds");
+  if (!hasMin && !hasMax) return true;
+  if (!hasMin || !hasMax) return false;
+  const min = route.min_duration_seconds;
+  const max = route.max_duration_seconds;
+  return isIntegerInRange(min, 1, 60) && isIntegerInRange(max, 1, 60) &&
+    (min as number) <= (max as number);
+}
+
+// Уровни качества маршрута. Форма повторяет ограничение базы
+// (generation_strategy_quality_modes_valid): непустой список, три поля у
+// каждого режима, разрешение из двух известных. Повтор здесь не лишний —
+// каталог уходит в браузер, и то, что в браузере рисуется как выбор человека,
+// проверяется на границе, а не принимается на веру.
+function generationStrategyRouteQualityModesValid(
+  route: Record<string, unknown>,
+): boolean {
+  if (!Object.hasOwn(route, "quality_modes")) return true;
+  const modes = route.quality_modes;
+  if (!Array.isArray(modes) || modes.length < 1 || modes.length > 6) {
+    return false;
+  }
+  const codes = new Set<string>();
+  for (const mode of modes) {
+    if (
+      !hasExactKeys(mode, ["code", "label", "resolution"]) ||
+      typeof mode.code !== "string" ||
+      !/^[a-z][a-z0-9_]{1,30}$/u.test(mode.code) ||
+      typeof mode.label !== "string" ||
+      mode.label.trim() !== mode.label ||
+      mode.label.length < 2 || mode.label.length > 40 ||
+      (mode.resolution !== "720p" && mode.resolution !== "1080p")
+    ) return false;
+    codes.add(mode.code);
+  }
+  return codes.size === modes.length;
+}
+
 // Каталог маршрутов приходит из базы и попадает в браузер, поэтому проверяется
-// как чужой ввод: точный набор ключей, известные значения, ставка обязана
+// как чужой ввод: известный набор ключей, известные значения, ставка обязана
 // присутствовать ровно у тех видов тарификации, где она есть смысл.
 function generationStrategyProviderRoutesValid(value: unknown): boolean {
   if (value === undefined) return true;
   if (!isRecord(value)) return false;
   for (const [strategyId, routes] of Object.entries(value)) {
-    if (!GENERATION_STRATEGY_CATALOG.some((entry: { strategy_id: string }) =>
-      entry.strategy_id === strategyId
-    )) return false;
+    if (
+      !GENERATION_STRATEGY_CATALOG.some((entry: { strategy_id: string }) =>
+        entry.strategy_id === strategyId
+      )
+    ) return false;
     if (!Array.isArray(routes) || routes.length === 0 || routes.length > 8) {
       return false;
     }
     let recommended = 0;
     for (const route of routes) {
+      // Обязательные поля есть у маршрута с самого его появления; пределы
+      // длительности (202608190003) и уровни качества (202608190007) —
+      // необязательные. Необязательные не потому, что без них можно жить
+      // спокойно, а потому что миграция базы и деплой функции не атомарны:
+      // между ними каталог обязан оставаться читаемым в обе стороны. Зато
+      // НЕИЗВЕСТНЫЙ ключ по-прежнему отказ: каталог уходит в браузер, и
+      // молчаливо пропускать в него то, чего мы не проверяли, нельзя.
       if (
-        !hasExactKeys(route, [
+        !isRecord(route) ||
+        ![
           "provider",
           "model_key",
           "tier",
@@ -2524,7 +3008,29 @@ function generationStrategyProviderRoutesValid(value: unknown): boolean {
           "price_rate_minor",
           "recommended",
           "enabled",
-        ]) ||
+        ].every((key) => Object.hasOwn(route, key)) ||
+        Object.keys(route).some((key) =>
+          ![
+            "provider",
+            "model_key",
+            "tier",
+            "price_kind",
+            "price_rate_minor",
+            "recommended",
+            "enabled",
+            "min_duration_seconds",
+            "max_duration_seconds",
+            "quality_modes",
+            "duration_source",
+            "engine_family",
+            "input_profile",
+          ].includes(key)
+        ) ||
+        !generationStrategyRouteDurationSourceValid(route) ||
+        !generationStrategyRouteEngineFamilyValid(route) ||
+        !generationStrategyRouteInputProfileValid(route) ||
+        !generationStrategyRouteDurationsValid(route) ||
+        !generationStrategyRouteQualityModesValid(route) ||
         !GENERATION_ROUTE_PROVIDERS.has(route.provider as string) ||
         typeof route.model_key !== "string" ||
         route.model_key.length < 2 || route.model_key.length > 120 ||
@@ -2551,6 +3057,11 @@ function readGenerationStrategyCatalogPolicy(
   // provider_routes появляется, когда в реестре у стратегии больше одного
   // движка. Ключ необязательный: миграция базы и деплой функции не атомарны,
   // поэтому обе стороны обязаны переживать отсутствие и наличие поля.
+  // Сужение делается ОТДЕЛЬНОЙ проверкой самого value. hasExactKeys — предикат
+  // типа, но он сужает то, что ему передали; передавая копию без
+  // необязательного ключа, сужение теряется, и всё чтение ниже идёт по
+  // unknown. Проверка формы при этом остаётся на копии — она про состав ключей.
+  if (!isRecord(value)) return null;
   if (
     !hasExactKeys(withoutOptionalKeys(value, ["provider_routes"]), [
       "ok",
@@ -2636,7 +3147,8 @@ function generationStrategyBindingAssetsValid(
   strategyId: GenerationStrategyId,
   productId: string,
 ): boolean {
-  if (!Array.isArray(value) || value.length < 2 || value.length > 16) {
+  // Нижняя граница — один: у «Дуэта» ровно один ассет.
+  if (!Array.isArray(value) || value.length < 1 || value.length > 16) {
     return false;
   }
   const counts = new Map<string, number>();
@@ -2702,12 +3214,15 @@ function generationStrategyBindingAssetsValid(
     counts.set(asset.role, (counts.get(asset.role) || 0) + 1);
   }
   const count = (role: string) => counts.get(role) || 0;
-  if (count("product_primary") !== 1) return false;
+  // «Дуэт» проверяется ДО общего требования товарного ассета: товара у него нет
+  // по устройству, и общая проверка отвергла бы его раньше, чем дошла до формы.
   if (strategyId === "viral_avatar_ugc") {
-    return value.length === 2 && count("creator_avatar") === 1 &&
+    return value.length === 1 && count("source_video") === 1 &&
+      count("creator_avatar") === 0 && count("product_primary") === 0 &&
       count("product_reference") === 0 && count("original_product") === 0 &&
-      count("source_video") === 0 && count("style_reference") === 0;
+      count("style_reference") === 0;
   }
+  if (count("product_primary") !== 1) return false;
   if (strategyId === "viral_product_swap") {
     return count("creator_avatar") === 0 && count("original_product") === 1 &&
       count("source_video") === 1 && count("style_reference") === 0 &&
@@ -2780,7 +3295,7 @@ function generationStrategyPriceValid(
     value.recipe !== recipe ||
     value.input_mode !==
       (strategyId === "viral_avatar_ugc"
-        ? "character_and_product_images"
+        ? "video_and_avatar_images"
         : strategyId === "viral_product_swap"
         ? "video_and_product_images"
         : "product_images") ||
@@ -2809,11 +3324,9 @@ function generationStrategyPriceValid(
   // корректный снимок другого маршрута — и делал это молча, общим отказом.
   const expectedConfirmation = `${
     String(value.provider).toUpperCase()
-  }_${recipe.toUpperCase()}_${
-    String(value.duration_seconds)
-  }S_${String(value.resolution).toUpperCase()}_${
-    value.audio ? "AUDIO" : "SILENT"
-  }_USD_${value.estimated_cost_usd}`;
+  }_${recipe.toUpperCase()}_${String(value.duration_seconds)}S_${
+    String(value.resolution).toUpperCase()
+  }_${value.audio ? "AUDIO" : "SILENT"}_USD_${value.estimated_cost_usd}`;
   return value.spend_confirmation === expectedConfirmation;
 }
 
@@ -4036,6 +4549,18 @@ function readReconcilePayload(value: unknown): ReconcilePayload | null {
   }
   const attach = value.resolution === "attach_existing_task";
   const noSubmission = value.resolution === "confirm_no_submission";
+  const confirmation = String(value.confirmation || "");
+  const attachIdentityValid = (confirmation === "RUNWAY_TASK_ID_VERIFIED" &&
+    isValidTaskId(value.provider_task_id)) ||
+    (confirmation === "FAL_REQUEST_ID_VERIFIED" &&
+      isFalRequestId(value.provider_task_id)) ||
+    (confirmation === "GOOGLE_OPERATION_ID_VERIFIED" &&
+      isValidGoogleOperationName(value.provider_task_id));
+  const noSubmissionConfirmationValid = new Set([
+    "RUNWAY_NO_TASK_VERIFIED",
+    "FAL_NO_REQUEST_VERIFIED",
+    "GOOGLE_NO_OPERATION_VERIFIED",
+  ]).has(confirmation);
   if (
     value.action !== "reconcile" ||
     !isUuid(value.organization_id) ||
@@ -4047,20 +4572,10 @@ function readReconcilePayload(value: unknown): ReconcilePayload | null {
     (!attach && !noSubmission) ||
     !isBoundedText(value.evidence_reference, 8, 500) ||
     !isBoundedText(value.reason, 20, 1_000) ||
-    (attach && (
-      (!isValidTaskId(value.provider_task_id) &&
-        !isValidGoogleOperationName(value.provider_task_id)) ||
-      !new Set([
-        "RUNWAY_TASK_ID_VERIFIED",
-        "GOOGLE_OPERATION_ID_VERIFIED",
-      ]).has(String(value.confirmation || ""))
-    )) ||
+    (attach && !attachIdentityValid) ||
     (noSubmission && (
       Object.hasOwn(value, "provider_task_id") ||
-      !new Set([
-        "RUNWAY_NO_TASK_VERIFIED",
-        "GOOGLE_NO_OPERATION_VERIFIED",
-      ]).has(String(value.confirmation || ""))
+      !noSubmissionConfirmationValid
     ))
   ) {
     return null;
@@ -4244,11 +4759,19 @@ function readStartJob(value: unknown): StartJob | null {
 }
 
 type ProviderRequestEnvelope = {
-  provider: "runway" | "google" | "fal";
+  // «heygen» здесь не украшение. Тип конверта сужает routeProvider там, где
+  // ветка отправки сравнивает его с провайдером, и без heygen сравнение
+  // становится заведомо ложным: разбор ответа HeyGen оказывается недостижимым
+  // кодом, а вся ветка — типом never. Отправка дуэта молча не собиралась бы.
+  provider: "runway" | "google" | "fal" | "heygen";
   endpointPath: string;
   method: "POST";
   body: Record<string, Json>;
-  pollKind: "runway_task" | "google_long_running_operation" | "fal_request";
+  pollKind:
+    | "runway_task"
+    | "google_long_running_operation"
+    | "fal_request"
+    | "heygen_video";
 };
 
 export function buildGenerationStrategyProviderRequest(
@@ -4258,6 +4781,20 @@ export function buildGenerationStrategyProviderRequest(
   // сервером, поэтому указание для модели собирается только из проверенного.
   routeProvider: string = "runway",
   routeProductCategory: string = "other",
+  // Модель маршрута. У fal их уже две, и просят они разного, поэтому без
+  // модели запрос собрать нельзя: значение восстанавливается из реестра по
+  // подписи квитанции и не имеет умолчания.
+  routeModelKey: string | null = null,
+  // Личность ведущего для «Дуэта». Читается серверной функцией
+  // content_factory_private.duet_presenter_identity по нашему идентификатору
+  // ведущего и в браузере не бывает никогда. Для остальных маршрутов не нужна.
+  routePresenter: {
+    avatarId: string;
+    voiceId: string;
+    aspectRatio: string;
+    avatarKind?: string;
+    layout?: Record<string, unknown>;
+  } | null = null,
 ): ProviderRequestEnvelope | null {
   const entry = generationStrategyCatalogEntry(context.strategyId);
   if (
@@ -4283,13 +4820,16 @@ export function buildGenerationStrategyProviderRequest(
 
     if (context.recipe === "product_ugc") {
       if (withView) return null;
-      if (asset.role === "avatar_image") {
+      if (asset.role === "source_video") {
+        // С 21.08.2026 «Аватар» правит готовый ролик, а не снимает новый UGC про
+        // товар. Исходник поэтому стал НАСТОЯЩИМ входом провайдера — раньше он
+        // считался только механикой и сюда не допускался.
+        mappedAssets.push({ role: "source_video", uri: String(asset.uri) });
+      } else if (asset.role === "avatar_image") {
         mappedAssets.push({ role: "avatar", uri: String(asset.uri) });
-      } else if (asset.role === "product_image") {
-        mappedAssets.push({ role: "product_primary", uri: String(asset.uri) });
       } else {
-        // The source video is mechanics-only for Product UGC and is never
-        // accepted as a signed provider input.
+        // Товара у этой стратегии больше нет. Роль product_image здесь означает,
+        // что выше собрали чужой набор ассетов, и отправлять его нельзя.
         return null;
       }
     } else if (context.recipe === "product_swap") {
@@ -4342,20 +4882,65 @@ export function buildGenerationStrategyProviderRequest(
   // ждёт описание всей сцены; Pika Swaps меняет только названную область и
   // ждёт две вещи по отдельности: ЧТО заменить и НА ЧТО. Поэтому указание
   // собирается под маршрут, а не переводится механически.
-  if (routeProvider === "fal" && context.recipe === "product_swap") {
-    const falSelection = {
-      ...commonSelection,
-      resolution: context.resolution,
-      modifyRegion: FAL_SWAP_REGION_BY_CATEGORY[routeProductCategory] ||
-        FAL_SWAP_REGION_BY_CATEGORY.other,
-      promptText: [
-        "Replace it with the exact product from the reference image,",
-        "keeping the surrounding scene, hands and lighting untouched.",
-        typeof context.productInfo === "string" ? context.productInfo : "",
-      ].join(" ").trim().slice(0, 1_000),
-    };
+  if (routeProvider === "heygen") {
+    // «Дуэт» устроен иначе всех остальных маршрутов: провайдер НЕ получает ни
+    // исходного ролика, ни фотографий. Он делает только говорящего ведущего, а
+    // соединение с исходником происходит у нас, локальным ffmpeg. Поэтому
+    // подписанные ассеты сюда не передаются вовсе.
+    if (context.recipe !== "product_ugc") return null;
+    if (routePresenter === null) return null;
+    // С 23.08.2026 исходник уходит провайдеру ФОНОМ: v2 HeyGen сам ставит
+    // ведущего поверх ролика и отдаёт MP4 (сборки у нас нет: edge не умеет
+    // ffmpeg, сервера приложения в проде нет). Ссылка — подписанная, наша.
+    const duetSource = mappedAssets.find((asset) => asset.role === "source_video");
+    if (!duetSource || typeof duetSource.uri !== "string") return null;
     try {
-      const envelope = buildFalRecipeRequest(falSelection, mappedAssets);
+      const envelope = buildHeygenRecipeRequest(
+        {
+          ...commonSelection,
+          resolution: context.resolution,
+          // Речь ведущего — БУКВАЛЬНЫЙ текст, который он произнесёт вслух.
+          // Компиляторы указаний сюда не годятся: они собирают задание модели
+          // («замени человека в кадре»), и ведущий зачитал бы его в кадре.
+          promptText: buildDuetCommentaryScript({
+            userConcept: context.userConcept,
+          }),
+        },
+        routePresenter,
+        duetSource.uri,
+      );
+      if (
+        envelope?.provider !== "heygen" || envelope.method !== "POST" ||
+        envelope.pollKind !== "heygen_video" || !isRecord(envelope.body)
+      ) return null;
+      return envelope as ProviderRequestEnvelope;
+    } catch {
+      return null;
+    }
+  }
+  if (routeProvider === "fal" && context.recipe === "product_swap") {
+    // Форма запроса — свойство модели. Pika просит ДВЕ вещи по отдельности:
+    // что заменить (modify_region) и на что (фото); указание к ней короткое,
+    // потому что область названа полем. Kling правит видео одним описанием и
+    // ссылается на вход по именам, поэтому область, ссылка на исходник и
+    // ссылка на фото живут внутри самого указания.
+    try {
+      const falSelection = buildFalProductSwapSelection({
+        commonSelection,
+        modelKey: routeModelKey,
+        resolution: context.resolution,
+        productCategory: routeProductCategory,
+        productInfo: context.productInfo,
+        userConcept: context.userConcept,
+        productImageCount: mappedAssets.filter((asset) =>
+          asset.role === "product_primary" || asset.role === "product_reference"
+        ).length,
+      });
+      const envelope = buildFalRecipeRequest(
+        falSelection,
+        mappedAssets,
+        routeModelKey,
+      );
       if (
         envelope?.provider !== "fal" || envelope.method !== "POST" ||
         envelope.pollKind !== "fal_request" || !isRecord(envelope.body)
@@ -4366,34 +4951,59 @@ export function buildGenerationStrategyProviderRequest(
     }
   }
 
-  const selection = context.recipe === "product_swap"
-    ? {
-      ...commonSelection,
-      resolution: context.resolution,
-      // video_to_video (Gen-4 Aleph) needs an explicit edit instruction.
-      // It is composed only from server-owned text: a fixed swap directive
-      // plus the receipt-frozen productInfo whose hash was just verified by
-      // strategyPromptHashesMatch. No browser prompt authority exists here.
-      // The lettering clause is load-bearing: without it the model invents a
-      // second wordmark on empty bezels and re-draws it differently every
-      // frame, which reads as a wobbling logo (paid run 18.08.2026).
-      promptText: [
-        "Replace the product in this video with the exact product shown in",
-        "the reference images. Preserve the original scene, actions, camera",
-        "motion, timing and editing.",
-        "Do not add any lettering, wordmark, badge or on-screen text that is",
-        "not already visible in the source frame, and keep every existing",
-        "label in its original position, spelling and size.",
-        typeof context.productInfo === "string" ? context.productInfo : "",
-      ].join(" ").trim().slice(0, 1_000),
+  // «Создание» на fal (23.08.2026): ролик с нуля по фото товара и описанию
+  // механики. Ролик-референс провайдеру не уходит — роли каталога это
+  // запрещают, и адаптер отвергнет source_video в наборе ассетов.
+  if (routeProvider === "fal" && context.recipe === "product_ad") {
+    try {
+      const envelope = buildFalRecipeRequest(
+        {
+          ...commonSelection,
+          ratio: context.ratio,
+          productInfo: context.productInfo,
+          userConcept: context.userConcept,
+        },
+        mappedAssets,
+        routeModelKey,
+      );
+      if (
+        envelope?.provider !== "fal" || envelope.method !== "POST" ||
+        envelope.pollKind !== "fal_request" || !isRecord(envelope.body)
+      ) return null;
+      return envelope as ProviderRequestEnvelope;
+    } catch {
+      return null;
     }
-    : {
-      ...commonSelection,
-      ratio: context.ratio,
-      productInfo: context.productInfo,
-      userConcept: context.userConcept,
-    };
+  }
+
+  // Сюда доходят только «Копия» и «Создание». «Дуэт» исполняет один HeyGen:
+  // всё остальное умеет лишь переписать исходник, а его переписывать нельзя.
+  // Реестр маршрутов это уже запрещает (миграция 202608220011) — здесь то же
+  // самое сказано кодом, чтобы одна строка в базе не оборачивалась платным
+  // запросом не в ту сторону.
+  if (context.recipe === "product_ugc") return null;
+
   try {
+    const selection = context.recipe === "product_swap"
+      ? {
+        ...commonSelection,
+        resolution: context.resolution,
+        // video_to_video (Gen-4 Aleph) needs a full-product edit instruction.
+        // Both text values are receipt-frozen and hash-verified by
+        // strategyPromptHashesMatch. The pure helper keeps the exact signed
+        // correction plus the server authority/text guards within Aleph's
+        // 1,000-character limit. No browser prompt authority exists here.
+        promptText: buildRunwayProductSwapPrompt({
+          productInfo: context.productInfo,
+          userConcept: context.userConcept,
+        }),
+      }
+      : {
+        ...commonSelection,
+        ratio: context.ratio,
+        productInfo: context.productInfo,
+        userConcept: context.userConcept,
+      };
     const envelope = buildRunwayRecipeRequest(selection, mappedAssets);
     if (
       envelope?.provider !== "runway" || envelope.method !== "POST" ||
@@ -4667,12 +5277,17 @@ function readReconciliationContext(
     return null;
   }
   const job = value.job;
+  const provider = new Set(["runway", "google", "fal"]).has(
+      String(job.provider || ""),
+    )
+    ? job.provider as ReconciliationProvider
+    : null;
   if (
     job.id !== payload.job_id ||
     job.organization_id !== payload.organization_id ||
     job.project_id !== payload.project_id ||
     job.status !== "starting" ||
-    readGenerationProvider(job.provider) === null ||
+    provider === null ||
     job.reconciliation_incident_id !== payload.incident_id ||
     typeof job.starting_at !== "string" ||
     !Number.isFinite(Date.parse(job.starting_at)) ||
@@ -4684,7 +5299,7 @@ function readReconciliationContext(
   return {
     actorId: value.actor_id,
     incidentId: job.reconciliation_incident_id,
-    provider: job.provider as GenerationProvider,
+    provider,
     startingAt: job.starting_at,
     requiredAt: job.reconciliation_required_at,
   };
@@ -4729,6 +5344,24 @@ function isValidTaskId(value: unknown): value is string {
   return typeof value === "string" && TASK_ID_PATTERN.test(value);
 }
 
+function isFalRequestId(value: unknown): value is string {
+  return typeof value === "string" && FAL_REQUEST_ID_PATTERN.test(value);
+}
+
+function falRequestCreatedAt(value: unknown): string | null {
+  if (!isFalRequestId(value)) return null;
+  // UUIDv7 stores Unix epoch milliseconds in its first 48 bits.  48 bits fit
+  // exactly in JavaScript's safe integer range, so this conversion loses no
+  // timing information and can be rechecked independently by SQL.
+  const milliseconds = Number.parseInt(
+    value.replaceAll("-", "").slice(0, 12),
+    16,
+  );
+  if (!Number.isSafeInteger(milliseconds) || milliseconds <= 0) return null;
+  const createdAt = new Date(milliseconds);
+  return Number.isFinite(createdAt.valueOf()) ? createdAt.toISOString() : null;
+}
+
 function isValidGoogleOperationName(value: unknown): value is string {
   return typeof value === "string" &&
     GOOGLE_OPERATION_NAME_PATTERN.test(value);
@@ -4743,6 +5376,14 @@ function isValidProviderTaskId(
     : isValidTaskId(value);
 }
 
+function isValidReconciliationTaskId(
+  provider: ReconciliationProvider,
+  value: unknown,
+): value is string {
+  if (provider === "fal") return isFalRequestId(value);
+  return isValidProviderTaskId(provider, value);
+}
+
 function runwaySecret(): string | null {
   const value = Deno.env.get("RUNWAYML_API_SECRET") ?? "";
   if (
@@ -4752,18 +5393,6 @@ function runwaySecret(): string | null {
     return null;
   }
   return value;
-}
-
-// Адреса очереди fal строятся по документированному образцу из идентификатора
-// модели и номера задачи. Их не приходится хранить, но в момент отправки мы
-// сверяем построенное с тем, что вернул провайдер: если образец разошёлся,
-// запуск отменяется. Лучше не начать, чем начать и не забрать результат.
-function falQueueUrls(
-  modelKey: string,
-  requestId: string,
-): { statusUrl: string; responseUrl: string } {
-  const base = `${FAL_QUEUE_ORIGIN}/${modelKey}/requests/${requestId}`;
-  return { statusUrl: `${base}/status`, responseUrl: base };
 }
 
 function falSecret(): string | null {
@@ -4779,9 +5408,24 @@ function falSecret(): string | null {
 
 // Ключ, адрес и заголовки различаются у провайдеров, но выбираются в одном
 // месте: восемь вызовов по коду обращаются сюда, а не собирают их сами.
+function heygenSecret(): string | null {
+  const value = Deno.env.get("HEYGEN_API_KEY") ?? "";
+  if (
+    value.length < 16 || value.length > 512 || value !== value.trim() ||
+    hasForbiddenControl(value, false)
+  ) {
+    return null;
+  }
+  return value;
+}
+
 function providerSecret(provider: string): string | null {
   if (provider === "runway") return runwaySecret();
   if (provider === "fal") return falSecret();
+  // Отдельный ключ и отдельный кошелёк — решение владельца 22.08.2026. Ведущий
+  // для «Дуэта» живёт у HeyGen, и смешивать его расходы с fal нельзя ни в
+  // учёте, ни в ключах.
+  if (provider === "heygen") return heygenSecret();
   return null;
 }
 
@@ -4806,6 +5450,17 @@ function providerRequestTarget(
       url: `${FAL_QUEUE_ORIGIN}/${endpointPath}`,
       headers: {
         authorization: `Key ${secret}`,
+        "content-type": "application/json",
+      },
+    };
+  }
+  if (provider === "heygen") {
+    // Ключ передаётся заголовком x-api-key, а не Bearer: проверено по
+    // документации 22.08.2026, https://developers.heygen.com/transparent-background-videos
+    return {
+      url: `${HEYGEN_API_ORIGIN}${endpointPath}`,
+      headers: {
+        "x-api-key": secret,
         "content-type": "application/json",
       },
     };
@@ -4848,7 +5503,75 @@ async function checkStrategyReadiness(
   estimatedCredits: number,
 ): Promise<GenerationStrategyReadinessCheck> {
   if (provider === "fal") return await checkFalStrategyReadiness(falSecret());
-  return await checkRunwayStrategyReadiness(runwaySecret(), estimatedCredits);
+  if (provider === "runway") {
+    return await checkRunwayStrategyReadiness(runwaySecret(), estimatedCredits);
+  }
+  if (provider === "heygen") {
+    return await checkHeygenStrategyReadiness(heygenSecret());
+  }
+  return {
+    credentialConfigured: false,
+    providerAuthenticationConfirmed: false,
+    balanceSufficient: false,
+    failureCode: "provider_configuration_error",
+  };
+}
+
+// HeyGen не публикует остаток кошелька отдельным полем, поэтому подтверждаем
+// проверяемое: ключ настроен и принят провайдером. Достаточность средств
+// сообщит сам провайдер отказом при создании задачи — резерв тогда вернётся
+// обычной сверкой.
+//
+// Без этой ветки готовность была бы ВСЕГДА отрицательной даже с верным ключом:
+// общий возврат ниже отвечает «провайдер не настроен», и владелец чинил бы не
+// то — искал бы ошибку в ключе, которого проблема не касается.
+async function checkHeygenStrategyReadiness(
+  secret: string | null,
+): Promise<GenerationStrategyReadinessCheck> {
+  if (secret === null) {
+    return {
+      credentialConfigured: false,
+      providerAuthenticationConfirmed: false,
+      balanceSufficient: false,
+      failureCode: "provider_configuration_error",
+    };
+  }
+  let response: ProviderJsonResult;
+  try {
+    // Запрос статуса несуществующей задачи: он ничего не создаёт и не стоит
+    // денег, но проходит проверку ключа. Негодный ключ даст 401/403, годный —
+    // 404 на саму задачу.
+    response = await fetchProviderJsonWithDeadline(
+      `${HEYGEN_API_ORIGIN}/v3/videos/${crypto.randomUUID()}`,
+      {
+        method: "GET",
+        redirect: "manual",
+        headers: { "x-api-key": secret },
+      },
+      PROVIDER_TIMEOUT_MS,
+    );
+  } catch {
+    return {
+      credentialConfigured: true,
+      providerAuthenticationConfirmed: false,
+      balanceSufficient: false,
+      failureCode: "provider_readiness_unavailable",
+    };
+  }
+  if (response.status === 401 || response.status === 403) {
+    return {
+      credentialConfigured: true,
+      providerAuthenticationConfirmed: false,
+      balanceSufficient: false,
+      failureCode: "provider_authentication_failed",
+    };
+  }
+  return {
+    credentialConfigured: true,
+    providerAuthenticationConfirmed: true,
+    balanceSufficient: true,
+    failureCode: null,
+  };
 }
 
 // fal не публикует баланс, поэтому подтверждаем то, что реально проверяемо:
@@ -4869,9 +5592,10 @@ async function checkFalStrategyReadiness(
   let response: ProviderJsonResult;
   try {
     response = await fetchProviderJsonWithDeadline(
-      `${FAL_QUEUE_ORIGIN}/fal-ai/pika/v2/pikaswaps/requests/${
-        crypto.randomUUID()
-      }/status`,
+      // Адрес берётся от корня приложения: очередь отвечает именно по нему,
+      // а по полному пути модели вернулось бы «не найдено» ещё до проверки
+      // ключа — и негодный ключ прошёл бы готовность незамеченным.
+      `${FAL_QUEUE_ORIGIN}/fal-ai/pika/requests/${crypto.randomUUID()}/status`,
       {
         method: "GET",
         redirect: "manual",
@@ -5515,9 +6239,13 @@ async function readProviderJson(response: Response): Promise<unknown> {
   }
 }
 
+// На отказе value несёт ТЕКСТ ПРОВАЙДЕРА, а не null: он читается ниже и
+// кладётся в свидетельство отправки. Тип объявлял null, и из-за этого проверка
+// `typeof response.value === "string"` сужалась до never — то есть разбор
+// отказа выглядел недостижимым кодом ровно там, где он и нужен.
 type ProviderJsonResult =
   | { ok: true; status: number; value: unknown }
-  | { ok: false; status: number; value: null };
+  | { ok: false; status: number; value: string | null };
 
 async function fetchProviderJsonWithDeadline(
   input: string,
@@ -5634,6 +6362,22 @@ async function sha256Hex(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
   ).join("");
 }
 
+// Куда потоковая приёмка кладёт ролик: тот же проект и та же корзина, что и у
+// supabaseAdmin.storage, но без клиента — загрузка идёт прямым запросом с
+// телом-потоком, чтобы ролик не оказался в памяти изолята целиком.
+function providerOutputStorage(): {
+  supabaseUrl: string;
+  serviceRoleKey: string;
+  bucket: string;
+} {
+  return {
+    supabaseUrl: Deno.env.get("SUPABASE_URL") ?? "",
+    serviceRoleKey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+    bucket: STORAGE_BUCKET,
+  };
+}
+
+
 function validateRunwayOutputUrl(value: unknown): string | null {
   return validateProviderOutputUrl("runway", value);
 }
@@ -5651,7 +6395,9 @@ function validateProviderOutputUrl(
     const hostAllowed = provider === "runway"
       ? url.hostname === RUNWAY_OUTPUT_HOST
       : provider === "fal"
-      ? FAL_OUTPUT_HOSTS.has(url.hostname)
+      ? falOutputHostAllowed(url.hostname)
+      : provider === "heygen"
+      ? heygenOutputHostAllowed(url.hostname)
       : false;
     if (
       url.protocol !== "https:" || !hostAllowed ||
@@ -6086,8 +6832,9 @@ async function handleCreatorGenerate(
     }
   };
 
-  const localMockPreflightPayload =
-    readGenerationStrategyMockPreflightPayload(body);
+  const localMockPreflightPayload = readGenerationStrategyMockPreflightPayload(
+    body,
+  );
   if (!internalWorker && localMockPreflightPayload !== null) {
     if (!localMockStrategyEnabled()) {
       return localMockUnavailable("local_mock_strategy_disabled");
@@ -6154,7 +6901,7 @@ async function handleCreatorGenerate(
       return localMockUnavailable("local_mock_output_object_invalid");
     }
 
-    let outputBytes: Uint8Array;
+    let outputBytes: Uint8Array<ArrayBuffer>;
     try {
       const signed = await supabaseAdmin.storage.from(STORAGE_BUCKET)
         .createSignedUrl(
@@ -6334,6 +7081,122 @@ async function handleCreatorGenerate(
     }
   };
 
+  const duetPresenterCatalogPayload = readDuetPresenterCatalogPayload(body);
+  if (!internalWorker && duetPresenterCatalogPayload !== null) {
+    // Та же лёгкая проверка активной роли, что у каталога стратегий.
+    try {
+      const { error } = await context.supabase.rpc(
+        "creator_generation_model_feature_flags",
+        {
+          p_payload: {
+            organization_id: duetPresenterCatalogPayload.organization_id,
+          },
+        },
+      );
+      if (error !== null) {
+        noteGenerationRefusal(request, "duet_presenter_catalog.role_proof", error);
+        return json(request, { ok: false, code: "generation_rejected" }, 403);
+      }
+    } catch {
+      noteGenerationRefusal(request, "duet_presenter_catalog.role_proof_threw");
+      return json(request, { ok: false, code: "generation_unavailable" }, 503);
+    }
+    const secret = heygenSecret();
+    if (secret === null) {
+      return json(
+        request,
+        { ok: false, code: "duet_provider_key_missing" },
+        409,
+      );
+    }
+    // Ответы провайдера режутся до закрытого набора полей и разумных пределов:
+    // в браузер не уходит ничего, кроме идентификаторов, имён и превью.
+    const readList = async (
+      url: string,
+    ): Promise<Record<string, unknown> | null> => {
+      try {
+        const response = await fetchProviderJsonWithDeadline(
+          url,
+          {
+            method: "GET",
+            redirect: "manual",
+            headers: { "x-api-key": secret, accept: "application/json" },
+          },
+          PROVIDER_TIMEOUT_MS,
+        );
+        if (!response.ok || !isRecord(response.value)) return null;
+        return isRecord(response.value.data) ? response.value.data : null;
+      } catch {
+        return null;
+      }
+    };
+    const safeText = (value: unknown, limit: number): string => {
+      if (typeof value !== "string") return "";
+      const cleaned = value.replace(/[\u0000-\u001f\u007f]/gu, " ").trim();
+      return cleaned.slice(0, limit);
+    };
+    const safeHttpsUrl = (value: unknown): string | null => {
+      if (typeof value !== "string" || value.length > 2_048) return null;
+      try {
+        const url = new URL(value);
+        return url.protocol === "https:" && !url.username && !url.password
+          ? url.toString()
+          : null;
+      } catch {
+        return null;
+      }
+    };
+    const avatars = await readList(`${HEYGEN_API_ORIGIN}/v2/avatars`);
+    const voices = await readList(`${HEYGEN_API_ORIGIN}/v2/voices`);
+    if (avatars === null || voices === null) {
+      return json(
+        request,
+        { ok: false, code: "duet_provider_catalog_unavailable" },
+        503,
+      );
+    }
+    const talkingPhotos = (Array.isArray(avatars.talking_photos)
+      ? avatars.talking_photos
+      : [])
+      .filter(isRecord)
+      .map((item) => ({
+        kind: "talking_photo",
+        id: safeText(item.talking_photo_id, 128),
+        name: safeText(item.talking_photo_name, 120) || "Фото-аватар",
+        preview_image_url: safeHttpsUrl(item.preview_image_url),
+      }))
+      .filter((item) => item.id)
+      .slice(0, 200);
+    const videoAvatars = (Array.isArray(avatars.avatars) ? avatars.avatars : [])
+      .filter(isRecord)
+      .map((item) => ({
+        kind: "avatar",
+        id: safeText(item.avatar_id, 128),
+        name: safeText(item.avatar_name, 120) || "Видеоаватар",
+        preview_image_url: safeHttpsUrl(item.preview_image_url),
+        premium: item.premium === true,
+      }))
+      .filter((item) => item.id)
+      .slice(0, 200);
+    const voiceList = (Array.isArray(voices.voices) ? voices.voices : [])
+      .filter(isRecord)
+      .map((item) => ({
+        id: safeText(item.voice_id, 128),
+        name: safeText(item.name, 120) || "Голос",
+        language: safeText(item.language, 60),
+        gender: safeText(item.gender, 20),
+        preview_audio: safeHttpsUrl(item.preview_audio),
+      }))
+      .filter((item) => item.id)
+      .slice(0, 400);
+    return json(request, {
+      ok: true,
+      version: "duet-presenter-catalog-v1",
+      presenters: [...talkingPhotos, ...videoAvatars],
+      voices: voiceList,
+    });
+  }
+
   const strategyCatalogPayload = readStrategyCatalogPayload(body);
   if (!internalWorker && strategyCatalogPayload !== null) {
     // This authenticated RPC is used only as a lightweight active-role and
@@ -6350,9 +7213,11 @@ async function handleCreatorGenerate(
         },
       );
       if (error !== null) {
+        noteGenerationRefusal(request, "strategy_catalog.role_proof", error);
         return json(request, { ok: false, code: "generation_rejected" }, 403);
       }
     } catch {
+      noteGenerationRefusal(request, "strategy_catalog.role_proof_threw");
       return json(request, { ok: false, code: "generation_unavailable" }, 503);
     }
 
@@ -6360,6 +7225,7 @@ async function handleCreatorGenerate(
       strategyCatalogPayload.organization_id,
     );
     if (strategyCatalogPolicy === null) {
+      noteGenerationRefusal(request, "strategy_catalog.policy_unavailable");
       return json(
         request,
         { ok: false, code: "generation_unavailable" },
@@ -6423,9 +7289,11 @@ async function handleCreatorGenerate(
         { p_payload: { organization_id: modelCatalogPayload.organization_id } },
       );
       if (error !== null) {
+        noteGenerationRefusal(request, "model_catalog.spend_proof", error);
         return json(request, { ok: false, code: "generation_rejected" }, 403);
       }
     } catch {
+      noteGenerationRefusal(request, "model_catalog.spend_proof_threw");
       return json(request, { ok: false, code: "generation_unavailable" }, 503);
     }
     let modelFeatureFlags: GenerationModelFeatureFlags | null = null;
@@ -6445,6 +7313,7 @@ async function handleCreatorGenerate(
       modelFeatureFlags = null;
     }
     if (modelFeatureFlags === null) {
+      noteGenerationRefusal(request, "model_catalog.feature_flags_unavailable");
       return json(
         request,
         { ok: false, code: "generation_unavailable" },
@@ -6638,6 +7507,18 @@ async function handleCreatorGenerate(
             selection: strategyBindPayload.generation_strategy as Json,
             confirmation: true,
             idempotency_key: strategyBindPayload.idempotency_key,
+            // Ключ появляется в запросе только вместе с выбором оператора:
+            // база отличает «движок не выбран» от «выбран» по наличию поля, а
+            // не по его содержимому.
+            ...(strategyBindPayload.engine === undefined
+              ? {}
+              : { engine: strategyBindPayload.engine as unknown as Json }),
+            // Как и с движком: ключ появляется в запросе только тогда, когда
+            // оператор назвал ведущего. База отличает «не передан» от
+            // «передан» по наличию поля, и для «Копии» его наличие — отказ.
+            ...(strategyBindPayload.duet_presenter_id === undefined
+              ? {}
+              : { duet_presenter_id: strategyBindPayload.duet_presenter_id }),
           },
         },
       );
@@ -6932,6 +7813,8 @@ async function handleCreatorGenerate(
       }
       const policy = readGenerationStrategyProviderPolicy(policyRpc.data, {
         strategyId: spend.strategyId,
+        provider: spend.provider,
+        pricingVersion: result.receipt.pricing_version,
         bindingId: strategyPreflightPayload.binding_id,
         bindingHash: strategyPreflightPayload.binding_hash,
         receiptId: result.receipt.id,
@@ -7144,6 +8027,32 @@ async function handleCreatorGenerate(
     }
   };
 
+  const strategyReconciliationActorAllowed = async (
+    organizationId: string,
+    actorId: string,
+  ): Promise<boolean> => {
+    try {
+      const membership = await supabaseAdmin.schema("content_factory")
+        .from("memberships")
+        .select("role, status")
+        .eq("organization_id", organizationId)
+        .eq("profile_id", actorId)
+        .maybeSingle();
+      const profile = await supabaseAdmin.schema("content_factory")
+        .from("profiles")
+        .select("status")
+        .eq("id", actorId)
+        .maybeSingle();
+      return membership.error === null && profile.error === null &&
+        isRecord(membership.data) && isRecord(profile.data) &&
+        membership.data.status === "active" &&
+        new Set(["owner", "admin"]).has(String(membership.data.role || "")) &&
+        profile.data.status === "active";
+    } catch {
+      return false;
+    }
+  };
+
   const reconcileSystemJob = async (
     payload: Record<string, Json>,
   ): Promise<boolean> => {
@@ -7181,6 +8090,11 @@ async function handleCreatorGenerate(
         failurePayload.provider_failure_code = providerFailureCode;
       }
     }
+    logGenerationJobFailure("job.marked_failed", safeCode, {
+      jobId,
+      provider,
+      providerCode: providerFailureCode,
+    });
     await updateSystemJob(failurePayload);
   };
 
@@ -7212,6 +8126,12 @@ async function handleCreatorGenerate(
       projectId,
     );
     if (current === null) {
+      noteGenerationRefusal(
+        request,
+        "respond_current.status_read_failed",
+        undefined,
+        { jobId },
+      );
       return json(
         request,
         { ok: false, code: "generation_unavailable" },
@@ -7224,6 +8144,12 @@ async function handleCreatorGenerate(
     if (
       !internalWorker && current.status === "succeeded" && signedUrl === null
     ) {
+      noteGenerationRefusal(
+        request,
+        "respond_current.output_signing_failed",
+        undefined,
+        { jobId },
+      );
       return json(request, {
         ok: false,
         code: "output_access_failed",
@@ -7249,6 +8175,12 @@ async function handleCreatorGenerate(
       organizationId,
       jobId,
       projectId,
+    );
+    noteGenerationRefusal(
+      request,
+      "provider.task_unusable",
+      current?.failureCode,
+      { jobId },
     );
     return json(request, {
       ok: false,
@@ -7277,6 +8209,7 @@ async function handleCreatorGenerate(
       jobId,
       projectId,
     );
+    noteGenerationRefusal(request, "finalization.retryable", code, { jobId });
     return json(request, {
       ok: false,
       code,
@@ -7296,6 +8229,12 @@ async function handleCreatorGenerate(
       payload.project_id,
     );
     if (current === null) {
+      noteGenerationRefusal(
+        request,
+        "status.job_read_failed",
+        undefined,
+        { jobId: payload.job_id },
+      );
       return json(
         request,
         { ok: false, code: "generation_unavailable" },
@@ -7507,6 +8446,12 @@ async function handleCreatorGenerate(
         processing = null;
       }
       if (processing === null) {
+        noteGenerationRefusal(
+          request,
+          "status.running_to_processing_failed",
+          undefined,
+          { jobId: current.id },
+        );
         return json(request, {
           ok: false,
           code: "generation_unavailable",
@@ -7567,6 +8512,12 @@ async function handleCreatorGenerate(
         processing = null;
       }
       if (processing === null) {
+        noteGenerationRefusal(
+          request,
+          "status.submitted_to_processing_failed",
+          undefined,
+          { jobId: current.id },
+        );
         return json(request, {
           ok: false,
           code: "generation_unavailable",
@@ -7579,6 +8530,12 @@ async function handleCreatorGenerate(
         payload.project_id,
       );
       if (refreshed === null) {
+        noteGenerationRefusal(
+          request,
+          "status.reread_after_processing_failed",
+          undefined,
+          { jobId: current.id },
+        );
         return json(request, {
           ok: false,
           code: "generation_unavailable",
@@ -7599,6 +8556,12 @@ async function handleCreatorGenerate(
         refreshed.status !== "processing" ||
         refreshed.providerTaskId !== current.providerTaskId
       ) {
+        noteGenerationRefusal(
+          request,
+          "status.processing_claim_lost",
+          refreshed.status,
+          { jobId: current.id },
+        );
         return json(request, {
           ok: false,
           code: "generation_unavailable",
@@ -7622,123 +8585,107 @@ async function handleCreatorGenerate(
 
     const photoOutput = current.model === "seedream5_lite";
     const outputMimeType = photoOutput ? "image/png" : "video/mp4";
-    let outputBytes: Uint8Array<ArrayBuffer>;
-    try {
-      const outputResult: OutputFetchResult = current.provider === "google"
-        ? await fetchGoogleOutput(outputUrl, secret)
-        : await withFetchDeadline(
+    const allowedOutputMimeTypes = photoOutput
+      ? new Set(["image/png", "application/octet-stream"])
+      : new Set([
+        "video/mp4",
+        "application/mp4",
+        "application/octet-stream",
+      ]);
+    let archivedOutput: { size_bytes: number; sha256: string };
+    if (current.provider === "google") {
+      // Google отдаёт файл через цепочку редиректов с ключом в заголовке —
+      // этот путь остаётся буферным (fetchGoogleOutput), его результат мал.
+      let outputBytes: Uint8Array<ArrayBuffer>;
+      try {
+        const outputResult: OutputFetchResult = await fetchGoogleOutput(
           outputUrl,
-          { method: "GET", redirect: "manual" },
-          OUTPUT_TIMEOUT_MS,
-          async (outputResponse) => {
-            const mimeType = (outputResponse.headers.get("content-type") ?? "")
-              .split(";", 1)[0].trim().toLocaleLowerCase("en-US");
-            if (!outputResponse.ok) {
-              await outputResponse.body?.cancel();
-              return {
-                ok: false as const,
-                code: "output_download_failed" as const,
-              };
-            }
-            const allowedMimeTypes = photoOutput
-              ? new Set(["image/png", "application/octet-stream"])
-              : new Set([
-                "video/mp4",
-                "application/mp4",
-                "application/octet-stream",
-              ]);
-            if (!allowedMimeTypes.has(mimeType)) {
-              await outputResponse.body?.cancel();
-              return {
-                ok: false as const,
-                code: "output_validation_failed" as const,
-              };
-            }
-            try {
-              return {
-                ok: true as const,
-                bytes: await readBoundedBytes(
-                  outputResponse,
-                  MAX_OUTPUT_BYTES,
-                ),
-              };
-            } catch (error) {
-              return {
-                ok: false as const,
-                code: error instanceof ResponseSizeInvalidError
-                  ? "output_validation_failed" as const
-                  : "output_download_failed" as const,
-              };
-            }
-          },
+          secret,
         );
-      if (!outputResult.ok) {
+        if (!outputResult.ok) {
+          return await respondOutputRetryable(
+            outputResult.code,
+            payload.organization_id,
+            payload.job_id,
+            batch,
+            payload.project_id,
+          );
+        }
+        outputBytes = outputResult.bytes;
+      } catch {
         return await respondOutputRetryable(
-          outputResult.code,
+          "output_download_failed",
           payload.organization_id,
           payload.job_id,
           batch,
           payload.project_id,
         );
       }
-      outputBytes = outputResult.bytes;
-    } catch {
-      return await respondOutputRetryable(
-        "output_download_failed",
-        payload.organization_id,
-        payload.job_id,
-        batch,
-        payload.project_id,
-      );
-    }
-    if (
-      photoOutput ? !isPng(outputBytes) : !isMp4(outputBytes)
-    ) {
-      return await respondOutputRetryable(
-        "output_validation_failed",
-        payload.organization_id,
-        payload.job_id,
-        batch,
-        payload.project_id,
-      );
-    }
-    const digest = await sha256Hex(outputBytes);
-    const storage = supabaseAdmin.storage.from(STORAGE_BUCKET);
-    const uploadOptions = photoOutput
-      ? {
-        cacheControl: "31536000",
-        contentType: "image/png",
-        upsert: true,
-        metadata: { sha256: digest },
+      if (
+        photoOutput ? !isPng(outputBytes) : !isMp4(outputBytes)
+      ) {
+        return await respondOutputRetryable(
+          "output_validation_failed",
+          payload.organization_id,
+          payload.job_id,
+          batch,
+          payload.project_id,
+        );
       }
-      : {
-        cacheControl: "31536000",
-        contentType: "video/mp4",
-        upsert: true,
-        metadata: { sha256: digest },
-      };
-    let uploadError: unknown;
-    try {
-      const upload = await withOperationDeadline(
-        storage.upload(
-          current.outputObjectName,
-          outputBytes,
-          uploadOptions,
-        ),
-        OUTPUT_STORAGE_TIMEOUT_MS,
-      );
-      uploadError = upload.error;
-    } catch {
-      uploadError = new OperationDeadlineError();
-    }
-    if (uploadError) {
-      return await respondOutputRetryable(
-        "output_upload_failed",
-        payload.organization_id,
-        payload.job_id,
-        batch,
-        payload.project_id,
-      );
+      const digest = await sha256Hex(outputBytes);
+      const storage = supabaseAdmin.storage.from(STORAGE_BUCKET);
+      let uploadError: unknown;
+      try {
+        const upload = await withOperationDeadline(
+          storage.upload(
+            current.outputObjectName,
+            outputBytes,
+            {
+              cacheControl: "31536000",
+              contentType: outputMimeType,
+              upsert: true,
+              metadata: { sha256: digest },
+            },
+          ),
+          OUTPUT_STORAGE_TIMEOUT_MS,
+        );
+        uploadError = upload.error;
+      } catch {
+        uploadError = new OperationDeadlineError();
+      }
+      if (uploadError) {
+        return await respondOutputRetryable(
+          "output_upload_failed",
+          payload.organization_id,
+          payload.job_id,
+          batch,
+          payload.project_id,
+        );
+      }
+      archivedOutput = { size_bytes: outputBytes.byteLength, sha256: digest };
+    } else {
+      // Runway: ролик идёт в Storage потоком, без буфера целиком — см.
+      // archiveProviderOutputStream.
+      const archived = await archiveProviderOutputStream({
+        url: outputUrl,
+        timeoutMs: OUTPUT_TIMEOUT_MS + OUTPUT_STORAGE_TIMEOUT_MS,
+        maximumBytes: MAX_OUTPUT_BYTES,
+        allowedMimeTypes: allowedOutputMimeTypes,
+        sniff: photoOutput ? isPng : isMp4,
+        storage: providerOutputStorage(),
+        objectName: current.outputObjectName,
+        contentType: outputMimeType,
+      });
+      if (!archived.ok) {
+        return await respondOutputRetryable(
+          archived.code,
+          payload.organization_id,
+          payload.job_id,
+          batch,
+          payload.project_id,
+        );
+      }
+      archivedOutput = archived;
     }
 
     const successPayload = {
@@ -7747,8 +8694,8 @@ async function handleCreatorGenerate(
       status: "succeeded",
       output_object_name: current.outputObjectName,
       mime_type: outputMimeType,
-      size_bytes: outputBytes.byteLength,
-      sha256: digest,
+      size_bytes: archivedOutput.size_bytes,
+      sha256: archivedOutput.sha256,
     } satisfies Record<string, Json>;
     let completed: Json | null = null;
     try {
@@ -7817,13 +8764,17 @@ async function handleCreatorGenerate(
       ? payload.resolution === "attach_existing_task"
         ? "GOOGLE_OPERATION_ID_VERIFIED"
         : "GOOGLE_NO_OPERATION_VERIFIED"
+      : authorization.provider === "fal"
+      ? payload.resolution === "attach_existing_task"
+        ? "FAL_REQUEST_ID_VERIFIED"
+        : "FAL_NO_REQUEST_VERIFIED"
       : payload.resolution === "attach_existing_task"
       ? "RUNWAY_TASK_ID_VERIFIED"
       : "RUNWAY_NO_TASK_VERIFIED";
     if (
       payload.confirmation !== expectedConfirmation ||
       (payload.resolution === "attach_existing_task" &&
-        !isValidProviderTaskId(
+        !isValidReconciliationTaskId(
           authorization.provider,
           payload.provider_task_id,
         ))
@@ -7846,6 +8797,17 @@ async function handleCreatorGenerate(
     };
 
     if (payload.resolution === "attach_existing_task") {
+      // Legacy fal jobs do not carry the signed strategy route needed to
+      // verify a queue request.  They may be closed with the provider-bound
+      // no-request confirmation, but attaching a request is fail-closed here;
+      // strategy jobs use the route-aware handler below.
+      if (authorization.provider === "fal") {
+        return json(
+          request,
+          { ok: false, code: "generation_reconciliation_task_mismatch" },
+          422,
+        );
+      }
       const secret = authorization.provider === "google"
         ? googleApiKey()
         : runwaySecret();
@@ -8390,29 +9352,6 @@ async function handleCreatorGenerate(
     return { ok: true, assets: output };
   };
 
-  const strategyPromptHashesMatch = async (
-    recipeContext: Record<string, unknown>,
-  ): Promise<boolean> => {
-    const productInfo = recipeContext.productInfo;
-    const productInfoHash = recipeContext.productInfoHash;
-    const userConcept = recipeContext.userConcept;
-    const userConceptHash = recipeContext.userConceptHash;
-    if (
-      typeof productInfo === "string" &&
-      await sha256Hex(new TextEncoder().encode(productInfo)) !== productInfoHash
-    ) return false;
-    if (
-      productInfo === null && productInfoHash !== null ||
-      typeof productInfo !== "string" && productInfo !== null
-    ) return false;
-    if (
-      typeof userConcept === "string" &&
-      await sha256Hex(new TextEncoder().encode(userConcept)) !== userConceptHash
-    ) return false;
-    return !(userConcept === null && userConceptHash !== null) &&
-      (typeof userConcept === "string" || userConcept === null);
-  };
-
   const continueGenerationStrategyClaim = async (
     identity: {
       organizationId: string;
@@ -8443,7 +9382,7 @@ async function handleCreatorGenerate(
         },
       );
       if (error !== null) return null;
-      attempt = readGenerationStrategyDispatchAttempt(data, {
+      attempt = await readGenerationStrategyDispatchAttempt(data, {
         claimId: identity.claimId,
         claimHash: identity.claimHash,
         generationJobId: identity.generationJobId,
@@ -8503,16 +9442,41 @@ async function handleCreatorGenerate(
     if (routeProvider === null) {
       return await rejectBeforePost("input_asset_not_current");
     }
-    const routeProductCategory =
-      typeof attemptRow.product_category === "string"
-        ? attemptRow.product_category
-        : "other";
-    const secret = providerSecret(routeProvider);
-    if (secret === null) return await rejectBeforePost("input_signing_failed");
-    const recipeContext = attempt.recipe_context as Record<string, unknown>;
-    if (!(await strategyPromptHashesMatch(recipeContext))) {
+    const routeProductCategory = typeof attemptRow.product_category === "string"
+      ? attemptRow.product_category
+      : "other";
+    // Модель маршрута восстанавливается из той же подписи квитанции, по которой
+    // задачу потом будут опрашивать. Один источник на отправку и на опрос — это
+    // и есть защита от повисшего резерва: разойдись они, задача ушла бы к одной
+    // модели, а результат забирался бы у другой. Провайдер при этом обязан
+    // совпасть с тем, что назвала попытка отправки: два независимых пути к
+    // одному факту сверяются, а не заменяют друг друга.
+    const dispatchRoute = await loadGenerationStrategyJobRoute(
+      identity.organizationId,
+      identity.projectId,
+      identity.generationJobId,
+    );
+    if (dispatchRoute === null || dispatchRoute.provider !== routeProvider) {
       return await rejectBeforePost("input_asset_not_current");
     }
+    const secret = providerSecret(routeProvider);
+    if (secret === null) return await rejectBeforePost("input_signing_failed");
+    // Ведущий читается ЗДЕСЬ, перед сборкой запроса и до самой отправки.
+    // Отсутствие ответа — отказ: ведущий заархивирован либо согласие на его
+    // образ отозвано, и платить за его голос больше нельзя. Код отказа тот же,
+    // что у прочих несвежих входов: ведущий и есть вход, переставший быть
+    // текущим.
+    const duetPresenter = routeProvider === "heygen"
+      ? await loadGenerationStrategyDuetPresenter(
+        identity.organizationId,
+        identity.projectId,
+        identity.generationJobId,
+      )
+      : null;
+    if (routeProvider === "heygen" && duetPresenter === null) {
+      return await rejectBeforePost("input_asset_not_current");
+    }
+    const recipeContext = attempt.recipe_context as Record<string, unknown>;
     const signedAssets = await signAndValidateGenerationStrategyAssets(
       attempt.asset_context as Array<Record<string, unknown>>,
     );
@@ -8524,8 +9488,16 @@ async function handleCreatorGenerate(
       signedAssets.assets,
       routeProvider,
       routeProductCategory,
+      dispatchRoute.modelKey,
+      // Раскладка едет вместе с личностью: v2 HeyGen сам ставит ведущего в
+      // угол по scale/offset, которые адаптер выводит из раскладки.
+      duetPresenter === null
+        ? null
+        : { ...duetPresenter.presenter, layout: duetPresenter.layout },
     );
-    if (providerRequest === null || providerRequest.provider !== routeProvider) {
+    if (
+      providerRequest === null || providerRequest.provider !== routeProvider
+    ) {
       return await rejectBeforePost("input_asset_not_current");
     }
     const providerTarget = providerRequestTarget(
@@ -8564,13 +9536,17 @@ async function handleCreatorGenerate(
         },
         PROVIDER_TIMEOUT_MS,
       );
-      // Оба провайдера отвечают идентификатором задачи, но полями разной формы:
-      // Runway — task.id, очередь fal — request_id вместе с адресами статуса и
-      // результата, которые дальше используются как есть.
+      // Все три провайдера отвечают идентификатором задачи, но полями разной
+      // формы: Runway — task.id, очередь fal — request_id вместе с адресами
+      // статуса и результата, HeyGen — data.video_id во вложенном объекте.
+      // Адресов HeyGen не присылает: у него адрес статуса предсказуем и
+      // собирается из идентификатора.
       let task = !response.ok
         ? null
         : routeProvider === "fal"
         ? parseCreatedFalRequest(response.value)
+        : routeProvider === "heygen"
+        ? parseCreatedHeygenVideo(response.value)
         : parseCreatedRunwayTask(response.value);
       if (task !== null && routeProvider === "fal") {
         const created = task as {
@@ -8578,29 +9554,36 @@ async function handleCreatorGenerate(
           statusUrl: string;
           responseUrl: string;
         };
-        const expected = falQueueUrls(
-          providerRequest.endpointPath,
-          created.id,
-        );
-        // Адреса будут восстановлены при опросе по этому же образцу, поэтому
-        // расхождение здесь означает, что забрать результат мы не сможем.
+        // Проверяется ПРИНАДЛЕЖНОСТЬ адресов этой задаче, а не совпадение с
+        // нашим образцом пути. Прежде здесь стояло строгое равенство, и на
+        // разнице «полный путь модели против корня приложения» мы выбрасывали
+        // номер уже созданной задачи — провайдер отвечал 200, а наряд получал
+        // «отправка неоднозначна» и повисал. Номер задачи важнее формы адреса:
+        // по нему ролик можно забрать, без него нельзя ничего.
         if (
-          created.statusUrl !== expected.statusUrl ||
-          created.responseUrl !== expected.responseUrl
+          !created.statusUrl.startsWith(`${FAL_QUEUE_ORIGIN}/`) ||
+          !created.responseUrl.startsWith(`${FAL_QUEUE_ORIGIN}/`) ||
+          !created.statusUrl.includes(`/requests/${created.id}`) ||
+          !created.responseUrl.includes(`/requests/${created.id}`)
         ) {
           task = null;
-          providerRejectionText = "provider queue url shape changed";
+          providerRejectionText = "provider queue url not bound to request";
         }
       }
       if (!response.ok && typeof response.value === "string") {
         // The provider's validation text belongs in the recorded evidence, not
         // in a response the caller reads: it can quote signed asset URLs.
-        providerRejectionText =
-          `provider ${response.status}: ${response.value}`.slice(0, 400);
+        providerRejectionText = `provider ${response.status}: ${response.value}`
+          .slice(0, 400);
       }
       evidenceValue = {
         status: response.status,
         body: response.value ?? null,
+        // Наша собственная причина отказа, а не провайдерская: при 200 с чужим
+        // адресом очереди тело ответа выглядит успешным, и без этой строки в
+        // свидетельстве не осталось бы ни следа того, почему задача не принята.
+        // До 22.08.2026 значение собиралось и выбрасывалось.
+        rejection: providerRejectionText,
       };
       outcome = classifyRunwayRecipeCreateOutcome({
         kind: "response",
@@ -8619,8 +9602,7 @@ async function handleCreatorGenerate(
       };
       outcome = classifyRunwayRecipeCreateOutcome({
         kind: "network",
-        errorName:
-          String((error as { name?: unknown })?.name ?? "unknown") ||
+        errorName: String((error as { name?: unknown })?.name ?? "unknown") ||
           "unknown",
       });
     }
@@ -8683,6 +9665,212 @@ async function handleCreatorGenerate(
     }
   };
 
+  // Умеет ли этот код исполнять названную модель. Список форм запроса живёт в
+  // общем каталоге рядом с адаптером, который эти запросы собирает: отправка и
+  // опрос обязаны опираться на одно и то же знание, иначе задачу отправили бы
+  // одной моделью, а забирали бы у другой.
+  //
+  // Проверяется именно ИСПОЛНИМОСТЬ, а не совпадение с единственным именем:
+  // моделей у одного провайдера уже две, и «правильная» из них та, которую
+  // назвал оплаченный маршрут, а не та, которую код помнит наизусть.
+  const falModelExecutable = (recipe: unknown, modelKey: unknown): boolean =>
+    typeof recipe === "string" && typeof modelKey === "string" &&
+    falStrategyRequestShape(recipe, modelKey) !== null;
+
+  // Маршрут КОНКРЕТНОЙ задачи: провайдер и модель берутся из подписанной
+  // квитанции готовности, по которой эта задача оплачена, а не из литерала, не
+  // из значения по умолчанию и не из «первого включённого» маршрута реестра.
+  //
+  // Почему это денежный вопрос. Квитанция подписана вместе с ценой, поэтому
+  // назвать другой движок после расчёта нельзя. Реестр маршрутов спрашивается
+  // только о том, каким адресом опрашивать этот движок, и спрашивается по паре
+  // (провайдер, версия прайса): именно она различает два ВКЛЮЧЁННЫХ маршрута
+  // fal — Pika за ролик и Kling за секунду. Выборка «любой включённый маршрут
+  // fal» собирала бы для задачи Pika адрес Kling, опрос никогда бы не
+  // завершился, задача не попала бы в архив, а резерв остался бы висеть.
+  //
+  // Неоднозначность и расхождение — отказ, а не догадка: на денежном пути
+  // молчаливый выбор движка дороже честной остановки.
+  //
+  // Доступ здесь НЕ проверяется намеренно, и это не упущение: чтение возвращает
+  // только имя движка и модели, а право смотреть на наряд уже проверено
+  // вызывающим — браузерный путь до этого читает статус через
+  // system_generation_strategy_status (там руководитель имеет право видеть чужой
+  // наряд), воркер приходит внутренним каналом. Условие actor_id здесь
+  // отказывало бы руководителю в опросе чужого наряда — то есть создавало бы
+  // ровно тот повисший резерв, который эта функция закрывает. Клейм у наряда
+  // ровно один: unique (organization_id, generation_job_id).
+  // Личность ведущего «Дуэта» — ФУНКЦИЯ-СОСЕД, а не расширение загрузчика
+  // маршрута. У того пять вызывающих, и четырём из них знать, кто говорит,
+  // незачем: лишнее чтение на пути опроса — это лишний способ уронить запуск,
+  // который уже оплачен.
+  //
+  // Разделение, ради которого всё это существует:
+  //   presenter — ЧЕМ ведущий является у провайдера — читается СЕЙЧАС, и
+  //     заархивированный или отозванный ведущий останавливает отправку;
+  //   layout — КАК его врезать в кадр — приходит из ПОДПИСАННОЙ привязки,
+  //     чтобы правка раскладки задним числом не сдвинула оплаченный ролик.
+  //
+  // Обёртка отдаёт presenter ровно тремя ключами: приватную схему PostgREST не
+  // выставляет, а duet_presenter_identity кладёт внутрь ещё и раскладку —
+  // передача «как есть» упёрлась бы в точный набор ключей адаптера.
+  const loadGenerationStrategyDuetPresenter = async (
+    organizationId: string,
+    projectId: string,
+    generationJobId: string,
+  ): Promise<
+    {
+      presenter: {
+        avatarId: string;
+        voiceId: string;
+        aspectRatio: string;
+        avatarKind?: string;
+      };
+      layout: Record<string, unknown>;
+    } | null
+  > => {
+    try {
+      const { data, error } = await supabaseAdmin.rpc(
+        "system_generation_strategy_duet_presenter",
+        {
+          p_payload: {
+            version: "generation-strategy-duet-presenter-request-v1",
+            organization_id: organizationId,
+            project_id: projectId,
+            generation_job_id: generationJobId,
+          },
+        },
+      );
+      if (error !== null || !isRecord(data) || data.ok !== true) return null;
+      const presenter = data.presenter;
+      const layout = data.layout;
+      if (!isRecord(presenter) || !isRecord(layout)) return null;
+      const { avatarId, voiceId, aspectRatio, avatarKind } = presenter;
+      // avatarKind — вид личности у провайдера (фото-аватар или видеоаватар);
+      // появился миграцией 202608230022, старая обёртка его не отдаёт.
+      const keyCount = Object.keys(presenter).length;
+      if (
+        (keyCount !== 3 && keyCount !== 4) ||
+        (keyCount === 4 && !Object.hasOwn(presenter, "avatarKind")) ||
+        typeof avatarId !== "string" || typeof voiceId !== "string" ||
+        typeof aspectRatio !== "string" ||
+        (avatarKind !== undefined && avatarKind !== "talking_photo" &&
+          avatarKind !== "avatar")
+      ) return null;
+      return {
+        presenter: {
+          avatarId,
+          voiceId,
+          aspectRatio,
+          ...(typeof avatarKind === "string" ? { avatarKind } : {}),
+        },
+        layout: layout as Record<string, unknown>,
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  const loadGenerationStrategyJobRoute = async (
+    organizationId: string,
+    projectId: string,
+    generationJobId: string,
+  ): Promise<{ provider: string; modelKey: string | null } | null> => {
+    try {
+      const claims = await supabaseAdmin.schema("content_factory")
+        .from("generation_strategy_start_claims")
+        .select(
+          "organization_id, project_id, generation_job_id, " +
+            "readiness_receipt_id, receipt_hash",
+        )
+        .eq("organization_id", organizationId)
+        .eq("project_id", projectId)
+        .eq("generation_job_id", generationJobId)
+        .maybeSingle();
+      if (claims.error !== null || !isRecord(claims.data)) return null;
+      const receiptId = claims.data.readiness_receipt_id;
+      const receiptHash = claims.data.receipt_hash;
+      if (
+        !isUuid(receiptId) || typeof receiptHash !== "string" ||
+        !SHA256_PATTERN.test(receiptHash)
+      ) return null;
+      const receipts = await supabaseAdmin.schema("content_factory")
+        .from("generation_strategy_readiness_receipts")
+        .select(
+          "id, organization_id, project_id, strategy_id, recipe, provider, " +
+            "pricing_version, receipt_hash",
+        )
+        .eq("organization_id", organizationId)
+        .eq("project_id", projectId)
+        .eq("id", receiptId)
+        .maybeSingle();
+      if (receipts.error !== null || !isRecord(receipts.data)) return null;
+      const receipt = receipts.data;
+      const strategyId = readGenerationStrategyId(receipt.strategy_id);
+      const pricingVersion = typeof receipt.pricing_version === "string"
+        ? receipt.pricing_version
+        : "";
+      if (
+        receipt.receipt_hash !== receiptHash || strategyId === null ||
+        !isKnownStrategyProvider(receipt.provider) ||
+        !isKnownStrategyPricingVersion(pricingVersion)
+      ) return null;
+      const provider = String(receipt.provider);
+      // Runway опрашивается по номеру задачи: модель в адрес не входит, и
+      // поведение этой ветки остаётся прежним до буквы.
+      if (provider === "runway") return { provider, modelKey: null };
+      // Строка реестра ровно одна: пара (провайдер, версия прайса) среди
+      // включённых маршрутов уникальна по построению — за этим следит
+      // частичный индекс generation_strategy_provider_routes_signature_key
+      // (202608190006). Выборка берёт с запасом и требует единственности, а не
+      // берёт первую: две строки означали бы, что подпись перестала указывать
+      // на один движок, и тогда опрашивать наугад нельзя.
+      //
+      // Отметка enabled в условие НЕ входит намеренно. Она отвечает на вопрос
+      // «продаём ли мы этот движок сейчас», а здесь спрашивают о задаче,
+      // которая уже оплачена и уже создана у провайдера. Выключение маршрута
+      // после старта обязано остановить новые запуски, а не оборвать опрос
+      // старых: оборванный опрос — это в точности повисший резерв.
+      const routes = await supabaseAdmin.schema("content_factory")
+        .from("generation_strategy_provider_routes")
+        .select("model_key, provider_path, poll_kind")
+        .eq("strategy_id", strategyId)
+        .eq("provider", provider)
+        .eq("pricing_version", pricingVersion)
+        .limit(4);
+      if (
+        routes.error !== null || !Array.isArray(routes.data) ||
+        routes.data.length !== 1
+      ) return null;
+      const route = routes.data[0] as Record<string, unknown>;
+      // Модель называет реестр — он же назвал цену, по которой запуск оплачен.
+      // Код проверяет не имя, а способность её исполнить: включённая строка,
+      // формы запроса которой у нас нет, означала бы отправку тела чужой формы
+      // и результат, который некому забрать.
+      if (!isRecord(route) || typeof route.model_key !== "string") return null;
+      // У «Дуэта» устройство другое: адрес отправки один на все запросы
+      // (/v3/videos), а модель — движок аватара, поэтому равенства
+      // provider_path и model_key здесь нет и быть не должно. Формы запроса fal
+      // у него тоже нет: тело собирает собственный адаптер.
+      if (provider === "heygen") {
+        if (
+          route.poll_kind !== "heygen_video" ||
+          route.provider_path !== "/v2/video/generate" ||
+          receipt.recipe !== "product_ugc"
+        ) return null;
+        return { provider, modelKey: route.model_key };
+      }
+      if (
+        route.poll_kind !== "fal_request" ||
+        route.provider_path !== route.model_key ||
+        !falModelExecutable(receipt.recipe, route.model_key)
+      ) return null;
+      return { provider, modelKey: route.model_key };
+    } catch {
+      return null;
+    }
+  };
+
   const pollGenerationStrategyProvider = async (
     identity: {
       organizationId: string;
@@ -8690,96 +9878,334 @@ async function handleCreatorGenerate(
       actorId: string;
       generationJobId: string;
       providerTaskId: string;
-      provider?: string;
-      statusUrl?: string | null;
-      responseUrl?: string | null;
+      // Маршрут обязателен: у провайдера опроса нет значения по умолчанию.
+      // Прежде здесь стояло `provider === "fal" ? "fal" : "runway"`, а оба
+      // вызывающих поле не передавали вовсе — то есть задача fal опрашивалась
+      // рунвеевским ключом по рунвеевскому адресу и не завершалась никогда.
+      route: { provider: string; modelKey: string | null };
+      recordMode: GenerationStrategyProviderPollMode;
     },
   ): Promise<string | null> => {
-    const provider = identity.provider === "fal" ? "fal" : "runway";
-    const secret = providerSecret(provider);
-    if (secret === null) return null;
-    // Модель нужна, чтобы восстановить адреса очереди: она хранится в реестре
-    // маршрутов, а не в наряде, поэтому читается здесь.
-    let falModelKey: string | null = null;
-    if (provider === "fal") {
-      try {
-        const { data } = await supabaseAdmin
-          .schema("content_factory")
-          .from("generation_strategy_provider_routes")
-          .select("model_key")
-          .eq("provider", "fal")
-          .eq("enabled", true)
-          .limit(1)
-          .maybeSingle();
-        const key = (data as { model_key?: unknown } | null)?.model_key;
-        falModelKey = typeof key === "string" && key.length > 1 ? key : null;
-      } catch {
-        falModelKey = null;
+    const provider = identity.route.provider;
+    if (
+      identity.recordMode !== "record_status" &&
+      identity.recordMode !== "recover_fal_result_http_405" &&
+      identity.recordMode !== "recover_fal_result_http_413"
+    ) return null;
+    const recoveryFailureCode = identity.recordMode ===
+        "recover_fal_result_http_405"
+      ? "provider_result_http_405"
+      : identity.recordMode === "recover_fal_result_http_413"
+      ? "provider_result_http_413"
+      : null;
+    const recoveryMode = recoveryFailureCode !== null;
+    // A recovery request deliberately returns the unchanged public status when
+    // any GET/read/finalization step cannot be proved.  That HTTP 200 used to
+    // make every early exit invisible in function_logs.  Reuse the governed
+    // refusal trail here: only a closed machine code and the already-public
+    // job UUID can enter the log, never a provider URL, response body or key.
+    const recoveryExit = (code: string): null => {
+      if (recoveryMode) {
+        noteGenerationRefusal(request, "strategy_recovery.poll", code, {
+          jobId: identity.generationJobId,
+        });
       }
-      if (falModelKey === null) return null;
+      return null;
+    };
+    // The recovery writer is deliberately fal-only. A future caller cannot
+    // turn this mode into a Runway retry merely by supplying a Runway route.
+    if (recoveryMode && provider !== "fal") {
+      return recoveryExit("provider_route_invalid");
     }
-    const falUrls = falModelKey === null
-      ? null
-      : falQueueUrls(falModelKey, identity.providerTaskId);
+    const secret = providerSecret(provider);
+    if (secret === null) return recoveryExit("provider_secret_unavailable");
+    const falModelKey = provider === "fal" ? identity.route.modelKey : null;
+    if (provider === "fal" && falModelKey === null) {
+      return recoveryExit("model_route_unavailable");
+    }
     // Runway отвечает статусом и ссылкой на результат сразу; очередь fal
-    // сообщает только статус, а готовый ролик лежит по отдельному адресу,
-    // который провайдер вернул при создании задачи.
-    const statusUrl = provider === "fal"
-      ? falUrls?.statusUrl ?? null
-      : `${RUNWAY_API_ORIGIN}/v1/tasks/${identity.providerTaskId}`;
-    if (statusUrl === null) return null;
-    const statusHeaders = provider === "fal"
+    // сообщает только статус, а готовый ролик лежит по отдельному адресу.
+    // Какой из двух адресов очереди действителен — корень приложения или
+    // полный путь модели, — решает провайдер, поэтому перебираются оба и
+    // запоминается тот, что ответил: по нему же забирается результат.
+    const falCandidates = falModelKey === null
+      ? []
+      : falQueueUrlCandidates(falModelKey, identity.providerTaskId);
+    // Тип объявлен явно. Иначе выводится союз трёх разных форм объекта, где у
+    // каждой ветки чужие ключи объявлены как undefined, — а такой союз в
+    // HeadersInit не годится, и fetch перестаёт собираться целиком.
+    const statusHeaders: Record<string, string> = provider === "fal"
       ? { authorization: `Key ${secret}` }
+      : provider === "heygen"
+      // У HeyGen ключ идёт заголовком x-api-key и на отправке, и на опросе.
+      ? { "x-api-key": secret }
       : {
         authorization: `Bearer ${secret}`,
         "x-runway-version": RUNWAY_API_VERSION,
       };
-    let response: ProviderJsonResult;
-    try {
-      response = await fetchProviderJsonWithDeadline(
-        statusUrl,
-        { method: "GET", redirect: "manual", headers: statusHeaders },
-        PROVIDER_TIMEOUT_MS,
-      );
-    } catch {
-      return null;
-    }
-    if (!response.ok) return null;
-    let providerState = provider === "fal"
-      ? falStrategyProviderStatus(response.value)
-      : runwayStrategyProviderStatus(response.value);
-    if (
-      providerState === null || !isRecord(response.value) ||
-      (provider === "runway" &&
-        response.value.id !== identity.providerTaskId)
-    ) return null;
-    if (provider === "fal" && providerState.providerStatus === "succeeded") {
-      // Второй запрос за самим роликом: без него у нас нет ссылки на файл.
-      const responseUrl = falUrls?.responseUrl ?? null;
-      if (responseUrl === null) return null;
-      let resultResponse: ProviderJsonResult;
+    let falUrls: { statusUrl: string; resultUrl: string } | null = null;
+    let response: ProviderJsonResult | null = null;
+    if (provider === "fal") {
+      for (const candidate of falCandidates) {
+        let attempt: ProviderJsonResult;
+        try {
+          attempt = await fetchProviderJsonWithDeadline(
+            candidate.statusUrl,
+            { method: "GET", redirect: "manual", headers: statusHeaders },
+            PROVIDER_TIMEOUT_MS,
+          );
+        } catch {
+          continue;
+        }
+        if (!attempt.ok) continue;
+        falUrls = candidate;
+        response = attempt;
+        break;
+      }
+    } else if (provider === "heygen") {
+      // Адрес статуса собирается из идентификатора задачи. Ролик создаётся
+      // через v2 (фоновое видео), а статус у HeyGen един для поколений:
+      // сначала спрашивается v3 `GET /v3/videos/{id}`, при отказе — v1
+      // `GET /v1/video_status.get?video_id=`. Идентификатор один и тот же.
+      const heygenStatusUrls = [
+        `${HEYGEN_API_ORIGIN}/v3/videos/${identity.providerTaskId}`,
+        `${HEYGEN_API_ORIGIN}/v1/video_status.get?video_id=${
+          encodeURIComponent(identity.providerTaskId)
+        }`,
+      ];
+      for (const statusUrl of heygenStatusUrls) {
+        let attempt: ProviderJsonResult;
+        try {
+          attempt = await fetchProviderJsonWithDeadline(
+            statusUrl,
+            { method: "GET", redirect: "manual", headers: statusHeaders },
+            PROVIDER_TIMEOUT_MS,
+          );
+        } catch {
+          continue;
+        }
+        if (!attempt.ok) continue;
+        response = attempt;
+        break;
+      }
+      if (response === null) {
+        return recoveryExit("provider_status_unavailable");
+      }
+    } else {
       try {
-        resultResponse = await fetchProviderJsonWithDeadline(
-          responseUrl,
-          {
-            method: "GET",
-            redirect: "manual",
-            headers: { authorization: `Key ${secret}` },
-          },
+        response = await fetchProviderJsonWithDeadline(
+          `${RUNWAY_API_ORIGIN}/v1/tasks/${identity.providerTaskId}`,
+          { method: "GET", redirect: "manual", headers: statusHeaders },
           PROVIDER_TIMEOUT_MS,
         );
       } catch {
         return null;
       }
-      if (!resultResponse.ok) return null;
-      const videoUrl = readFalResultVideoUrl(resultResponse.value);
-      if (videoUrl === null) return null;
+    }
+    if (response === null || !response.ok) {
+      return recoveryExit("status_candidates_exhausted");
+    }
+    let providerState = provider === "fal"
+      ? falStrategyProviderStatus(response.value)
+      : provider === "heygen"
+      // У HeyGen поля лежат внутри вложенного data, а ссылка на готовый ролик
+      // приходит вместе со статусом — второго запроса, как у fal, не нужно.
+      ? heygenStrategyProviderStatus(response.value, identity.providerTaskId)
+      : runwayStrategyProviderStatus(response.value);
+    let falStoredResultEvidence: Record<string, unknown> | null = null;
+    if (
+      providerState === null || !isRecord(response.value) ||
+      (provider === "runway" &&
+        response.value.id !== identity.providerTaskId)
+    ) return recoveryExit("status_unclassified");
+    if (provider === "fal" && providerState.providerStatus === "succeeded") {
+      // Второй запрос за самим роликом: без него у нас нет ссылки на файл.
+      // status.response_url is provider-owned, so it goes first after strict
+      // queue.fal.run + request-id validation. The shared reader tries the
+      // provider-owned response_url exactly as returned, then its documented
+      // bare form; app-root and full-model bare URLs remain bounded fallbacks.
+      const orderedFalResultCandidates = falUrls === null
+        ? []
+        : [falUrls, ...falCandidates];
+      const result = await fetchFalQueueResult({
+        statusValue: response.value,
+        requestId: identity.providerTaskId,
+        // Preserve the exact pre-diagnostics fetch order: the route whose
+        // status answered first, followed by both bounded fallbacks. A
+        // parallel closed label array adds observability without changing
+        // which provider URL is tried or when duplicates are removed.
+        resultUrls: orderedFalResultCandidates.map((candidate) =>
+          candidate.resultUrl
+        ),
+        resultClasses: orderedFalResultCandidates.map((candidate) =>
+          candidate.resultUrl === falCandidates[0]?.resultUrl
+            ? "app_root"
+            : "full_model"
+        ),
+        fetchJson: (
+          url: string,
+          init: { method: "GET" },
+        ): Promise<ProviderJsonResult> =>
+          fetchProviderJsonWithDeadline(
+            url,
+            {
+              ...init,
+              redirect: "manual",
+              // Match the official fal-js result reader's content
+              // negotiation while retaining manual redirect control so a
+              // cross-origin Location can never inherit the provider key.
+              headers: {
+                accept: "application/json",
+                "content-type": "application/json",
+                authorization: `Key ${secret}`,
+              },
+            },
+            PROVIDER_TIMEOUT_MS,
+          ),
+      });
+      const resultResponse = result.response as ProviderJsonResult | null;
+      const providerRefusedStatus = typeof result.refusedStatus === "number"
+        ? result.refusedStatus
+        : null;
+      const reportResultAttempts = (): void => {
+        if (!recoveryMode || !Array.isArray(result.attempts)) return;
+        const candidateClasses = new Set([
+          "provider_response_exact",
+          "provider_response_bare",
+          "app_root",
+          "full_model",
+        ]);
+        const outcomes = new Set([
+          "ok",
+          "http",
+          "redirect",
+          "thrown",
+          "invalid",
+        ]);
+        for (const attempt of result.attempts) {
+          if (
+            !isRecord(attempt) ||
+            typeof attempt.candidateClass !== "string" ||
+            typeof attempt.outcome !== "string" ||
+            !candidateClasses.has(attempt.candidateClass) ||
+            !outcomes.has(attempt.outcome)
+          ) continue;
+          noteGenerationRefusal(
+            request,
+            "strategy_recovery.result_get",
+            `${attempt.candidateClass}_${attempt.outcome}`,
+            {
+              jobId: identity.generationJobId,
+              upstreamStatus: typeof attempt.status === "number"
+                ? attempt.status
+                : undefined,
+            },
+          );
+        }
+      };
+      // No HTTP response from this separate result GET proves that the model
+      // task failed. fal's authoritative status endpoint already classified
+      // COMPLETED (and, above, any safe machine error_type). Authentication,
+      // throttling, route drift and transient 5xx here are all retrieval
+      // failures: leave the paid request recoverable and retry GET later.
+      let falResultValue: unknown = resultResponse?.value ?? null;
+      if (resultResponse === null) {
+        reportResultAttempts();
+        // Recovery only: fal's documented model-request Platform API exposes
+        // stored IO by exact endpoint + request id. This is a separate GET of
+        // the already-paid request, never a queue submit or a second model run.
+        if (recoveryMode && falModelKey !== null) {
+          const payloadUrl = falModelRequestPayloadUrl(
+            falModelKey,
+            identity.providerTaskId,
+          );
+          if (payloadUrl === null) {
+            return recoveryExit("stored_result_url_invalid");
+          }
+          let payloadResponse: ProviderJsonResult;
+          try {
+            payloadResponse = await fetchProviderJsonWithDeadline(
+              payloadUrl,
+              {
+                method: "GET",
+                redirect: "manual",
+                headers: {
+                  accept: "application/json",
+                  authorization: `Key ${secret}`,
+                },
+              },
+              PROVIDER_TIMEOUT_MS,
+            );
+          } catch {
+            return recoveryExit("stored_result_get_failed");
+          }
+          if (!payloadResponse.ok || payloadResponse.status !== 200) {
+            noteGenerationRefusal(
+              request,
+              "strategy_recovery.stored_result_get",
+              "http",
+              {
+                jobId: identity.generationJobId,
+                upstreamStatus: payloadResponse.status,
+              },
+            );
+            return recoveryExit("stored_result_get_refused");
+          }
+          const storedResult = readFalModelRequestOutput(
+            payloadResponse.value,
+            falModelKey,
+            identity.providerTaskId,
+            payloadResponse.status,
+          );
+          if (storedResult === null) {
+            return recoveryExit("stored_result_shape_invalid");
+          }
+          falResultValue = storedResult.output;
+          falStoredResultEvidence = {
+            version: "fal-model-request-payload-v1",
+            request_id: identity.providerTaskId,
+            endpoint_id: falModelKey,
+            status_code: storedResult.statusCode,
+            json_output: storedResult.output,
+          };
+        } else if (providerRefusedStatus === null) {
+          return recoveryExit("result_routes_exhausted");
+        } else {
+          return recoveryExit("result_get_refused");
+        }
+      }
+      const videoUrl = readFalResultVideoUrl(falResultValue);
+      if (videoUrl === null) {
+        reportResultAttempts();
+        return recoveryExit("result_shape_invalid");
+      }
       providerState = { ...providerState, outputUrl: videoUrl };
+    }
+    // A recovery status read is not a second provider-status transition. It
+    // can only consume the already-completed fal result; processing, refusal
+    // or cancellation leave the historical failed row untouched for review.
+    if (recoveryMode && providerState.providerStatus !== "succeeded") {
+      if (providerState.providerStatus === "processing") {
+        return recoveryExit("provider_processing");
+      }
+      if (providerState.providerStatus === "failed") {
+        noteGenerationRefusal(
+          request,
+          "strategy_recovery.provider",
+          providerState.failureCode ?? "provider_task_failed",
+          { jobId: identity.generationJobId },
+        );
+        return recoveryExit("provider_failed");
+      }
+      return recoveryExit("provider_cancelled");
     }
     const evidenceHash = await sha256Hex(new TextEncoder().encode(stableJson({
       version: "generation-strategy-provider-status-evidence-v1",
       provider_task_id: identity.providerTaskId,
       response: response.value,
+      ...(falStoredResultEvidence === null
+        ? {}
+        : { stored_result: falStoredResultEvidence }),
     })));
     let output: Record<string, Json> | null = null;
     if (providerState.providerStatus === "succeeded") {
@@ -8793,58 +10219,84 @@ async function handleCreatorGenerate(
         identity.actorId,
         identity.generationJobId,
       );
-      if (outputUrl === null || outputObjectName === null) return null;
-      let outputBytes: Uint8Array<ArrayBuffer>;
-      try {
-        outputBytes = await withFetchDeadline(
-          outputUrl,
-          { method: "GET", redirect: "manual" },
-          OUTPUT_TIMEOUT_MS,
-          async (outputResponse) => {
-            const mimeType = (outputResponse.headers.get("content-type") ?? "")
-              .split(";", 1)[0].trim().toLocaleLowerCase("en-US");
-            if (
-              outputResponse.status !== 200 || !new Set([
-                "video/mp4",
-                "application/mp4",
-                "application/octet-stream",
-              ]).has(mimeType)
-            ) {
-              await outputResponse.body?.cancel();
-              throw new Error("strategy_output_invalid");
-            }
-            return await readBoundedBytes(outputResponse, MAX_OUTPUT_BYTES);
-          },
-        );
-      } catch {
-        return null;
+      if (outputUrl === null) return recoveryExit("output_url_rejected");
+      if (outputObjectName === null) {
+        return recoveryExit("output_target_unavailable");
       }
-      if (!isMp4(outputBytes)) return null;
-      const digest = await sha256Hex(outputBytes);
-      try {
-        const uploaded = await withOperationDeadline(
-          supabaseAdmin.storage.from(STORAGE_BUCKET).upload(
-            outputObjectName,
-            outputBytes,
-            {
-              cacheControl: "31536000",
-              contentType: "video/mp4",
-              upsert: true,
-              metadata: { sha256: digest },
-            },
-          ),
-          OUTPUT_STORAGE_TIMEOUT_MS,
-        );
-        if (uploaded.error !== null) return null;
-      } catch {
-        return null;
+      // Ролик идёт в Storage потоком, без буфера в памяти изолята — см.
+      // archiveProviderOutputStream. Прежний путь (readBoundedBytes → sha256 →
+      // upload из буфера) держал до четырёх копий файла и падал по памяти на
+      // двенадцатисекундном Kling, оставляя оплаченный наряд в `processing`.
+      const archived = await archiveProviderOutputStream({
+        url: outputUrl,
+        timeoutMs: OUTPUT_TIMEOUT_MS + OUTPUT_STORAGE_TIMEOUT_MS,
+        maximumBytes: MAX_OUTPUT_BYTES,
+        allowedMimeTypes: new Set([
+          "video/mp4",
+          "application/mp4",
+          "application/octet-stream",
+        ]),
+        sniff: isMp4,
+        storage: providerOutputStorage(),
+        objectName: outputObjectName,
+        contentType: "video/mp4",
+      });
+      if (!archived.ok) {
+        if (archived.code === "output_upload_failed") {
+          return recoveryExit("storage_upload_failed");
+        }
+        return recoveryExit("output_download_invalid");
       }
       output = {
         output_object_name: outputObjectName,
         mime_type: "video/mp4",
-        size_bytes: outputBytes.byteLength,
-        sha256: digest,
+        size_bytes: archived.size_bytes,
+        sha256: archived.sha256,
       };
+    }
+    if (recoveryMode) {
+      if (output === null) return recoveryExit("result_shape_invalid");
+      const idempotency =
+        `strategy-result-recovery:${identity.generationJobId}:` +
+        evidenceHash.slice(0, 32);
+      try {
+        const recovered = await supabaseAdmin.rpc(
+          "system_recover_generation_strategy_provider_result",
+          {
+            input_payload: {
+              version:
+                "generation-strategy-provider-result-recovery-request-v1",
+              organization_id: identity.organizationId,
+              project_id: identity.projectId,
+              actor_id: identity.actorId,
+              generation_job_id: identity.generationJobId,
+              provider_task_id: identity.providerTaskId,
+              output,
+              provider_evidence_hash: evidenceHash,
+              confirmation: recoveryFailureCode ===
+                  "provider_result_http_413"
+                ? "FAL_RESULT_HTTP_413_RECOVERY_VERIFIED"
+                : "FAL_RESULT_HTTP_405_RECOVERY_VERIFIED",
+              idempotency_key: idempotency,
+            },
+          },
+        );
+        if (recovered.error !== null) {
+          return recoveryExit("recovery_rpc_rejected");
+        }
+        const parsed = readGenerationStrategyProviderResultRecovery(
+          recovered.data,
+          {
+            generationJobId: identity.generationJobId,
+            providerTaskId: identity.providerTaskId,
+          },
+        );
+        return parsed === null
+          ? recoveryExit("recovery_response_invalid")
+          : "succeeded";
+      } catch {
+        return recoveryExit("recovery_rpc_rejected");
+      }
     }
     const idempotency =
       `strategy-provider-status:${identity.generationJobId}:` +
@@ -8917,9 +10369,23 @@ async function handleCreatorGenerate(
           claimHash: worker.claim_hash,
           generationJobId: payload.generation_job_id,
         });
-        return continued === null
-          ? json(request, { ok: false, code: "generation_unavailable" }, 503)
-          : strategyWorkerResponse(payload.generation_job_id, continued.status);
+        if (continued === null) {
+          noteGenerationRefusal(
+            request,
+            "strategy_status.pre_dispatch_claim_lost",
+            undefined,
+            { jobId: payload.generation_job_id },
+          );
+          return json(
+            request,
+            { ok: false, code: "generation_unavailable" },
+            503,
+          );
+        }
+        return strategyWorkerResponse(
+          payload.generation_job_id,
+          continued.status,
+        );
       }
       if (worker.phase === "dispatch_unknown") {
         if (
@@ -8934,6 +10400,12 @@ async function handleCreatorGenerate(
           kind: "network",
         });
         if (ambiguous === null) {
+          noteGenerationRefusal(
+            request,
+            "strategy_status.ambiguous_dispatch_unclassified",
+            undefined,
+            { jobId: payload.generation_job_id },
+          );
           return json(
             request,
             { ok: false, code: "generation_unavailable" },
@@ -8960,20 +10432,48 @@ async function handleCreatorGenerate(
           ambiguous,
           evidenceHash,
         );
-        return recorded === null
-          ? json(request, { ok: false, code: "generation_unavailable" }, 503)
-          : strategyWorkerResponse(payload.generation_job_id, "starting");
+        if (recorded === null) {
+          noteGenerationRefusal(
+            request,
+            "strategy_status.dispatch_result_not_recorded",
+            undefined,
+            { jobId: payload.generation_job_id },
+          );
+          return json(
+            request,
+            { ok: false, code: "generation_unavailable" },
+            503,
+          );
+        }
+        return strategyWorkerResponse(payload.generation_job_id, "starting");
       }
       if (
         worker.phase === "provider_poll" &&
         isStrategyRunwayTaskId(worker.provider_task_id)
       ) {
+        // Провайдер и модель опроса берутся из подписанной квитанции этой
+        // задачи. Отказ здесь честнее молчаливого «значит Runway»: тот увёл бы
+        // опрос задачи fal к чужому провайдеру и оставил бы резерв висеть.
+        const route = await loadGenerationStrategyJobRoute(
+          payload.organization_id,
+          payload.project_id,
+          payload.generation_job_id,
+        );
+        if (route === null) {
+          return json(
+            request,
+            { ok: false, code: "generation_route_unresolved" },
+            503,
+          );
+        }
         const status = await pollGenerationStrategyProvider({
           organizationId: payload.organization_id,
           projectId: payload.project_id,
           actorId,
           generationJobId: payload.generation_job_id,
           providerTaskId: worker.provider_task_id as string,
+          route,
+          recordMode: "record_status",
         });
         return status === null
           ? json(request, { ok: false, code: "provider_unavailable" }, 503)
@@ -8989,20 +10489,97 @@ async function handleCreatorGenerate(
       payload.generation_job_id,
     );
     if (current === null) {
+      noteGenerationRefusal(
+        request,
+        "strategy_status.projection_unavailable",
+        undefined,
+        { jobId: payload.generation_job_id },
+      );
       return json(request, { ok: false, code: "generation_unavailable" }, 503);
     }
     const contract = current.contract as Record<string, unknown>;
     const job = current.job as Record<string, unknown>;
+    const recoveryExpected = {
+      projectId: payload.project_id,
+      generationJobId: payload.generation_job_id,
+    };
+    const recovery =
+      readFalResultHttp405RecoveryCandidate(current, recoveryExpected) ??
+        readFalResultHttp413RecoveryCandidate(current, recoveryExpected);
+    if (recovery !== null) {
+      // This is a GET-only repair of the exact request already accepted and
+      // charged by fal. Route identity still comes from the signed start claim;
+      // neither a browser field nor the old failed event can choose a model.
+      const route = await loadGenerationStrategyJobRoute(
+        payload.organization_id,
+        payload.project_id,
+        payload.generation_job_id,
+      );
+      if (
+        route === null || route.provider !== "fal" ||
+        route.modelKey === null ||
+        !falModelExecutable(recovery.recipe, route.modelKey)
+      ) {
+        return json(
+          request,
+          { ok: false, code: "generation_route_unresolved" },
+          503,
+        );
+      }
+      const recoveryStatus = await pollGenerationStrategyProvider({
+        organizationId: payload.organization_id,
+        projectId: payload.project_id,
+        actorId,
+        generationJobId: payload.generation_job_id,
+        providerTaskId: recovery.providerTaskId,
+        route,
+        recordMode: recovery.failureCode === "provider_result_http_413"
+          ? "recover_fal_result_http_413"
+          : "recover_fal_result_http_405",
+      });
+      const refreshed = await loadPublicGenerationStrategyStatus(
+        payload.organization_id,
+        payload.project_id,
+        actorId,
+        payload.generation_job_id,
+      );
+      const responseBody = refreshed ?? current;
+      // strategy_status intentionally answers 200 with the unchanged failed
+      // projection when recovery cannot be proved. Flush only that silent-exit
+      // trail here; successful recovery leaves no breadcrumb to flush.
+      if (recoveryStatus === null) {
+        flushGenerationRefusal(request, responseBody, 200);
+      }
+      return json(request, responseBody);
+    }
     if (
       contract.poll_provider_allowed === true &&
       isStrategyRunwayTaskId(job.provider_task_id)
     ) {
+      // Тот же авторитетный источник, что и у воркера. Если маршрут задачи не
+      // восстанавливается, отдаём внятный код, а не прежний статус: задача уже
+      // оплачена и идёт у провайдера, но сама она с места не сдвинется — молча
+      // показывать «всё идёт» значит прятать неснятый резерв.
+      const route = await loadGenerationStrategyJobRoute(
+        payload.organization_id,
+        payload.project_id,
+        payload.generation_job_id,
+      );
+      if (route === null) {
+        return json(
+          request,
+          { ok: false, code: "generation_route_unresolved" },
+          503,
+        );
+      }
       await pollGenerationStrategyProvider({
         organizationId: payload.organization_id,
         projectId: payload.project_id,
         actorId,
         generationJobId: payload.generation_job_id,
         providerTaskId: job.provider_task_id as string,
+        route,
+        recordMode: "record_status",
       });
       const refreshed = await loadPublicGenerationStrategyStatus(
         payload.organization_id,
@@ -9047,13 +10624,21 @@ async function handleCreatorGenerate(
       );
       if (error !== null) {
         const mapped = readGenerationStrategyRpcError(error);
+        // `mapped` is null exactly when the database raised something outside
+        // the governed allowlist. That is the case the operator most needs to
+        // see, so the raw code is recovered here through the same redactor.
+        noteGenerationRefusal(
+          request,
+          "strategy_start.claim_rpc_rejected",
+          mapped?.code ?? error,
+        );
         return json(
           request,
           { ok: false, code: mapped?.code || "generation_unavailable" },
           mapped?.status || 503,
         );
       }
-      claim = readGenerationStrategyStartClaim(data, {
+      claim = await readGenerationStrategyStartClaim(data, {
         receiptId: payload.receipt_id,
         receiptHash: payload.receipt_hash,
         bindingId: payload.binding_id,
@@ -9067,6 +10652,7 @@ async function handleCreatorGenerate(
       claim = null;
     }
     if (claim === null) {
+      noteGenerationRefusal(request, "strategy_start.claim_not_bindable");
       return json(request, { ok: false, code: "generation_unavailable" }, 503);
     }
     const claimRow = claim.claim as Record<string, unknown>;
@@ -9085,6 +10671,12 @@ async function handleCreatorGenerate(
         campaignId: payload.campaign_id,
       });
     } catch {
+      noteGenerationRefusal(
+        request,
+        "strategy_start.continuation_threw",
+        undefined,
+        { jobId: claimRow.generation_job_id },
+      );
       return json(request, {
         ok: false,
         code: "generation_dispatch_state_unavailable",
@@ -9092,6 +10684,12 @@ async function handleCreatorGenerate(
       }, 503);
     }
     if (continued === null) {
+      noteGenerationRefusal(
+        request,
+        "strategy_start.continuation_refused",
+        undefined,
+        { jobId: claimRow.generation_job_id },
+      );
       return json(request, {
         ok: false,
         code: "generation_dispatch_state_unavailable",
@@ -9104,9 +10702,16 @@ async function handleCreatorGenerate(
       actorId,
       String(claimRow.generation_job_id),
     );
-    return current === null
-      ? json(request, { ok: false, code: "generation_unavailable" }, 503)
-      : json(request, current);
+    if (current === null) {
+      noteGenerationRefusal(
+        request,
+        "strategy_start.post_dispatch_projection_unavailable",
+        undefined,
+        { jobId: claimRow.generation_job_id },
+      );
+      return json(request, { ok: false, code: "generation_unavailable" }, 503);
+    }
+    return json(request, current);
   };
 
   const handleGenerationStrategyReconciliation = async (
@@ -9115,6 +10720,18 @@ async function handleCreatorGenerate(
     const actorId = context.userClaims?.id;
     if (!isUuid(actorId)) {
       return json(request, { ok: false, code: "authentication_required" }, 401);
+    }
+    if (
+      !(await strategyReconciliationActorAllowed(
+        payload.organization_id,
+        actorId,
+      ))
+    ) {
+      return json(
+        request,
+        { ok: false, code: "generation_strategy_reconciliation_forbidden" },
+        403,
+      );
     }
     const current = await loadPublicGenerationStrategyStatus(
       payload.organization_id,
@@ -9135,6 +10752,45 @@ async function handleCreatorGenerate(
         409,
       );
     }
+    const route = await loadGenerationStrategyJobRoute(
+      payload.organization_id,
+      payload.project_id,
+      payload.generation_job_id,
+    );
+    // Ручная сверка без известного маршрута невозможна: подтверждение
+    // называет провайдера, а называть нечего. Раньше это выражалось тем, что
+    // expectedConfirmation оставался null — тот же 409, но компилятор о связи
+    // не знал, и весь остаток ветки читался как «маршрут может быть пустым».
+    if (route === null) {
+      return json(
+        request,
+        { ok: false, code: "generation_strategy_reconciliation_not_current" },
+        409,
+      );
+    }
+    const expectedConfirmation = route.provider === "fal"
+      ? payload.resolution === "attach_existing_task"
+        ? "FAL_REQUEST_ID_VERIFIED"
+        : "FAL_NO_REQUEST_VERIFIED"
+      : route.provider === "runway"
+      ? payload.resolution === "attach_existing_task"
+        ? "RUNWAY_TASK_ID_VERIFIED"
+        : "RUNWAY_NO_TASK_VERIFIED"
+      : null;
+    if (expectedConfirmation === null) {
+      return json(
+        request,
+        { ok: false, code: "generation_strategy_reconciliation_not_current" },
+        409,
+      );
+    }
+    if (payload.confirmation !== expectedConfirmation) {
+      return json(
+        request,
+        { ok: false, code: "generation_strategy_reconciliation_task_mismatch" },
+        422,
+      );
+    }
     let providerTaskId: string | null = null;
     let providerTaskCreatedAt: string | null = null;
     let providerStatus: string | null = null;
@@ -9144,56 +10800,131 @@ async function handleCreatorGenerate(
       resolution: payload.resolution,
     };
     if (payload.resolution === "attach_existing_task") {
-      const secret = runwaySecret();
-      if (
-        secret === null || !isStrategyRunwayTaskId(payload.provider_task_id)
-      ) {
+      const secret = providerSecret(route.provider);
+      if (secret === null) {
         return json(request, { ok: false, code: "provider_unavailable" }, 503);
       }
-      let response: ProviderJsonResult;
-      try {
-        response = await fetchProviderJsonWithDeadline(
-          `${RUNWAY_API_ORIGIN}/v1/tasks/${payload.provider_task_id}`,
-          {
-            method: "GET",
-            redirect: "manual",
-            headers: {
-              authorization: `Bearer ${secret}`,
-              "x-runway-version": RUNWAY_API_VERSION,
+      if (route.provider === "runway") {
+        if (!isStrategyRunwayTaskId(payload.provider_task_id)) {
+          return json(
+            request,
+            {
+              ok: false,
+              code: "generation_strategy_reconciliation_task_mismatch",
             },
-          },
-          PROVIDER_TIMEOUT_MS,
-        );
-      } catch {
-        return json(request, { ok: false, code: "provider_unavailable" }, 503);
+            422,
+          );
+        }
+        let response: ProviderJsonResult;
+        try {
+          response = await fetchProviderJsonWithDeadline(
+            `${RUNWAY_API_ORIGIN}/v1/tasks/${payload.provider_task_id}`,
+            {
+              method: "GET",
+              redirect: "manual",
+              headers: {
+                authorization: `Bearer ${secret}`,
+                "x-runway-version": RUNWAY_API_VERSION,
+              },
+            },
+            PROVIDER_TIMEOUT_MS,
+          );
+        } catch {
+          return json(
+            request,
+            { ok: false, code: "provider_unavailable" },
+            503,
+          );
+        }
+        const task = response.ok ? parseRunwayTask(response.value) : null;
+        const state = response.ok
+          ? runwayStrategyProviderStatus(response.value)
+          : null;
+        if (
+          task === null || state === null ||
+          task.id !== payload.provider_task_id ||
+          task.createdAt === null
+        ) {
+          return json(
+            request,
+            {
+              ok: false,
+              code: "generation_strategy_reconciliation_task_mismatch",
+            },
+            422,
+          );
+        }
+        providerTaskId = task.id;
+        providerTaskCreatedAt = task.createdAt;
+        providerStatus = state.providerStatus === "processing"
+          ? task.status === "RUNNING" ? "processing" : "submitted"
+          : state.providerStatus;
+        providerEvidence = {
+          ...providerEvidence as Record<string, unknown>,
+          provider: "runway",
+          task: response.value,
+        };
+      } else {
+        const requestId = payload.provider_task_id;
+        const createdAt = falRequestCreatedAt(requestId);
+        if (
+          !isFalRequestId(requestId) || createdAt === null ||
+          route.modelKey === null
+        ) {
+          return json(
+            request,
+            {
+              ok: false,
+              code: "generation_strategy_reconciliation_task_mismatch",
+            },
+            422,
+          );
+        }
+        let response: ProviderJsonResult | null = null;
+        for (
+          const candidate of falQueueUrlCandidates(
+            route.modelKey,
+            requestId,
+          )
+        ) {
+          try {
+            const attempt = await fetchProviderJsonWithDeadline(
+              candidate.statusUrl,
+              {
+                method: "GET",
+                redirect: "manual",
+                headers: { authorization: `Key ${secret}` },
+              },
+              PROVIDER_TIMEOUT_MS,
+            );
+            if (attempt.ok) {
+              response = attempt;
+              break;
+            }
+          } catch {
+            // Try the full provider path after the application-root form.
+          }
+        }
+        const state = response === null
+          ? null
+          : falStrategyProviderStatus(response.value);
+        if (response === null || state === null) {
+          return json(
+            request,
+            { ok: false, code: "provider_unavailable" },
+            503,
+          );
+        }
+        providerTaskId = requestId;
+        providerTaskCreatedAt = createdAt;
+        providerStatus = state.providerStatus;
+        providerEvidence = {
+          ...providerEvidence as Record<string, unknown>,
+          provider: "fal",
+          model_key: route.modelKey,
+          request: response.value,
+        };
       }
-      const task = response.ok ? parseRunwayTask(response.value) : null;
-      const state = response.ok
-        ? runwayStrategyProviderStatus(response.value)
-        : null;
-      if (
-        task === null || state === null ||
-        task.id !== payload.provider_task_id ||
-        task.createdAt === null
-      ) {
-        return json(
-          request,
-          {
-            ok: false,
-            code: "generation_strategy_reconciliation_task_mismatch",
-          },
-          422,
-        );
-      }
-      providerTaskId = task.id;
-      providerTaskCreatedAt = task.createdAt;
-      providerStatus = state.providerStatus === "processing"
-        ? task.status === "RUNNING" ? "processing" : "submitted"
-        : state.providerStatus;
-      providerEvidence = {
-        ...providerEvidence as Record<string, unknown>,
-        task: response.value,
-      };
     }
     const evidenceHash = await sha256Hex(new TextEncoder().encode(stableJson({
       version: "generation-strategy-reconciliation-evidence-v1",
@@ -9778,6 +11509,12 @@ async function handleCreatorGenerate(
     current.campaignName !== startJob.campaignName ||
     current.outputObjectName !== startJob.outputObjectName
   ) {
+    noteGenerationRefusal(
+      request,
+      "start.reserved_job_mismatch",
+      current === null ? "job_read_failed" : "job_identity_drifted",
+      { jobId: startJob.id },
+    );
     return json(
       request,
       { ok: false, code: "generation_unavailable" },
@@ -9799,6 +11536,9 @@ async function handleCreatorGenerate(
   // policy version, and current spend limits while claiming queued -> starting.
   const claim = await claimSystemJob(current.id);
   if (claim.outcome === "budget_rejected") {
+    noteGenerationRefusal(request, "start.claim_budget_rejected", claim.code, {
+      jobId: current.id,
+    });
     return json(
       request,
       { ok: false, code: claim.code },
@@ -9808,6 +11548,9 @@ async function handleCreatorGenerate(
     );
   }
   if (claim.outcome === "terminal_rejected") {
+    noteGenerationRefusal(request, "start.claim_terminal", claim.code, {
+      jobId: current.id,
+    });
     return json(
       request,
       {
@@ -9820,6 +11563,12 @@ async function handleCreatorGenerate(
     );
   }
   if (claim.outcome !== "claimed") {
+    noteGenerationRefusal(
+      request,
+      "start.claim_unavailable",
+      claim.outcome,
+      { jobId: current.id },
+    );
     return json(
       request,
       { ok: false, code: "generation_unavailable" },
@@ -10102,6 +11851,7 @@ const creatorGenerateWorker = withSupabase<ContentEngineDatabase>(
 const LOCAL_MOCK_FREE_ACTIONS = new Set([
   "model_catalog",
   "strategy_catalog",
+  "duet_presenter_catalog",
   "strategy_bind",
   "strategy_media_probe",
   "strategy_preflight",

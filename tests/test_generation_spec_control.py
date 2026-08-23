@@ -154,7 +154,7 @@ process.stdout.write(JSON.stringify({{
 
 def test_paid_flow_prepares_then_requires_separate_human_approval() -> None:
     for token in (
-            'from "./generation-spec.js?v=20260814.os4.41"',
+            'from "./generation-spec.js?v=20260823.copy-engines.39"',
         "approvedGenerationSpecContext",
         "generationSpecCardMarkup",
         "currentGenerationSpecContext(form)",
@@ -206,6 +206,47 @@ def test_paid_flow_prepares_then_requires_separate_human_approval() -> None:
     assert APP[submit:paid_start].count("state.api.startRealGeneration(payload)") == 0
     assert "head_event_hash" not in APP
     assert "head_event_hash" not in API
+
+
+def test_strategy_selection_routes_away_from_legacy_generation_spec() -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is required for executable generation-spec routing")
+    script = f"""
+import {{ generationSpecPreparationRoute }} from {json.dumps(MODULE_PATH.as_uri())};
+process.stdout.write(JSON.stringify({{
+  legacy: generationSpecPreparationRoute(""),
+  productSwap: generationSpecPreparationRoute("viral_product_swap"),
+}}));
+"""
+    result = subprocess.run(
+        [node, "--input-type=module", "--eval", script],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["legacy"]["legacyAllowed"] is True
+    assert payload["legacy"]["prepareRpc"] == "creator_prepare_generation_spec"
+    assert payload["productSwap"]["kind"] == "strategy_v2"
+    assert payload["productSwap"]["legacyAllowed"] is False
+    assert (
+        payload["productSwap"]["prepareRpc"]
+        == "creator_prepare_generation_strategy_spec"
+    )
+    assert payload["productSwap"]["code"] == "generation_strategy_spec_route_required"
+    for guarded_function in (
+        "function generationSpecPreparationFailure",
+        "function syncGenerationSpecUi",
+        "async function refreshGenerationSpec",
+        "async function runGenerationSpecControl",
+    ):
+        start = APP.index(guarded_function)
+        assert "generationSpecPreparationRoute(" in APP[start : start + 1_600]
 
 
 def test_api_exposes_free_generation_spec_control_and_strict_paid_context() -> None:
@@ -439,8 +480,8 @@ def test_edge_accepts_only_atomic_terminal_stale_claim_as_non_retryable() -> Non
 
 
 def test_generation_spec_cache_versions_are_published_consistently() -> None:
-    assert './supabase-api.js?v=20260814.os4.41' in APP
-    assert './app.js?v=20260816.adaptive.4' in INDEX
+    assert './supabase-api.js?v=20260823.copy-engines.39' in APP
+    assert './app.js?v=20260823.copy-engines.39' in INDEX
     for name in (
         "workspace-os-v4-context-trash.js",
         "workspace-os-v4-trash-rpc-alias.js",

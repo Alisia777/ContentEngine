@@ -37,7 +37,12 @@ select is(
     'public.creator_prepare_generation_strategy_spec(jsonb)'::regprocedure,
     'pg_proc'
   ),
-  'Free authenticated prepare only: server-resolves recipe, assets, exact source and mechanics into a draft strategy spec; explicit ordinary spec approval remains mandatory and no provider/spend action occurs.',
+  -- Комментарий переписан миграцией 202608210001, когда объём стал
+  -- провайдер-независимым (scope v2): браузер больше не называет провайдера и
+  -- модель, они откладываются до подписанного предполёта. Утверждение, ради
+  -- которого этот тест существует, при этом уцелело дословно — «no
+  -- provider/spend action occurs», — и именно оно тут и стережётся.
+  'Free authenticated prepare: emits provider-neutral recipe scope v2. Provider/model are not accepted from the browser and are deferred to the signed route preflight; no provider/spend action occurs.',
   'strategy wrapper keeps the audited no-spend comment'
 );
 

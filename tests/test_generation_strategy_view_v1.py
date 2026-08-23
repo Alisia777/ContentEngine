@@ -512,3 +512,51 @@ def test_invalid_catalog_renderer_has_no_cards_or_select_action() -> None:
         "selectAction": False,
         "failClosedCopy": True,
     }
+
+
+def test_failed_normalized_catalog_preserves_exact_safe_diagnostic_fail_closed() -> None:
+    result = _evaluate(
+        """
+        (() => {
+          const exact = view.createGenerationStrategyViewState({
+            ok: false,
+            catalog: null,
+            error: {code: "origin_not_allowed", field: "catalog"},
+          });
+          const malformed = view.createGenerationStrategyViewState({
+            ok: false,
+            catalog: null,
+            error: {
+              code: "origin_not_allowed",
+              field: "catalog",
+              leaked_detail: "must not become trusted state",
+            },
+          });
+          const markup = view.generationStrategyViewMarkup(exact);
+          return {
+            exact: {
+              status: exact.catalog_status,
+              catalog: exact.catalog,
+              selected: exact.selected_strategy_id,
+              error: exact.catalog_error,
+            },
+            malformedCode: malformed.catalog_error.code,
+            renderedCode: markup.includes("Код: origin_not_allowed"),
+            hasCard: markup.includes("data-generation-strategy-card="),
+            hasSelect: markup.includes('data-generation-strategy-action="SELECT"'),
+          };
+        })()
+        """
+    )
+    assert result == {
+        "exact": {
+            "status": "invalid",
+            "catalog": None,
+            "selected": None,
+            "error": {"code": "origin_not_allowed", "field": "catalog"},
+        },
+        "malformedCode": "catalog_contract_invalid",
+        "renderedCode": True,
+        "hasCard": False,
+        "hasSelect": False,
+    }

@@ -165,47 +165,100 @@ select is(
   'viral rebuild maps only to Runway product_ad'
 );
 
+-- «Дуэт» с 22.08.2026 кадр не выбирает: он приходит из комментируемого ролика,
+-- и снимок цены называет его словом "source" — ровно как у «Копии». Прежние
+-- вертикали 720:1280 и 1080:1920 были остатком измерения соотношением сторон,
+-- которое владелец отменил вместе с прочтением «замена человека в кадре»
+-- (миграция 202608220014).
+--
+-- Ступени тарифа при этом НЕ изменились: 192 и 648 — те же числа, что и были.
+-- Правится проверка кадра, а не арифметика.
+-- С 202608230022 действующий маршрут «Дуэта» — HeyGen, 5¢ за секунду
+-- ведущего; рунвеевских ступеней у рецепта больше нет.
 select is(
   content_factory_private.generation_strategy_recipe_price(
-    'viral_avatar_ugc', 4, '720p', '720:1280', true
+    'viral_avatar_ugc', 4, '720p', 'source', true
   ) ->> 'estimated_credits',
-  '192',
-  'product_ugc 720p uses the exact four-second base tariff'
+  '20',
+  'duet 720p prices four seconds of presenter at twenty cents on the source frame'
 );
 select is(
   content_factory_private.generation_strategy_recipe_price(
-    'viral_avatar_ugc', 15, '1080p', '1080:1920', false
+    'viral_avatar_ugc', 15, '1080p', 'source', false
+  ),
+  null::jsonb,
+  'duet has no 1080p quality mode: the frame is refused, not silently priced'
+);
+-- Отменённое измерение обязано ОТВЕРГАТЬСЯ, а не просто «больше не
+-- проверяться». Без этого утверждения возврат старой формы прошёл бы молча:
+-- цена посчиталась бы, а кадр оказался бы выбран там, где выбирать нечего.
+select is(
+  content_factory_private.generation_strategy_recipe_price(
+    'viral_avatar_ugc', 4, '720p', '720:1280', true
+  ),
+  null::jsonb,
+  'duet refuses the retired aspect-ratio measurement'
+);
+-- У «Копии» с 202608180010 действующий маршрут не Runway, а generation_strategy_
+-- recipe_price отвечает про ДЕЙСТВУЮЩИЙ маршрут (202608180006). Поэтому ступени
+-- Runway спрашиваются у маршрутной функции — там они и живут цифра в цифру, —
+-- а у recipe_price проверяется то, за что она отвечает: её ответ обязан совпасть
+-- с ценой действующей строки реестра. Прибить сюда сегодняшние 47 центов Pika
+-- значило бы завязать тест на выбор, который меняется одной строкой в реестре.
+select is(
+  content_factory_private.generation_strategy_route_price(
+    'viral_product_swap', 'runway', 'aleph2', 4, '720p', 'source', true
   ) ->> 'estimated_credits',
-  '648',
-  'product_ugc 1080p adds exactly forty credits per extra second'
+  '212',
+  'product_swap 720p uses the exact four-second Runway base tariff'
+);
+select is(
+  content_factory_private.generation_strategy_route_price(
+    'viral_product_swap', 'runway', 'aleph2', 15, '1080p', 'source', false
+  ) ->> 'estimated_credits',
+  '668',
+  'product_swap 1080p adds exactly forty Runway credits per extra second'
 );
 select is(
   content_factory_private.generation_strategy_recipe_price(
     'viral_product_swap', 4, '720p', 'source', true
-  ) ->> 'estimated_credits',
-  '212',
-  'product_swap 720p uses the exact four-second base tariff'
+  ),
+  (
+    select content_factory_private.generation_strategy_route_price(
+      'viral_product_swap', route.provider, route.model_key,
+      4, '720p', 'source', true
+    )
+    from content_factory.generation_strategy_provider_routes as route
+    where route.strategy_id = 'viral_product_swap'
+      and route.recommended
+      and route.enabled
+  ),
+  'product_swap recipe price is exactly the active route price'
 );
+-- С 23.08.2026 (202608230021) «Создание» исполняют движки fal с посекундной
+-- ставкой, а действующий маршрут — MiniMax H3 (6¢/с, 5–15 с). Рунвеевских
+-- ступеней у рецепта product_ad больше нет: адрес /v1/recipes/product_ad у
+-- Runway не существует. Цена рецепта — цена ДЕЙСТВУЮЩЕГО маршрута.
 select is(
   content_factory_private.generation_strategy_recipe_price(
-    'viral_product_swap', 15, '1080p', 'source', false
+    'viral_rebuild', 5, '720p', '1280:720', false
   ) ->> 'estimated_credits',
-  '668',
-  'product_swap 1080p adds exactly forty credits per extra second'
+  '30',
+  'product_ad price is the active fal route rate times the duration'
 );
 select is(
   content_factory_private.generation_strategy_recipe_price(
     'viral_rebuild', 4, '720p', '1280:720', false
-  ) ->> 'estimated_credits',
-  '200',
-  'product_ad 720p uses the exact four-second base tariff'
+  ),
+  null::jsonb,
+  'a duration below the active route window fails closed'
 );
 select is(
   content_factory_private.generation_strategy_recipe_price(
     'viral_rebuild', 15, '1080p', '1920:1080', true
-  ) ->> 'estimated_credits',
-  '656',
-  'product_ad 1080p adds exactly forty credits per extra second'
+  ),
+  null::jsonb,
+  'product_ad has no 1080p route any more: the active engine renders 720p'
 );
 select is(
   content_factory_private.generation_strategy_recipe_price(
@@ -296,8 +349,20 @@ select ok(
       'public.system_generation_strategy_provider_policy(jsonb)'::regprocedure
     )
   ) > 0
+  -- Прежде здесь пинилась целиком строка
+  -- `launch_enabled_value := binding_current_value and approved_spec_value`.
+  -- Миграция 202608230011 обернула вычисление в coalesce(..., false) и
+  -- добавила ещё одно слагаемое — признак исполнимого маршрута. Набор
+  -- обязательных условий при этом не убавился, а прибавился, поэтому
+  -- проверяются сами слагаемые, а не отступы вокруг них.
   and position(
-    'launch_enabled_value := binding_current_value and approved_spec_value' in
+    'binding_current_value and approved_spec_value' in
+    pg_get_functiondef(
+      'public.system_generation_strategy_provider_policy(jsonb)'::regprocedure
+    )
+  ) > 0
+  and position(
+    'generation_strategy_executable_route_exists(strategy_id_value)' in
     pg_get_functiondef(
       'public.system_generation_strategy_provider_policy(jsonb)'::regprocedure
     )

@@ -27,6 +27,14 @@ export const GENERATION_STRATEGY_RUNTIME_ACTIONS = Object.freeze({
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
+
+// Пределы длительности ИСХОДНОГО ролика. Те же числа стоят в
+// generation-strategy-spec.js: оба модуля чистые и ничего не импортируют,
+// поэтому запись вторая, и разойтись они могут только молча.
+const SOURCE_DURATION_BOUNDS = Object.freeze({
+  viral_product_swap: Object.freeze({ minimum: 1.8, maximum: 15 }),
+  viral_avatar_ugc: Object.freeze({ minimum: 1.8, maximum: 60 }),
+});
 const CODE_PATTERN = /^[a-z0-9][a-z0-9_.-]{0,127}$/u;
 const IDEMPOTENCY_PATTERN = /^[A-Za-z0-9._:-]{8,180}$/u;
 const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
@@ -40,6 +48,18 @@ const PRICING_VERSIONS = Object.freeze([
   "runway-recipe-credits-2026-08-14.v1",
   "fal-usd-per-run-2026-08-18.v1",
   "fal-usd-per-second-2026-08-18.v1",
+  // «Дуэт» считается посекундной ставкой ведущего. Своя версия прайса, а не
+  // переиспользованная falовская: строка подтверждения траты несёт СПОСОБ
+  // расчёта, и назвать чужой способ значило бы подписать не ту арифметику.
+  "heygen-usd-per-second-2026-08-22.v1",
+  // Движки «Копии», заведённые 23.08.2026 (миграция 202608230020). У каждого
+  // своя версия прайса: пара (provider, pricing_version) — подпись маршрута.
+  "fal-usd-per-second-kling-standard-2026-08-23.v1",
+  "fal-usd-per-second-happy-horse-2026-08-23.v1",
+  "fal-usd-per-second-bytedance-2-5-2026-08-23.v1",
+  "fal-usd-per-second-minimax-h3-2026-08-23.v1",
+  "fal-usd-per-second-grok-imagine-2026-08-23.v1",
+  "fal-usd-per-second-happy-horse-reference-2026-08-23.v1",
 ]);
 
 function knownPricingVersion(value) {
@@ -49,7 +69,7 @@ function knownPricingVersion(value) {
 // Тот же набор стоит в ограничении базы на колонку provider таблицы квитанций
 // и в контракте edge. Расходиться им нельзя: иначе одна из сторон молча
 // отвергает то, что другая считает верным.
-const STRATEGY_PROVIDERS = Object.freeze(["runway", "fal"]);
+const STRATEGY_PROVIDERS = Object.freeze(["runway", "fal", "heygen"]);
 
 function knownStrategyProvider(value) {
   return typeof value === "string" && STRATEGY_PROVIDERS.includes(value);
@@ -61,18 +81,18 @@ const COMMON_ATTESTATION_KEYS = Object.freeze([
   "depicted_people_consent_confirmed",
 ]);
 const STRATEGY_RULES = deepFreeze({
+  // «Дуэт»: исходник комментируется, а не переписывается, поэтому кадр задаёт он
+  // сам — измерение разрешением. Ассет ровно один: ведущего даёт библиотека.
   viral_avatar_ugc: {
     recipe: "product_ugc",
-    dimension: "ratio",
-    dimensions: ["720:1280", "1080:1920"],
+    dimension: "resolution",
+    dimensions: ["720p", "1080p"],
     attestations: [
       ...COMMON_ATTESTATION_KEYS,
       "avatar_likeness_consent_confirmed",
     ],
     roles: {
       source_video: [1, 1],
-      avatar_image: [1, 1],
-      product_image: [1, 1],
     },
   },
   viral_product_swap: {
@@ -116,6 +136,17 @@ const CONTEXT_KEYS = Object.freeze([
   "spec_hash",
   "generation_strategy",
 ]);
+// Тот же контекст с выбранным движком каскада. Набор ключей проверяется точным
+// совпадением, поэтому наборов два, а не один с «может быть, а может и нет»:
+// контекст без движка обязан остаться правильным контекстом — так работает
+// очередь из десяти исходников и все прежние вызовы.
+const CONTEXT_KEYS_WITH_ENGINE = Object.freeze([...CONTEXT_KEYS, "engine"]);
+// Необязательные ключи контекста. Набор ЗАКРЫТЫЙ: состав для точной сверки
+// собирается из него, пересечённого с тем, что пришло, поэтому чужой ключ
+// по-прежнему отвергается. Отдельный замороженный список на каждое сочетание
+// (движок, ведущий, оба) разошёлся бы с остальными на первой же правке.
+const CONTEXT_OPTIONAL_KEYS = Object.freeze(["engine", "duet_presenter_id"]);
+const ENGINE_KEYS = Object.freeze(["provider", "model_key"]);
 const SELECTION_COMMON_KEYS = Object.freeze([
   "version",
   "strategy_id",
@@ -731,14 +762,21 @@ function normalizeGenerationStrategySelection(value) {
       if (hasOwn(asset, "view")) {
         throw new RuntimeContractError("asset_field_invalid", `${field}.view`);
       }
-      if (rawStrategyId === "viral_product_swap") {
+      // Длительность исходника обязательна обеим правкам готового видео.
+      // У «Дуэта» по ней считаются деньги: ставка посекундная. Без неё
+      // запуск доходил бы до сервера и падал там — после резерва.
+      const sourceBounds = SOURCE_DURATION_BOUNDS[rawStrategyId] ?? null;
+      if (sourceBounds !== null) {
         if (!hasOwn(asset, "duration_seconds")) {
           throw new RuntimeContractError(
             "asset_duration_required",
             `${field}.duration_seconds`,
           );
         }
-        if (asset.duration_seconds < 1.8 || asset.duration_seconds > 15) {
+        if (
+          asset.duration_seconds < sourceBounds.minimum ||
+          asset.duration_seconds > sourceBounds.maximum
+        ) {
           throw new RuntimeContractError(
             "asset_duration_unsupported",
             `${field}.duration_seconds`,
@@ -809,8 +847,36 @@ function normalizeGenerationStrategySelection(value) {
   };
 }
 
+// Движок каскада: либо полный выбор из двух строк, либо его нет вовсе.
+// Половина выбора — это не «почти движок», а запрос, по которому нельзя
+// назвать цену, поэтому неполное значение здесь отказ, а не умолчание.
+function normalizeRuntimeEngine(value) {
+  if (value === null || value === undefined) return null;
+  const source = exactObject(value, ENGINE_KEYS, "context.engine");
+  return {
+    provider: requiredText(source.provider, "context.engine.provider", 40),
+    model_key: requiredText(source.model_key, "context.engine.model_key", 120),
+  };
+}
+
 function normalizeRuntimeContext(value) {
-  const source = exactObject(value, CONTEXT_KEYS, "context");
+  const present = CONTEXT_OPTIONAL_KEYS.filter((key) =>
+    isPlainObject(value) && Object.prototype.hasOwnProperty.call(value, key)
+  );
+  const withEngine = present.includes("engine");
+  const withPresenter = present.includes("duet_presenter_id");
+  const source = exactObject(
+    value,
+    present.length === 0 ? CONTEXT_KEYS : [...CONTEXT_KEYS, ...present],
+    "context",
+  );
+  const engine = withEngine ? normalizeRuntimeEngine(source.engine) : null;
+  // Ведущий входит в ОТПЕЧАТОК запуска наравне с движком: сменить того, кто
+  // говорит, после подтверждения цены — это другой запуск, а не подробность
+  // прежнего.
+  const duetPresenterId = withPresenter
+    ? requiredUuid(source.duet_presenter_id, "context.duet_presenter_id")
+    : null;
   return {
     organization_id: requiredUuid(source.organization_id, "context.organization_id"),
     project_id: requiredUuid(source.project_id, "context.project_id"),
@@ -820,6 +886,10 @@ function normalizeRuntimeContext(value) {
     generation_strategy: normalizeGenerationStrategySelection(
       source.generation_strategy,
     ),
+    ...(engine === null ? {} : { engine }),
+    ...(duetPresenterId === null
+      ? {}
+      : { duet_presenter_id: duetPresenterId }),
   };
 }
 
@@ -1019,12 +1089,15 @@ function bindingAssetsMatchStrategy(assets, strategyId, productId) {
     if (asset.role === "style_reference" && asset.ordinal > 4) return false;
   }
   const count = (role) => counts.get(role) || 0;
-  if (count("product_primary") !== 1) return false;
+  // «Дуэт» проверяется ДО общего требования товарного ассета: товара у него нет
+  // по устройству, и общая проверка отвергла бы его раньше, чем дошла до формы.
   if (strategyId === "viral_avatar_ugc") {
-    return assets.length === 2 && count("creator_avatar") === 1 &&
+    return assets.length === 1 && count("source_video") === 1 &&
+      count("creator_avatar") === 0 && count("product_primary") === 0 &&
       count("product_reference") === 0 && count("original_product") === 0 &&
-      count("source_video") === 0 && count("style_reference") === 0;
+      count("style_reference") === 0;
   }
+  if (count("product_primary") !== 1) return false;
   if (strategyId === "viral_product_swap") {
     return count("creator_avatar") === 0 && count("original_product") === 1 &&
       count("source_video") === 1 && count("style_reference") === 0 &&
@@ -1050,8 +1123,9 @@ function expectedBindingAssetIdentities(selectionAssets, strategyId) {
       roles = new Set(["creator_avatar"]);
     } else if (asset.role === "original_product_image") {
       roles = new Set(["original_product"]);
-    } else if (asset.role === "source_video" && strategyId === "viral_avatar_ugc") {
-      continue;
+      // Прежде исходник «Аватара» здесь намеренно пропускался: он не был входом
+      // провайдера и в реестре ассетов не значился. У «Дуэта» он единственный
+      // ассет и обязан сверяться, поэтому исключение снято.
     } else if (asset.role === "source_video") {
       roles = new Set(["source_video"]);
     } else if (asset.role === "style_image") {
@@ -1086,7 +1160,7 @@ function normalizePrice(value, identity, selection) {
   );
   const costUsd = exactText(source.estimated_cost_usd, "bind.price.estimated_cost_usd", 32);
   const expectedInputMode = {
-    viral_avatar_ugc: "character_and_product_images",
+    viral_avatar_ugc: "video_and_avatar_images",
     viral_product_swap: "video_and_product_images",
     viral_rebuild: "product_images",
   }[identity.strategy_id];
@@ -1188,7 +1262,11 @@ function normalizeBindResponse(raw, expectedContext) {
     selection_hash: exactSha256(selectionSource.selection_hash, "bind.selection.selection_hash"),
   };
   const bindingSource = exactObject(source.binding, BINDING_KEYS, "bind.binding");
-  if (!Array.isArray(bindingSource.role_assets) || bindingSource.role_assets.length < 2 || bindingSource.role_assets.length > 16) {
+  // Нижняя граница — один ассет, а не два: у «Дуэта» в привязке ровно один
+  // исходник. Точное число ассетов каждой стратегии проверяет
+  // bindingAssetsMatchStrategy — здесь только защита от пустого и
+  // непомерного набора.
+  if (!Array.isArray(bindingSource.role_assets) || bindingSource.role_assets.length < 1 || bindingSource.role_assets.length > 16) {
     throw new RuntimeContractError("binding_assets_invalid", "bind.binding.role_assets");
   }
   const roleAssets = bindingSource.role_assets.map(normalizeBindingAsset);
@@ -1798,21 +1876,26 @@ function normalizeStatusOutput(value) {
   };
 }
 
-function normalizeStatusError(value) {
+function normalizeStatusError(value, job, dispatch, reconciliation) {
   if (value === null) return null;
   const source = exactObject(value, STATUS_ERROR_KEYS, "status.error");
-  const billingOutcome = exactCode(
-    source.provider_billing_outcome,
-    "status.error.provider_billing_outcome",
-  );
-  if (billingOutcome !== "unknown") {
+  const code = exactCode(source.code, "status.error.code");
+  const billingOutcome = source.provider_billing_outcome;
+  const confirmedNotSubmitted = billingOutcome === null &&
+    code === "provider_submission_not_found" &&
+    job.status === "failed" && job.actual_cost_minor === 0 &&
+    job.provider_status === null && job.provider_task_id === null &&
+    dispatch?.outcome === "ambiguous" &&
+    reconciliation?.required === false &&
+    reconciliation.resolution === "confirmed_not_submitted";
+  if (billingOutcome !== "unknown" && !confirmedNotSubmitted) {
     throw new RuntimeContractError(
       "status_billing_outcome_invalid",
       "status.error.provider_billing_outcome",
     );
   }
   return {
-    code: exactCode(source.code, "status.error.code"),
+    code,
     provider_billing_outcome: billingOutcome,
   };
 }
@@ -1926,7 +2009,12 @@ function normalizeStatusResponse(raw, expectedState) {
   const dispatch = normalizeStatusDispatch(source.dispatch);
   const reconciliation = normalizeStatusReconciliation(source.reconciliation);
   const output = normalizeStatusOutput(source.output);
-  const error = normalizeStatusError(source.error);
+  const error = normalizeStatusError(
+    source.error,
+    job,
+    dispatch,
+    reconciliation,
+  );
   if (
     (job.status === "succeeded") !== (output !== null) ||
     (["failed", "cancelled"].includes(job.status) !== (error !== null)) ||
@@ -2492,6 +2580,15 @@ export function generationStrategyRuntimeBindRequest(raw, idempotencyKey) {
       spec_version: context.spec_version,
       spec_hash: context.spec_hash,
       generation_strategy: context.generation_strategy,
+      // Движок появляется в запросе только когда он выбран: сервер отличает
+      // «движок не выбран» от «выбран» по наличию поля, а не по содержимому.
+      ...(context.engine === undefined ? {} : { engine: context.engine }),
+      // Ведущий «Дуэта» — так же по наличию поля. Сервер требует его у дуэта и
+      // ЗАПРЕЩАЕТ остальным стратегиям: подписанный ведущий у «Копии» означал
+      // бы подписанный факт, которого в запросе к провайдеру не будет.
+      ...(context.duet_presenter_id === undefined
+        ? {}
+        : { duet_presenter_id: context.duet_presenter_id }),
       confirmation: true,
       idempotency_key: requiredIdempotencyKey(idempotencyKey),
     }, fingerprint.fingerprint);

@@ -307,11 +307,17 @@ declare
     content_factory.research_exact_youtube_media_attachments%rowtype;
   source_duration_value numeric;
 begin
+  -- Длительность выпуска РАВНА измеренной длительности исходника: с миграции
+  -- 202608210003 у маршрута «Копии» duration_source = 'source_video', и выбор,
+  -- расходящийся с промером, отвергается как generation_strategy_source_
+  -- duration_mismatch. Исходник здесь промерен в 8000 мс, значит и выпуск —
+  -- восемь секунд. Прежние четыре были остатком времён, когда длительность
+  -- выбирал оператор.
   select jsonb_build_object(
     'version', '2026-08-14.v1',
     'strategy_id', 'viral_product_swap',
     'recipe_version', '2026-06',
-    'duration_seconds', 4,
+    'duration_seconds', 8,
     'resolution', '720p',
     'audio', true,
     'assets', jsonb_build_array(
@@ -411,7 +417,7 @@ begin
     'strategy_id', 'viral_product_swap',
     'recipe', 'product_swap',
     'input_mode', 'video_and_product_images',
-    'duration_seconds', 4,
+    'duration_seconds', 8,
     'product_category', 'other',
     'format', 'source',
     'ratio', 'source',

@@ -104,6 +104,12 @@ class Harness:
         *,
         update_error: Exception | None = None,
     ) -> None:
+        # Скрипт читает SUPABASE_PROJECT_REF из окружения, а ожидания теста
+        # написаны на пустое значение. У разработчика переменная выставлена в
+        # реальный проект, и тест падал не из-за кода, а из-за окружения
+        # запускающего. Снимаем её на время прогона, чтобы результат не зависел
+        # от того, чья машина его выполняет.
+        monkeypatch.delenv("SUPABASE_PROJECT_REF", raising=False)
         self.management = FakeManagement()
         self.auth = FakeAuth(update_error=update_error)
         self.auth_builds: list[dict[str, str]] = []

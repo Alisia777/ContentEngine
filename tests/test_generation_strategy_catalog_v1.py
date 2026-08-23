@@ -55,22 +55,17 @@ def _selection(strategy_id: str) -> dict[str, object]:
         "depicted_people_consent_confirmed": True,
     }
     if strategy_id == "viral_avatar_ugc":
+        # «Дуэт»: ровно один ассет — комментируемый ролик. Измерение
+        # разрешением: кадр задаёт исходник. Длительность у ассета всё равно
+        # обязательна — по ней считается посекундная цена ведущего.
         return {
             **common,
-            "ratio": "720:1280",
+            "resolution": "720p",
             "assets": [
                 {
                     "role": "source_video",
                     "media_id": "11111111-1111-4111-8111-111111111111",
-                    "duration_seconds": 22.5,
-                },
-                {
-                    "role": "avatar_image",
-                    "media_id": "22222222-2222-4222-8222-222222222222",
-                },
-                {
-                    "role": "product_image",
-                    "media_id": "33333333-3333-4333-8333-333333333333",
+                    "duration_seconds": 10,
                 },
             ],
             "attestations": {
@@ -215,16 +210,28 @@ def test_recipe_routes_assets_and_reference_semantics_are_exact() -> None:
 
     avatar = by_id["viral_avatar_ugc"]
     assert avatar["recipe"] == "product_ugc"
-    assert avatar["path"] == "/v1/recipes/product_ugc"
-    assert avatar["referenceMode"] == "mechanics_only_not_provider_input"
-    assert avatar["transformation"] == "new_ugc_remake"
-    assert [(r["role"], r["forwarded"], r["providerField"]) for r in avatar["roles"]] == [
-        ("source_video", False, None),
-        ("avatar_image", True, "characterImage"),
-        ("product_image", True, "productImage"),
+    # Решение владельца 22.08.2026: это ДУЭТ. Исходный ролик НЕ переписывается
+    # и провайдеру НЕ уходит — он подложка, поверх которой врезается ведущий.
+    # Путь базовой строки остаётся runway/video_to_video: настоящий движок
+    # выбирает реестр маршрутов, а базовая строка служит только воротами.
+    assert avatar["path"] == "/v1/video_to_video"
+    assert avatar["referenceMode"] == "local_underlay_not_provider_input"
+    assert avatar["transformation"] == "duet_presenter_overlay_preserve_source"
+    # РОВНО ОДИН ассет. Ведущего задаёт не фотография, а запись в библиотеке
+    # ведущих проекта: личность закреплена у провайдера идентификатором
+    # avatar_id, и в теле запроса медиа нет вовсе. Роль avatar_image была
+    # наследством прежнего понимания «замены человека в кадре».
+    assert [
+        (r["role"], r["count"], r["forwarded"], r["providerField"])
+        for r in avatar["roles"]
+    ] == [
+        ("source_video", [1, 1], False, None),
     ]
+    # Верхняя граница шире, чем у «Копии»: комментировать можно длинный ролик —
+    # переписывать его никто не будет.
+    assert avatar["roles"][0]["duration"] == [True, 1.8, 60]
     assert "avatar_likeness_consent_confirmed" in avatar["attestations"]
-    assert "новый ролик" in avatar["notice"].lower()
+    assert "не изменяется" in avatar["notice"].lower()
 
     swap = by_id["viral_product_swap"]
     assert swap["recipe"] == "product_swap"
@@ -273,9 +280,12 @@ def test_duration_dimension_audio_rules_match_official_recipe_contracts() -> Non
         """
     )
     avatar = result["viral_avatar_ugc"]
-    assert avatar["duration"] == {"min_seconds": 4, "max_seconds": 15, "default_seconds": 15}
-    assert avatar["dimension_field"] == "ratio"
-    assert avatar["ratios"] == ["720:1280", "1080:1920"]
+    assert avatar["duration"] == {"min_seconds": 4, "max_seconds": 15, "default_seconds": 10}
+    # Правка видео не меняет соотношение сторон — кадр задаёт исходник. Поэтому
+    # измерение идёт разрешением и список соотношений пуст, ровно как у «Копии».
+    assert avatar["dimension_field"] == "resolution"
+    assert avatar["ratios"] == []
+    assert avatar["resolutions"] == ["720p", "1080p"]
     assert avatar["audio"] == {"required_explicit_boolean": True, "provider_default": True}
 
     swap = result["viral_product_swap"]
@@ -306,9 +316,11 @@ def test_current_official_credit_formulas_cover_every_recipe_and_resolution() ->
         """
         (() => {
           const inputs = {
+            // «Аватар» стал правкой видео, поэтому измерение идёт разрешением,
+            // а не соотношением сторон. Ставка при этом та же: 192/208 за базу.
             viral_avatar_ugc: {
-              "720p": {duration_seconds: 4, ratio: "720:1280", audio: true},
-              "1080p": {duration_seconds: 4, ratio: "1080:1920", audio: true},
+              "720p": {duration_seconds: 4, resolution: "720p", audio: true},
+              "1080p": {duration_seconds: 4, resolution: "1080p", audio: true},
             },
             viral_product_swap: {
               "720p": {duration_seconds: 4, resolution: "720p", audio: true},
@@ -445,11 +457,18 @@ def test_selection_validation_fails_closed_on_output_assets_and_rights() -> None
           const clone = (value) => JSON.parse(JSON.stringify(value));
           const duration = clone(avatar); duration.duration_seconds = 3;
           const audio = clone(avatar); audio.audio = "true";
-          const dimension = clone(avatar); dimension.resolution = "720p";
-          const ratio = clone(avatar); ratio.ratio = "9:16";
-          const missingAsset = clone(avatar); missingAsset.assets.pop();
-          const duplicateAsset = clone(avatar);
-          duplicateAsset.assets[2].media_id = duplicateAsset.assets[1].media_id;
+          // «Аватар» измеряется разрешением, поэтому чужое поле теперь ratio,
+          // а негодное значение — у resolution.
+          const dimension = clone(avatar); dimension.ratio = "720:1280";
+          const ratio = clone(avatar); ratio.resolution = "480p";
+          // У «Дуэта» ассет ровно один — комментируемый ролик. Его удаление
+          // оставляет пустой набор: комментировать становится нечего.
+          const missingAsset = clone(avatar); missingAsset.assets.shift();
+          // Дубль проверяется на «Копии»: у неё ассетов несколько, и один и тот
+          // же файл в двух ролях — настоящая ошибка формы. У дуэта повторить
+          // нечего.
+          const duplicateAsset = clone(swap);
+          duplicateAsset.assets[1].media_id = duplicateAsset.assets[0].media_id;
           const zeroAsset = clone(avatar);
           zeroAsset.assets[0].media_id = "00000000-0000-0000-0000-000000000000";
           const falseRight = clone(avatar);
@@ -485,7 +504,7 @@ def test_selection_validation_fails_closed_on_output_assets_and_rights() -> None
     assert result["duration"]["code"] == "duration_unsupported"
     assert result["audio"]["code"] == "audio_invalid"
     assert result["dimension"]["code"] == "dimension_field_forbidden"
-    assert result["ratio"]["code"] == "ratio_unsupported"
+    assert result["ratio"]["code"] == "resolution_unsupported"
     assert result["missingAsset"]["code"] == "asset_role_count_invalid"
     assert result["duplicateAsset"]["code"] == "asset_media_id_duplicate"
     assert result["zeroAsset"]["code"] == "asset_media_id_invalid"
@@ -557,6 +576,12 @@ def test_public_projection_is_allowlisted_immutable_and_disabled_by_default() ->
     assert result["frozen"] is True
     assert result["leaks"] == []
     assert result["humanReview"] == [True, True, True]
+    # Порядок каталога: дуэт, копия, создание. Исходник уходит провайдеру
+    # только у «Копии»: она единственная переписывает готовый ролик. У «Дуэта»
+    # ролик остаётся подложкой у нас, у «Создания» — источником механики.
+    #
+    # Ранняя редакция (21.08.2026) ставила здесь provider_input и дуэту: тогда
+    # стратегия считалась заменой человека в кадре. Владелец это отменил.
     assert result["sourceUse"] == [
         "mechanics_or_style_reference_only",
         "provider_input",

@@ -22,7 +22,7 @@ HARNESS_SOURCE = HARNESS.read_text(encoding="utf-8")
 
 STRATEGY_IDS = ["viral_avatar_ugc", "viral_product_swap", "viral_rebuild"]
 STRATEGY_LABELS = [
-    "Новый UGC с аватаром и товаром",
+    "Добавить ведущего, комментирующего ролик",
     "Заменить товар в исходном ролике",
     "Создать новый ролик по механике референса",
 ]
@@ -266,6 +266,9 @@ def _run_fixture(width: int, height: int = 960) -> dict[str, object]:
                 "strategy", "viral_product_swap", churn_mounts=25
             )
             strategy_state = evaluate_value(f"{driver}.state()")
+            brief_limit_transition = evaluate_value(
+                f"{driver}.briefLimitTransition()", await_promise=True
+            )
 
             media_step = evaluate_value(
                 f'{driver}.goToStep("media")', await_promise=True
@@ -337,6 +340,7 @@ def _run_fixture(width: int, height: int = 960) -> dict[str, object]:
                     "stability": strategy_stability,
                     "state": strategy_state,
                 },
+                "briefLimitTransition": brief_limit_transition,
                 "mediaStep": media_step,
                 "checkbox": {
                     "prepared": checkbox_prepared,
@@ -419,10 +423,10 @@ def _run_fixture(width: int, height: int = 960) -> dict[str, object]:
 
 def test_strategy_harness_is_server_catalog_driven_and_uses_the_portal_form() -> None:
     assert (
-        'from "./generation-strategy-view.js?v=20260814.os4.41"' in SUBJECT
+        'from "./generation-strategy-view.js?v=20260823.copy-engines.39"' in SUBJECT
     )
     assert (
-        'from "./generation-strategy-assets.js?v=20260814.os4.41"' in SUBJECT
+        'from "./generation-strategy-assets.js?v=20260823.copy-engines.39"' in SUBJECT
     )
     assert "createGenerationStrategyViewState" in SUBJECT
     assert "reduceGenerationStrategyViewState" in SUBJECT
@@ -524,10 +528,17 @@ def test_three_strategy_picker_runtime_contract_and_geometry(width: int) -> None
     assert list(snapshots) == STRATEGY_IDS
     expected = {
         "viral_avatar_ugc": {
-            "roles": ["source_video", "avatar_image", "product_image"],
-            "active": ["avatar_image"],
+            # «Дуэт» 22.08.2026: РОВНО ОДИН ассет — комментируемый ролик.
+            # Ведущего задаёт запись в библиотеке проекта, а не фотография:
+            # личность закреплена у провайдера идентификатором, и в теле
+            # запроса медиа нет вовсе. Роль avatar_image была наследством
+            # прочтения «замена человека в кадре», которое владелец отменил.
+            "roles": ["source_video"],
+            "active": [],
             "rights": [*COMMON_RIGHTS, "avatar_likeness_consent_confirmed"],
-            "duration": "15",
+            # Правка видео идёт от исходника, поэтому умолчание такое же, как у
+            # «Копии», — десять секунд вместо прежних пятнадцати.
+            "duration": "10",
         },
         "viral_product_swap": {
             "roles": [
@@ -638,6 +649,21 @@ def test_three_strategy_picker_runtime_contract_and_geometry(width: int) -> None
     assert strategy_pointer["state"]["pressedStrategies"] == [
         "viral_product_swap"
     ]
+
+    brief_limit = trusted["briefLimitTransition"]
+    assert brief_limit["ok"] is True
+    assert brief_limit["strategyForm"] == "viral_product_swap"
+    assert brief_limit["maxLength"] == 800
+    assert brief_limit["blocked"] == {
+        "length": 801,
+        "valid": False,
+        "validationMessage": "Сократите инструкцию до 800 знаков для выбранной стратегии.",
+    }
+    assert brief_limit["recovered"] == {
+        "length": 800,
+        "valid": True,
+        "validationMessage": "",
+    }
 
     assert trusted["mediaStep"] == {"moved": True, "step": "media"}
     checkbox_pointer = trusted["checkbox"]

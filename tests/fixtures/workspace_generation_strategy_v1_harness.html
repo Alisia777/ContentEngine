@@ -851,6 +851,33 @@
         state() {
           return interactionState();
         },
+        async briefLimitTransition() {
+          const currentForm = activeForm();
+          const brief = currentForm?.elements?.brief;
+          if (!(brief instanceof HTMLTextAreaElement)) return { ok: false };
+          brief.value = "я".repeat(801);
+          brief.dispatchEvent(new Event("input", { bubbles: true }));
+          await stableSettle();
+          const blocked = {
+            length: brief.value.length,
+            valid: brief.validity.valid,
+            validationMessage: brief.validationMessage,
+          };
+          brief.value = "я".repeat(800);
+          brief.dispatchEvent(new Event("input", { bubbles: true }));
+          await stableSettle();
+          return {
+            ok: true,
+            strategyForm: brief.dataset.generationStrategyForm || "",
+            maxLength: brief.maxLength,
+            blocked,
+            recovered: {
+              length: brief.value.length,
+              valid: brief.validity.valid,
+              validationMessage: brief.validationMessage,
+            },
+          };
+        },
         rememberCheckedAttestation() {
           const currentForm = activeForm();
           persistedAttestation = currentForm?.querySelector(

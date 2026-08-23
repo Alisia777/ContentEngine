@@ -195,6 +195,8 @@
       seedance?.click();
       const selectedAfterManual = form.querySelector('[name="generation_model"]:checked')?.value || "";
       const legacyModeAfterManual = form.elements.generation_mode.value;
+      const seedancePromptLimit = form.elements.brief.maxLength;
+      const seedanceModelForm = form.querySelector("[data-ce-v4-model-exact-settings]")?.dataset.generationModelForm || "";
       form.elements.duration_seconds.value = "10";
       form.elements.duration_seconds.dispatchEvent(new Event("change", { bubbles: true }));
       await settle();
@@ -266,6 +268,8 @@
       const veoSilentProxyMode = form.elements.generation_mode.value;
       const veoExactProvider = form.elements.generation_provider.value;
       const veoExactModel = form.elements.generation_model_id.value;
+      const veoPromptLimit = form.elements.brief.maxLength;
+      const veoModelForm = form.querySelector("[data-ce-v4-model-exact-settings]")?.dataset.generationModelForm || "";
       const exactSettingsInsideOwnerForm = form.elements.generation_resolution?.form === form
         && form.elements.generation_audio?.form === form
         && form.elements.generation_last_frame?.form === form;
@@ -289,6 +293,29 @@
       const googleCard = cards.find((card) => card.dataset.provider === "google");
       const premiumCard = cards.find((card) => card.dataset.disabledReasonCode === "premium_model_launch_unsupported");
       const nativeRadioCount = form.querySelectorAll('input[type="radio"][name="generation_model"]').length;
+      const modelVisuals = cards.map((card) => card.querySelector(".ce-v4-model-card__visual"));
+      const modelVisualImages = modelVisuals
+        .map((visual) => visual?.querySelector(".ce-v4-model-card__image"))
+        .filter(Boolean);
+      const modelVisualCount = modelVisuals.filter(Boolean).length;
+      const modelVisualFamilyCount = new Set(
+        modelVisuals.map((visual) => visual?.dataset.family || "").filter(Boolean),
+      ).size;
+      const modelVisualsLocal = modelVisualImages.every((image) => {
+        const url = new URL(image.src, window.location.href);
+        return url.origin === window.location.origin
+          && url.pathname.includes("/web/app/assets/content-factory-model-family-");
+      });
+      const modelVisualsDecorative = modelVisuals.every((visual) => (
+        visual?.getAttribute("aria-hidden") === "true"
+        && visual.querySelector(".ce-v4-model-card__image")?.alt === ""
+      ));
+      const recommendationVisualCount = form.querySelectorAll(
+        ".ce-v4-model-recommendation-hero > .ce-v4-model-card__visual--featured",
+      ).length;
+      const exactModelVisual = form.querySelector(
+        "[data-ce-v4-model-exact-visual] > .ce-v4-model-exact-settings__visual-frame",
+      );
       form.querySelector('[data-ce-v4-model-filter="relevant"]')?.click();
       await settle();
       await new Promise((resolve) => setTimeout(resolve, 30));
@@ -346,6 +373,8 @@
         selectedAfterManual,
         selectedAfterContextChange,
         legacyModeAfterManual,
+        seedancePromptLimit,
+        seedanceModelForm,
         recommendationModelBeforeApply,
         comparisonBeforeApply,
         whyRecommendationAvailable,
@@ -370,6 +399,8 @@
         veoSilentProxyMode,
         veoExactProvider,
         veoExactModel,
+        veoPromptLimit,
+        veoModelForm,
         exactSettingsInsideOwnerForm,
         ratioStillSubmitted,
         exactAudioStillSubmitted,
@@ -406,6 +437,15 @@
         filterCount: form.querySelectorAll("[data-ce-v4-model-filter]").length,
         selectionSummaryCount: form.querySelectorAll("[data-ce-v4-model-selection-summary]").length,
         nativeRadioCount,
+        modelVisualCount,
+        modelVisualImageCount: modelVisualImages.length,
+        modelVisualFamilyCount,
+        modelVisualsLocal,
+        modelVisualsDecorative,
+        recommendationVisualCount,
+        exactModelVisualCount: exactModelVisual ? 1 : 0,
+        exactModelVisualFamily: exactModelVisual?.dataset.family || "",
+        exactModelVisualTone: exactModelVisual?.dataset.tone || "",
         technicalDetailsCollapsed: cards.every((card) => !card.querySelector(".ce-v4-model-card__technical")?.open),
         disabledCardsKeyboardReachable: cards.filter((card) => card.dataset.available === "false").every((card) => card.tabIndex === 0),
         completeCardCopy: cards.every((card) => (

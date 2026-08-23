@@ -233,10 +233,13 @@ def test_google_reconciliation_is_provider_specific_without_loosening_runway_id(
         API.index("  reconcileRealGeneration(") :
         API.index("  async invokeRealGeneration(", API.index("  reconcileRealGeneration("))
     ]
-    assert 'new Set(["runway", "google"])' in reconcile
+    assert 'new Set(["runway", "google", "fal"])' in reconcile
     assert "models\\/veo-3\\.1-lite-generate-preview\\/operations" in reconcile
-    assert "/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u" in reconcile
+    assert "GENERATION_STRATEGY_RUNWAY_TASK_ID_PATTERN.test(providerTaskId)" in reconcile
+    assert "GENERATION_STRATEGY_FAL_REQUEST_ID_PATTERN.test(providerTaskId)" in reconcile
     assert '"GOOGLE_OPERATION_ID_VERIFIED"' in reconcile
     assert '"GOOGLE_NO_OPERATION_VERIFIED"' in reconcile
+    assert '"FAL_REQUEST_ID_VERIFIED"' in reconcile
+    assert '"FAL_NO_REQUEST_VERIFIED"' in reconcile
     assert '"RUNWAY_TASK_ID_VERIFIED"' in reconcile
     assert '"RUNWAY_NO_TASK_VERIFIED"' in reconcile

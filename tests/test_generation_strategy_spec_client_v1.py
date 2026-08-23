@@ -26,6 +26,7 @@ const ids = Object.freeze({
   project: '20000000-0000-4000-8000-000000000002',
   source: '30000000-0000-4000-8000-0000000000ff',
   avatar: '40000000-0000-4000-8000-000000000004',
+  avatarSide: '40000000-0000-4000-8000-00000000000b',
   productMedia: '50000000-0000-4000-8000-000000000005',
   original: '60000000-0000-4000-8000-000000000006',
   style: '70000000-0000-4000-8000-000000000007',
@@ -73,14 +74,15 @@ const selection = (strategy = 'viral_avatar_ugc', sourceId = ids.source) => {
       {role: 'style_image', media_id: ids.style},
     ], attestations: attestations(false),
   };
+  // «Дуэт»: ровно один ассет — комментируемый ролик. Измерение разрешением:
+  // кадр задаёт исходник. Длительность у ассета обязательна — по ней считается
+  // посекундная цена ведущего.
   return {
     version: '2026-08-14.v1', strategy_id: strategy,
     recipe_version: '2026-06', duration_seconds: 4,
-    ratio: '720:1280', audio: true,
+    resolution: '720p', audio: true,
     assets: [
-      {role: 'source_video', media_id: sourceId},
-      {role: 'avatar_image', media_id: ids.avatar},
-      {role: 'product_image', media_id: ids.productMedia},
+      {role: 'source_video', media_id: sourceId, duration_seconds: 4},
     ], attestations: attestations(true),
   };
 };
@@ -92,15 +94,26 @@ const input = (strategy = 'viral_avatar_ugc', index = 1) => ({
   selection: selection(strategy, index === 1 ? ids.source : uuid(index, '30000000')),
   editable_intent: `Create an exact product story for source ${index}.`,
   proposed_prompt: `Show a clear product demonstration for source ${index}.`,
+  // Разбор механики присылает только «Создание»: правки готового видео
+  // получают сцену целиком, а не пересказом.
   mechanics_summary: strategy === 'viral_product_swap' ? null : mechanics(),
   confirmation: true,
   reason: `Human prepared strategy specification ${index}.`,
   idempotency_key: `strategy-source-${index}`,
+  // Товар «Дуэта» приходит ЯВНЫМ полем: фотографий товара у него нет, и
+  // вывести его больше неоткуда. Остальным стратегиям этот ключ ЗАПРЕЩЁН —
+  // у них товар уже назван снимками, и второй его источник однажды разойдётся
+  // с первым молча.
+  ...(strategy === 'viral_avatar_ugc' ? {product_id: ids.product} : {}),
 });
 const rules = Object.freeze({
   viral_avatar_ugc: {
-    recipe: 'product_ugc', inputMode: 'character_and_product_images',
-    ratio: '720:1280', resolution: '720p', referenceVideo: false,
+    recipe: 'product_ugc', inputMode: 'video_and_avatar_images',
+    // Кадр приходит из исходника — он задаёт размер холста, поверх которого
+    // врезается ведущий. Но провайдеру исходник НЕ уходит: ведущего снимают
+    // отдельно, соединение делает наш ffmpeg. Отсюда referenceVideo false при
+    // ratio 'source' — две разные вещи, которые легко спутать.
+    ratio: 'source', resolution: '720p', referenceVideo: false,
   },
   viral_product_swap: {
     recipe: 'product_swap', inputMode: 'video_and_product_images',
@@ -141,7 +154,10 @@ const makeResponse = (request, index = 1) => {
     media_object_id: sourceSelection.media_id,
     media_sha256: sourceAsset.sha256,
     size_bytes: 4096 + index,
-    duration_seconds: selected.strategy_id === 'viral_product_swap'
+    // Длительность несут те стратегии, чей исходник уходит провайдеру: «Копия»
+    // с самого начала и «Аватар» с 22.08.2026. «Создание» собирает ролик с нуля
+    // и исходник видит только как разобранную механику.
+    duration_seconds: rule.referenceVideo
       ? sourceSelection.duration_seconds : null,
   };
   const mechanicsSnapshot = selected.strategy_id === 'viral_product_swap'
@@ -156,13 +172,21 @@ const makeResponse = (request, index = 1) => {
       reviewed_by: ids.reviewer,
       review_confirmation: true,
     };
+  // Цель работы зависит от стратегии: у «Копии» новый товар, у «Создания» —
+  // фотографии товара, у «Дуэта» — сам комментируемый ролик: он и есть то,
+  // ПРО ЧТО делается запуск.
+  const targetRoles = {
+    viral_avatar_ugc: ['source_video'],
+    viral_product_swap: ['new_product_image'],
+    viral_rebuild: ['product_image'],
+  }[selected.strategy_id];
   const targetIds = selected.assets
-    .filter((asset) => ['product_image', 'new_product_image'].includes(asset.role))
+    .filter((asset) => targetRoles.includes(asset.role))
     .map((asset) => asset.media_id);
   const scope = {
     version: 'generation-strategy-spec-scope-v1',
     authority_kind: 'strategy_recipe',
-    primary_media_id: targetIds[0],
+    primary_media_id: targetIds[0] ?? null,
     media_ids: targetIds.slice(0, 5),
     platform: request.platform,
     provider: 'runway',
@@ -316,8 +340,12 @@ def test_mechanics_are_exact_nontrivial_and_swap_is_null_only() -> None:
     result = _evaluate(
         """
         (() => {
+          // Разбор механики остался только у «Создания»: правки готового видео
+          // получают сцену целиком, а не пересказом. Поэтому и валидный разбор,
+          // и его нарушения проверяются на viral_rebuild, а обе правки видео —
+          // на том, что механику у них присылать НЕЛЬЗЯ.
           const valid = subject.normalizeGenerationStrategySpecMechanics(
-            mechanics(), 'viral_avatar_ugc');
+            mechanics(), 'viral_rebuild');
           const duplicate = mechanics();
           duplicate.beat_sequence[1] = duplicate.beat_sequence[0];
           const extra = mechanics(); extra.camera_motion = 'browser authority';
@@ -327,11 +355,15 @@ def test_mechanics_are_exact_nontrivial_and_swap_is_null_only() -> None:
             duplicate: subject.normalizeGenerationStrategySpecMechanics(
               duplicate, 'viral_rebuild').error.code,
             extra: subject.normalizeGenerationStrategySpecMechanics(
-              extra, 'viral_avatar_ugc').error.code,
+              extra, 'viral_rebuild').error.code,
             swapNull: subject.normalizeGenerationStrategySpecMechanics(
               null, 'viral_product_swap').ok,
             swapText: subject.normalizeGenerationStrategySpecMechanics(
               mechanics(), 'viral_product_swap').error.code,
+            avatarNull: subject.normalizeGenerationStrategySpecMechanics(
+              null, 'viral_avatar_ugc').error.code,
+            avatarText: subject.normalizeGenerationStrategySpecMechanics(
+              mechanics(), 'viral_avatar_ugc').ok,
           };
         })()
         """
@@ -343,6 +375,10 @@ def test_mechanics_are_exact_nontrivial_and_swap_is_null_only() -> None:
         "extra": "object_keys_mismatch",
         "swapNull": True,
         "swapText": "mechanics_must_be_null",
+        # ДУЭТ разбор ОБЯЗАН прислать: он и есть материал для речи ведущего.
+        # Пустой разбор здесь — отказ, а не «поле можно опустить».
+        "avatarNull": "object_required",
+        "avatarText": True,
     }
 
 
@@ -350,9 +386,14 @@ def test_prepare_builder_emits_only_the_exact_server_dto() -> None:
     result = _evaluate(
         """
         (() => {
-          const ugc = subject.buildGenerationStrategySpecPrepareRequest(input());
+          // Разбор механики присылает только «Создание»: у обеих правок видео
+          // его быть не должно, и это проверяется ниже отдельно.
+          const ugc = subject.buildGenerationStrategySpecPrepareRequest(
+            input('viral_rebuild'));
           const swap = subject.buildGenerationStrategySpecPrepareRequest(
             input('viral_product_swap'));
+          const avatar = subject.buildGenerationStrategySpecPrepareRequest(
+            input('viral_avatar_ugc'));
           const forbidden = input(); forbidden.spec_id = uuid(99);
           return {
             ugcOk: ugc.ok,
@@ -361,6 +402,8 @@ def test_prepare_builder_emits_only_the_exact_server_dto() -> None:
             mechanicsVersion: ugc.request.mechanics_summary.version,
             swapOk: swap.ok,
             swapMechanics: swap.request.mechanics_summary,
+            avatarOk: avatar.ok,
+            avatarMechanicsVersion: avatar.request.mechanics_summary.version,
             forbidden: subject.buildGenerationStrategySpecPrepareRequest(
               forbidden).error.code,
             frozen: Object.isFrozen(ugc.request.selection.assets),
@@ -390,6 +433,10 @@ def test_prepare_builder_emits_only_the_exact_server_dto() -> None:
         "mechanicsVersion": "generation-strategy-mechanics-summary-v1",
         "swapOk": True,
         "swapMechanics": None,
+        # ДУЭТ разбор ролика присылает: он и есть материал для речи ведущего.
+        # Без «Копии» здесь остаются двое, и это единственная стратегия с null.
+        "avatarOk": True,
+        "avatarMechanicsVersion": "generation-strategy-mechanics-summary-v1",
         "forbidden": "object_keys_mismatch",
         "frozen": True,
     }
@@ -399,7 +446,10 @@ def test_prepare_response_normalizes_full_scope_but_projection_strips_consent() 
     result = _evaluate(
         """
         (() => {
-          const request = subject.buildGenerationStrategySpecPrepareRequest(input());
+          // Снимок механики остался только у «Создания»: правки готового
+          // видео его не собирают вовсе.
+          const request = subject.buildGenerationStrategySpecPrepareRequest(
+            input('viral_rebuild'));
           const raw = makeResponse(request.request);
           const normalized = subject.normalizeGenerationStrategySpecPrepareResponse(
             raw, request);
@@ -422,12 +472,85 @@ def test_prepare_response_normalizes_full_scope_but_projection_strips_consent() 
         """
     )
     assert result["ok"] is True
-    assert result["scopeVersion"] == "generation-strategy-spec-scope-v1"
+    assert result["scopeVersion"] == "generation-strategy-spec-scope-v2"
     assert result["identityStatus"] == "draft"
     assert len(result["mechanicsHash"]) == 64
     assert result["leakedConsent"] is False
     assert result["projection"]["human_approval_required"] is True
     assert result["projection"]["next_action"] == "approve"
+
+
+def test_scope_v2_is_provider_neutral_and_v1_is_dual_read_as_deferred_route() -> None:
+    result = _evaluate(
+        """
+        (() => {
+          const request = subject.buildGenerationStrategySpecPrepareRequest(
+            input('viral_product_swap'));
+          const legacyRaw = makeResponse(request.request);
+          const legacy = subject.normalizeGenerationStrategySpecPrepareResponse(
+            legacyRaw, request);
+
+          const v2Raw = makeResponse(request.request);
+          for (const spec of [v2Raw.generation_spec, v2Raw.history[0]]) {
+            spec.exact_scope.version = 'generation-strategy-spec-scope-v2';
+            delete spec.exact_scope.provider;
+            spec.exact_scope.route_policy = {
+              version: 'generation-strategy-route-policy-v1',
+              authority: 'generation_strategy_provider_routes',
+              binding: 'deferred_until_preflight',
+            };
+          }
+          const v2 = subject.normalizeGenerationStrategySpecPrepareResponse(
+            v2Raw, request);
+          const projection = subject.generationStrategySpecSafeProjection(v2);
+
+          const injected = clone(v2Raw);
+          injected.generation_spec.exact_scope.provider = 'runway';
+          injected.history[0].exact_scope.provider = 'runway';
+          const injectedResult =
+            subject.normalizeGenerationStrategySpecPrepareResponse(
+              injected, request);
+
+          const forged = clone(v2Raw);
+          forged.generation_spec.exact_scope.route_policy.provider = 'fal';
+          forged.history[0].exact_scope.route_policy.provider = 'fal';
+          const forgedResult =
+            subject.normalizeGenerationStrategySpecPrepareResponse(
+              forged, request);
+          return {
+            legacyOk: legacy.ok,
+            legacyProviderPresent:
+              'provider' in legacy.value.generationSpec.exact_scope,
+            legacyCanonicalVersion:
+              legacy.value.generationSpec.exact_scope.version,
+            legacyPolicy: legacy.value.generationSpec.exact_scope.route_policy,
+            v2Ok: v2.ok,
+            v2Version: v2.value.generationSpec.exact_scope.version,
+            v2ProviderPresent: 'provider' in v2.value.generationSpec.exact_scope,
+            projectionRoute: projection.execution_route,
+            injected: injectedResult.error.code,
+            forged: forgedResult.error.code,
+          };
+        })()
+        """
+    )
+    expected_policy = {
+        "version": "generation-strategy-route-policy-v1",
+        "authority": "generation_strategy_provider_routes",
+        "binding": "deferred_until_preflight",
+    }
+    assert result == {
+        "legacyOk": True,
+        "legacyProviderPresent": False,
+        "legacyCanonicalVersion": "generation-strategy-spec-scope-v2",
+        "legacyPolicy": expected_policy,
+        "v2Ok": True,
+        "v2Version": "generation-strategy-spec-scope-v2",
+        "v2ProviderPresent": False,
+        "projectionRoute": expected_policy,
+        "injected": "object_keys_mismatch",
+        "forged": "object_keys_mismatch",
+    }
 
 
 @pytest.mark.parametrize(
@@ -462,7 +585,10 @@ def test_prepare_response_fails_closed_on_server_authority_drift(
     result = _evaluate(
         f"""
         (() => {{
-          const request = subject.buildGenerationStrategySpecPrepareRequest(input());
+          // Снимок механики остался только у «Создания»: правки готового
+          // видео его не собирают вовсе.
+          const request = subject.buildGenerationStrategySpecPrepareRequest(
+            input('viral_rebuild'));
           const raw = makeResponse(request.request);
           {mutation}
           return subject.normalizeGenerationStrategySpecPrepareResponse(
@@ -477,7 +603,10 @@ def test_approval_builder_requires_explicit_human_confirmation_and_exact_cas() -
     result = _evaluate(
         """
         (() => {
-          const request = subject.buildGenerationStrategySpecPrepareRequest(input());
+          // Снимок механики остался только у «Создания»: правки готового
+          // видео его не собирают вовсе.
+          const request = subject.buildGenerationStrategySpecPrepareRequest(
+            input('viral_rebuild'));
           const draft = subject.normalizeGenerationStrategySpecPrepareResponse(
             makeResponse(request.request), request);
           const approved = subject.buildGenerationStrategySpecApprovalRequest({
@@ -514,7 +643,10 @@ def test_control_response_returns_only_safe_approved_context() -> None:
     result = _evaluate(
         """
         (() => {
-          const request = subject.buildGenerationStrategySpecPrepareRequest(input());
+          // Снимок механики остался только у «Создания»: правки готового
+          // видео его не собирают вовсе.
+          const request = subject.buildGenerationStrategySpecPrepareRequest(
+            input('viral_rebuild'));
           const raw = makeResponse(request.request);
           const draft = subject.normalizeGenerationStrategySpecPrepareResponse(
             raw, request);
@@ -569,7 +701,10 @@ def test_control_response_rejects_cross_spec_or_non_exact_approval(
     result = _evaluate(
         f"""
         (() => {{
-          const request = subject.buildGenerationStrategySpecPrepareRequest(input());
+          // Снимок механики остался только у «Создания»: правки готового
+          // видео его не собирают вовсе.
+          const request = subject.buildGenerationStrategySpecPrepareRequest(
+            input('viral_rebuild'));
           const raw = makeResponse(request.request);
           const draft = subject.normalizeGenerationStrategySpecPrepareResponse(
             raw, request);

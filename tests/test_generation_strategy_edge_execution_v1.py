@@ -152,10 +152,19 @@ def test_strategy_bind_response_is_allowlisted_against_frozen_130006_contract() 
     assert "rights_confirmed !== true" in assets
     assert "typeof asset.likeness_consent !== \"boolean\"" in assets
 
-    assert "RUNWAY_RECIPE_PRICING_VERSION" in price
+    # Версия прайса — свойство маршрута, а не литерал Runway: у fal их две
+    # (за ролик и за секунду). Проверяется принадлежность известному набору,
+    # иначе снимок цены второго движка отвергался бы формой, а не содержанием.
+    assert "isKnownStrategyPricingVersion(value.pricing_version)" in price
+    assert "RUNWAY_RECIPE_PRICING_VERSION" not in price
     assert "RUNWAY_RECIPE_VERSION" in price
+
+    # Сверка со ступенями кредитов остаётся обязательной там, где кредиты и
+    # есть, — у Runway. Маршрут с ценой за ролик или за секунду сверяется на
+    # внутреннюю согласованность снимка.
     assert "estimateGenerationStrategyCredits(" in price
-    assert "value.estimated_credits !== expectedPrice.estimated_credits" in price
+    assert 'const runwayCredits = value.provider === "runway"' in price
+    assert "value.estimated_credits === expectedPrice.estimated_credits" in price
     assert "expectedConfirmation" in price
     assert "value.spend_confirmation === expectedConfirmation" in price
 
@@ -195,7 +204,7 @@ def test_paid_strategy_start_uses_frozen_130007_claim_and_one_post_owner() -> No
 
     assert '"system_claim_generation_strategy_start"' in start
     assert 'version: "generation-strategy-start-claim-request-v1"' in start
-    assert "readGenerationStrategyStartClaim(data" in start
+    assert "await readGenerationStrategyStartClaim(data" in start
     assert "continueGenerationStrategyClaim({" in start
 
     assert '"system_mark_generation_strategy_dispatch_attempt"' in continuation
@@ -204,7 +213,7 @@ def test_paid_strategy_start_uses_frozen_130007_claim_and_one_post_owner() -> No
     assert "attempt.replay !== false" in continuation
     assert "attempt.terminal_result !== null" in continuation
     assert "signAndValidateGenerationStrategyAssets(" in continuation
-    assert "strategyPromptHashesMatch(recipeContext)" in continuation
+    assert "await readGenerationStrategyDispatchAttempt(data" in continuation
     assert "buildGenerationStrategyProviderRequest(" in continuation
     assert continuation.count("fetchProviderJsonWithDeadline(") == 1
     assert '"system_record_generation_strategy_dispatch_result"' not in continuation

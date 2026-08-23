@@ -9,7 +9,7 @@ import { CreatorApi } from "./supabase-api.js?v=20260814.os4.41";
  * cleanup.
  */
 
-const SUPABASE_SDK_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
+const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260823.copy-engines.39";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
 const CLOSE_TRANSIENTS_EVENT = "contentengine:v4-close-transients";
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -210,7 +210,13 @@ async function getApi() {
       if (!config.SUPABASE_URL || !config.SUPABASE_PUBLISHABLE_KEY) {
         throw new Error("Supabase configuration is unavailable");
       }
-      const { createClient } = await import(SUPABASE_SDK_URL);
+      const { createClient, processLock } = await import(SUPABASE_SDK_URL);
+      if (
+        typeof createClient !== "function"
+        || typeof processLock !== "function"
+      ) {
+        throw new Error("Supabase browser client is unavailable");
+      }
       const supabase = createClient(
         config.SUPABASE_URL,
         config.SUPABASE_PUBLISHABLE_KEY,
@@ -220,6 +226,7 @@ async function getApi() {
             autoRefreshToken: true,
             detectSessionInUrl: false,
             flowType: "pkce",
+            lock: processLock,
             storage: window.sessionStorage,
             storageKey: `contentengine.creator-workspace.${new URL(config.SUPABASE_URL).hostname}.auth-session.v1`,
           },
@@ -412,10 +419,8 @@ function finderItemActions(entity) {
   actions.push({ separator: true });
   actions.push(menuAction("Скопировать название", "copy", () => copyText(entity.title, "Название скопировано")));
   actions.push(menuAction("Скопировать ID", "copy", () => copyText(entity.id, "ID скопирован")));
-  if (finderOrganizeMode()) {
-    actions.push({ separator: true });
-    actions.push(menuAction("Переместить в Корзину", "trash", () => trashEntities([entity]), { danger: true, shortcut: "⌫" }));
-  }
+  actions.push({ separator: true });
+  actions.push(menuAction("Переместить в Корзину", "trash", () => trashEntities([entity]), { danger: true, shortcut: "⌫" }));
   return actions;
 }
 
@@ -456,6 +461,98 @@ function folderActions(folder) {
     ),
   );
   return actions;
+}
+
+function shellDescriptor(node) {
+  if (!(node instanceof Element)) return null;
+  const finderCollection = node.closest(".workspace-board__overview-card, .workspace-board__workflow-folders button");
+  if (finderCollection) return {
+    kind: "finder-collection",
+    key: String(finderCollection.dataset.overviewKind || finderCollection.dataset.folderId || "collection"),
+    title: compact(q("strong, span", finderCollection)?.textContent || "Коллекция"),
+    node: finderCollection,
+  };
+  const desktopShortcut = node.closest(".ce-v4-desktop-shortcut[data-ce-v4-desktop-key]");
+  if (desktopShortcut) return {
+    kind: "desktop-shortcut",
+    key: String(desktopShortcut.dataset.ceV4DesktopKey || ""),
+    title: compact(q(".ce-v4-desktop-shortcut__copy strong", desktopShortcut)?.textContent || "Ярлык"),
+    node: desktopShortcut,
+  };
+  const dockItem = node.closest(".ce-v4-dock__item[data-ce-v4-dock-key]");
+  if (dockItem && !dockItem.classList.contains("ce-v4-trash-dock")) return {
+    kind: "dock",
+    key: String(dockItem.dataset.ceV4DockKey || ""),
+    title: compact(q(".ce-v4-dock__label", dockItem)?.textContent || dockItem.title || "Приложение"),
+    node: dockItem,
+  };
+  const project = node.closest(".home-project-card[data-ce-v4-project-id], .ce-v4-desktop-project");
+  if (project) return {
+    kind: "project",
+    key: String(project.dataset.ceV4ProjectId || ""),
+    title: compact(
+      project.dataset.ceV4ProjectName
+        || q(".home-project-card__copy strong, .ce-v4-desktop-project__copy strong", project)?.textContent
+        || "Проект",
+    ),
+    node: project,
+  };
+  const workspaceWindow = node.closest(".ce-v4-window[data-ce-v4-window-id]");
+  if (workspaceWindow) return {
+    kind: "window",
+    key: String(workspaceWindow.dataset.ceV4WindowId || ""),
+    title: compact(q("[data-ce-v4-window-title]", workspaceWindow)?.textContent || "Окно"),
+    node: workspaceWindow,
+  };
+  if (node.closest(".ce-v4-desktop")) return { kind: "desktop", key: "desktop", title: "Рабочий стол", node };
+  return null;
+}
+
+function shellActions(shell) {
+  const desktopApi = window.ContentEngineDesktopV4;
+  if (shell.kind === "finder-collection") return [
+    menuAction("Открыть коллекцию", "open", () => shell.node.click(), { shortcut: "↵" }),
+    { separator: true },
+    menuAction("Скопировать название", "copy", () => copyText(shell.title, "Название скопировано")),
+  ];
+  if (shell.kind === "desktop-shortcut") return [
+    menuAction("Открыть", "open", () => shell.node.click(), { shortcut: "↵" }),
+    { separator: true },
+    menuAction("Переместить влево", "folder", () => desktopApi?.desktopShortcutAction?.(shell.key, "left")),
+    menuAction("Переместить вправо", "folder", () => desktopApi?.desktopShortcutAction?.(shell.key, "right")),
+    menuAction("Настроить ярлыки", "grid", () => desktopApi?.desktopShortcutAction?.(shell.key, "edit")),
+    { separator: true },
+    menuAction("Убрать с рабочего стола", "remove", () => desktopApi?.desktopShortcutAction?.(shell.key, "hide"), { danger: true }),
+  ];
+  if (shell.kind === "dock") return [
+    menuAction("Открыть", "open", () => shell.node.click(), { shortcut: "↵" }),
+    { separator: true },
+    menuAction("Переместить влево", "folder", () => desktopApi?.dockContextAction?.(shell.key, "left")),
+    menuAction("Переместить вправо", "folder", () => desktopApi?.dockContextAction?.(shell.key, "right")),
+    menuAction("Настроить Dock", "grid", () => desktopApi?.dockContextAction?.(shell.key, "customize")),
+    menuAction("Убрать из Dock", "remove", () => desktopApi?.dockContextAction?.(shell.key, "remove"), { danger: true }),
+  ];
+  if (shell.kind === "project") return [
+    menuAction("Открыть проект", "folder", () => shell.node.click(), { shortcut: "↵" }),
+    menuAction("Выбрать обложку…", "eye", () => desktopApi?.openProjectCoverPicker?.(shell.key, shell.title, shell.node)),
+    menuAction("Скопировать название", "copy", () => copyText(shell.title, "Название проекта скопировано")),
+    { separator: true },
+    menuAction("Все проекты", "grid", () => openWorkspaceRoute("/workspace/home?view=projects")),
+  ];
+  if (shell.kind === "window") return [
+    menuAction("Сделать активным", "open", () => desktopApi?.windowContextAction?.(shell.key, "focus")),
+    menuAction("Свернуть в Dock", "remove", () => desktopApi?.windowContextAction?.(shell.key, "minimize")),
+    menuAction("Развернуть / вернуть размер", "grid", () => desktopApi?.windowContextAction?.(shell.key, "zoom")),
+    { separator: true },
+    menuAction("Закрыть окно", "close", () => desktopApi?.windowContextAction?.(shell.key, "close"), { danger: true }),
+  ];
+  return [
+    menuAction("Показать окна", "grid", () => desktopApi?.openMission?.()),
+    menuAction("Настроить ярлыки", "folder", () => desktopApi?.desktopShortcutAction?.("", "edit")),
+    menuAction("Вернуть стандартные ярлыки", "restore", () => desktopApi?.desktopShortcutAction?.("", "reset")),
+    { separator: true },
+    menuAction("Обновить", "refresh", refreshCurrentWorkspace, { shortcut: "⌘R" }),
+  ];
 }
 
 function emptySurfaceActions(target) {
@@ -514,6 +611,8 @@ function contextActions(target) {
   if (entity) return entity.source === "tasks" ? taskActions(entity) : finderItemActions(entity);
   const folder = folderDescriptor(target);
   if (folder) return folderActions(folder);
+  const shell = shellDescriptor(target);
+  if (shell) return shellActions(shell);
   return emptySurfaceActions(target);
 }
 
@@ -587,15 +686,21 @@ function contextTarget(target) {
   if (!(target instanceof Element)) return null;
   return target.closest(
     ".workspace-board__item, .workspace-board__folder-row, .workspace-board__grid, "
-      + ".task-card, .tasks-desk-card, .tasks-desk-stage, .ce-v4-page, .ce-v4-trash-dock",
+      + ".workspace-board__overview-card, .workspace-board__workflow-folders button, "
+      + ".task-card, .tasks-desk-card, .tasks-desk-stage, .ce-v4-trash-dock, "
+      + ".ce-v4-desktop-shortcut, .ce-v4-desktop-project, .home-project-card, "
+      + ".ce-v4-dock__item, .ce-v4-window, .ce-v4-desktop, .ce-v4-page",
   );
 }
 
 function prefersNativeContextMenu(target) {
   if (!(target instanceof Element)) return false;
-  return Boolean(target.closest(
-    "input, textarea, select, option, [contenteditable='true'], [contenteditable=''], a[href], video, audio",
-  ));
+  if (target.closest("input, textarea, select, option, [contenteditable='true'], [contenteditable=''], video, audio")) return true;
+  const anchor = target.closest("a[href]");
+  if (!anchor) return false;
+  return !anchor.matches(
+    ".ce-v4-desktop-shortcut, .ce-v4-desktop-project, .home-project-card, .ce-v4-dock__item",
+  );
 }
 
 function handleContextMenu(event) {
@@ -1670,6 +1775,21 @@ function handleGlobalKeydown(event) {
   }
   const editing = event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable='true']");
   if (editing) return;
+  if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+    const activeElement = document.activeElement;
+    const target = contextTarget(activeElement);
+    if (target) {
+      event.preventDefault();
+      const rect = target.getBoundingClientRect();
+      openContextMenu(
+        target,
+        Math.min(window.innerWidth - 12, rect.left + Math.min(rect.width, 36)),
+        Math.min(window.innerHeight - 12, rect.top + Math.min(rect.height, 36)),
+        activeElement,
+      );
+    }
+    return;
+  }
   if (trashRouteActive() && event.shiftKey && event.key === "Delete") {
     const items = selectedTrashItems();
     if (items.length && runtime.trashCapabilities.purge_items) {

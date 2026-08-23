@@ -242,20 +242,47 @@ def _evaluate(expression: str) -> object:
 
 
 def test_view_pins_all_frozen_authorities_and_has_no_side_effect_channel() -> None:
+    # Отпечатки обновлены 22.08.2026: в runtime переименован ярлык входа
+    # «Аватара» (character_and_product_images → video_and_avatar_images), у
+    # стратегии больше нет товара. Остальной дрейф — номера версий в адресах
+    # импорта. Пин стережёт файл целиком, поэтому реагирует и на них.
+    # Прежняя запись 21.08.2026: Причина дрейфа проверена по диффу: в обоих
+    # файлах изменились ТОЛЬКО номера версий в адресах импорта (cache-busting),
+    # ни одной строки логики. Пин при этом стережёт файл целиком, поэтому любое
+    # обновление сборки роняет его — это известная слабость самой проверки, а не
+    # признак правки поведения.
+    #
+    # Запись 23.08.2026 (вторая): пин сдвинут снова, и это ПОЧИНКА СОБСТВЕННОЙ
+    # ошибки. Правя каталог провайдеров в edge, я не тронул его браузерного
+    # двойника: PRICING_VERSIONS и STRATEGY_PROVIDERS не знали heygen, и
+    # привязка дуэта отвергалась в браузере раньше всего остального. Ровно об
+    # этом предупреждает комментарий над самими списками: «Расходиться им
+    # нельзя: иначе одна из сторон молча отвергает то, что другая считает
+    # верным». Три списка версий прайса (edge, этот модуль, app.js) обязаны
+    # совпадать.
+    #
+    # Запись 23.08.2026: пин сдвинут ОСОЗНАННО, и это правка поведения.
+    # generation-strategy-runtime.js перестал требовать длительность исходника
+    # у одной лишь «Копии»: теперь её требует и «Дуэт», потому что у него
+    # ставка посекундная и длина исходника — это цена запуска. Прежде браузер
+    # отпускал дуэт без длительности, а сервер отвергал его на
+    # generation_strategy_source_duration_mismatch — то есть уже после резерва
+    # денег. Пределы вынесены в SOURCE_DURATION_BOUNDS: 1.8–15 с у «Копии»,
+    # 1.8–60 с у «Дуэта», по строкам реестра маршрутов.
     expected_hashes = {
-        RUNTIME_MODULE: "3588c5ac08d78a91062e52ebda87d1cf34988e584e1f238b07a944964e16956c",
-        QUEUE_MODULE: "a2133fe6d64ec8bfc82e782f1c1e69c8731ccf15f822c39eb0f9253961f639e7",
-        SOURCE_PICKER_MODULE: "2c3912a5705dddab42ad5ccf919b76fb7b65d3d4f4181fc59d304f5727771ebf",
+        RUNTIME_MODULE: "940fe34f2ee241e1d7206443c48389aa9541b06e4c897d31801d0a79fe7e56b0",
+        QUEUE_MODULE: "e11253d25e324511b44cccc674e7381ce7f4498d524ab2c19b8f7a403c52a936",
+        SOURCE_PICKER_MODULE: "81105b9fb7cac1269cb3b92ac0ecdff9ba6f8bd5128954f8715b7a31fd3c476d",
     }
     for path, expected in expected_hashes.items():
         canonical_bytes = path.read_bytes().replace(b"\r\n", b"\n")
         assert hashlib.sha256(canonical_bytes).hexdigest() == expected
     assert (
-        'from "./generation-strategy-source-picker.js?v=20260814.os4.41";'
+        'from "./generation-strategy-source-picker.js?v=20260823.copy-engines.39";'
         in VIEW_SOURCE
     )
     assert (
-        'from "./generation-strategy-queue.js?v=20260814.os4.41";'
+        'from "./generation-strategy-queue.js?v=20260823.copy-engines.39";'
         in VIEW_SOURCE
     )
     for forbidden in (

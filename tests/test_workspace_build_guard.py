@@ -13,34 +13,97 @@ ROOT_INDEX = (ROOT / "index.html").read_text(encoding="utf-8")
 SCRIPT = (APP_DIR / "workspace-build-guard.js").read_text(encoding="utf-8")
 CSS = (APP_DIR / "workspace-build-guard.css").read_text(encoding="utf-8")
 MANIFEST = json.loads((APP_DIR / "build.json").read_text(encoding="utf-8"))
+DESKTOP_ASSET_BUILD = "20260822.live-windows.5"
+APP_SCRIPT = (APP_DIR / "app.js").read_text(encoding="utf-8")
+LOADER = (APP_DIR / "workspace-os-v4-loader.js").read_text(encoding="utf-8")
+INTAKE_ENTRY = (APP_DIR / "generation-strategy-intake-v2.js").read_text(
+    encoding="utf-8"
+)
+INTAKE = (APP_DIR / "generation-strategy-intake-v4.js").read_text(
+    encoding="utf-8"
+)
+GUIDED = (APP_DIR / "workspace-os-v4-generation-guided.js").read_text(
+    encoding="utf-8"
+)
+QUEUE = (APP_DIR / "generation-strategy-queue.js").read_text(encoding="utf-8")
 
 
 def test_build_id_is_consistent_across_entrypoints() -> None:
     build_id = MANIFEST["id"]
-    assert build_id == "20260814.os4.41"
+    assert build_id == "20260823.copy-engines.39"
     assert f'content="{build_id}"' in APP_INDEX
     assert f'content="{build_id}"' in ROOT_INDEX
     assert f'const CURRENT_BUILD = "{build_id}"' in SCRIPT
-    assert MANIFEST["label"] == "ContentEngine Desktop v4.41"
-    assert MANIFEST["released_at"] == "2026-08-14"
-    assert 'const BUILD_BADGE = "Desktop · 4.41"' in SCRIPT
+    assert MANIFEST["label"] == (
+        "ContentEngine Desktop v4.41 · Copy engines 39"
+    )
+    assert MANIFEST["released_at"] == "2026-08-23"
+    assert 'const BUILD_BADGE = "Desktop · 21.08.17"' in SCRIPT
 
 
 def test_desktop_flag_loader_runs_before_app_and_build_guard_runs_last() -> None:
     build_id = MANIFEST["id"]
-    loader_cache_key = "20260816.adaptive.4"
-    app_cache_key = "20260816.adaptive.4"
-    assert f'<link rel="stylesheet" href="./workspace-os-v4.css?v={build_id}" />' in APP_INDEX
-    assert f'<script type="module" src="./workspace-os-v4-loader.js?v={loader_cache_key}"></script>' in APP_INDEX
-    assert f'<script type="module" src="./app.js?v={app_cache_key}"></script>' in APP_INDEX
+    shell_cache_key = DESKTOP_ASSET_BUILD
+    loader_cache_key = DESKTOP_ASSET_BUILD
+    app_cache_key = build_id
+    assert (
+        f'<link rel="stylesheet" href="./workspace-os-v4.css?v={shell_cache_key}" />'
+        in APP_INDEX
+    )
+    assert (
+        f'<script type="module" src="./workspace-os-v4-loader.js?v={loader_cache_key}"></script>'
+        in APP_INDEX
+    )
+    assert (
+        f'<script type="module" src="./app.js?v={app_cache_key}"></script>'
+        in APP_INDEX
+    )
     assert f'./workspace-build-guard.css?v={build_id}' in APP_INDEX
     assert f'./workspace-build-guard.js?v={build_id}' in APP_INDEX
-    assert APP_INDEX.index(f'./workspace-os-v4.css?v={build_id}') < APP_INDEX.index('./workspace-build-guard.css')
-    assert APP_INDEX.index(f'./workspace-os-v4-loader.js?v={loader_cache_key}') < APP_INDEX.index(f'./app.js?v={app_cache_key}')
-    assert APP_INDEX.index('./app.js') < APP_INDEX.index(f'./workspace-build-guard.js?v={build_id}')
+    assert APP_INDEX.index(
+        f'./workspace-os-v4.css?v={shell_cache_key}'
+    ) < APP_INDEX.index('./workspace-build-guard.css')
+    assert APP_INDEX.index(
+        f'./workspace-os-v4-loader.js?v={loader_cache_key}'
+    ) < APP_INDEX.index(f'./app.js?v={app_cache_key}')
+    assert APP_INDEX.index('./app.js') < APP_INDEX.index(
+        f'./workspace-build-guard.js?v={build_id}'
+    )
     assert "window.CONTENTENGINE_DESKTOP_V4 = true" in (
         APP_DIR / "workspace-os-v4-loader.js"
     ).read_text(encoding="utf-8")
+
+
+def test_provider_reconciliation_release_busts_the_complete_changed_module_path() -> None:
+    build_id = MANIFEST["id"]
+    versioned = f"?v={build_id}"
+
+    for asset in ("app.js", "workspace-build-guard.js", "workspace-build-guard.css"):
+        assert f"./{asset}{versioned}" in APP_INDEX
+
+    assert f"./workspace-os-v4-loader.js?v={DESKTOP_ASSET_BUILD}" in APP_INDEX
+    assert f"./workspace-os-v4.css?v={DESKTOP_ASSET_BUILD}" in APP_INDEX
+    assert f"./workspace-ui-reference-v1.css?v={DESKTOP_ASSET_BUILD}" in APP_INDEX
+
+    for asset in (
+        "supabase-api.js",
+        "generation-spend-view.js",
+        "generation-strategy-runtime.js",
+        "generation-strategy-queue.js",
+    ):
+        assert f'"./{asset}{versioned}"' in APP_SCRIPT
+
+    assert f'GENERATION_HOTFIX_BUILD = "{build_id}"' in LOADER
+    assert f'GENERATION_INTAKE_BUILD = "{build_id}"' in LOADER
+    assert f'DESKTOP_CORE_BUILD = "{DESKTOP_ASSET_BUILD}"' in LOADER
+    assert 'workspace-os-v4.js?v=${DESKTOP_CORE_BUILD}' in LOADER
+    assert f'"./generation-strategy-intake-v4.js{versioned}"' in INTAKE_ENTRY
+    assert f'"./generation-strategy-intake-v4.css{versioned}"' in INTAKE
+    assert f'"./generation-strategy-view.js{versioned}"' in GUIDED
+    assert f'"./generation-strategy-runtime.js{versioned}"' in QUEUE
+
+    assert "20260816.adaptive.4" not in APP_INDEX
+    assert "20260814.os4.41.strategy-interactions-1" not in APP_SCRIPT
 
 
 def test_guard_checks_only_the_same_origin_static_manifest() -> None:

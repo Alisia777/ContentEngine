@@ -53,6 +53,14 @@
         const userId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
         const projectId = "11111111-1111-4111-8111-111111111111";
         const read = new Set();
+        // Срок жизни считается от момента прогона, а не литералом: фиксированная
+        // дата делает набор красным навсегда, начиная со следующего дня после
+        // неё. Контракт отбрасывает уведомления с expires_at <= now
+        // (workspace-notification-contract.js), поэтому просроченная фикстура
+        // отдавала счётчики и пустой список, а тест падал по таймауту ожидания
+        // первой проекции.
+        const notificationExpiresAt =
+          new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
         const events = [
           {
             notification_id: "cccccccc-cccc-4ccc-8ccc-ccccccccccc1",
@@ -66,7 +74,7 @@
             title: "Нужно решение по рекомендации",
             body: "ИИ предложил вариант; решение остаётся за человеком.",
             created_at: "2026-08-13T12:00:00.000Z",
-            expires_at: "2026-08-20T12:00:00.000Z",
+            expires_at: notificationExpiresAt,
             requires_action: true,
             project_id: projectId,
             action_key: "ai.open-decisions",
@@ -86,7 +94,7 @@
             title: "Объект изменился",
             body: "Сервер отклонит устаревшую цель и не отметит строку прочитанной.",
             created_at: "2026-08-13T11:50:00.000Z",
-            expires_at: "2026-08-20T12:00:00.000Z",
+            expires_at: notificationExpiresAt,
             requires_action: true,
             project_id: projectId,
             object_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
@@ -107,7 +115,7 @@
             title: "Система готова",
             body: "Информационное событие можно отметить прочитанным явно.",
             created_at: "2026-08-13T11:40:00.000Z",
-            expires_at: "2026-08-20T12:00:00.000Z",
+            expires_at: notificationExpiresAt,
             requires_action: false,
             dedupe_key: "notification:system:ready:1",
             dedupe_version: 1,

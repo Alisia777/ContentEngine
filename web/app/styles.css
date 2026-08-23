@@ -5479,6 +5479,24 @@ input[type="radio"] {
   overflow-wrap: anywhere;
 }
 
+.generation-media-option__thumbnail {
+  display: block;
+  width: 54px;
+  height: 66px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  flex: 0 0 54px;
+  object-fit: cover;
+  background: var(--surface);
+}
+
+.generation-media-option__thumbnail--empty {
+  display: grid;
+  place-items: center;
+  color: var(--ink-soft);
+  font-size: 1.25rem;
+}
+
 .generation-media-option__primary {
   display: inline-flex;
   margin-left: auto;

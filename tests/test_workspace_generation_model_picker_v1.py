@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "web" / "app"
 SUBJECT = (APP / "workspace-os-v4-generation-guided.js").read_text(encoding="utf-8")
 CSS = (APP / "workspace-os-v4-generation-guided.css").read_text(encoding="utf-8")
+VISUALS = (APP / "generation-model-visuals-v1.js").read_text(encoding="utf-8")
 LOADER = (APP / "workspace-os-v4-loader.js").read_text(encoding="utf-8")
 PORTAL = (APP / "app.js").read_text(encoding="utf-8")
 INDEX = (APP / "index.html").read_text(encoding="utf-8")
@@ -198,6 +199,32 @@ def test_picker_reuses_one_form_and_keeps_recommendation_advisory() -> None:
     assert "min-height: 44px;\n  min-width: 112px;" in CSS
 
 
+def test_model_visuals_are_local_presentation_only_and_cover_the_catalog() -> None:
+    assert 'from "./generation-model-visuals-v1.js?v=20260823.copy-engines.39"' in SUBJECT
+    assert "function modelVisualNode(" in SUBJECT
+    assert "ce-v4-model-card__visual--featured" in SUBJECT
+    assert "ce-v4-model-card__image" in CSS
+    assert ".ce-v4-model-card[data-available=\"false\"] .ce-v4-model-card__image" in CSS
+    assert "@media (prefers-reduced-motion: reduce)" in CSS
+    assert VISUALS.count('family: "') == 10
+    assert VISUALS.count("content-factory-model-family-") == 5
+    assert "http://" not in VISUALS
+    assert "https://" not in VISUALS
+    for identity in (
+        "runway:seedream5_lite",
+        "runway:gen4_turbo",
+        "runway:seedance2_fast",
+        "runway:gen4.5",
+        "runway:seedance2_mini",
+        "runway:veo3.1_fast",
+        "runway:gemini_omni_flash",
+        "runway:veo3.1",
+        "runway:seedance2",
+        "google:veo-3.1-lite-generate-preview",
+    ):
+        assert f'"{identity}"' in VISUALS
+
+
 def test_real_generation_route_loads_guided_adapter_into_the_single_portal_form() -> None:
     assert 'route === "/workspace/generation"' in LOADER
     assert "workspace-os-v4-generation-guided.css" in LOADER
@@ -224,6 +251,8 @@ def test_picker_runtime_manual_lock_and_geometry(width: int) -> None:
     assert result["selectedAfterManual"] == "runway:seedance2_fast"
     assert result["selectedAfterContextChange"] == "runway:seedance2_fast"
     assert result["legacyModeAfterManual"] == "real_seedance"
+    assert result["seedancePromptLimit"] == 3500
+    assert result["seedanceModelForm"] == "runway:seedance2_fast"
     assert result["recommendationModelBeforeApply"] == "seedance2_fast"
     assert result["comparisonBeforeApply"] is False
     assert result["whyRecommendationAvailable"] is True
@@ -252,6 +281,8 @@ def test_picker_runtime_manual_lock_and_geometry(width: int) -> None:
     assert result["veoSilentProxyMode"] == "real_gen4"
     assert result["veoExactProvider"] == "runway"
     assert result["veoExactModel"] == "veo3.1_fast"
+    assert result["veoPromptLimit"] == 1000
+    assert result["veoModelForm"] == "runway:veo3.1_fast"
     assert result["exactSettingsInsideOwnerForm"] is True
     assert result["ratioStillSubmitted"] is True
     assert result["exactAudioStillSubmitted"] is True
@@ -260,7 +291,7 @@ def test_picker_runtime_manual_lock_and_geometry(width: int) -> None:
     assert result["experimentalFilterPressed"] is True
     assert result["experimentalCardsShown"] == 7
     assert "Ваш выбор" in result["manualCopy"]
-    assert "Рекомендация ИИ" in result["recommendationCopy"]
+    assert "Технический подбор модели" in result["recommendationCopy"]
     assert result["newModelVisible"] is True
     assert result["newModelDisabled"] is False
     assert "из одного исходного кадра" in result["geminiExecutableFit"]
@@ -275,6 +306,15 @@ def test_picker_runtime_manual_lock_and_geometry(width: int) -> None:
     assert result["filterCount"] == 6
     assert result["selectionSummaryCount"] == 1
     assert result["nativeRadioCount"] == 10
+    assert result["modelVisualCount"] == 10
+    assert result["modelVisualImageCount"] == 10
+    assert result["modelVisualFamilyCount"] == 5
+    assert result["modelVisualsLocal"] is True
+    assert result["modelVisualsDecorative"] is True
+    assert result["recommendationVisualCount"] == 1
+    assert result["exactModelVisualCount"] == 1
+    assert result["exactModelVisualFamily"] == "veo"
+    assert result["exactModelVisualTone"] == "gold"
     assert result["technicalDetailsCollapsed"] is True
     assert result["disabledCardsKeyboardReachable"] is True
     assert result["completeCardCopy"] is True

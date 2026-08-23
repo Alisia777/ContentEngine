@@ -125,6 +125,8 @@ encrypted secrets in that environment:
 | `SUPABASE_TRAINING_KEYS_B64` | Base64-encoded, schema-validated JSON bank for private course and platform-simulator grading keys |
 | `SUPABASE_OWNER_EMAIL` | Exact email that receives the one-time first-owner password setup link; consumed only by the protected production job |
 | `RUNWAYML_API_SECRET` | Server-only provider key synchronized to Supabase for explicitly confirmed paid video generation |
+| `FAL_KEY` | Server-only fal.ai provider key synchronized to Supabase for explicitly confirmed Pika/Kling Product Swap generation |
+| `HEYGEN_API_KEY` | Optional server-only HeyGen key for the Duet presenter. Absent key means the Duet route cannot dispatch and refuses before any money is reserved; deployment is not blocked. |
 | `OPENAI_API_KEY` | Server-only provider key synchronized to Supabase for explicitly confirmed product research with web search and image analysis |
 | `YOUTUBE_DATA_API_KEY` | Optional server-only key synchronized to Supabase for the default-disabled official YouTube ingestion adapter; required before a manual canary or controlled rollout |
 | `CONTENTENGINE_WORKER_SECRET` | Random 32+ character secret synchronized to the private Edge worker and Supabase Vault for native Cron dispatch |
@@ -145,6 +147,9 @@ Never configure `sb_secret_*`, `service_role`, a database URL, or a provider key
 as a Pages variable. The build creates `_site/config.js` at release time and
 fails if the key is not a publishable key or if the artifact contains a server
 secret/local endpoint marker.
+
+`RUNWAYML_API_SECRET` and `FAL_KEY` remain Supabase Edge Function secrets. They
+must never be added to the Pages job, browser configuration, or repository.
 
 If `YOUTUBE_DATA_API_KEY` is absent, the deployment removes an older synchronized
 copy and the ingestion adapter remains fail-closed. Adding the secret does not
@@ -263,7 +268,7 @@ organization access through the application contract.
 ## First production release
 
 1. Review the SQL migrations and take a Supabase backup.
-2. Add both GitHub environment secrets and both repository variables above
+2. Add all required GitHub environment secrets and both repository variables above
    without pasting them into issues, commits, screenshots, or chat.
 3. Merge the reviewed branch into `main`.
 4. Wait for **CI** on `main`, then watch **Deploy Supabase and GitHub Pages**.

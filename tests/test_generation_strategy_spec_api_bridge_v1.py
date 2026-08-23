@@ -93,18 +93,23 @@ const envelope = (selection, mechanicsSummary, suffix) => ({{
   confirmation: true,
   idempotency_key: `strategy-spec:${{suffix}}`,
   reason: 'Подготовка отдельной технической версии выбранной стратегии.',
+  // Товар «Дуэта» приходит явным полем: фотографий товара у него нет. Другим
+  // стратегиям этот ключ запрещён — у них товар назван снимками.
+  ...(selection.strategy_id === 'viral_avatar_ugc'
+    ? {{product_id: ids.product}}
+    : {{}}),
 }});
 const ugc = envelope({{
   version: '2026-08-14.v1',
   strategy_id: 'viral_avatar_ugc',
   recipe_version: '2026-06',
   duration_seconds: 8,
-  ratio: '720:1280',
+  // «Дуэт» измеряется разрешением: кадр задаёт исходник. Ассет ровно один —
+  // комментируемый ролик; ведущего даёт библиотека проекта, а не форма.
+  resolution: '720p',
   audio: true,
   assets: [
-    {{role: 'source_video', media_id: ids.source}},
-    {{role: 'avatar_image', media_id: ids.avatar}},
-    {{role: 'product_image', media_id: ids.product}},
+    {{role: 'source_video', media_id: ids.source, duration_seconds: 8}},
   ],
   attestations: {{
     ...commonAttestations(),
@@ -206,12 +211,10 @@ const valid = {{
   product_category: 'cosmetics',
   selection: {{
     version: '2026-08-14.v1', strategy_id: 'viral_avatar_ugc',
-    recipe_version: '2026-06', duration_seconds: 8, ratio: '720:1280',
+    recipe_version: '2026-06', duration_seconds: 8, resolution: '720p',
     audio: true,
     assets: [
-      {{role: 'source_video', media_id: ids.source}},
-      {{role: 'avatar_image', media_id: ids.avatar}},
-      {{role: 'product_image', media_id: ids.product}},
+      {{role: 'source_video', media_id: ids.source, duration_seconds: 8}},
     ],
     attestations: {{
       source_media_rights_confirmed: true,
@@ -239,15 +242,17 @@ invalid.push({{...clone(valid), mechanics_summary: null}});
 const falseRight = clone(valid);
 falseRight.selection.attestations.transformative_use_confirmed = false;
 invalid.push(falseRight);
-const duplicateAsset = clone(valid);
-duplicateAsset.selection.assets[2].media_id = ids.avatar;
-invalid.push(duplicateAsset);
 const extraSelection = clone(valid);
 extraSelection.selection.model = 'hidden-proxy';
 invalid.push(extraSelection);
-const wrongRatio = clone(valid);
-wrongRatio.selection.ratio = '9:16';
-invalid.push(wrongRatio);
+// Соотношение сторон «Дуэту» чужое: кадр приходит из исходника, и выбирать его
+// нечем. Ключ в наборе означает форму другой стратегии.
+const foreignRatio = clone(valid);
+foreignRatio.selection.ratio = '9:16';
+invalid.push(foreignRatio);
+const wrongResolution = clone(valid);
+wrongResolution.selection.resolution = '480p';
+invalid.push(wrongResolution);
 const duplicateBeat = clone(valid);
 duplicateBeat.mechanics_summary.beat_sequence[1] =
   duplicateBeat.mechanics_summary.beat_sequence[0];
@@ -270,6 +275,12 @@ swapWithMechanics.selection = {{
   }},
 }};
 invalid.push(swapWithMechanics);
+// Один файл в двух ролях проверяется на «Копии»: у «Дуэта» ассет один, и
+// повторить в нём нечего.
+const duplicateAsset = clone(swapWithMechanics);
+duplicateAsset.mechanics_summary = null;
+duplicateAsset.selection.assets[2].media_id = ids.avatar;
+invalid.push(duplicateAsset);
 
 let calls = 0;
 const supabase = {{schema() {{return {{async rpc() {{calls += 1; return {{data: {{}}, error: null}};}}}};}}}};

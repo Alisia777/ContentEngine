@@ -97,10 +97,32 @@ def test_recipe_adapter_is_pure_inert_and_exports_no_dispatch_capability() -> No
             "RUNWAY_RECIPE_BY_STRATEGY",
             "RUNWAY_RECIPE_ENDPOINTS",
             "RUNWAY_RECIPE_VERSION",
+            # Речь ведущего для «Дуэта» — БУКВАЛЬНЫЙ текст, который он
+            # произнесёт вслух. Отдельно от компиляторов указаний: те собирают
+            # задание модели («замени человека в кадре»), и ведущий зачитал бы
+            # техзадание прямо в кадре.
+            "buildDuetCommentaryScript",
+            # Компиляторы «замены человека в кадре» (buildFalAvatarSelection и
+            # buildRunwayAvatarPrompt) убраны 22.08.2026 вместе с самим таким
+            # прочтением стратегии. Это было не мёртвым кодом общего вида, а
+            # готовым ПЛАТНЫМ телом запроса: одна строка маршрута — и оператор
+            # за настоящие деньги получил бы переписанный чужой ролик вместо
+            # комментария к нему.
             # Второй маршрут «Копии»: точечная замена объекта через fal.
             # Экспорт такой же чистый — сборка тела запроса без сети.
+            "buildFalProductSwapSelection",
             "buildFalRecipeRequest",
+            # Создание ведущего — ОТДЕЛЬНЫЙ платный вызов ($1.00), а не часть
+            # генерации: ведущий заводится один раз и живёт долго.
+            "buildHeygenAvatarRequest",
+            # Ведущий для «Дуэта». С 23.08.2026 исходник уходит провайдеру
+            # фоном (v2), ведущий встаёт в угол кружком/вырезом.
+            "buildHeygenRecipeRequest",
+            "buildRunwayProductSwapPrompt",
             "buildRunwayRecipeRequest",
+            # Раскладка врезки → масштаб и смещение провайдера; чистая
+            # арифметика, экспортирована ради проверки и калибровки.
+            "heygenOverlayPlacement",
         ],
         "strategyVersion": "2026-08-14.v1",
         "recipeVersion": "2026-06",
@@ -110,9 +132,11 @@ def test_recipe_adapter_is_pure_inert_and_exports_no_dispatch_capability() -> No
             "viral_rebuild": "product_ad",
         },
         "endpoints": {
-            "product_ugc": "/v1/recipes/product_ugc",
-            # Runway has no /v1/recipes/product_swap; Product Swap dispatches
-            # to the real video_to_video endpoint (Gen-4 Aleph).
+            # Runway has no /v1/recipes/* endpoints at all. Product Swap moved
+            # to the real video_to_video (Gen-4 Aleph) on 17.08.2026, and Avatar
+            # followed on 21.08.2026 when it became a video edit rather than a
+            # new UGC shoot.
+            "product_ugc": "/v1/video_to_video",
             "product_swap": "/v1/video_to_video",
             "product_ad": "/v1/recipes/product_ad",
         },
@@ -132,16 +156,23 @@ def test_three_official_recipe_payloads_have_exact_body_parity() -> None:
             strategyVersion: subject.GENERATION_STRATEGY_CONTRACT_VERSION,
             recipeVersion: subject.RUNWAY_RECIPE_VERSION,
           };
-          const ugc = subject.buildRunwayRecipeRequest({
-            ...common,
-            strategyId: "viral_avatar_ugc",
-            recipe: "product_ugc",
-            durationSeconds: 15,
-            ratio: "720:1280",
-            audio: true,
-            productInfo: "Exact product facts",
-            userConcept: "Recreate only the approved mechanics with our consenting avatar.",
-          }, [signed("avatar", "avatar.jpg"), signed("product_primary", "product.png")]);
+          // «Дуэт» через Runway не собирается вовсе: этот движок умеет только
+          // переписать исходник, а дуэту нужен отдельно снятый ведущий поверх
+          // нетронутого ролика.
+          let ugcRefusal = null;
+          try {
+            subject.buildRunwayRecipeRequest({
+              ...common,
+              strategyId: "viral_avatar_ugc",
+              recipe: "product_ugc",
+              durationSeconds: 15,
+              resolution: "720p",
+              audio: true,
+              promptText: "Replace the person on camera with our consenting avatar; keep the scene.",
+            }, [signed("source_video", "source.mp4"), signed("avatar", "avatar.jpg")]);
+          } catch (error) {
+            ugcRefusal = error?.code || String(error);
+          }
           const swap = subject.buildRunwayRecipeRequest({
             ...common,
             strategyId: "viral_product_swap",
@@ -171,10 +202,10 @@ def test_three_official_recipe_payloads_have_exact_body_parity() -> None:
             signed("style_reference", "mood.png"),
           ]);
           return {
-            ugc,
+            ugcRefusal,
             swap,
             ad,
-            frozen: [ugc, swap, ad].every((item) =>
+            frozen: [swap, ad].every((item) =>
               Object.isFrozen(item) && Object.isFrozen(item.body) &&
               Object.values(item.body).filter((value) => value && typeof value === "object")
                 .every((value) => Object.isFrozen(value))
@@ -188,26 +219,14 @@ def test_three_official_recipe_payloads_have_exact_body_parity() -> None:
         "method": "POST",
         "pollKind": "runway_task",
     }
-    assert result["ugc"] == {
-        **common_envelope,
-        "endpointPath": "/v1/recipes/product_ugc",
-        "body": {
-            "version": "2026-06",
-            "characterImage": {
-                "uri": "https://project.supabase.co/storage/v1/object/sign/private/avatar.jpg?token=opaque"
-            },
-            "productImage": {
-                "uri": "https://project.supabase.co/storage/v1/object/sign/private/product.png?token=opaque"
-            },
-            "productInfo": "Exact product facts",
-            "userConcept": (
-                "Recreate only the approved mechanics with our consenting avatar."
-            ),
-            "duration": 15,
-            "ratio": "720:1280",
-            "audio": True,
-        },
-    }
+    # «Дуэт» Runway не собирает. До 22.08.2026 собирал — тогда стратегия
+    # считалась заменой человека в кадре, и тело было тем же aleph2, что у
+    # «Копии». Владелец это отменил: исходник не трогается вовсе.
+    #
+    # Отказ живёт в адаптере, а не только в реестре маршрутов, потому что цена
+    # ошибки здесь денежная: одна строка в базе — и оператор получил бы
+    # переписанный чужой ролик вместо комментария к нему.
+    assert result["ugcRefusal"] == "runway_recipe_unsupported"
     # Real aleph2 video_to_video body (2024-11-06): model/videoUri/promptText/
     # targetAspectRatio only — the route is prompt-only because timed keyframes
     # with product photos pull the scene toward the photos' interiors instead
@@ -276,44 +295,60 @@ def test_adapter_rejects_cross_recipe_fields_roles_and_untrusted_shapes() -> Non
             recipe: "product_ugc",
             recipeVersion: subject.RUNWAY_RECIPE_VERSION,
             durationSeconds: 8,
-            ratio: "720:1280",
+            resolution: "720p",
             audio: true,
-            productInfo: "Product",
-            userConcept: "Approved mechanics with a consenting avatar.",
+            promptText: "Replace the person on camera with a consenting avatar.",
           };
           const avatar = {role:"avatar",uri:"https://media.example/avatar.png?sig=a"};
           const product = {role:"product_primary",uri:"https://media.example/product.png?sig=b"};
           const source = {role:"source_video",uri:"https://media.example/source.mp4?sig=c"};
+          const original = {role:"original_product",uri:"https://media.example/orig.png?sig=d"};
+          const swapBase = {
+            ...base,
+            strategyId: "viral_product_swap",
+            recipe: "product_swap",
+            promptText: "Replace the product with the referenced exact product.",
+          };
           return {
             recipeMismatch: attempt(() => subject.buildRunwayRecipeRequest(
-              {...base, recipe:"product_ad"}, [avatar, product]
+              {...base, recipe:"product_ad"}, [source, avatar]
             )),
             strategyVersion: attempt(() => subject.buildRunwayRecipeRequest(
-              {...base, strategyVersion:"unsafe-latest"}, [avatar, product]
+              {...base, strategyVersion:"unsafe-latest"}, [source, avatar]
             )),
             recipeVersion: attempt(() => subject.buildRunwayRecipeRequest(
-              {...base, recipeVersion:"unsafe-latest"}, [avatar, product]
+              {...base, recipeVersion:"unsafe-latest"}, [source, avatar]
             )),
             clientCost: attempt(() => subject.buildRunwayRecipeRequest(
-              {...base, estimatedCostMinor:1}, [avatar, product]
+              {...base, estimatedCostMinor:1}, [source, avatar]
             )),
             clientUrl: attempt(() => subject.buildRunwayRecipeRequest(
-              base, [avatar, {...product,url:"https://evil.example/product.png"}]
-            )),
-            ugcSourceVideo: attempt(() => subject.buildRunwayRecipeRequest(
-              base, [avatar, product, source]
-            )),
-            ugcProductReference: attempt(() => subject.buildRunwayRecipeRequest(
-              base, [avatar, product, {role:"product_reference",uri:"https://media.example/p2.png"}]
+              base, [source, {...avatar,url:"https://evil.example/avatar.png"}]
             )),
             duplicateUri: attempt(() => subject.buildRunwayRecipeRequest(
-              base, [avatar, {...product,uri:avatar.uri}]
+              base, [source, {...avatar,uri:source.uri}]
             )),
             ipUrl: attempt(() => subject.buildRunwayRecipeRequest(
               base, [{...avatar,uri:"https://127.0.0.1/a.png"}, product]
             )),
-            viewOnUgc: attempt(() => subject.buildRunwayRecipeRequest(
-              base, [avatar, {...product,view:"front"}]
+            // «Дуэт» этим движком не собирается вовсе: он умеет только
+            // переписать исходник. Отказ наступает до разбора ролей — сам
+            // рецепт сюда не относится.
+            duetRecipe: attempt(() => subject.buildRunwayRecipeRequest(
+              base, [source, avatar]
+            )),
+            // Чужие роли и вид ракурса проверяются на «Копии»: это её тело
+            // собирается из ассетов, и именно там подмена набора имеет цену.
+            swapAvatar: attempt(() => subject.buildRunwayRecipeRequest(
+              swapBase, [source, original, product, avatar]
+            )),
+            swapStyleReference: attempt(() => subject.buildRunwayRecipeRequest(
+              swapBase,
+              [source, original, product,
+               {role:"style_reference",uri:"https://media.example/mood.png"}]
+            )),
+            viewOnSwapSource: attempt(() => subject.buildRunwayRecipeRequest(
+              swapBase, [{...source,view:"front"}, original, product]
             )),
           };
         })()
@@ -325,11 +360,12 @@ def test_adapter_rejects_cross_recipe_fields_roles_and_untrusted_shapes() -> Non
         "recipeVersion": "strategy_recipe_binding_invalid",
         "clientCost": "selection_fields_invalid",
         "clientUrl": "signed_asset_fields_invalid",
-        "ugcSourceVideo": "product_ugc_assets_invalid",
-        "ugcProductReference": "product_ugc_assets_invalid",
         "duplicateUri": "signed_asset_duplicate",
         "ipUrl": "signed_asset_uri_invalid",
-        "viewOnUgc": "signed_asset_view_incompatible",
+        "duetRecipe": "runway_recipe_unsupported",
+        "swapAvatar": "signed_asset_role_incompatible",
+        "swapStyleReference": "signed_asset_role_incompatible",
+        "viewOnSwapSource": "signed_asset_view_incompatible",
     }
     assert all(value["ok"] is False for value in result.values())
 
@@ -379,6 +415,9 @@ def test_product_swap_and_product_ad_enforce_official_counts_and_fields() -> Non
               (() => { const {promptText, ...rest} = swap; return rest; })(),
               swapBase
             )),
+            swapAtPromptLimit: attempt(() => subject.buildRunwayRecipeRequest(
+              {...swap, promptText:"p".repeat(1000)}, swapBase
+            )),
             swapOverlongPrompt: attempt(() => subject.buildRunwayRecipeRequest(
               {...swap, promptText:"p".repeat(1001)}, swapBase
             )),
@@ -399,9 +438,8 @@ def test_product_swap_and_product_ad_enforce_official_counts_and_fields() -> Non
         })()
         """
     )
-    failures = {
-        key: value for key, value in result.items() if key != "swapReferenceCap"
-    }
+    successes = {"swapAtPromptLimit", "swapReferenceCap"}
+    failures = {key: value for key, value in result.items() if key not in successes}
     assert {key: value["code"] for key, value in failures.items()} == {
         "swapRatio": "selection_fields_invalid",
         "swapMissingOriginal": "original_product_count_invalid",
@@ -419,6 +457,9 @@ def test_product_swap_and_product_ad_enforce_official_counts_and_fields() -> Non
     cap = result["swapReferenceCap"]
     assert cap["ok"] is True
     assert "keyframes" not in cap["value"]["body"]
+    boundary = result["swapAtPromptLimit"]
+    assert boundary["ok"] is True
+    assert len(boundary["value"]["body"]["promptText"]) == 1_000
 
 
 def test_creator_generate_wires_only_allowlisted_recipe_envelopes() -> None:
@@ -452,9 +493,12 @@ def test_creator_generate_strategy_catalog_is_explicit_and_sql_fail_closed() -> 
     assert '"system_generation_strategy_provider_policy"' in edge
     policy_reader = edge_contract.split(
         "export function readGenerationStrategyProviderPolicy(", 1
-    )[1].split("export function readGenerationStrategyStartClaim(", 1)[0]
+    )[1].split("export async function readGenerationStrategyStartClaim(", 1)[0]
     for exact_policy_guard in (
-        'capability.provider !== "runway"',
+        "capability.provider !== expected.provider",
+        "!record(route)",
+        "capability.provider_path !== route.providerPath",
+        "capability.poll_kind !== route.pollKind",
         "capability.catalog_version !== GENERATION_STRATEGY_CATALOG_VERSION",
         "value.contract.server_authoritative !== true",
         "value.contract.provider_call_started !== false",
@@ -509,9 +553,24 @@ def test_edge_role_mapping_never_forwards_mechanics_only_source_video() -> None:
     mapping = edge.split(
         "export function buildGenerationStrategyProviderRequest(", 1
     )[1].split("function buildProviderRequest(", 1)[0]
-    assert mapping.count('role: "source_video", uri: String(asset.uri)') == 1
+    # Правки готового видео исходник провайдеру ОТДАЮТ: «Копия» с самого начала,
+    # «Аватар» — с 21.08.2026, когда он перестал быть съёмкой нового UGC про
+    # товар. Отсюда два отображения роли вместо одного.
+    assert mapping.count('role: "source_video", uri: String(asset.uri)') == 2
     assert 'context.recipe === "product_ugc"' in mapping
     assert 'context.recipe === "product_swap"' in mapping
-    assert "source video is mechanics-only for Product UGC" in mapping
+
+    # А вот инвариант «Создания» остаётся и стережётся здесь же: product_ad
+    # собирает ролик с нуля и исходник видеть не должен никогда — он доходит до
+    # модели только серверным разбором механики внутри userConcept.
     assert "Product Ad consumes the source only through server-compiled mechanics" in mapping
     assert "buildRunwayRecipeRequest(selection, mappedAssets)" in mapping
+
+    # Товар ушёл из «Аватара»: роль product_image в его ветке обязана отвергаться,
+    # а не молча превращаться в product_primary, иначе провайдеру уйдёт набор,
+    # которого нет в подписанной привязке.
+    ugc_branch = mapping.split('if (context.recipe === "product_ugc") {', 1)[1].split(
+        'else if (context.recipe === "product_swap")', 1
+    )[0]
+    assert 'role: "avatar"' in ugc_branch
+    assert "product_primary" not in ugc_branch

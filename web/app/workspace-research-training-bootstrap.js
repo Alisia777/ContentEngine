@@ -12,10 +12,12 @@
 
   const BUILD = "20260814.os4.41";
   const ASSET_BUILD_OVERRIDES = Object.freeze({
+    "workspace-ai-research-training.css":
+      "20260823.copy-engines.39",
     "workspace-ai-exact-youtube-sources.js":
       "20260814.os4.41",
     "workspace-ai-research-training.js":
-      "20260814.os4.41",
+      "20260823.copy-engines.39",
     // Styles and modules share one asset builder, so the recommendation panel
     // must move as a pair: its stylesheet changed together with the module and
     // has to leave the already released 20260814.os4.41 key behind.

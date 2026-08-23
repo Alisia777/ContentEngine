@@ -3,7 +3,7 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260814.os4.41.strategy-interactions-1";
+} from "./supabase-api.js?v=20260823.copy-engines.39";
 import {
   adminPeopleMarkup,
   normalizeAdminSnapshot,
@@ -29,13 +29,14 @@ import {
   generationSpecApprovalReviewState,
   generationSpecApprovalReviewTuple,
   generationSpecCardMarkup,
+  generationSpecPreparationRoute,
   generationSpecScopesMatch,
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
-} from "./generation-spec.js?v=20260814.os4.41";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260814.os4.41";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260814.os4.41";
+} from "./generation-spec.js?v=20260823.copy-engines.39";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260823.copy-engines.39";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260823.copy-engines.39";
 import {
   normalizeWorkspaceInternalTarget,
   resolveWorkspaceCommand,
@@ -67,11 +68,12 @@ import {
   managerOperationalHealthMarkup,
 } from "./manager-dashboard-view.js?v=20260718.1";
 import {
+  generationCampaignSelectionState,
   generationSpendAllowsMinor,
   generationSpendSnapshotMarkup,
   managerGenerationSpendMarkup,
   normalizeGenerationSpendOverview,
-} from "./generation-spend-view.js?v=20260817.os4.42";
+} from "./generation-spend-view.js?v=20260823.copy-engines.39";
 import {
   generationProviderReadinessPreflights,
   normalizeGenerationProviderPreflight,
@@ -107,7 +109,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260814.os4.41";
+} from "./product-research-view.js?v=20260823.copy-engines.39";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -118,7 +120,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260817.os4.42";
+} from "./ai-learning-control-room.js?v=20260823.copy-engines.39";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -134,7 +136,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260814.os4.41";
+} from "./content-generation-handoff.js?v=20260823.copy-engines.39";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -156,7 +158,7 @@ import {
   invalidateGenerationStrategyRuntimeState,
   normalizeGenerationStrategyProbeResponse,
   reduceGenerationStrategyRuntimeState,
-} from "./generation-strategy-runtime.js?v=20260816.paid-runtime-refresh.1";
+} from "./generation-strategy-runtime.js?v=20260823.copy-engines.39";
 import {
   createGenerationStrategyQueue,
   generationStrategyQueueAggregateReview,
@@ -165,17 +167,17 @@ import {
   planGenerationStrategyQueueFreeWork,
   planGenerationStrategyQueueSequentialStarts,
   updateGenerationStrategyQueueRow,
-} from "./generation-strategy-queue.js?v=20260814.os4.41";
+} from "./generation-strategy-queue.js?v=20260823.copy-engines.39";
 import {
   renderGenerationStrategyQueueView,
-} from "./generation-strategy-queue-view.js?v=20260814.os4.41";
+} from "./generation-strategy-queue-view.js?v=20260823.copy-engines.39";
 import {
   buildGenerationStrategySpecApprovalRequest,
   buildGenerationStrategySpecPrepareRequest,
   generationStrategySpecSafeProjection,
   normalizeGenerationStrategySpecControlResponse,
   normalizeGenerationStrategySpecPrepareResponse,
-} from "./generation-strategy-spec.js?v=20260814.os4.41";
+} from "./generation-strategy-spec.js?v=20260823.copy-engines.39";
 import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
@@ -186,7 +188,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260814.os4.41";
+} from "./generation-form-draft.js?v=20260823.copy-engines.39";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
@@ -225,7 +227,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260814.os4.41";
+} from "./content-review-view.js?v=20260823.copy-engines.39";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -247,7 +249,7 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260814.os4.41";
+} from "./portal-experience.js?v=20260823.copy-engines.39";
 import {
   isWorkspaceSmartFolderId,
   normalizeWorkspaceBoard,
@@ -284,7 +286,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260814.os4.41";
+} from "./training-journey.js?v=20260823.copy-engines.39";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -333,7 +335,7 @@ const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
   ),
 );
 const MEDIA_UPLOAD_CONCURRENCY = DEFAULT_MEDIA_UPLOAD_CONCURRENCY;
-const SUPABASE_SDK_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
+const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260823.copy-engines.39";
 const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260716.2";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
@@ -372,6 +374,16 @@ const REAL_GENERATION_URL_MAX_AGE_MS = 4 * 60 * 1_000;
 const GENERATION_PREFLIGHT_READY_TTL_MS = 2 * 60 * 1_000;
 const GENERATION_PREFLIGHT_ERROR_COOLDOWN_MS = 30_000;
 const REAL_GENERATION_ACTIVE_STATUSES = new Set(["queued", "starting", "submitted", "processing", "running"]);
+const GENERATION_STRATEGY_MANUAL_STATUS_REFRESH_STATUSES = new Set([
+  "queued",
+  "starting",
+  "submitted",
+  "processing",
+  "running",
+  "saving",
+  "uploading",
+  "failed",
+]);
 const PRODUCT_RESEARCH_POLL_INTERVAL_MS = 5_000;
 const AI_LEARNING_POLL_INTERVAL_MS = 6_000;
 const AI_KNOWLEDGE_MAX_FILE_BYTES = 25 * 1024 * 1024;
@@ -1376,6 +1388,7 @@ const state = {
     requestId: 0,
     nextCursor: null,
     serverLoaded: false,
+    strategyStatusInFlight: new Set(),
   },
   home: { status: "idle", data: null, error: null, unavailable: [], requestId: 0 },
   aiLearning: {
@@ -1431,7 +1444,7 @@ initialize()
     window.CONTENTENGINE_BOOT_WATCHDOG?.failed("startup");
   });
 
-async function loadSupabaseCreateClient() {
+async function loadSupabaseBrowserSdk() {
   if (!supabaseSdkPromise) {
     supabaseSdkPromise = withUiTimeout(
       import(SUPABASE_SDK_URL),
@@ -1443,10 +1456,16 @@ async function loadSupabaseCreateClient() {
     });
   }
   const sdk = await supabaseSdkPromise;
-  if (typeof sdk?.createClient !== "function") {
+  if (
+    typeof sdk?.createClient !== "function"
+    || typeof sdk?.processLock !== "function"
+  ) {
     throw new Error("Supabase browser client is unavailable");
   }
-  return sdk.createClient;
+  return Object.freeze({
+    createClient: sdk.createClient,
+    processLock: sdk.processLock,
+  });
 }
 
 function createHybridAuthStorage() {
@@ -1891,7 +1910,13 @@ function generationFormDraftValues(form) {
     generation_pricing_version: String(form.elements.generation_pricing_version?.value || ""),
     generation_selection_source: String(form.elements.generation_selection_source?.value || ""),
     duration_seconds: String(form.elements.duration_seconds?.value || ""),
-    campaign_id: String(form.elements.campaign_id?.value || ""),
+    campaign_id: String(
+      form.elements.campaign_id?.value
+      || form.dataset.pendingGenerationCampaignId
+      || "",
+    ),
+    campaign_selection_required:
+      form.dataset.generationCampaignSelectionRequired === "true",
     sku: String(form.elements.sku?.value || ""),
     product_name: String(form.elements.product_name?.value || ""),
     product_category: String(form.elements.product_category?.value || ""),
@@ -2481,6 +2506,11 @@ function restoreLocalGenerationFormDraft(form, { operationalOnly = false } = {})
     return false;
   }
   const values = draft.values;
+  if (values.campaign_selection_required === true) {
+    form.dataset.generationCampaignSelectionRequired = "true";
+  } else {
+    delete form.dataset.generationCampaignSelectionRequired;
+  }
   if (!operationalOnly) {
     const mode = form.elements.generation_mode;
     const modeOption = Array.from(mode?.options || []).find((option) => (
@@ -2492,7 +2522,12 @@ function restoreLocalGenerationFormDraft(form, { operationalOnly = false } = {})
   const campaignOption = Array.from(campaign?.options || []).find((option) => (
     option.value === values.campaign_id && !option.disabled
   ));
-  if (campaignOption) campaign.value = campaignOption.value;
+  if (campaignOption) {
+    campaign.value = campaignOption.value;
+    delete form.dataset.pendingGenerationCampaignId;
+  } else if (values.campaign_id) {
+    form.dataset.pendingGenerationCampaignId = values.campaign_id;
+  }
 
   const selectedMedia = new Set(values.media_ids);
   let restoredMediaCount = 0;
@@ -2916,6 +2951,7 @@ async function restoreGenerationFormDraft(form) {
           : "Вы уже изменили товар или замысел. Старый локальный черновик не применён и ваши поля не перезаписаны.";
       }
     }
+    syncGenerationCampaignSelectUi(form);
   }
   return restored;
 }
@@ -3470,7 +3506,7 @@ async function initialize() {
     return;
   }
 
-  const createClient = await loadSupabaseCreateClient();
+  const { createClient, processLock } = await loadSupabaseBrowserSdk();
   state.authStorageKey = `contentengine.creator-workspace.${new URL(CONFIG.SUPABASE_URL).hostname}.auth-session.v1`;
   state.supabase = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_PUBLISHABLE_KEY, {
     auth: {
@@ -3478,6 +3514,12 @@ async function initialize() {
       autoRefreshToken: true,
       detectSessionInUrl: false,
       flowType: "pkce",
+      // Session data is deliberately tab-scoped. The SDK's browser default is
+      // a same-origin Navigator Lock keyed only by storageKey, so one stalled
+      // ContentEngine tab can otherwise block getSession() in every other tab.
+      // Official processLock still serializes same-tab clients without
+      // crossing browsing contexts or weakening sessionStorage isolation.
+      lock: processLock,
       storage: createHybridAuthStorage(),
       storageKey: state.authStorageKey,
     },
@@ -5999,18 +6041,51 @@ function authLayout(panel) {
       ${brandAtmosphereMarkup()}
       <section class="auth-story" aria-label="О продукте">
         <div class="auth-brand">
-          <div class="brand-mark brand-monogram" aria-hidden="true"><span>КИ</span></div>
-          <div><strong>КОНТЕНТ ИИ</strong><span>Завод цифрового производства</span></div>
+          <div class="brand-mark brand-monogram" aria-hidden="true"><span>CE</span></div>
+          <div><strong>КОНТЕНТ-ЗАВОД</strong><span>Content Engine</span></div>
         </div>
         <div class="auth-message">
-          <p class="eyebrow">От товара до результата</p>
-          <h1>Понятная работа.<br /><em>Измеримый результат.</em></h1>
-          <p>Обучение, подготовка видео, проверка, размещение и метрики — один безопасный цикл для всей команды.</p>
+          <p class="eyebrow">Личное рабочее пространство</p>
+          <h1>Весь контент-путь.<br /><em>В одном окне.</em></h1>
+          <p>Материалы, стратегии, ИИ-рекомендации, проверка и результат собраны в понятный производственный маршрут.</p>
+        </div>
+        <div class="auth-visual-stage" aria-hidden="true">
+          <span class="auth-visual-orbit auth-visual-orbit--one"></span>
+          <span class="auth-visual-orbit auth-visual-orbit--two"></span>
+          <span class="auth-visual-spark auth-visual-spark--one">✦</span>
+          <span class="auth-visual-spark auth-visual-spark--two">✦</span>
+          <div class="auth-visual-window">
+            <div class="auth-visual-window__bar">
+              <span class="auth-visual-traffic"><i></i><i></i><i></i></span>
+              <strong>Контент-завод</strong>
+              <span>МБТ</span>
+            </div>
+            <div class="auth-visual-flow">
+              <span class="is-done"><b>1</b> Файлы</span>
+              <i></i>
+              <span class="is-active"><b>2</b> Создать</span>
+              <i></i>
+              <span><b>3</b> Проверить</span>
+              <i></i>
+              <span><b>4</b> Результат</span>
+            </div>
+            <div class="auth-visual-window__content">
+              <div class="auth-visual-preview">
+                <span class="auth-visual-preview__media"><i></i><i></i><i></i></span>
+                <span class="auth-visual-preview__copy"><small>ИИ-РЕКОМЕНДАЦИЯ</small><strong>Человек выбирает финальный вариант</strong><i></i><i></i></span>
+              </div>
+              <div class="auth-visual-metrics">
+                <span><small>Материалы</small><strong>24</strong><i style="--fill:72%"></i></span>
+                <span><small>В работе</small><strong>7</strong><i style="--fill:48%"></i></span>
+                <span><small>Готово</small><strong>18</strong><i style="--fill:84%"></i></span>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="auth-steps" aria-label="Этапы работы">
-          <div class="auth-step"><b>01 · ОБУЧЕНИЕ</b><span>4 коротких курса и экзамен</span></div>
-          <div class="auth-step"><b>02 · ПРОИЗВОДСТВО</b><span>Только назначенные артикулы и материалы</span></div>
-          <div class="auth-step"><b>03 · РЕЗУЛЬТАТ</b><span>Ссылка на пост, показатели и выплата</span></div>
+          <div class="auth-step"><b>01 · СТРАТЕГИЯ</b><span>Отдельная форма под каждый маршрут и ИИ</span></div>
+          <div class="auth-step"><b>02 · РЕШЕНИЕ</b><span>ИИ рекомендует — человек корректирует и подтверждает</span></div>
+          <div class="auth-step"><b>03 · РЕЗУЛЬТАТ</b><span>Проверка, публикация и измеримые показатели</span></div>
         </div>
       </section>
       <main id="main-content" class="auth-panel" tabindex="-1">${panel}</main>
@@ -10150,6 +10225,9 @@ function captureDirtyWorkspaceForms(container) {
           name: String(field.name || ""),
           type: String(field.type || ""),
           value: field.value,
+          generationIntakeSelectionOrder: field.name === "media_id"
+            ? String(field.dataset?.generationIntakeSelectionOrder || "")
+            : "",
           checked: checkable ? field.checked : null,
           selectedValues: field instanceof HTMLSelectElement && field.multiple
             ? Array.from(field.selectedOptions).map((option) => option.value)
@@ -10188,6 +10266,14 @@ function restoreDirtyWorkspaceForms(container, snapshots) {
             && item.type === String(field.type || "")
           )) || snapshot.fields.find((item) => item.elementIndex === fieldIndex);
       if (!saved) return;
+      if (field.name === "media_id") {
+        const selectionOrder = Number(saved.generationIntakeSelectionOrder);
+        if (Number.isSafeInteger(selectionOrder) && selectionOrder > 0) {
+          field.dataset.generationIntakeSelectionOrder = String(selectionOrder);
+        } else {
+          delete field.dataset.generationIntakeSelectionOrder;
+        }
+      }
       if (field instanceof HTMLInputElement && field.type === "file" && saved.files?.length) {
         if (saved.node === field) return;
         try {
@@ -11126,16 +11212,13 @@ async function loadSection(section, options = {}) {
     const routeGenerationJobId = section === "generation"
       ? safeWorkspaceRouteEntityId("job")
       : "";
-    const generationDeepLinkRequest = routeGenerationJobId
-      ? withUiTimeout(
-        state.api.realGenerationStatus(routeGenerationJobId, { projectId }),
-        WORKSPACE_REQUEST_TIMEOUT_MS,
-        "generation_deep_link_timeout",
-      ).then(
-        (value) => ({ status: "fulfilled", value }),
-        (reason) => ({ status: "rejected", reason }),
-      )
-      : null;
+    // The archive tells us whether a deep-linked job belongs to the immutable
+    // strategy runtime.  Wait for that classification before choosing a
+    // status action: the legacy `status` reader intentionally cannot parse a
+    // recipe job and otherwise emits a misleading generation_unavailable on
+    // every fresh strategy deep link.
+    let generationDeepLinkRequest = null;
+    let generationDeepLinkIsStrategy = false;
     const generationVideoReferenceRequest = routeGenerationJobId
       ? withUiTimeout(
         state.api.generationVideoReferenceLineage({
@@ -11233,6 +11316,7 @@ async function loadSection(section, options = {}) {
     if (requestEpoch !== state.dataEpoch || requestUserId !== state.user?.id || requestId !== target.requestId) return;
     let data = raw?.data ?? raw ?? {};
     let generationArchiveResult = null;
+    let generationArchiveAuthoritative = false;
     if (section === "generation") {
       const archiveOutcome = await generationArchiveRequest;
       if (archiveOutcome?.status === "fulfilled") {
@@ -11244,6 +11328,7 @@ async function loadSection(section, options = {}) {
           batches: listFrom(generationArchiveResult, "batches"),
           generation_archive_meta: generationArchiveResult?._meta || {},
         };
+        generationArchiveAuthoritative = true;
         state.generationArchive.error = "";
       } else {
         console.warn(
@@ -11255,6 +11340,46 @@ async function loadSection(section, options = {}) {
         );
         state.generationArchive.error = "Серверный архив временно недоступен. Показана первая локальная страница.";
       }
+      if (routeGenerationJobId) {
+        const deepLinkKind = generationDeepLinkStatusKind(
+          data,
+          routeGenerationJobId,
+          generationArchiveAuthoritative,
+        );
+        generationDeepLinkIsStrategy = deepLinkKind === "strategy";
+        const strategyRequest = generationDeepLinkIsStrategy
+          ? generationStrategyArchiveStatusRequest(
+            routeGenerationJobId,
+            projectId,
+          )
+          : null;
+        if (deepLinkKind === "unknown") {
+          console.warn(
+            "Deep-linked generation job type is unavailable; status request skipped",
+            routeGenerationJobId,
+          );
+        } else {
+          const deepLinkCall = generationDeepLinkIsStrategy
+            ? strategyRequest
+              ? state.api.generationStrategyStatus(strategyRequest)
+              : Promise.reject(new CreatorApiError(
+                "Не удалось определить платную задачу стратегии. Обновите раздел генерации.",
+                { code: "generation_strategy_status_request_invalid" },
+              ))
+            : state.api.realGenerationStatus(
+              routeGenerationJobId,
+              { projectId },
+            );
+          generationDeepLinkRequest = withUiTimeout(
+            deepLinkCall,
+            WORKSPACE_REQUEST_TIMEOUT_MS,
+            "generation_deep_link_timeout",
+          ).then(
+            (value) => ({ status: "fulfilled", value }),
+            (reason) => ({ status: "rejected", reason }),
+          );
+        }
+      }
       const deepLinkOutcome = await generationDeepLinkRequest;
       if (
         requestEpoch !== state.dataEpoch
@@ -11265,16 +11390,24 @@ async function loadSection(section, options = {}) {
         const deepLinkResult = deepLinkOutcome.value;
         const deepLinkJob = deepLinkResult?.job;
         if (String(deepLinkJob?.id || "") === routeGenerationJobId) {
-          applyRealGenerationResult(routeGenerationJobId, deepLinkResult, {
-            source: "deep-link",
-            renderNow: false,
-            projectId,
-          });
-          data = mergeGenerationDeepLinkedBatch(
-            data,
-            routeGenerationJobId,
-            deepLinkResult,
-          );
+          if (generationDeepLinkIsStrategy) {
+            applyGenerationStrategyArchiveStatus(
+              routeGenerationJobId,
+              deepLinkResult,
+              { projectId, renderNow: false },
+            );
+          } else {
+            applyRealGenerationResult(routeGenerationJobId, deepLinkResult, {
+              source: "deep-link",
+              renderNow: false,
+              projectId,
+            });
+            data = mergeGenerationDeepLinkedBatch(
+              data,
+              routeGenerationJobId,
+              deepLinkResult,
+            );
+          }
         }
       } else if (deepLinkOutcome?.status === "rejected") {
         console.warn(
@@ -11412,6 +11545,16 @@ async function loadSection(section, options = {}) {
     }
     if (section === "media" || section === "board" || section === "review") {
       data = await hydratePrivateMedia(data);
+    }
+    // The generation RPC intentionally exposes selection metadata but not the
+    // private object key.  Join it with the project media catalog before
+    // rendering so the picker can show the same protected thumbnails as
+    // «Материалы», while keeping generation metadata authoritative.
+    if (section === "generation") {
+      data = await hydrateGenerationMediaPreviews(data, {
+        api: requestApi,
+        projectId,
+      });
     }
     if (!requestIsCurrent()) return;
     target.data = data;
@@ -11874,6 +12017,7 @@ function renderGenerationBackgroundUpdate() {
   // Spend hydration and job polling are read-only background updates. They
   // must not replace the form that currently owns the person's product,
   // concept, reference and one-shot price decision.
+  syncGenerationCampaignSelectUi(form);
   syncGenerationSpendSnapshotUi(form);
   syncGenerationFormReadiness(form);
   syncGenerationArchiveCardUi();
@@ -12008,6 +12152,53 @@ async function hydratePrivateMedia(data, { refreshSignedUrls = false } = {}) {
     // Metadata remains usable when a short-lived preview URL cannot be issued.
   }
   return data;
+}
+
+async function hydrateGenerationMediaPreviews(
+  data,
+  { api = state.api, projectId = currentWorkspaceProjectId() } = {},
+) {
+  if (!data || typeof data !== "object" || !api || !isWorkspaceProjectId(projectId)) {
+    return data;
+  }
+  const targetKey = Array.isArray(data.media)
+    ? "media"
+    : Array.isArray(data.media_items)
+      ? "media_items"
+      : "";
+  if (!targetKey || !data[targetKey].length) return data;
+  try {
+    const rawCatalog = await api.workspaceSection("media", {
+      page_size: 100,
+      projectId,
+    });
+    const catalog = await hydratePrivateMedia(rawCatalog?.data ?? rawCatalog ?? {});
+    const previewById = new Map(
+      listFrom(catalog, "media", "media_items")
+        .map((item) => [String(item?.public_id || item?.id || ""), item])
+        .filter(([mediaId]) => mediaId),
+    );
+    return {
+      ...data,
+      [targetKey]: data[targetKey].map((item) => {
+        const preview = previewById.get(String(item?.public_id || item?.id || ""));
+        if (!preview) return item;
+        return {
+          ...item,
+          signed_url: preview.signed_url || item.signed_url || "",
+          access_url: preview.access_url || item.access_url || "",
+          preview_url: preview.preview_url || item.preview_url || "",
+          thumbnail_url: preview.thumbnail_url || item.thumbnail_url || "",
+        };
+      }),
+    };
+  } catch (error) {
+    console.warn(
+      "Generation media previews unavailable",
+      error?.code || error?.serverCode || error?.message || "",
+    );
+    return data;
+  }
 }
 
 async function loadHome() {
@@ -12418,6 +12609,14 @@ function homeProjectSwitcherMarkup(action) {
     ? Array.from({ length: 3 }, () => '<div class="home-project-card home-project-card--loading" aria-hidden="true"><span class="skeleton"></span><span class="skeleton"></span></div>').join("")
     : visibleProjects.map((project) => {
       const projectId = String(project.id || "");
+      const projectMonogram = String(project.name || "CE")
+        .trim()
+        .split(/\s+/u)
+        .slice(0, 2)
+        .map((word) => Array.from(word)[0] || "")
+        .join("")
+        .toUpperCase()
+        .slice(0, 2) || "CE";
       const nextAction = project.next_action || project.nextAction || {};
       const isRecoveryProject = project.recovery === true;
       const stageLabels = {
@@ -12442,7 +12641,11 @@ function homeProjectSwitcherMarkup(action) {
            href="#${escapeHtml(nextRoute)}"
            data-ce-v4-project-id="${escapeHtml(projectId)}"
            data-ce-v4-project-name="${escapeHtml(project.name)}">
-          <span class="home-project-card__folder" aria-hidden="true">◇</span>
+          <span class="home-project-card__cover" aria-hidden="true">
+            <span class="home-project-card__cover-orbit"></span>
+            <span class="home-project-card__folder">◇</span>
+            <b>${escapeHtml(projectMonogram)}</b>
+          </span>
           <span class="home-project-card__copy">
             <strong>${escapeHtml(project.name)}</strong>
             <small>${isRecoveryProject
@@ -13022,7 +13225,7 @@ function isRealGenerationMode(mode) {
 function generationOutcomeCopy(mode, sku = realGenerationSku(mode)) {
   const selectedMode = String(mode || "").trim();
   if (!selectedMode) {
-    return "Сначала выберите один из трёх способов генерации. Dry-run доступен отдельно и никогда не включается автоматически.";
+    return "Параметры запуска ещё не выбраны. Сверьте модель, длительность и исходники; dry-run доступен отдельно и никогда не включается автоматически.";
   }
   if (!isRealGenerationMode(mode) || !sku) {
     return `До ${MAX_MOCK_BATCH_SIZE} задач для проверки процесса. Изображение и видео в dry-run не создаются. Для готового файла выберите платный режим.`;
@@ -13047,7 +13250,9 @@ function generationOutcomeCopy(mode, sku = realGenerationSku(mode)) {
 
 function activeGenerationCampaigns() {
   if (!state.generationSpend.data || state.generationSpend.status !== "ready") return [];
-  return normalizeGenerationSpendOverview(state.generationSpend.data).campaigns
+  return generationCampaignSelectionState(state.generationSpend.data, {
+    status: state.generationSpend.status,
+  }).campaigns
     .filter((campaign) => campaign.id && campaign.enabled && !campaign.blockerCode);
 }
 
@@ -13510,6 +13715,16 @@ function generationMediaOptionMarkup(item, real, selectedMediaId = "") {
   const mediaId = String(item.public_id || item.id || "");
   const filename = item.original_filename || item.name || "Файл";
   const kind = humanMediaKind(item.kind);
+  const previewUrl = safeExternalUrl(
+    item.signed_url
+      || item.access_url
+      || item.preview_url
+      || item.thumbnail_url
+      || "",
+  );
+  const preview = previewUrl !== "#"
+    ? `<img class="generation-media-option__thumbnail" src="${previewUrl}" alt="${escapeHtml(filename)}" loading="lazy" />`
+    : `<span class="generation-media-option__thumbnail generation-media-option__thumbnail--empty" aria-hidden="true">▧</span>`;
   const identityCopy = identity.verified
     ? `${identity.sku} · ${identity.productName}`
     : "товар не привязан";
@@ -13533,6 +13748,7 @@ function generationMediaOptionMarkup(item, real, selectedMediaId = "") {
           ${real && !identity.paidReady ? "disabled" : ""}
           ${mediaId && mediaId === selectedMediaId && (!real || identity.paidReady) ? "checked" : ""}
         />
+        ${preview}
         <span>
           <strong>${escapeHtml(filename)}</strong><br />
           <small class="muted">${escapeHtml(kind)} · ${escapeHtml(identityCopy)}${escapeHtml(safetyCopy)}</small>
@@ -14154,6 +14370,7 @@ function generationArchiveMarkup(batches, filteredBatches, visibleBatches, filte
           <select name="provider">
             <option value="all" ${filters.provider === "all" ? "selected" : ""}>Все провайдеры</option>
             <option value="runway" ${filters.provider === "runway" ? "selected" : ""}>Runway</option>
+            <option value="fal" ${filters.provider === "fal" ? "selected" : ""}>fal (Pika / Kling)</option>
             <option value="google" ${filters.provider === "google" ? "selected" : ""}>Google</option>
           </select>
         </label>
@@ -14427,8 +14644,16 @@ function generationTable(items, interactive = false) {
         const failure = details.failureCode ? generationFailureMessage(details.failureCode) : "";
         const contentLabel = details.photo ? "Фото" : "Ролик";
         const previewUrl = trustedCachedGenerationUrl(details.jobId);
-        const providerLabel = details.provider === "google" ? "Google" : "Runway";
-        const providerOperationLabel = details.provider === "google" ? "operation" : "task";
+        const providerLabel = details.provider === "google"
+          ? "Google"
+          : details.provider === "fal"
+          ? "fal"
+          : "Runway";
+        const providerOperationLabel = details.provider === "google"
+          ? "operation"
+          : details.provider === "fal"
+          ? "request"
+          : "task";
         const startingWarning = details.reconciliationRequired
           ? `<div class="generation-reconcile-warning generation-reconcile-warning-critical" role="alert"><strong>Нужна ручная сверка ${providerLabel}.</strong><span>Автоопрос остановлен, потому что исход платного POST неизвестен. Новый запуск запрещён до фиксации существующего ${providerOperationLabel} ID или подтверждения его отсутствия.</span></div>`
           : details.status === "starting"
@@ -14499,11 +14724,7 @@ function generationStrategyArchiveMarkup(details) {
   const roles = Object.entries(strategy.roleCounts)
     .filter(([, count]) => count > 0)
     .map(([role, count]) => `${roleLabels[role] || role}: ${count}`);
-  const recipeLabels = {
-    product_ugc: "Runway Product UGC",
-    product_swap: "Runway Product Swap",
-    product_ad: "Runway Product Ad",
-  };
+  const executionLabel = generationStrategyExecutionPublicLabel(execution);
   const executionSummary = execution
     ? [
         `${execution.durationSeconds} сек.`,
@@ -14518,7 +14739,7 @@ function generationStrategyArchiveMarkup(details) {
         <strong>${escapeHtml(labels[strategy.strategyId] || strategy.strategyId)}</strong>
       </div>
       <p>${escapeHtml(basisLabels[strategy.sourceBasis] || strategy.sourceBasis)} · статус ${escapeHtml(humanGenerationStatus(strategy.status || details.status))}</p>
-      ${execution ? `<p><strong>${escapeHtml(recipeLabels[execution.recipe] || execution.recipe)}</strong> · ${escapeHtml(executionSummary)}</p>` : ""}
+      ${execution ? `<p><strong>${escapeHtml(executionLabel || execution.recipe)}</strong> · ${escapeHtml(executionSummary)}</p>` : ""}
       ${execution ? `<p class="generation-model-record__cost">Серверная оценка ${escapeHtml(formatGenerationUsd(execution.estimatedCostMinor))} · тариф ${escapeHtml(execution.pricingVersion)}</p>` : ""}
       ${roles.length ? `<p>${escapeHtml(roles.join(" · "))}</p>` : ""}
       <details>
@@ -14567,8 +14788,35 @@ function generationStrategyExecutionArchiveDetails(item, strategy) {
   const resolution = String(selection?.resolution || "").trim();
   const estimatedCostMinor = Number(price?.estimated_cost_minor);
   const estimatedCredits = Number(price?.estimated_credits);
-  const dimensionMatches = strategy.strategyId === "viral_product_swap"
-    ? ["720p", "1080p"].includes(resolution) && ratio === ""
+  const provider = String(price?.provider || "").trim().toLowerCase();
+  const pricingVersion = String(price?.pricing_version || "").trim();
+  const routePriceMatches = (
+    provider === "runway"
+      ? pricingVersion === "runway-recipe-credits-2026-08-14.v1"
+      : provider === "fal"
+        ? new Set([
+          "fal-usd-per-run-2026-08-18.v1",
+          "fal-usd-per-second-2026-08-18.v1",
+          "fal-usd-per-second-kling-standard-2026-08-23.v1",
+          "fal-usd-per-second-happy-horse-2026-08-23.v1",
+          "fal-usd-per-second-bytedance-2-5-2026-08-23.v1",
+          "fal-usd-per-second-minimax-h3-2026-08-23.v1",
+          "fal-usd-per-second-grok-imagine-2026-08-23.v1",
+          "fal-usd-per-second-happy-horse-reference-2026-08-23.v1",
+        ]).has(pricingVersion)
+        : provider === "heygen"
+          ? pricingVersion === "heygen-usd-per-second-2026-08-22.v1"
+          : false
+  );
+  // Обе правки готового видео измеряются РАЗРЕШЕНИЕМ: кадр приходит из
+  // исходника, а не выбирается. Соотношение сторон выбирает только «Создание»,
+  // которое строит ролик с нуля. Развилка по одному product_swap отвергала
+  // карточку дуэта целиком — запуск был, а в архиве он не показывался.
+  const sourceFramedStrategy = strategy.strategyId === "viral_product_swap"
+    || strategy.strategyId === "viral_avatar_ugc";
+  const dimensionMatches = sourceFramedStrategy
+    ? ["720p", "1080p"].includes(resolution)
+      && (ratio === "" || ratio === "source")
     : ["720:1280", "1080:1920"].includes(ratio) && resolution === "";
   if (
     selection?.version !== "2026-08-14.v1"
@@ -14576,7 +14824,7 @@ function generationStrategyExecutionArchiveDetails(item, strategy) {
     || selection.recipe_version !== "2026-06"
     || price?.version !== "generation-strategy-price-snapshot-v1"
     || price.strategy_id !== strategy.strategyId
-    || !["runway", "fal"].includes(price.provider)
+    || !routePriceMatches
     || recipe !== expectedRecipes[strategy.strategyId]
     || price.catalog_version !== selection.version
     || price.recipe_version !== selection.recipe_version
@@ -14584,14 +14832,24 @@ function generationStrategyExecutionArchiveDetails(item, strategy) {
       "runway-recipe-credits-2026-08-14.v1",
       "fal-usd-per-run-2026-08-18.v1",
       "fal-usd-per-second-2026-08-18.v1",
+      "heygen-usd-per-second-2026-08-22.v1",
+      "fal-usd-per-second-kling-standard-2026-08-23.v1",
+      "fal-usd-per-second-happy-horse-2026-08-23.v1",
+      "fal-usd-per-second-bytedance-2-5-2026-08-23.v1",
+      "fal-usd-per-second-minimax-h3-2026-08-23.v1",
+      "fal-usd-per-second-grok-imagine-2026-08-23.v1",
+      "fal-usd-per-second-happy-horse-reference-2026-08-23.v1",
     ].includes(price.pricing_version)
     || price.display_only !== true
     || price.requires_fresh_server_price !== true
     || price.price_hash !== null
     || price.spend_confirmation !== null
     || !Number.isSafeInteger(durationSeconds)
-    || durationSeconds < 4
-    || durationSeconds > 15
+    // Предел — свойство стратегии, а не общее число: «Дуэт» комментирует чужой
+    // ролик целиком, и его длина задана исходником. Числа повторяют строки
+    // реестра маршрутов.
+    || durationSeconds < (strategy.strategyId === "viral_avatar_ugc" ? 3 : 4)
+    || durationSeconds > (strategy.strategyId === "viral_avatar_ugc" ? 60 : 15)
     || typeof selection.audio !== "boolean"
     || !dimensionMatches
     || !Number.isSafeInteger(estimatedCostMinor)
@@ -14599,14 +14857,39 @@ function generationStrategyExecutionArchiveDetails(item, strategy) {
     || estimatedCostMinor !== estimatedCredits
   ) return null;
   return Object.freeze({
+    provider,
     recipe,
     durationSeconds,
     ratio,
     resolution,
     audio: selection.audio,
     estimatedCostMinor,
-    pricingVersion: price.pricing_version,
+    pricingVersion,
   });
+}
+
+function generationStrategyExecutionPublicLabel(execution) {
+  if (!execution || typeof execution !== "object") return "";
+  if (execution.provider === "fal") {
+    // Версия прайса — подпись движка среди маршрутов fal, поэтому по ней
+    // восстанавливается публичное имя модели в архиве.
+    return ({
+      "fal-usd-per-run-2026-08-18.v1": "Pika Swaps",
+      "fal-usd-per-second-2026-08-18.v1": "Kling O3 Pro",
+      "fal-usd-per-second-kling-standard-2026-08-23.v1": "Kling O3 Standard",
+      "fal-usd-per-second-happy-horse-2026-08-23.v1": "Happy Horse Edit",
+      "fal-usd-per-second-bytedance-2-5-2026-08-23.v1": "Seedance 2.5",
+      "fal-usd-per-second-minimax-h3-2026-08-23.v1": "MiniMax H3",
+      "fal-usd-per-second-grok-imagine-2026-08-23.v1": "Grok Imagine",
+      "fal-usd-per-second-happy-horse-reference-2026-08-23.v1": "Happy Horse",
+    })[execution.pricingVersion] || "";
+  }
+  if (execution.provider !== "runway") return "";
+  return ({
+    product_ugc: "Runway Product UGC",
+    product_swap: "Runway Product Swap",
+    product_ad: "Runway Product Ad",
+  })[execution.recipe] || "";
 }
 
 function generationSelectionArchiveMarkup(details) {
@@ -14833,11 +15116,37 @@ function generationBatchDetails(item) {
   const cached = jobId ? state.realGenerationResults.get(jobId) : null;
   const job = cached?.job && typeof cached.job === "object" ? cached.job : {};
   const billing = parameters.billing && typeof parameters.billing === "object" ? parameters.billing : {};
+  // A strategy status projects the provider from the signed price receipt;
+  // the immutable archive execution record carries the same authority.  The
+  // generic archive item is only a fallback because older archive wrappers
+  // labelled every strategy as Runway.  If the two signed projections ever
+  // disagree, fail closed instead of rendering a reconciliation form for
+  // either provider.
+  const cachedStrategyProvider = strategy
+    && new Set(["runway", "fal"]).has(String(job.provider || "").trim().toLowerCase())
+    ? String(job.provider).trim().toLowerCase()
+    : "";
+  const frozenStrategyProvider = strategy
+    && new Set(["runway", "fal"]).has(
+      String(strategyExecution?.provider || "").trim().toLowerCase(),
+    )
+    ? String(strategyExecution.provider).trim().toLowerCase()
+    : "";
+  const strategyProviderConflict = Boolean(
+    cachedStrategyProvider
+    && frozenStrategyProvider
+    && cachedStrategyProvider !== frozenStrategyProvider,
+  );
   const provider = String(
-    hasAuthoritativeSnapshot
-      ? selectionSnapshot?.provider || item?.provider || ""
-      : selectionSnapshot?.provider || job.provider || item?.provider
-        || parameters.provider || "runway",
+    strategyProviderConflict
+      ? ""
+      : cachedStrategyProvider || frozenStrategyProvider || (
+        hasAuthoritativeSnapshot
+          ? selectionSnapshot?.provider || item?.provider || ""
+          : selectionSnapshot?.provider || job.provider || strategyExecution?.provider
+            || item?.provider
+            || parameters.provider || "runway"
+      ),
   ).trim().toLowerCase();
   const model = String(
     hasAuthoritativeSnapshot
@@ -14891,6 +15200,39 @@ function generationBatchDetails(item) {
     checkedAt: cached?.checkedAt || "",
     transientError: cached?.transientError || "",
   };
+}
+
+function generationDeepLinkStatusKind(
+  data,
+  jobId,
+  archiveAuthoritative = true,
+) {
+  const normalizedJobId = String(jobId || "").trim().toLowerCase();
+  if (!archiveAuthoritative || !contentReviewUuid(normalizedJobId)) {
+    return "unknown";
+  }
+  // Match only the archive's top-level immutable job identity.  Parameters
+  // are intentionally ignored here: old client-authored values must never
+  // decide which server status contract is called.
+  const exactRows = listFrom(data, "batches").filter((item) => (
+    String(item?.generation_job_id || "").trim().toLowerCase()
+      === normalizedJobId
+  ));
+  if (exactRows.length !== 1) return "unknown";
+  const item = exactRows[0];
+  if (
+    !Object.prototype.hasOwnProperty.call(
+      item,
+      "generation_strategy_snapshot",
+    )
+  ) return "unknown";
+  if (item.generation_strategy_snapshot === null) {
+    return "legacy";
+  }
+  const details = generationBatchDetails(item);
+  return details.strategy && details.jobId === normalizedJobId
+    ? "strategy"
+    : "unknown";
 }
 
 function mergeGenerationDeepLinkedBatch(data, jobId, result) {
@@ -15209,12 +15551,34 @@ function generationActionsMarkup(details) {
         </div>
       `;
     }
-    const provider = details.provider === "google" ? "google" : "runway";
-    const providerLabel = provider === "google" ? "Google" : "Runway";
-    const operationLabel = provider === "google" ? "operation" : "task";
-    const idLabel = provider === "google" ? "Google operation name" : "Runway task ID";
+    const provider = String(details.provider || "").trim().toLowerCase();
+    if (!new Set(["google", "fal", "runway"]).has(provider)) {
+      return `
+        <div class="generation-reconciliation-readonly" role="alert">
+          <strong>Сервис сверки не подтверждён</strong>
+          <span>Портал не будет подставлять другой сервис вместо неизвестного. Не прикрепляйте чужую задачу и не запускайте генерацию повторно — обновите карточку или передайте инцидент руководителю.</span>
+        </div>
+      `;
+    }
+    const providerLabel = provider === "google"
+      ? "Google"
+      : provider === "fal"
+      ? "fal"
+      : "Runway";
+    const operationLabel = provider === "google"
+      ? "operation"
+      : provider === "fal"
+      ? "request"
+      : "task";
+    const idLabel = provider === "google"
+      ? "Google operation name"
+      : provider === "fal"
+      ? "fal request ID (UUIDv7)"
+      : "Runway task ID";
     const example = provider === "google"
       ? "Например: Google operations, 16.07 14:35"
+      : provider === "fal"
+      ? "Например: fal Recent History, полный проверенный интервал"
       : "Например: Runway dashboard, 16.07 14:35";
     return `
       <form class="generation-reconciliation-form" data-job-id="${escapeHtml(details.jobId)}" data-incident-id="${escapeHtml(details.reconciliationIncidentId)}" data-provider="${provider}"${details.strategy ? ' data-strategy-job="true"' : ""} novalidate>
@@ -15270,6 +15634,13 @@ function generationActionsMarkup(details) {
       </div>
     `;
   }
+  if (
+    details.strategy
+    && GENERATION_STRATEGY_MANUAL_STATUS_REFRESH_STATUSES.has(details.status)
+  ) {
+    const busy = state.generationArchive.strategyStatusInFlight.has(details.jobId);
+    return `<div class="generation-result-actions"><button class="btn btn-secondary btn-small" type="button" data-action="refresh-generation-strategy-status" data-job-id="${escapeHtml(details.jobId)}" ${busy ? "disabled" : ""}>${busy ? "Проверяем…" : "Проверить сейчас"}</button></div>`;
+  }
   if (details.status === "failed" || details.status === "cancelled") {
     const canRepeat = canRepeatRealGeneration(details.jobId);
     return canRepeat
@@ -15277,7 +15648,7 @@ function generationActionsMarkup(details) {
       : "";
   }
   if (details.strategy) {
-    return `<div class="generation-result-actions"><button class="btn btn-secondary btn-small" type="button" data-action="check-generation-strategy" data-output-action="status" data-job-id="${escapeHtml(details.jobId)}">Проверить сейчас</button></div>`;
+    return `<div class="generation-result-actions"><button class="btn btn-secondary btn-small" type="button" data-action="refresh-generation-strategy-status" data-job-id="${escapeHtml(details.jobId)}">Проверить сейчас</button></div>`;
   }
   return `<div class="generation-result-actions"><button class="btn btn-secondary btn-small" type="button" data-action="check-real-generation" data-output-action="status" data-job-id="${escapeHtml(details.jobId)}">Проверить сейчас</button></div>`;
 }
@@ -15689,6 +16060,67 @@ function generationStrategyArchiveStatusRequest(jobId, projectId) {
   };
 }
 
+function exactGenerationStrategyArchiveDetails(jobId) {
+  const normalizedJobId = String(jobId || "").trim().toLowerCase();
+  if (!contentReviewUuid(normalizedJobId)) return null;
+  const matches = listFrom(
+    state.sections.generation.data || {},
+    "batches",
+  ).map(generationBatchDetails).filter((details) => (
+    details.real
+    && details.strategy
+    && details.jobId === normalizedJobId
+  ));
+  return matches.length === 1 ? matches[0] : null;
+}
+
+async function refreshGenerationStrategyArchiveStatus(jobId, control = null) {
+  const normalizedJobId = String(jobId || "").trim().toLowerCase();
+  const details = exactGenerationStrategyArchiveDetails(normalizedJobId);
+  if (
+    !details
+    || !GENERATION_STRATEGY_MANUAL_STATUS_REFRESH_STATUSES.has(details.status)
+  ) {
+    toast(
+      "Точная задача стратегии для бесплатной проверки не найдена. Обновите архив; новый запуск не создавался.",
+      "error",
+    );
+    return null;
+  }
+  const inFlight = state.generationArchive.strategyStatusInFlight;
+  if (inFlight.has(normalizedJobId)) return null;
+  inFlight.add(normalizedJobId);
+  const originalLabel = String(control?.textContent || "Проверить сейчас");
+  if (control) {
+    control.disabled = true;
+    control.textContent = "Проверяем…";
+    control.setAttribute?.("aria-busy", "true");
+  }
+  try {
+    // Ровно один бесплатный strategy_status для уже существующей задачи.
+    // Здесь нет legacy status, start, repeat или provider POST.
+    const raw = await requestGenerationStrategyArchiveStatus(normalizedJobId);
+    const status = String(raw?.job?.status || "").trim().toLowerCase();
+    toast(
+      ["succeeded", "completed"].includes(status)
+        ? "Статус обновлён: ролик готов."
+        : `Статус обновлён: ${humanGenerationStatus(status || details.status)}.`,
+      ["failed", "cancelled"].includes(status) ? "error" : "info",
+    );
+    return raw;
+  } catch (error) {
+    toast(`Статус не обновлён: ${actionErrorMessage(error)}`, "error");
+    return null;
+  } finally {
+    inFlight.delete(normalizedJobId);
+    if (control?.isConnected) {
+      control.disabled = false;
+      control.textContent = originalLabel;
+      control.removeAttribute?.("aria-busy");
+    }
+  }
+}
+
 async function requestGenerationStrategyArchiveStatus(jobId) {
   const normalizedJobId = String(jobId || "").trim().toLowerCase();
   const projectId = currentWorkspaceProjectId();
@@ -15704,6 +16136,12 @@ async function requestGenerationStrategyArchiveStatus(jobId) {
   // Бесплатный strategy_status — единственный опрос для стратегий: легаси
   // 'status' построен на модели каталога и отвечает 503 на recipe-задачи.
   const raw = await state.api.generationStrategyStatus(request);
+  if (String(raw?.job?.id || "").trim().toLowerCase() !== normalizedJobId) {
+    throw new CreatorApiError(
+      "Сервер вернул статус другой задачи. Архив не изменён; повторный запуск запрещён.",
+      { code: "generation_strategy_status_job_mismatch" },
+    );
+  }
   applyGenerationStrategyArchiveStatus(normalizedJobId, raw, { projectId });
   return raw;
 }
@@ -15723,7 +16161,9 @@ function applyGenerationStrategyArchiveStatus(jobId, raw, options = {}) {
       batch_id: String(job.batch_id || ""),
       project_id: String(job.project_id || ""),
       status: String(job.status || "queued"),
-      provider: "runway",
+      provider: new Set(["runway", "fal"]).has(String(raw.price?.provider || ""))
+        ? String(raw.price.provider)
+        : "",
       estimated_cost_minor: job.estimated_cost_minor,
       actual_cost_minor: job.actual_cost_minor,
       output_media_id: String(output?.media_id || ""),
@@ -15746,7 +16186,10 @@ function applyGenerationStrategyArchiveStatus(jobId, raw, options = {}) {
     checkedAt: new Date().toISOString(),
     transientError: "",
   });
-  if (state.route.path === "/workspace/generation") {
+  if (
+    options.renderNow !== false
+    && state.route.path === "/workspace/generation"
+  ) {
     renderGenerationBackgroundUpdate();
   }
 }
@@ -16695,7 +17138,8 @@ function normalizeGenerationStrategyRepeatEnvelope(raw, expectedJobId) {
   const strategyId = String(repeat.strategy_id || "").trim().toLowerCase();
   const durationSeconds = Number(selection?.duration_seconds);
   const allowedRoles = {
-    viral_avatar_ugc: new Set(["source_video", "avatar_image", "product_image"]),
+    // «Дуэт»: только исходник — ведущего даёт библиотека, а не ассет.
+    viral_avatar_ugc: new Set(["source_video"]),
     viral_product_swap: new Set(["source_video", "original_product_image", "new_product_image"]),
     viral_rebuild: new Set(["source_video", "product_image", "style_image"]),
   };
@@ -16704,10 +17148,8 @@ function normalizeGenerationStrategyRepeatEnvelope(raw, expectedJobId) {
   const assetIds = assets.map((asset) => String(asset?.media_id || "").trim().toLowerCase());
   const roleCount = (role) => assets.filter((asset) => asset?.role === role).length;
   const roleShapeValid = strategyId === "viral_avatar_ugc"
-    ? assets.length === 3
+    ? assets.length === 1
       && roleCount("source_video") === 1
-      && roleCount("avatar_image") === 1
-      && roleCount("product_image") === 1
     : strategyId === "viral_product_swap"
       ? assets.length >= 3
         && assets.length <= 12
@@ -16748,7 +17190,9 @@ function normalizeGenerationStrategyRepeatEnvelope(raw, expectedJobId) {
     && durationSeconds >= 4
     && durationSeconds <= 15
     && typeof selection.audio === "boolean"
-    && assets.length >= 2
+    // Нижняя граница — один ассет: у «Дуэта» он ровно один. Точный состав
+    // ролей проверяет roleShapeValid прямо ниже.
+    && assets.length >= 1
     && assets.length <= 16
     && roleShapeValid
     && new Set(assetIds).size === assetIds.length
@@ -16804,7 +17248,10 @@ function normalizeGenerationStrategyRepeatEnvelope(raw, expectedJobId) {
   }
   const ratio = String(selection.ratio || "").trim();
   const resolution = String(selection.resolution || "").trim();
-  const dimensionValid = strategyId === "viral_product_swap"
+  // «Копия» и «Дуэт» измеряются разрешением: кадр им задаёт исходник — одной
+  // потому, что она его переписывает, другому потому, что ролик остаётся
+  // подложкой. Соотношение сторон выбирает только «Создание».
+  const dimensionValid = ["viral_product_swap", "viral_avatar_ugc"].includes(strategyId)
     ? ["720p", "1080p"].includes(resolution) && ratio === ""
     : ["720:1280", "1080:1920"].includes(ratio) && resolution === "";
   if (!dimensionValid) return null;
@@ -16816,6 +17263,7 @@ function normalizeGenerationStrategyRepeatEnvelope(raw, expectedJobId) {
     liveAssetsCurrent: repeat.live_assets_current,
     values: Object.freeze({
       generation_strategy_id: strategyId,
+      generation_strategy_product_id: String(repeat.product_id).trim().toLowerCase(),
       generation_strategy_duration_seconds: durationSeconds,
       generation_strategy_ratio: ratio,
       generation_strategy_resolution: resolution,
@@ -17863,79 +18311,395 @@ function placementCard(item) {
   `;
 }
 
+const STATS_PAGE_SIZES = Object.freeze([5, 10, 20, 50]);
+
+function statsRowId(item) {
+  return String(item?.placement_id || item?.id || "").trim();
+}
+
+function statsRowTimestamp(item) {
+  const value = Date.parse(String(item?.observed_at || item?.captured_at || item?.updated_at || ""));
+  return Number.isFinite(value) ? value : null;
+}
+
+function statsRowContentType(item) {
+  return String(
+    item?.content_type
+      || item?.content_kind
+      || item?.media_kind
+      || item?.format
+      || "",
+  ).trim();
+}
+
+function humanStatsContentType(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  const labels = {
+    video: "Видео",
+    "video/mp4": "Видео",
+    image: "Изображение",
+    photo: "Фото",
+    carousel: "Карусель",
+    story: "История",
+    post: "Пост",
+    reel: "Reels",
+    shorts: "Shorts",
+  };
+  return labels[normalized] || String(value || "").trim();
+}
+
+function statsDistinctValues(items, readValue) {
+  const values = new Map();
+  items.forEach((item) => {
+    const value = String(readValue(item) || "").trim();
+    const key = value.toLocaleLowerCase("ru-RU");
+    if (value && !values.has(key)) values.set(key, value);
+  });
+  return [...values.values()].sort((left, right) => left.localeCompare(right, "ru-RU"));
+}
+
+function statsFiltersFromRoute(items = []) {
+  const period = ["all", "7d", "30d", "90d"].includes(state.route.query.get("period"))
+    ? state.route.query.get("period")
+    : "30d";
+  const sort = [
+    "updated_desc",
+    "updated_asc",
+    "views_desc",
+    "clicks_desc",
+    "orders_desc",
+    "revenue_desc",
+    "title_asc",
+  ].includes(state.route.query.get("sort"))
+    ? state.route.query.get("sort")
+    : "updated_desc";
+  const layout = state.route.query.get("layout") === "cards" ? "cards" : "table";
+  const requestedPageSize = Number(state.route.query.get("result_size"));
+  const pageSize = STATS_PAGE_SIZES.includes(requestedPageSize) ? requestedPageSize : 5;
+  const requestedPage = Number(state.route.query.get("result_page"));
+  const platforms = statsDistinctValues(items, (item) => item.platform);
+  const contentTypes = statsDistinctValues(items, statsRowContentType);
+  const requestedPlatform = String(state.route.query.get("platform") || "all").trim();
+  const requestedContentType = String(state.route.query.get("content_type") || "all").trim();
+  return {
+    period,
+    sort,
+    layout,
+    pageSize,
+    page: Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1,
+    query: String(state.route.query.get("q") || "").trim().slice(0, 120),
+    platform: platforms.includes(requestedPlatform) ? requestedPlatform : "all",
+    contentType: contentTypes.includes(requestedContentType) ? requestedContentType : "all",
+    platforms,
+    contentTypes,
+  };
+}
+
+function filterStatsRows(items, filters) {
+  const query = filters.query.toLocaleLowerCase("ru-RU");
+  const periodDays = { "7d": 7, "30d": 30, "90d": 90 }[filters.period] || null;
+  const threshold = periodDays ? Date.now() - periodDays * 86_400_000 : null;
+  const filtered = items.filter((item) => {
+    const timestamp = statsRowTimestamp(item);
+    if (threshold !== null && (timestamp === null || timestamp < threshold)) return false;
+    if (filters.platform !== "all" && String(item.platform || "") !== filters.platform) return false;
+    if (filters.contentType !== "all" && statsRowContentType(item) !== filters.contentType) return false;
+    if (!query) return true;
+    const searchable = [
+      item.title,
+      item.sku,
+      item.platform,
+      item.final_url,
+      humanMetricSource(item.source),
+      humanStatsContentType(statsRowContentType(item)),
+    ].map((value) => String(value || "")).join(" ").toLocaleLowerCase("ru-RU");
+    return searchable.includes(query);
+  });
+  const numeric = (item, key) => Number(item?.[key] || 0);
+  const comparators = {
+    updated_desc: (left, right) => (statsRowTimestamp(right) || 0) - (statsRowTimestamp(left) || 0),
+    updated_asc: (left, right) => (statsRowTimestamp(left) || 0) - (statsRowTimestamp(right) || 0),
+    views_desc: (left, right) => numeric(right, "views") - numeric(left, "views"),
+    clicks_desc: (left, right) => numeric(right, "clicks") - numeric(left, "clicks"),
+    orders_desc: (left, right) => numeric(right, "orders") - numeric(left, "orders"),
+    revenue_desc: (left, right) => numeric(right, "revenue_minor") - numeric(left, "revenue_minor"),
+    title_asc: (left, right) => String(left?.title || left?.sku || "").localeCompare(String(right?.title || right?.sku || ""), "ru-RU"),
+  };
+  return filtered.sort((left, right) => {
+    const primary = comparators[filters.sort](left, right);
+    return primary || statsRowId(left).localeCompare(statsRowId(right));
+  });
+}
+
+function statsRouteHref(patch = {}) {
+  const query = new URLSearchParams(state.route.query);
+  Object.entries(patch).forEach(([key, value]) => {
+    if (value === null || value === undefined || value === "") query.delete(key);
+    else query.set(key, String(value));
+  });
+  return workspaceProjectHref(`#/workspace/stats?${query.toString()}`);
+}
+
+function statsFilterControls(items, filters, filteredCount) {
+  const hasActiveFilters = filters.period !== "30d"
+    || filters.platform !== "all"
+    || filters.contentType !== "all"
+    || Boolean(filters.query);
+  return `
+    <div class="stats-live-toolbar stats-overview-panel">
+      <form id="stats-filter-form" class="stats-live-filters" role="search" aria-label="Фильтры результатов">
+        <label><span>Период</span><select name="period">
+          <option value="7d" ${filters.period === "7d" ? "selected" : ""}>За 7 дней</option>
+          <option value="30d" ${filters.period === "30d" ? "selected" : ""}>За 30 дней</option>
+          <option value="90d" ${filters.period === "90d" ? "selected" : ""}>За 90 дней</option>
+          <option value="all" ${filters.period === "all" ? "selected" : ""}>За всё время</option>
+        </select></label>
+        ${filters.platforms.length ? `<label><span>Площадка</span><select name="platform"><option value="all">Все площадки</option>${filters.platforms.map((platform) => `<option value="${escapeHtml(platform)}" ${filters.platform === platform ? "selected" : ""}>${escapeHtml(platform)}</option>`).join("")}</select></label>` : ""}
+        ${filters.contentTypes.length ? `<label><span>Тип контента</span><select name="content_type"><option value="all">Все типы</option>${filters.contentTypes.map((contentType) => `<option value="${escapeHtml(contentType)}" ${filters.contentType === contentType ? "selected" : ""}>${escapeHtml(humanStatsContentType(contentType))}</option>`).join("")}</select></label>` : ""}
+        <label class="stats-live-filters__search"><span>Поиск</span><input name="q" type="search" value="${escapeHtml(filters.query)}" maxlength="120" placeholder="Название, SKU, ссылка…" /></label>
+        <label><span>Сортировка</span><select name="sort">
+          <option value="updated_desc" ${filters.sort === "updated_desc" ? "selected" : ""}>Снача новые</option>
+          <option value="updated_asc" ${filters.sort === "updated_asc" ? "selected" : ""}>Снача старые</option>
+          <option value="views_desc" ${filters.sort === "views_desc" ? "selected" : ""}>По просмотрам</option>
+          <option value="clicks_desc" ${filters.sort === "clicks_desc" ? "selected" : ""}>По переходам</option>
+          <option value="orders_desc" ${filters.sort === "orders_desc" ? "selected" : ""}>По заказам</option>
+          <option value="revenue_desc" ${filters.sort === "revenue_desc" ? "selected" : ""}>По выручке</option>
+          <option value="title_asc" ${filters.sort === "title_asc" ? "selected" : ""}>По названию</option>
+        </select></label>
+        <button class="btn btn-secondary btn-small" type="submit">Применить</button>
+        ${hasActiveFilters ? `<button class="btn btn-ghost btn-small" type="button" data-action="reset-stats-filters">Сбросить</button>` : ""}
+      </form>
+      <div class="stats-live-toolbar__actions">
+        <span class="stats-live-count">Найдено: <strong>${formatNumber(filteredCount)}</strong> из ${formatNumber(items.length)} загруженных</span>
+        <div class="stats-live-layout" role="group" aria-label="Вид результатов">
+          <button type="button" data-action="set-stats-layout" data-layout="table" class="${filters.layout === "table" ? "is-active" : ""}" aria-pressed="${filters.layout === "table"}">Таблица</button>
+          <button type="button" data-action="set-stats-layout" data-layout="cards" class="${filters.layout === "cards" ? "is-active" : ""}" aria-pressed="${filters.layout === "cards"}">Карточки</button>
+        </div>
+        <button class="btn btn-secondary btn-small" type="button" data-action="export-stats-csv" ${filteredCount ? "" : "disabled"}>Экспорт CSV</button>
+      </div>
+    </div>`;
+}
+
+function statsPagination(filters, filteredCount, currentPage) {
+  if (!filteredCount) return "";
+  const pageCount = Math.max(1, Math.ceil(filteredCount / filters.pageSize));
+  const first = (currentPage - 1) * filters.pageSize + 1;
+  const last = Math.min(filteredCount, currentPage * filters.pageSize);
+  const nextSize = STATS_PAGE_SIZES.find((size) => size > filters.pageSize) || filters.pageSize;
+  const pages = Array.from({ length: pageCount }, (_, index) => index + 1)
+    .filter((page) => page === 1 || page === pageCount || Math.abs(page - currentPage) <= 1);
+  return `
+    <nav class="stats-live-pagination" aria-label="Страницы результатов">
+      <span>Показано ${formatNumber(first)}–${formatNumber(last)} из ${formatNumber(filteredCount)}</span>
+      <div class="stats-live-pagination__pages">
+        <a class="${currentPage <= 1 ? "is-disabled" : ""}" ${currentPage <= 1 ? 'aria-disabled="true" tabindex="-1"' : `href="${statsRouteHref({ result_page: currentPage - 1 })}"`} aria-label="Предыдущая страница">←</a>
+        ${pages.map((page, index) => `${index > 0 && page - pages[index - 1] > 1 ? '<span aria-hidden="true">…</span>' : ""}<a class="${page === currentPage ? "is-active" : ""}" href="${statsRouteHref({ result_page: page })}" ${page === currentPage ? 'aria-current="page"' : ""}>${page}</a>`).join("")}
+        <a class="${currentPage >= pageCount ? "is-disabled" : ""}" ${currentPage >= pageCount ? 'aria-disabled="true" tabindex="-1"' : `href="${statsRouteHref({ result_page: currentPage + 1 })}"`} aria-label="Следующая страница">→</a>
+      </div>
+      ${nextSize > filters.pageSize && filters.pageSize < filteredCount ? `<a class="btn btn-secondary btn-small" href="${statsRouteHref({ result_size: nextSize, result_page: 1 })}">Показать ещё</a>` : ""}
+    </nav>`;
+}
+
+function statsSnapshotHref(item) {
+  return statsRouteHref({
+    view: "new",
+    placement: statsRowId(item),
+    result_page: null,
+  });
+}
+
+function statsCards(items) {
+  return `<div class="stats-live-cards" role="list">${items.map((item) => {
+    const contentType = statsRowContentType(item);
+    return `<article class="stats-live-card" role="listitem">
+      <header><div><span>${escapeHtml(item.platform || "Площадка не указана")}</span>${contentType ? `<span>${escapeHtml(humanStatsContentType(contentType))}</span>` : ""}</div><span class="badge">${escapeHtml(humanMetricSource(item.source))}</span></header>
+      <h3>${escapeHtml(item.title || item.sku || `Публикация #${statsRowId(item)}`)}</h3>
+      ${item.sku ? `<p>SKU ${escapeHtml(item.sku)}</p>` : ""}
+      <dl>
+        <div><dt>Просмотры</dt><dd>${formatNumber(item.views || 0)}</dd></div>
+        <div><dt>Переходы</dt><dd>${formatNumber(item.clicks || 0)}</dd></div>
+        <div><dt>Заказы</dt><dd>${formatNumber(item.orders || 0)}</dd></div>
+        <div><dt>Выручка</dt><dd>${formatMoney(item.revenue_minor || 0)}</dd></div>
+      </dl>
+      <footer><span>${formatDate(item.observed_at || item.captured_at || item.updated_at, true)}</span><div>${item.final_url ? `<a href="${safeExternalUrl(item.final_url)}" target="_blank" rel="noopener noreferrer">Открыть пост</a>` : ""}<a class="stats-live-snapshot" href="${statsSnapshotHref(item)}">Добавить снимок</a></div></footer>
+    </article>`;
+  }).join("")}</div>`;
+}
+
 function renderStatsSection(sectionState) {
-  const data = sectionState.data || {};
   const requestedView = String(state.route.query.get("view") || "overview");
   const statsView = requestedView === "new" ? "new" : "overview";
-  const requestedPlacementId = safeWorkspaceRouteEntityId("placement");
-  const summary = data.summary || data.metrics || {};
-  const summaryScope = data.summary_scope === "page" ? " · по последним загруженным записям" : "";
+  const isBusyWithoutData = ["idle", "loading"].includes(sectionState.status) && !sectionState.data;
+  const refreshLabel = sectionState.status === "refreshing" ? "Обновляем…" : "Обновить";
+  const header = pageHeader(
+    "Результаты",
+    "Проверяйте эффект контента по последним подтверждённым снимкам каждой публикации.",
+    `<button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="stats" ${isBusyWithoutData ? "disabled" : ""}>${refreshLabel}</button>`,
+  );
+  const data = sectionState.data || {};
+  const serverSummary = data.summary || data.metrics || {};
   const rows = listFrom(data, "publications", "items", "rows");
   const publicationOptions = listFrom(data, "publication_options", "placements", "published_placements");
+  const filters = statsFiltersFromRoute(rows);
+  const filteredRows = filterStatsRows(rows, filters);
+  const filterChangesScope = filters.period !== "all"
+    || filters.platform !== "all"
+    || filters.contentType !== "all"
+    || Boolean(filters.query);
+  const filteredViews = filteredRows.reduce((total, item) => total + Number(item.views || 0), 0);
+  const filteredClicks = filteredRows.reduce((total, item) => total + Number(item.clicks || 0), 0);
+  const summary = filterChangesScope ? {
+    published: filteredRows.filter((item) => String(item.status || "").toLowerCase() === "published").length,
+    views: filteredViews,
+    clicks: filteredClicks,
+    ctr: filteredViews > 0 ? filteredClicks * 100 / filteredViews : 0,
+  } : serverSummary;
+  const summaryScope = filterChangesScope
+    ? " · по текущему фильтру среди загруженных"
+    : data.summary_scope === "page" ? " · по загруженной странице" : "";
+  const requestedPlacementId = safeWorkspaceRouteEntityId("placement");
+  const latestByPlacement = new Map(rows.map((item) => [statsRowId(item), item]));
+  const requestedMetric = latestByPlacement.get(requestedPlacementId) || null;
+  const requestedPublicationOption = publicationOptions.find(
+    (item) => String(item.id || item.placement_id || "") === requestedPlacementId,
+  ) || null;
+  const requestedTrackingEnabled = Boolean(requestedPublicationOption?.tracking_slug);
+  const requestedClicks = requestedTrackingEnabled
+    ? (requestedPublicationOption?.tracked_clicks || requestedMetric?.tracked_clicks || 0)
+    : (requestedMetric?.clicks || 0);
   const cards = [
     ["Опубликовано", summary.published ?? summary.publications ?? 0, `роликов со ссылкой на пост${summaryScope}`],
-    ["Просмотры", summary.views ?? 0, `последний подтверждённый снимок${summaryScope}`],
-    ["Переходы", summary.clicks ?? 0, `по ссылкам из задач${summaryScope}`],
+    ["Просмотры", summary.views ?? 0, `последние подтверждённые снимки${summaryScope}`],
+    ["Переходы", summary.clicks ?? 0, `ручно или по безопасным ссылкам${summaryScope}`],
     ["CTR", formatPercent(summary.ctr ?? 0), `переходы / просмотры${summaryScope}`],
   ];
-  return `
-    <div class="page-wrap" data-stats-view="${statsView}">
-      ${pageHeader("Результаты", "Здесь собраны публикации, просмотры, переходы и заказы с датой последнего обновления.", `<button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="stats">Обновить</button>`)}
-      ${workspaceActionSwitch("stats-action-switch", "Действие с результатами", statsView, [
-        { view: "overview", href: "#/workspace/stats?view=overview", label: "Посмотреть результат" },
-        { view: "new", href: "#/workspace/stats?view=new", label: "Добавить снимок" },
-      ])}
-      <div class="metrics-grid stats-overview-panel">${cards.map(([label, value, hint]) => `
-        <article class="card metric-card"><span class="metric-label">${label}</span><strong>${typeof value === "number" ? formatNumber(value) : value}</strong><small>${hint}</small></article>
-      `).join("")}</div>
-      <section class="card card-pad stats-entry-panel" style="margin-bottom:22px">
-        <div class="split-grid split-grid-results">
-          <div>
-            <p class="eyebrow">Ручной снимок</p>
-            <h2 style="font:600 1.5rem/1.2 Georgia,serif; margin:0 0 8px">Зафиксировать цифры на сейчас</h2>
-            <p class="muted tiny">Введите <strong>накопительные итоги</strong> публикации, а не прирост за день. Например, если вчера было 900 просмотров, а сегодня 1200 — укажите 1200.</p>
-            ${alertMarkup("Просмотры, заказы и выручка остаются ручным подтверждённым снимком. Переходы портал подставит сам, если в публикации использована его ссылка.", "info")}
-          </div>
-          ${publicationOptions.length ? `
-            <form id="manual-metric-form" class="form-stack" novalidate>
-              <label class="field"><span>Опубликованный ролик *</span><select name="placement_id" required><option value="">Выберите публикацию</option>${publicationOptions.map((item) => {
-                const placementId = String(item.id || item.placement_id || "");
-                return `<option value="${escapeHtml(placementId)}" data-tracked-clicks="${escapeHtml(item.tracked_clicks || 0)}" data-tracking-enabled="${item.tracking_slug ? "true" : "false"}" ${placementId === requestedPlacementId ? "selected" : ""}>${escapeHtml(item.title || item.sku || item.final_url || `Публикация #${item.id}`)}</option>`;
-              }).join("")}</select></label>
-              <div class="form-grid-2">
-                <label class="field"><span>Просмотры *</span><input name="views" type="number" min="0" step="1" value="0" required /></label>
-                <label class="field"><span>Переходы *</span><input name="clicks" type="number" min="0" step="1" value="0" required /><small class="muted" data-metric-click-source>Без tracking link укажите накопительное число вручную.</small></label>
-                <label class="field"><span>Заказы *</span><input name="orders" type="number" min="0" step="1" value="0" required /></label>
-                <label class="field"><span>Выручка, ₽ *</span><input name="revenue_rub" type="number" min="0" step="0.01" value="0" required /></label>
-              </div>
-              <label class="field"><span>Когда сняты цифры *</span><input name="observed_at" type="datetime-local" value="${datetimeLocalNow()}" required /></label>
-              <button class="btn" type="submit" data-primary-action="true">Сохранить накопительный снимок</button>
-            </form>
-          ` : alertMarkup("Сначала сохраните ссылку хотя бы на один пост в разделе «Публикации».", "warning")}
+  const pageCount = Math.max(1, Math.ceil(filteredRows.length / filters.pageSize));
+  const currentPage = Math.min(filters.page, pageCount);
+  const pageStart = (currentPage - 1) * filters.pageSize;
+  const visibleRows = filteredRows.slice(pageStart, pageStart + filters.pageSize);
+  const readyMarkup = `
+    ${workspaceActionSwitch("stats-action-switch", "Действие с результатами", statsView, [
+      { view: "overview", href: "#/workspace/stats?view=overview", label: "Посмотреть результат" },
+      { view: "new", href: "#/workspace/stats?view=new", label: "Добавить снимок" },
+    ])}
+    <div class="metrics-grid stats-overview-panel">${cards.map(([label, value, hint]) => `
+      <article class="card metric-card"><span class="metric-label">${label}</span><strong>${typeof value === "number" ? formatNumber(value) : value}</strong><small>${hint}</small></article>
+    `).join("")}</div>
+    <section class="card card-pad stats-entry-panel">
+      <div class="split-grid split-grid-results">
+        <div>
+          <p class="eyebrow">Ручной снимок</p>
+          <h2>Зафиксировать цифры на сейчас</h2>
+          <p class="muted tiny">Введите <strong>накопительные итоги</strong> публикации, а не прирост за день. Если вы открыли форму из строки, в ней уже стоят последние сохранённые итоги — сверьте и поправьте их.</p>
+          ${alertMarkup("Просмотры, заказы и выручка остаются ручным подтверждённым снимком. Переходы портал подставит сам, если в публикации использована его ссылка.", "info")}
         </div>
-      </section>
-      <section class="card stats-overview-panel">
-        <div class="card-header"><div><p class="eyebrow">По публикациям</p><h2>Измеримые результаты</h2></div><span class="badge">Автоматически · из файла · вручную</span></div>
-        ${sectionBody(sectionState, rows.length ? statsTable(rows) : emptyState("◫", "Результатов пока нет", "Сначала опубликуйте одобренный ролик и сохраните ссылку на конкретный пост.", { href: "#/workspace/placement", label: "Проверить публикации" }))}
-      </section>
-    </div>
-  `;
+        ${publicationOptions.length ? `
+          <form id="manual-metric-form" class="form-stack" novalidate>
+            <label class="field"><span>Опубликованный ролик *</span><select name="placement_id" required><option value="">Выберите публикацию</option>${publicationOptions.map((item) => {
+              const placementId = String(item.id || item.placement_id || "");
+              const latest = latestByPlacement.get(placementId) || {};
+              const latestObservedAt = String(latest.observed_at || latest.captured_at || "");
+              return `<option value="${escapeHtml(placementId)}" data-tracked-clicks="${escapeHtml(item.tracked_clicks || latest.tracked_clicks || 0)}" data-tracking-enabled="${item.tracking_slug ? "true" : "false"}" data-latest-views="${escapeHtml(latest.views || 0)}" data-latest-clicks="${escapeHtml(latest.clicks || 0)}" data-latest-orders="${escapeHtml(latest.orders || 0)}" data-latest-revenue-rub="${escapeHtml((Number(latest.revenue_minor || 0) / 100).toFixed(2))}" data-latest-observed-at="${escapeHtml(latestObservedAt)}" ${placementId === requestedPlacementId ? "selected" : ""}>${escapeHtml(item.title || item.sku || item.final_url || `Публикация #${item.id}`)}</option>`;
+            }).join("")}</select></label>
+            <div class="form-grid-2">
+              <label class="field"><span>Просмотры *</span><input name="views" type="number" min="0" step="1" value="${escapeHtml(requestedMetric?.views || 0)}" required /></label>
+              <label class="field"><span>Переходы *</span><input name="clicks" type="number" min="0" step="1" value="${escapeHtml(requestedClicks)}" ${requestedTrackingEnabled ? 'readonly aria-readonly="true"' : ""} required /><small class="muted" data-metric-click-source>${requestedTrackingEnabled ? `Подставлено автоматически: ${formatNumber(requestedClicks)} человеческих переходов.` : "Без tracking link сверьте и укажите накопительное число вручную."}</small></label>
+              <label class="field"><span>Заказы *</span><input name="orders" type="number" min="0" step="1" value="${escapeHtml(requestedMetric?.orders || 0)}" required /></label>
+              <label class="field"><span>Выручка, ₽ *</span><input name="revenue_rub" type="number" min="0" step="0.01" value="${escapeHtml((Number(requestedMetric?.revenue_minor || 0) / 100).toFixed(2))}" required /></label>
+            </div>
+            <label class="field"><span>Когда сняты цифры *</span><input name="observed_at" type="datetime-local" value="${datetimeLocalNow()}" required /></label>
+            <button class="btn" type="submit" data-primary-action="true">Сохранить накопительный снимок</button>
+          </form>
+        ` : alertMarkup("Сначала сохраните ссылку хотя бы на один пост в разделе «Публикации».", "warning")}
+      </div>
+    </section>
+    ${statsFilterControls(rows, filters, filteredRows.length)}
+    <section class="card stats-overview-panel stats-live-results">
+      <div class="card-header"><div><p class="eyebrow">По публикациям</p><h2>Измеримые результаты</h2><small class="muted">Общая сводка и экспорт основаны только на ${formatNumber(rows.length)} загруженных публикациях.</small></div><span class="badge">Автоматически · из файла · вручную</span></div>
+      ${!rows.length
+        ? emptyState("◫", "Результатов пока нет", "Сначала опубликуйте одобренный ролик и сохраните ссылку на конкретный пост.", { href: "#/workspace/placement", label: "Проверить публикации" })
+        : !filteredRows.length
+          ? emptyState("⌕", "Совпадений нет", "Измените период, площадку или поиск — исходные данные не изменены.", { href: statsRouteHref({ period: "all", platform: null, content_type: null, q: null, result_page: 1 }), label: "Показать всё время" })
+          : filters.layout === "cards" ? statsCards(visibleRows) : statsTable(visibleRows)}
+      ${statsPagination(filters, filteredRows.length, currentPage)}
+    </section>`;
+  return `
+    <div class="page-wrap" data-stats-view="${statsView}" data-stats-live-results>
+      ${header}
+      ${sectionBody(sectionState, readyMarkup)}
+    </div>`;
 }
 
 function statsTable(items) {
-  return `<div class="table-wrap"><table class="data-table">
+  return `<div class="table-wrap stats-live-table"><table class="data-table">
     <thead><tr><th>Публикация</th><th>Площадка</th><th>Просмотры</th><th>Переходы</th><th>Заказы</th><th>Выручка</th><th>Источник</th><th>Снимок</th></tr></thead>
-    <tbody>${items.map((item) => `<tr data-payout-id="${escapeHtml(item.id || item.payout_id || "")}" tabindex="-1">
-      <td><strong>${escapeHtml(item.title || item.sku || `#${item.id}`)}</strong>${item.final_url ? `<br /><a class="tiny" href="${safeExternalUrl(item.final_url)}" target="_blank" rel="noopener noreferrer">Открыть пост</a>` : ""}</td>
+    <tbody>${items.map((item) => `<tr data-placement-id="${escapeHtml(statsRowId(item))}" tabindex="-1">
+      <td><strong>${escapeHtml(item.title || item.sku || `#${statsRowId(item)}`)}</strong>${item.sku ? `<small>SKU ${escapeHtml(item.sku)}</small>` : ""}${item.final_url ? `<a class="tiny" href="${safeExternalUrl(item.final_url)}" target="_blank" rel="noopener noreferrer">Открыть пост</a>` : ""}</td>
       <td>${escapeHtml(item.platform || "—")}</td>
       <td>${formatNumber(item.views || 0)}</td>
       <td>${formatNumber(item.clicks || 0)}</td>
       <td>${formatNumber(item.orders || 0)}</td>
       <td>${formatMoney(item.revenue_minor || 0)}</td>
       <td><span class="badge">${escapeHtml(humanMetricSource(item.source))}</span></td>
-      <td>${formatDate(item.observed_at || item.captured_at || item.updated_at, true)}</td>
+      <td><time>${formatDate(item.observed_at || item.captured_at || item.updated_at, true)}</time><a class="stats-live-snapshot" href="${statsSnapshotHref(item)}">Добавить</a></td>
     </tr>`).join("")}</tbody>
   </table></div>`;
+}
+
+function statsCsvCell(value) {
+  let text = String(value ?? "").replace(/\r?\n/g, " ").trim();
+  if (/^[=+\-@]/u.test(text)) text = `'${text}`;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function exportVisibleStatsCsv() {
+  const data = state.sections.stats.data || {};
+  const rows = listFrom(data, "publications", "items", "rows");
+  const filters = statsFiltersFromRoute(rows);
+  const filteredRows = filterStatsRows(rows, filters);
+  if (!filteredRows.length) {
+    toast("По текущим фильтрам нечего экспортировать.", "info");
+    return;
+  }
+  const records = [
+    ["Публикация", "SKU", "Площадка", "Тип контента", "Просмотры", "Переходы", "Заказы", "Выручка, RUB", "Источник", "Снимок", "Ссылка"],
+    ...filteredRows.map((item) => [
+      item.title || `#${statsRowId(item)}`,
+      item.sku || "",
+      item.platform || "",
+      humanStatsContentType(statsRowContentType(item)),
+      Number(item.views || 0),
+      Number(item.clicks || 0),
+      Number(item.orders || 0),
+      (Number(item.revenue_minor || 0) / 100).toFixed(2),
+      humanMetricSource(item.source),
+      item.observed_at || item.captured_at || item.updated_at || "",
+      safeExternalUrl(item.final_url) === "#" ? "" : safeExternalUrl(item.final_url),
+    ]),
+  ];
+  const csv = `\uFEFF${records.map((record) => record.map(statsCsvCell).join(";")).join("\r\n")}`;
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `contentengine-results-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  toast(`Экспортировано ${formatNumber(filteredRows.length)} загруженных публикаций.`, "success");
+}
+
+function submitStatsFilters(form) {
+  const values = new FormData(form);
+  const route = statsRouteHref({
+    period: values.get("period") || "30d",
+    platform: values.get("platform") === "all" ? null : values.get("platform"),
+    content_type: values.get("content_type") === "all" ? null : values.get("content_type"),
+    q: String(values.get("q") || "").trim() || null,
+    sort: values.get("sort") || "updated_desc",
+    result_page: 1,
+  });
+  navigate(route.replace(/^#/, ""));
 }
 
 function renderPayoutsSection(sectionState) {
@@ -20947,6 +21711,32 @@ async function handleClick(event) {
   if (!control) return;
   const action = control.dataset.action;
 
+  if (action === "reset-stats-filters") {
+    event.preventDefault();
+    const route = statsRouteHref({
+      period: null,
+      platform: null,
+      content_type: null,
+      q: null,
+      result_page: 1,
+    });
+    navigate(route.replace(/^#/, ""));
+    return;
+  }
+
+  if (action === "set-stats-layout") {
+    event.preventDefault();
+    const layout = control.dataset.layout === "cards" ? "cards" : "table";
+    navigate(statsRouteHref({ layout, result_page: 1 }).replace(/^#/, ""));
+    return;
+  }
+
+  if (action === "export-stats-csv") {
+    event.preventDefault();
+    exportVisibleStatsCsv();
+    return;
+  }
+
   if (action === "finder-mode") {
     event.preventDefault();
     const mode = control.dataset.ceV4FinderMode === "organize" ? "organize" : "browse";
@@ -22854,6 +23644,11 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "refresh-generation-strategy-status") {
+    await refreshGenerationStrategyArchiveStatus(control.dataset.jobId, control);
+    return;
+  }
+
   if (action === "check-generation-strategy") {
     const jobId = String(control.dataset.jobId || "").trim().toLowerCase();
     const outputAction = String(control.dataset.outputAction || "status");
@@ -23063,6 +23858,7 @@ async function handleSubmit(event) {
   else if (form.classList.contains("content-review-decision-form")) await submitContentReviewDecision(form, event.submitter);
   else if (form.classList.contains("generation-reconciliation-form")) await submitRealGenerationReconciliation(form, event.submitter);
   else if (form.id === "mock-batch-form") await submitGenerationBatch(form);
+  else if (form.id === "stats-filter-form") submitStatsFilters(form);
   else if (form.id === "manual-metric-form") await submitManualMetric(form);
   else if (form.classList.contains("tracking-link-form")) await submitTrackingLink(form);
   else if (form.id === "wb-alias-form") await submitWbAlias(form);
@@ -23516,6 +24312,13 @@ function handleChange(event) {
     "platform",
     "product_category",
   ].includes(event.target.name)) {
+    if (
+      event.target.name === "campaign_id"
+      && String(event.target.value || "").trim()
+    ) {
+      delete generationForm.dataset.generationCampaignSelectionRequired;
+      delete generationForm.dataset.pendingGenerationCampaignId;
+    }
     if (event.target.name === "platform") {
       delete generationForm.dataset.autoGenerationPlatform;
       syncGenerationDestination(generationForm);
@@ -23642,11 +24445,14 @@ function handleFormActivity(event) {
         syncGenerationStrategyFormReadiness(form);
         return;
       }
+      const strategyEngineChanged =
+        event.target.name === "generation_intake_engine";
       const strategyContextChanged = Boolean(
         strategyId
         && !priceConfirmationChanged
         && (
-          String(event.target.name || "").startsWith("generation_strategy_")
+          strategyEngineChanged
+          || String(event.target.name || "").startsWith("generation_strategy_")
           || [
             "media_id",
             "primary_media_id",
@@ -23684,7 +24490,12 @@ function handleFormActivity(event) {
             "generation_strategy_row_mechanics_changed",
           );
         } else {
-          resetGenerationStrategyQueueState();
+          resetGenerationStrategyQueueState({
+            // The engine affects binding, receipt and price, but not the
+            // already human-approved spec. Duration/quality still invalidate
+            // the spec through their generation_strategy_* controls.
+            clearSpecs: !strategyEngineChanged,
+          });
         }
         state.generationStrategyQueueSourceRevision = sourceRevision;
         form.dataset.generationStrategyConfirmationReady = "false";
@@ -24017,11 +24828,20 @@ function syncMediaProductFields(form) {
   }
 }
 
+function generationUsesPaidMedia(form) {
+  // Product Swap reuses the ordinary 1–5 paid product-photo controls while
+  // its legacy generation_mode is disabled/mock. Viral rebuild has its own
+  // exact-ten strategy branch and must never be squeezed through this cap.
+  return String(form?.elements?.generation_strategy_id?.value || "").trim()
+    === "viral_product_swap"
+    || isRealGenerationMode(form?.elements?.generation_mode?.value);
+}
+
 function generationMediaSelectionFromForm(form) {
   if (!form) {
     return resolveGenerationMediaSelection([], { real: false });
   }
-  const real = isRealGenerationMode(form.elements.generation_mode?.value);
+  const real = generationUsesPaidMedia(form);
   const primaryMediaId = String(
     form.querySelector('input[name="primary_media_id"]:checked')?.value || "",
   );
@@ -24077,7 +24897,7 @@ function syncGenerationMediaSelection(
   { changedInput = null, notify = true } = {},
 ) {
   if (!form) return null;
-  const real = isRealGenerationMode(form.elements.generation_mode?.value);
+  const real = generationUsesPaidMedia(form);
   if (real && changedInput?.name === "primary_media_id") {
     const source = Array.from(form.querySelectorAll('input[name="media_id"]'))
       .find((input) => input.value === changedInput.value);
@@ -25904,6 +26724,15 @@ function generationSpendConsentFingerprint(form) {
 }
 
 function generationSpecPreparationFailure(form, compiled = null) {
+  const preparationRoute = generationSpecPreparationRoute(
+    form?.elements?.generation_strategy_id?.value,
+  );
+  if (!preparationRoute.legacyAllowed) {
+    return {
+      code: preparationRoute.code,
+      message: preparationRoute.message,
+    };
+  }
   const verificationFailure = String(
     form?.dataset?.researchRecommendationVerificationFailure || "",
   );
@@ -26147,6 +26976,23 @@ function syncGenerationSpecUi(form) {
   if (!form) return;
   const current = form.querySelector("#generation-spec-card");
   if (!current) return;
+  const preparationRoute = generationSpecPreparationRoute(
+    form.elements?.generation_strategy_id?.value,
+  );
+  if (!preparationRoute.legacyAllowed) {
+    current.dataset.generationSpecRoute = preparationRoute.kind;
+    current.hidden = true;
+    current.inert = true;
+    current.setAttribute("aria-hidden", "true");
+    current.style.setProperty("display", "none", "important");
+    current.querySelectorAll("button, input, select, textarea").forEach((control) => {
+      control.disabled = true;
+    });
+    if (form.elements?.real_spend_confirmation) {
+      form.elements.real_spend_confirmation.checked = false;
+    }
+    return;
+  }
   const expectedScope = generationSpecExactScope(form);
   const currentPayload = generationSpecPreparePayload(form);
   const dirty = state.generationSpec.dirty === true
@@ -26268,8 +27114,18 @@ function applyGenerationSpecEnvelope(raw, form, {
 }
 
 async function refreshGenerationSpec(form, { force = false } = {}) {
+  if (!form) return null;
+  const preparationRoute = generationSpecPreparationRoute(
+    form.elements?.generation_strategy_id?.value,
+  );
+  if (!preparationRoute.legacyAllowed) {
+    throw new CreatorApiError(
+      preparationRoute.message,
+      { code: preparationRoute.code },
+    );
+  }
   const current = state.generationSpec.data?.generationSpec;
-  if (!form || !current) return null;
+  if (!current) return null;
   const expectedContext = {
     spec_id: current.spec_id,
     spec_version: current.spec_version,
@@ -26488,7 +27344,17 @@ async function runGenerationSpecControl(form, action, {
   preparedPayload: preparedPayloadOverride = null,
   approvalReview = null,
 } = {}) {
-  if (!form || state.generationSpec.saving) return null;
+  if (!form) return null;
+  const preparationRoute = generationSpecPreparationRoute(
+    form.elements?.generation_strategy_id?.value,
+  );
+  if (!preparationRoute.legacyAllowed) {
+    throw new CreatorApiError(
+      preparationRoute.message,
+      { code: preparationRoute.code },
+    );
+  }
+  if (state.generationSpec.saving) return null;
   const supported = new Set([
     "prepare", "patch", "approve", "reject", "revert", "recompute",
   ]);
@@ -26736,7 +27602,7 @@ function syncAutomaticGenerationBrief(form, { force = false, identity = null } =
 
 function syncGenerationProductIdentity(form) {
   if (!form) return null;
-  const real = isRealGenerationMode(form.elements.generation_mode?.value);
+  const real = generationUsesPaidMedia(form);
   const selection = syncGenerationMediaSelection(form, { notify: false });
   const selected = selection?.primaryMediaId
     ? Array.from(form.querySelectorAll('input[name="media_id"]'))
@@ -26899,6 +27765,90 @@ function syncGenerationDestination(form) {
         : "Укажите точный аккаунт, канал или карточку для публикации.";
   }
   return resolution;
+}
+
+function syncGenerationCampaignSelectUi(form) {
+  const campaignSelect = form?.elements?.campaign_id;
+  if (!(campaignSelect instanceof HTMLSelectElement)) return false;
+  if (
+    form.dataset.generationStrategyPaidLocked === "true"
+    || state.realGenerationStartInFlight
+    || state.generationStrategyStartInFlight
+  ) return false;
+
+  const currentCampaignId = String(campaignSelect.value || "").trim();
+  const preferredCampaignId = String(
+    form.dataset.pendingGenerationCampaignId || "",
+  ).trim();
+  const reselectionAlreadyRequired =
+    form.dataset.generationCampaignSelectionRequired === "true";
+  const selection = generationCampaignSelectionState(
+    state.generationSpend.data || {},
+    {
+      status: state.generationSpend.status,
+      currentCampaignId,
+      preferredCampaignId,
+      requiresExplicitSelection: reselectionAlreadyRequired,
+    },
+  );
+  if (!selection.ready) return false;
+
+  const campaignOptions = selection.campaigns.map((campaign) => ({
+    value: campaign.id,
+    label: `${campaign.name || "Кампания"} · доступно $${((campaign.remainingMinor || 0) / 100).toFixed(2)}`,
+    disabled: false,
+  }));
+  const nextOptions = !campaignOptions.length
+    ? [{ value: "", label: "Нет активной кампании", disabled: false }]
+    : selection.explicitSelectionRejected
+      ? [
+          {
+            value: "",
+            label: "Выберите активную кампанию заново",
+            disabled: true,
+          },
+          ...campaignOptions,
+        ]
+      : campaignOptions;
+  const currentOptions = Array.from(campaignSelect.options).map((option) => ({
+    value: option.value,
+    label: option.textContent || "",
+    disabled: option.disabled,
+  }));
+  if (JSON.stringify(currentOptions) !== JSON.stringify(nextOptions)) {
+    const fragment = document.createDocumentFragment();
+    nextOptions.forEach((entry) => {
+      const option = document.createElement("option");
+      option.value = entry.value;
+      option.textContent = entry.label;
+      option.disabled = entry.disabled;
+      fragment.append(option);
+    });
+    campaignSelect.replaceChildren(fragment);
+  }
+  campaignSelect.value = selection.selectedId;
+  delete form.dataset.pendingGenerationCampaignId;
+  if (selection.explicitSelectionRejected) {
+    form.dataset.generationCampaignSelectionRequired = "true";
+  }
+
+  const campaignAuthorityChanged = selection.explicitSelectionRejected
+    || selection.selectionChanged
+    || Boolean(
+      preferredCampaignId && preferredCampaignId !== selection.selectedId,
+    );
+  if (campaignAuthorityChanged) {
+    const confirmation = form.elements?.real_spend_confirmation;
+    if (confirmation instanceof HTMLInputElement) confirmation.checked = false;
+    if (
+      (selection.explicitSelectionRejected && !reselectionAlreadyRequired)
+      || preferredCampaignId
+      || (selection.selectionChanged && form.dataset.dirty === "true")
+    ) {
+      scheduleGenerationFormDraftSave(form);
+    }
+  }
+  return true;
 }
 
 function syncGenerationSpendSnapshotUi(form) {
@@ -27613,17 +28563,95 @@ function generationStrategySourceMediaId(selection) {
   return contentReviewUuid(mediaId) ? mediaId : "";
 }
 
+// Compact «Копия» хранит семантический click-order фото отдельно от DOM:
+// каталог может перерисовать карточки между handoff и бесплатным ТЗ. Сначала
+// читаем точный массив handoff, а после patch-render (когда скрытое поле ещё не
+// успел вернуть intake-адаптер) — восстановленные порядковые data-атрибуты.
+function generationIntakeProductMediaOrder(form) {
+  const raw = String(
+    form?.elements?.generation_intake_product_media_ids?.value || "",
+  ).trim();
+  if (raw && raw.length <= 1_000) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        const exact = [...new Set(parsed.map((value) => (
+          String(value || "").trim().toLowerCase()
+        )).filter(contentReviewUuid))].slice(0, MAX_REAL_GENERATION_REFERENCES);
+        if (exact.length) return exact;
+      }
+    } catch {
+      // Malformed advisory handoff never replaces the live native selection.
+    }
+  }
+  return Array.from(form?.querySelectorAll?.('input[name="media_id"]:checked') || [])
+    .map((input, domIndex) => ({
+      id: String(input.value || "").trim().toLowerCase(),
+      order: Number(input.dataset?.generationIntakeSelectionOrder),
+      domIndex,
+    }))
+    .filter(({ id, order }) => (
+      contentReviewUuid(id) && Number.isSafeInteger(order) && order > 0
+    ))
+    .sort((left, right) => left.order - right.order || left.domIndex - right.domIndex)
+    .map(({ id }) => id)
+    .slice(0, MAX_REAL_GENERATION_REFERENCES);
+}
+
+function generationStrategySelectionInProductOrder(selection, productOrder) {
+  if (!selection || !Array.isArray(selection.assets) || !productOrder.length) {
+    return selection;
+  }
+  const productRoles = new Set(["product_image", "new_product_image"]);
+  const productAssets = selection.assets.filter((asset) => productRoles.has(asset?.role));
+  const byId = new Map(productAssets.map((asset) => [
+    String(asset?.media_id || "").trim().toLowerCase(),
+    asset,
+  ]));
+  // Stale/partial handoff must not drop or invent an asset. Reorder only when
+  // it is an exact permutation of the live guided selection.
+  if (
+    byId.size !== productAssets.length
+    || productOrder.length !== productAssets.length
+    || productOrder.some((mediaId) => !byId.has(mediaId))
+  ) return selection;
+  const orderedProducts = productOrder.map((mediaId) => byId.get(mediaId));
+  let productIndex = 0;
+  const assets = selection.assets.map((asset) => (
+    productRoles.has(asset?.role) ? orderedProducts[productIndex++] : asset
+  ));
+  if (assets.every((asset, index) => asset === selection.assets[index])) {
+    return selection;
+  }
+  return Object.freeze({
+    ...selection,
+    assets: Object.freeze(assets),
+  });
+}
+
 function generationStrategySelectionsForForm(form) {
   const value = globalThis.ContentEngineGenerationGuidedV4
     ?.getStrategySelections?.(form);
   const requiredCount = Number(
     generationStrategySourceProjectionForForm(form)?.required_count || 0,
   );
-  return Array.isArray(value)
+  const exact = Array.isArray(value)
     && [1, 10].includes(requiredCount)
     && value.length === requiredCount
     ? value
     : null;
+  if (!exact) return null;
+  const productOrder = generationIntakeProductMediaOrder(form);
+  if (!productOrder.length) return exact;
+  return exact.map((entry) => {
+    const selection = generationStrategySelectionInProductOrder(
+      entry?.selection,
+      productOrder,
+    );
+    return selection === entry?.selection
+      ? entry
+      : Object.freeze({ ...entry, selection });
+  });
 }
 
 function generationStrategySourceProjectionForForm(form) {
@@ -27828,6 +28856,18 @@ function generationStrategyRuntimeContextForApprovedSpec(
     || !contentReviewUuid(projectId)
     || !approvedContext
   ) return null;
+  // Движок каскада входит в контекст и, значит, в его отпечаток: смена движка
+  // меняет цену, поэтому обязана считаться другой привязкой, а не тихо
+  // подменять исполнителя у уже подписанной. Когда движок не выбран, ключа нет
+  // вовсе — сервер посчитает действующий маршрут реестра, как считал раньше.
+  const engine = globalThis.ContentEngineGenerationGuidedV4
+    ?.getStrategyEngineChoice?.() || null;
+  // Ведущий «Дуэта» — наш идентификатор из формы. Сервер требует его при
+  // привязке дуэта (generation_strategy_binding_duet_presenter_required), а
+  // личность провайдера читает сам: в браузере её нет. Для других стратегий
+  // ключа нет вовсе.
+  const duetPresenterId = globalThis.ContentEngineGenerationGuidedV4
+    ?.getDuetPresenterChoice?.() || null;
   return {
     organization_id: organizationId,
     project_id: String(projectId).toLowerCase(),
@@ -27835,6 +28875,8 @@ function generationStrategyRuntimeContextForApprovedSpec(
     spec_version: approvedContext.spec_version,
     spec_hash: approvedContext.spec_hash,
     generation_strategy: selection,
+    ...(engine === null ? {} : { engine }),
+    ...(duetPresenterId === null ? {} : { duet_presenter_id: duetPresenterId }),
   };
 }
 
@@ -28009,7 +29051,8 @@ function generationStrategySpecMechanicsMarkup(spec, entry) {
       <p><strong>Публикация:</strong> ${escapeHtml(scope.platform)} · категория ${escapeHtml(scope.product_category)}</p>
       <dl class="generation-strategy-spec-review__contract">
         <div><dt>Стратегия</dt><dd>${escapeHtml(scope.strategy_id)}</dd></div>
-        <div><dt>Исполнение</dt><dd>${escapeHtml(scope.provider)} · ${escapeHtml(scope.recipe)} · ${escapeHtml(scope.input_mode)}</dd></div>
+        <div><dt>Recipe</dt><dd>${escapeHtml(scope.recipe)} · ${escapeHtml(scope.input_mode)}</dd></div>
+        <div><dt>Маршрут</dt><dd>провайдер и модель определяются серверным реестром при бесплатной проверке и закрепляются подписанной квитанцией</dd></div>
         <div><dt>Формат</dt><dd>${escapeHtml(scope.format)} · ratio ${escapeHtml(scope.ratio)} · ${escapeHtml(scope.resolution)}</dd></div>
         <div><dt>Референсы</dt><dd>${scope.reference_count} · видео ${scope.reference_video ? "передаётся" : "не передаётся"}</dd></div>
         <div><dt>Кадры и речь</dt><dd>first frame ${scope.first_frame ? "да" : "нет"} · last frame ${scope.last_frame ? "да" : "нет"} · spoken dialogue ${scope.spoken_dialogue ? "да" : "нет"}</dd></div>
@@ -28956,6 +29999,9 @@ function syncGenerationStrategyPaidControlLock(form) {
     "[data-generation-strategy-assets-refresh]",
     "[data-generation-strategy-assets-load-more]",
     '[data-action="probe-generation-strategy-media"]',
+    '[name="generation_intake_generator"]',
+    '[name="generation_intake_quality"]',
+    '[name="generation_intake_duration"]',
     "#generation-strategy-assets input",
     "#generation-strategy-assets select",
     "#generation-strategy-assets textarea",
@@ -28975,14 +30021,46 @@ function syncGenerationStrategyPaidControlLock(form) {
   return true;
 }
 
+// Стоп-кран для «Создания». У стратегии viral_rebuild нет ни одной строки в
+// реестре маршрутов, а объявленный путь /v1/recipes/product_ad у Runway не
+// существует — это записано в миграции 202608170006 после того, как на том же
+// дефекте умерла платная отправка «Копии». Платный старт по «Созданию» доходил
+// до подтверждения точной суммы и умирал на 404 уже ПОСЛЕ резервирования: цикл
+// из десяти ТЗ и десяти одобрений уходил впустую, а очередь замирала в платном
+// состоянии «Ожидаем фиксацию».
+//
+// Это временный клиентский стоп-кран, а не архитектура. Постоянный замок обязан
+// стоять на сервере, а решение «готово / не готово» — опираться на наличие
+// исполнимого маршрута, а не на имя стратегии: см. docs/GENERATION_FIX_QUEUE.md,
+// пункты 6 и 16. Вся логика подготовки «Создания» ниже сохранена целиком и
+// оживёт снятием этого флага, как только у стратегии появится маршрут.
+// Флага REBUILD_PAID_START_CLOSED здесь больше нет.
+//
+// 23.08.2026 замок переехал на сервер и перестал быть именным: миграция
+// 202608230010 отвергает привязку любой стратегии, у которой нет ни одной
+// включённой и разрешённой строки реестра маршрутов, — до строки в книге
+// трат и до создания наряда, отказом `generation_strategy_no_executable_route`.
+// Витрина знает то же самое: политика провайдера считает `enabled` по тому же
+// признаку (202608230011) и называет помеху в списке.
+//
+// Клиентский флаг был честно назван временным стоп-краном. Он выключал не
+// только платный старт, но и БЕСПЛАТНУЮ подготовку ТЗ: она вызывается только
+// изнутри submitGenerationStrategyExactTen, а тот стоял после стоп-крана.
+// Оператор не мог ни заплатить, ни подготовить.
+
 function syncUnsupportedGenerationStrategyFormReadiness(
   form,
   strategyId,
   sourceProjection,
 ) {
-  const characterPerformance = strategyId === "viral_avatar_ugc";
-  const blocker = characterPerformance
-    ? "Character Performance пока закрыт feature gate: подтверждённого provider adapter нет."
+  // «Аватар» сюда больше не приходит: с 22.08.2026 он идёт по тому же расчёту
+  // готовности, что и «Копия», а недоступность выражается выключенными
+  // маршрутами в реестре, а не отдельным клиентским замком. Прежний текст про
+  // feature gate убран, потому что стал неправдой: гейта нет, есть отсутствие
+  // включённого маршрута — и говорить об этом должен тот, кто это проверяет.
+  const rebuildWithoutRoute = strategyId === "viral_rebuild";
+  const blocker = rebuildWithoutRoute
+    ? "У «Создания» нет исполнимого маршрута: объявленный адрес провайдера не существует. Платный запуск закрыт, чтобы не тратить подготовку впустую."
     : "Эта стратегия не подключена к безопасному runtime creator-generate.";
   form.dataset.generationStrategyConfirmationReady = "false";
   const campaignField = form.querySelector("#generation-campaign-field");
@@ -29007,12 +30085,8 @@ function syncUnsupportedGenerationStrategyFormReadiness(
   if (submit instanceof HTMLButtonElement) {
     submit.disabled = true;
     submit.dataset.launchBlocker = blocker;
-    submit.dataset.launchPhase = characterPerformance
-      ? "strategy_character_performance_feature_gated"
-      : "strategy_unsupported";
-    submit.textContent = characterPerformance
-      ? "Character Performance пока недоступен"
-      : "Стратегия пока недоступна";
+    submit.dataset.launchPhase = "strategy_unsupported";
+    submit.textContent = "Стратегия пока недоступна";
   }
   syncGenerationStrategySpecReviewUi(form, []);
   const queueMount = form.querySelector("[data-generation-strategy-queue-mount]");
@@ -29031,13 +30105,16 @@ function syncGenerationStrategySingleFormReadiness(
   const sourceMediaId = String(
     selectedSources[0]?.source_media_id || "",
   ).trim().toLowerCase();
-  const exactSourceReady = Boolean(
+  const exactSourceSelected = Boolean(
     sourceProjection?.strategy_id === "viral_product_swap"
     && sourceProjection.required_count === 1
     && sourceProjection.selected_count === 1
     && sourceProjection.exact_required_selected === true
-    && sourceProjection.all_selected_ready === true
     && contentReviewUuid(sourceMediaId),
+  );
+  const exactSourceReady = Boolean(
+    exactSourceSelected
+    && sourceProjection.all_selected_ready === true,
   );
   const entry = Array.isArray(selections) && selections.length === 1
     && selections[0]?.source_media_id === sourceMediaId
@@ -29053,8 +30130,24 @@ function syncGenerationStrategySingleFormReadiness(
   const runtimeProjection = runtimeState
     ? generationStrategyRuntimeSafeProjection(runtimeState)
     : null;
+  const currentRuntimeContext = entry && specRecord?.approvedContext
+    ? generationStrategyRuntimeContextForApprovedSpec(
+        entry.selection,
+        currentWorkspaceProjectId(),
+        specRecord.approvedContext,
+      )
+    : null;
+  const currentRuntimeFingerprint = currentRuntimeContext
+    ? createGenerationStrategyRuntimeFingerprint(currentRuntimeContext)
+    : null;
+  const runtimeFingerprintCurrent = Boolean(
+    runtimeState
+    && currentRuntimeFingerprint?.ok
+    && runtimeState.fingerprint === currentRuntimeFingerprint.fingerprint,
+  );
   const phase = runtimeProjection?.phase || "idle";
-  const receiptFresh = phase === "preflight_ready"
+  const receiptFresh = runtimeFingerprintCurrent
+    && phase === "preflight_ready"
     && generationStrategyReceiptIsFresh(runtimeState);
   const preflightReady = Boolean(
     receiptFresh
@@ -29153,12 +30246,15 @@ function syncGenerationStrategySingleFormReadiness(
       blocker = "Платный контекст уже подтверждён и заблокирован от изменений.";
       label = "Product Swap подтверждён";
     }
-  } else if (!exactSourceReady) {
+  } else if (!exactSourceSelected) {
     blocker = `Выберите один исходный MP4: сейчас ${sourceProjection?.selected_count || 0} из 1.`;
     label = `Выбрано ${sourceProjection?.selected_count || 0} из 1 ролика`;
   } else if (probeRequired) {
     blocker = "Сначала бесплатно проверьте длительность выбранного MP4.";
     label = "Проверить MP4 бесплатно";
+  } else if (!exactSourceReady) {
+    blocker = "Сервер ещё не подтвердил пригодность выбранного MP4.";
+    label = "Обновить проверку MP4";
   } else if (!entry) {
     blocker = "Заполните точные ассеты Product Swap, звук и обязательные подтверждения.";
     label = "Заполните ассеты Product Swap";
@@ -29214,7 +30310,20 @@ function syncGenerationStrategyFormReadiness(form) {
   if (!strategyId) return null;
   const sourceProjection = generationStrategySourceProjectionForForm(form);
   const selections = generationStrategySelectionsForForm(form);
-  if (strategyId === "viral_product_swap") {
+  // «Аватар» с 22.08.2026 — такая же правка одного исходного ролика, что и
+  // «Копия»: один MP4, один результат. Поэтому и расчёт готовности у них общий.
+  //
+  // Раньше аватар уходил в ветку «стратегия не подключена» и глушился текстом
+  // про feature gate. Замок при этом стоял ТОЛЬКО в браузере, а сервер отдавал
+  // стратегию включённой — то есть защита денег держалась на клиентском коде.
+  // Теперь защита там, где ей и место: все маршруты «Аватара» в реестре
+  // выключены, поэтому серверная политика не находит действующего маршрута и
+  // отвечает блокером provider_route_not_allowed, а модуль в браузере остаётся
+  // заблокированным расчётом готовности по той же причине.
+  if (
+    strategyId === "viral_product_swap"
+    || strategyId === "viral_avatar_ugc"
+  ) {
     return syncGenerationStrategySingleFormReadiness(
       form,
       sourceProjection,
@@ -29453,6 +30562,15 @@ async function probeSelectedGenerationStrategyMedia(
       normalizedMediaId,
       "generation_strategy_media_verified",
     );
+    // The probe response is the server authority for duration. Preserve it in
+    // the compact-upload source overlay before refreshing the broader catalog;
+    // that catalog request may still return the snapshot taken before probe or
+    // may be temporarily unavailable.
+    globalThis.ContentEngineGenerationGuidedV4
+      ?.confirmRegisteredSourceProbe?.(form, {
+        media_id: normalizedMediaId,
+        duration_seconds: normalized.value.duration_seconds,
+      });
     if (refresh) {
       await globalThis.ContentEngineGenerationGuidedV4
         ?.refreshStrategyAssets?.(form);
@@ -30581,8 +31699,12 @@ async function submitGenerationBatch(form) {
     const strategySelections = generationStrategySelectionsForForm(form);
     const sourceProjection = generationStrategySourceProjectionForForm(form);
     const projectionMatchesStrategy = sourceProjection?.strategy_id === strategyId;
+    // Один исходник — один результат: это верно и для «Копии», и для
+    // «Аватара». Платный старт при этом всё равно упрётся в серверную политику,
+    // если у стратегии нет включённого маршрута: у «Аватара» сегодня все три
+    // маршрута выключены, и политика ответит provider_route_not_allowed.
     if (
-      strategyId === "viral_product_swap"
+      (strategyId === "viral_product_swap" || strategyId === "viral_avatar_ugc")
       && projectionMatchesStrategy
       && sourceProjection.required_count === 1
       && sourceProjection.all_selected_ready === true
@@ -30596,6 +31718,11 @@ async function submitGenerationBatch(form) {
       );
       return;
     }
+    // Второго клиентского стоп-крана здесь тоже нет. Submit, пришедший мимо
+    // расчёта готовности, дойдёт до сервера и получит там названный отказ
+    // `generation_strategy_no_executable_route` — до резерва денег и до
+    // создания наряда. Отказ сервера лучше уговора браузера: его нельзя
+    // обойти, отправив запрос иначе.
     if (
       strategyId === "viral_rebuild"
       && projectionMatchesStrategy
@@ -30611,13 +31738,7 @@ async function submitGenerationBatch(form) {
       );
       return;
     }
-    if (strategyId === "viral_avatar_ugc") {
-      toast(
-        "Character Performance пока закрыт feature gate: подтверждённого provider adapter нет, платный запуск запрещён.",
-        "info",
-      );
-      return;
-    }
+
     toast(
       strategyId === "viral_product_swap"
         ? "Для Product Swap нужен один бесплатно проверенный MP4 и точный набор обязательных ассетов."
@@ -31260,8 +32381,20 @@ async function submitRealGenerationReconciliation(form, submitter) {
   const incidentId = String(form.dataset.incidentId || "");
   const strategyJob = form.dataset.strategyJob === "true";
   const provider = String(form.dataset.provider || "").trim().toLowerCase();
-  const providerLabel = provider === "google" ? "Google" : "Runway";
-  const operationLabel = provider === "google" ? "operation" : "task";
+  if (!new Set(["google", "fal", "runway"]).has(provider)) {
+    toast("Сервис этого запуска не подтверждён. Обновите карточку; ручная сверка остановлена.", "error");
+    return;
+  }
+  const providerLabel = provider === "google"
+    ? "Google"
+    : provider === "fal"
+    ? "fal"
+    : "Runway";
+  const operationLabel = provider === "google"
+    ? "operation"
+    : provider === "fal"
+    ? "request"
+    : "task";
   const providerTaskId = String(values.get("provider_task_id") || "").trim();
   const evidenceReference = String(values.get("evidence_reference") || "").trim();
   const reason = String(values.get("reason") || "").trim();
@@ -31310,6 +32443,7 @@ async function submitRealGenerationReconciliation(form, submitter) {
       }
       result = await state.api.reconcileGenerationStrategy(jobId, {
         project_id: projectId,
+        provider,
         dispatch_result_id: dispatchResultId,
         incident_id: incidentId,
         resolution,
@@ -32023,16 +33157,30 @@ function syncManualMetricClicks(form) {
   const option = select.selectedOptions?.[0];
   const trackingEnabled = option?.dataset.trackingEnabled === "true";
   const trackedClicks = nonnegativeInteger(option?.dataset.trackedClicks) ?? 0;
+  const latestClicks = nonnegativeInteger(option?.dataset.latestClicks) ?? 0;
+  const prefill = {
+    views: nonnegativeInteger(option?.dataset.latestViews) ?? 0,
+    orders: nonnegativeInteger(option?.dataset.latestOrders) ?? 0,
+    revenue_rub: Number(option?.dataset.latestRevenueRub || 0),
+  };
+  Object.entries(prefill).forEach(([name, value]) => {
+    const field = form.elements?.[name];
+    if (field instanceof HTMLInputElement && Number.isFinite(value) && value >= 0) {
+      field.value = name === "revenue_rub" ? value.toFixed(2) : String(value);
+    }
+  });
   if (trackingEnabled) {
     input.value = String(trackedClicks);
     input.readOnly = true;
     input.setAttribute("aria-readonly", "true");
     if (hint) hint.textContent = `Подставлено автоматически: ${formatNumber(trackedClicks)} человеческих переходов.`;
   } else {
-    input.value = "0";
+    input.value = String(latestClicks);
     input.readOnly = false;
     input.removeAttribute("aria-readonly");
-    if (hint) hint.textContent = "Без tracking link укажите накопительное число вручную.";
+    if (hint) hint.textContent = option?.value
+      ? "Подставлен последний сохранённый итог. Сверьте и поправьте его вручную."
+      : "Без tracking link укажите накопительное число вручную.";
   }
 }
 

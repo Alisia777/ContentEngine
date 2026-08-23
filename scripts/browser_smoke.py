@@ -141,7 +141,14 @@ def smoke(
         port = int(port_file.read_text(encoding="utf-8").splitlines()[0])
         pages = json.load(urllib.request.urlopen(f"http://127.0.0.1:{port}/json/list", timeout=5))
         page = next(item for item in pages if item.get("type") == "page")
-        with connect(page["webSocketDebuggerUrl"], origin="http://localhost", open_timeout=5) as websocket:
+        # max_size=None: снимок всей страницы больше мегабайта по умолчанию,
+        # и без снятия предела websocket рвётся на первом же скриншоте.
+        with connect(
+            page["webSocketDebuggerUrl"],
+            origin="http://localhost",
+            open_timeout=5,
+            max_size=None,
+        ) as websocket:
             request_id = 0
             console_events: list[dict[str, object]] = []
             network_events: list[dict[str, object]] = []
@@ -271,7 +278,16 @@ JSON.stringify({
                     break
                 time.sleep(0.1)
             else:
-                raise AssertionError("Desktop local owner did not reach the workspace")
+                # Та же диагностика, что у экрана входа: без снимка и консоли
+                # отказ «не дошёл до рабочего пространства» нечем разбирать.
+                screenshot = cdp("Page.captureScreenshot", {"format": "png"})
+                diagnostic_path = output / "desktop-workspace-timeout.png"
+                diagnostic_path.write_bytes(base64.b64decode(screenshot["result"]["data"]))
+                raise AssertionError(
+                    "Desktop local owner did not reach the workspace; "
+                    f"screenshot={diagnostic_path}; "
+                    f"diagnostics={json.dumps(desktop_login_diagnostics(), ensure_ascii=False)}"
+                )
             desktop_screenshot = cdp("Page.captureScreenshot", {"format": "png", "captureBeyondViewport": True})
             desktop_path = output / "desktop-local.png"
             desktop_path.write_bytes(base64.b64decode(desktop_screenshot["result"]["data"]))
@@ -316,16 +332,23 @@ JSON.stringify({
                 ),
                 (
                     "avatar_video",
-                    "avatar-character-performance.png",
+                    "avatar-duet.png",
                     {
                         "mode": "compact",
                         "sourceSingle": True,
-                        "avatarPhoto": True,
-                        "avatarModeCount": 2,
-                        "avatarDescription": True,
-                        "avatarConsent": True,
+                        # «Дуэт» с 23.08.2026: ведущий проекта вместо фото/описания
+                        # аватара; регистрация ведущего — прямо в панели.
+                        "avatarPhoto": False,
+                        "avatarModeCount": 0,
+                        "avatarDescription": False,
+                        "avatarConsent": False,
+                        "duetPresenter": True,
+                        "duetRegister": True,
                         "briefInPanel": True,
-                        "featureGate": True,
+                        # Заглушки «платный Character Performance закрыт» больше
+                        # нет: подпись панели говорит о речи ведущего.
+                        "featureGate": False,
+                        "speechNote": True,
                         "guidedHidden": True,
                     },
                 ),
@@ -333,8 +356,11 @@ JSON.stringify({
                     "strategy_video",
                     "strategy-viral-rebuild.png",
                     {
-                        "mode": "full",
-                        "strategyUpload": True,
+                        # «Создание» с 22–23.08: режим панели назван по
+                        # стратегии, исходники берутся из проверенных MP4
+                        # проекта (ровно десять), а не отдельной загрузкой.
+                        "mode": "strategy",
+                        "strategyUpload": False,
                         "guidedStepCount": 6,
                         "strategyCatalogReady": True,
                         "strategyButtonCount": 3,
@@ -392,7 +418,10 @@ JSON.stringify({
     avatarModeCount: panel?.querySelectorAll('input[data-generation-intake-avatar-mode]').length || 0,
     avatarDescription: Boolean(panel?.querySelector('[data-generation-intake-field="avatar_wishes"]')),
     avatarConsent: Boolean(panel?.querySelector('[data-generation-intake-avatar-consent]')),
+    duetPresenter: Boolean(panel?.querySelector('[data-generation-intake-duet-presenter-select]')),
+    duetRegister: Boolean(panel?.querySelector('[data-generation-intake-duet-register]')),
     featureGate: Boolean(panel?.querySelector('.generation-intake-v4__gate-note')?.textContent.includes('provider-adapter')),
+    speechNote: Boolean(panel?.querySelector('.generation-intake-v4__gate-note')?.textContent.includes('речь ведущего')),
     strategyUpload: Boolean(panel?.querySelector('input[data-generation-intake-mp4="strategy"][multiple]')),
     guidedStepCount: form?.querySelectorAll('[data-ce-v4-generation-target]').length || 0,
     strategyCatalogReady: form?.querySelector('[data-generation-strategy-status]')?.dataset.generationStrategyStatus === 'ready',

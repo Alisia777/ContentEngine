@@ -10,15 +10,45 @@
 const ROUTE = "/workspace/generation";
 const PAID_AUTHORITY = "creator-generate";
 const COPY_AUTHORITY_STRATEGY = "viral_product_swap";
+const AVATAR_AUTHORITY_STRATEGY = "viral_avatar_ugc";
 const STRATEGY_AUTHORITY_STRATEGY = "viral_rebuild";
+// Какой стратегии принадлежит панель маршрута. Каскад спрашивает маршруты у
+// ТОЙ стратегии, чью панель рисует: раньше он был прибит к «Копии» литералом, и
+// для любого другого маршрута показал бы чужие движки и чужую цену.
+const ROUTE_AUTHORITY_STRATEGY = Object.freeze({
+  copy_video: COPY_AUTHORITY_STRATEGY,
+  avatar_video: AVATAR_AUTHORITY_STRATEGY,
+  strategy_video: STRATEGY_AUTHORITY_STRATEGY,
+});
 const CHARACTER_PERFORMANCE_FEATURE = "generation_character_performance_v1";
 const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260819.cascade.1",
+  "./generation-strategy-intake-v4.css?v=20260823.copy-engines.39",
   import.meta.url,
 ).href;
+// Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
+// работать и без него (тогда по умолчанию встаёт отметка реестра). Когда
+// модуль подъехал, открытый каскад перерисовывается уже с советом.
+let adviseGenerationEngine = null;
+const ENGINE_ADVISOR_READY = import(
+  "./generation-engine-advisor.js?v=20260823.copy-engines.39"
+).then((module) => {
+  if (typeof module?.adviseGenerationEngine === "function") {
+    adviseGenerationEngine = module.adviseGenerationEngine;
+    for (const [strategyId, context] of engineRenderContexts.entries()) {
+      if (strategyId !== COPY_AUTHORITY_STRATEGY || !context?.section) continue;
+      try {
+        renderEngineChoice(context.form, context.state, context.section, strategyId);
+      } catch {
+        // Перерисовка с советом — вспомогательная: без неё каскад остаётся
+        // в прежнем, рабочем состоянии.
+      }
+    }
+  }
+  return adviseGenerationEngine;
+}).catch(() => null);
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const MAX_COPY_DURATION = 15;
@@ -36,9 +66,33 @@ const PRODUCT_IMAGE_TYPES = new Set([
   "image/png",
   "image/webp",
 ]);
-const DEFAULT_RECOMMENDATIONS = Object.freeze({
+const MEDIA_KIND_MIME_CONTRACT = Object.freeze({
+  product_photo: Object.freeze({
+    allowed: PRODUCT_IMAGE_TYPES,
+    expected: "изображение JPG, PNG или WEBP",
+  }),
+  packshot: Object.freeze({
+    allowed: PRODUCT_IMAGE_TYPES,
+    expected: "изображение JPG, PNG или WEBP",
+  }),
+  creator_reference: Object.freeze({
+    allowed: PRODUCT_IMAGE_TYPES,
+    expected: "изображение JPG, PNG или WEBP",
+  }),
+  source_video: Object.freeze({
+    allowed: new Set(["video/mp4"]),
+    expected: "видео MP4",
+  }),
+});
+// Локальные тексты ниже — только стартовые заготовки интерфейса. Они не
+// получены из ИИ-центра, не несут его lineage и попадают в brief лишь после
+// явного нажатия человека.
+const DEFAULT_BRIEF_TEMPLATES = Object.freeze({
   copy_video: "Сохранить последовательность сцен, движение камеры, темп и монтаж исходного ролика. Заменить только исходный товар на товар с выбранных фото: точно сохранить форму, материал, цвет, упаковку и логотип. Не добавлять новые объекты или надписи.",
-  avatar_video: "Сохранить сцены, тайминг, камеру и композицию исходного ролика. Встроить выбранного аватара естественно: согласовать масштаб, свет, тени, взгляд и движения с кадром. Не менять товар и фон без необходимости.",
+  // «Дуэт»: этот текст ведущий ПРОИЗНЕСЁТ ВСЛУХ за деньги — это речь, а не
+  // задание модели. Шаблон — пример реплики, которую надо переписать под
+  // ролик.
+  avatar_video: "Смотрите, как он держит товар — обратите внимание на этот момент. Именно так это и работает в жизни: быстро, без лишних движений. Дальше самое интересное.",
 });
 // Экспресс-«Копия»: одна консолидированная галка прав текстуально покрывает
 // четыре юридически раздельных подтверждения мастера. Клик по ней ставит все
@@ -67,6 +121,10 @@ const EXPRESS_FREE_SUBMIT_PHASES = Object.freeze([
 const EXPRESS_PREFLIGHT_TIMEOUT_MS = 180_000;
 const EXPRESS_POLL_INTERVAL_MS = 400;
 const EXPRESS_BLOCKED_POLL_LIMIT = 15;
+// Каталог и выбранная стратегия дорисовывают четыре нативных attestation
+// асинхронно. Compact-гейт ждёт их ограниченное число опросов, но никогда не
+// подменяет legacy-checkbox или собственную единую галку серверным контрактом.
+const EXPRESS_ATTESTATION_RENDER_POLL_LIMIT = 12;
 // Клик по кнопке мастера обязан двигать его шаг. Если после EXPRESS_STALLED_POLL_LIMIT
 // нажатий подряд ничего не изменилось (шаг, блокировка, занятость и подпись
 // подтверждения те же), продолжать бессмысленно: мастер нас не слышит. Молчать
@@ -84,6 +142,42 @@ const COPY_VIEW_QUERY = "copy";
 // памяти модуля (File нельзя сериализовать в sessionStorage).
 const COPY_PHOTO_STORAGE_PREFIX = "generation-copy-photos-v1:";
 const pendingCopyProductFiles = new Map();
+const BRIEF_ROUTES = Object.freeze([
+  "copy_video",
+  "avatar_video",
+  "strategy_video",
+]);
+// В DOM остаётся ровно одно нативное поле `brief`: его читает существующий
+// creator-generate contract. Значение и provenance при этом принадлежат не
+// полю вообще, а конкретному маршруту. Map переживает patch-render формы в
+// пределах текущей вкладки и не превращает Copy/Avatar/Strategy в один общий
+// черновик.
+const routeBriefDraftsMemory = new Map();
+const BRIEF_CONTROL_DATASET_KEYS = Object.freeze([
+  "researchRecommendationApplied",
+  "researchRecommendationField",
+  "researchRecommendationEdited",
+  "generationIntakeOperatorOwned",
+]);
+const BRIEF_FORM_DATASET_KEYS = Object.freeze([
+  "generationAiResearchWorkingSelectionId",
+  "generationAiResearchWorkingPosition",
+  "researchRecommendationLineage",
+  "researchRecommendationSelectionId",
+  "researchRecommendationPosition",
+  "researchRecommendationAppliedFields",
+  "researchRecommendationProductId",
+  "researchRecommendationProductCategory",
+  "researchRecommendationVerificationRequired",
+  "researchRecommendationVerificationState",
+  "researchRecommendationVerificationFailure",
+  "researchRecommendationVerificationSelectionId",
+  "researchRecommendationVerificationPosition",
+  "researchRecommendationProviderFragmentStatus",
+  "researchRecommendationProviderFragmentVersion",
+  "researchRecommendationProviderFragmentHash",
+  "researchRecommendationAutoApplyDisabled",
+]);
 // Грабля владельца: перерисовка страницы сбрасывает значения select.
 // Экспресс-панель хранит свои значения по проекту и восстанавливает их
 // при каждом повторном монтировании.
@@ -180,6 +274,7 @@ function ensureContractFields(form) {
     "generation_intake_version",
     "generation_intake_route",
     "generation_intake_source_media_id",
+    "generation_intake_source_duration_seconds",
     "generation_intake_original_product_media_id",
     "generation_intake_avatar_media_id",
     "generation_intake_avatar_mode",
@@ -191,6 +286,10 @@ function ensureContractFields(form) {
     "generation_intake_audio",
     "generation_intake_recommendation_source",
     "generation_strategy_prefill_assets",
+    // Движок каскада в виде «провайдер:модель». Поле формы, а не переменная
+    // модуля: привязку собирает app.js, и читать он обязан то же самое, что
+    // видит человек на экране.
+    "generation_intake_engine",
   ].forEach((name) => ensureHidden(form, name));
 }
 
@@ -239,7 +338,12 @@ function statusNode() {
 // узел на руках у вызывающего кода отсоединяется, и сообщение уходит в пустоту.
 // Поэтому текст пишется и в удерживаемый узел, и в живую панель того же
 // маршрута — человек всегда видит ответ формы, а не тишину.
-function setStatus(panel, text, state = "neutral") {
+function setStatus(
+  panel,
+  text,
+  state = "neutral",
+  { expressPriceResult = "" } = {},
+) {
   const route = String(panel?.dataset?.generationIntakePanel || "");
   const targets = new Set();
   const held = q("[data-generation-intake-status]", panel);
@@ -253,21 +357,202 @@ function setStatus(panel, text, state = "neutral") {
   targets.forEach((status) => {
     if (status.dataset.state !== state) status.dataset.state = state;
     if (status.textContent !== text) status.textContent = text;
+    if (expressPriceResult) {
+      status.dataset.expressPriceResult = expressPriceResult;
+    } else {
+      delete status.dataset.expressPriceResult;
+    }
   });
+}
+
+const VISUAL_ICON_PATHS = Object.freeze({
+  swap: Object.freeze([
+    "M7 7h9.5a3.5 3.5 0 0 1 0 7H8",
+    "m10 4 3 3-3 3",
+    "m8 10-3-3 3-3",
+  ]),
+  avatar: Object.freeze([
+    "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z",
+    "M5 21a7 7 0 0 1 14 0",
+    "M18 6.5h2.5M19.25 5.25v2.5",
+  ]),
+  strategy: Object.freeze([
+    "m12 3 1.15 3.1L16 7.5l-2.85 1.4L12 12l-1.15-3.1L8 7.5l2.85-1.4L12 3Z",
+    "m6 13 .8 2.2L9 16l-2.2.8L6 19l-.8-2.2L3 16l2.2-.8L6 13Z",
+    "m18 12 .8 2.2L21 15l-2.2.8L18 18l-.8-2.2L15 15l2.2-.8L18 12Z",
+  ]),
+  pika: Object.freeze([
+    "M5 8.5h10.5a3 3 0 1 1 0 6H9",
+    "m7 5 3 3-3 3",
+    "M12 4.5h5.5M15 2l2.5 2.5L15 7",
+  ]),
+  kling: Object.freeze([
+    "M12 3v3M12 18v3M3 12h3M18 12h3",
+    "M6.3 6.3 8.4 8.4M15.6 15.6l2.1 2.1M17.7 6.3l-2.1 2.1M8.4 15.6l-2.1 2.1",
+    "M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z",
+  ]),
+  runway: Object.freeze([
+    "M4 16c2.5-5.5 5.2-8 8-8 3.2 0 5.7 2.2 8 8",
+    "M6.5 17.5h11",
+    "M9 13.5h6",
+  ]),
+  model: Object.freeze([
+    "M8 4h8l4 8-4 8H8l-4-8 4-8Z",
+    "M9 12h6M12 9v6",
+  ]),
+});
+
+const STRATEGY_VISUALS = Object.freeze({
+  copy_video: Object.freeze({
+    art: "swap",
+    image: "./assets/content-factory-strategy-copy-v1.png",
+    label: "Замена товара",
+    timing: "5 этапов · 5–7 мин",
+    result: "Товар заменён, механика сохранена",
+  }),
+  avatar_video: Object.freeze({
+    art: "avatar",
+    image: "./assets/content-factory-strategy-avatar-v1.png",
+    label: "Цифровой герой",
+    timing: "4 этапа · 5–6 мин",
+    result: "Герой встроен в исходную сцену",
+  }),
+  strategy_video: Object.freeze({
+    art: "strategy",
+    image: "./assets/content-factory-strategy-builder-v1.png",
+    label: "Сценарий с нуля",
+    timing: "6 этапов · 10–15 мин",
+    result: "Сценарий, модель и бюджет собраны",
+  }),
+});
+
+// Provider names remain readable text in the card. These generated scenes are
+// deliberately decorative: they give each engine a recognizable visual
+// character without pretending to be a provider logo or replacing the exact
+// price, duration and input conditions shown beside them.
+const MODEL_VISUALS = Object.freeze({
+  pika: Object.freeze({
+    image: "./assets/content-factory-model-pika-v1.png",
+    focal: "50% 50%",
+  }),
+  kling: Object.freeze({
+    image: "./assets/content-factory-model-kling-v1.png",
+    focal: "50% 48%",
+  }),
+  runway: Object.freeze({
+    image: "./assets/content-factory-model-runway-v1.png",
+    focal: "50% 50%",
+  }),
+});
+
+function visualArtNode(visual, className = "gi-visual-art") {
+  const key = Object.hasOwn(VISUAL_ICON_PATHS, visual) ? visual : "model";
+  const art = el("span", className);
+  art.dataset.visual = key;
+  art.setAttribute("aria-hidden", "true");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.7");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  VISUAL_ICON_PATHS[key].forEach((pathData) => {
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", pathData);
+    svg.append(path);
+  });
+  art.append(svg);
+  return art;
+}
+
+function routeSceneNode(visual) {
+  const scene = el("span", "generation-intake-v4__route-scene");
+  scene.dataset.visual = visual.art;
+  scene.setAttribute("aria-hidden", "true");
+  const image = document.createElement("img");
+  image.className = "generation-intake-v4__route-scene-image";
+  image.src = new URL(visual.image, import.meta.url).href;
+  image.alt = "";
+  image.loading = "eager";
+  image.decoding = "async";
+  image.draggable = false;
+  scene.append(image);
+  return scene;
+}
+
+function modelVisualNode(visualKey) {
+  const key = Object.hasOwn(MODEL_VISUALS, visualKey) ? visualKey : "";
+  if (!key) return visualArtNode(visualKey || "model", "gi-model-choice__art");
+
+  const asset = MODEL_VISUALS[key];
+  const scene = el("span", "gi-model-choice__visual");
+  scene.dataset.visual = key;
+  scene.style.setProperty("--model-focal", asset.focal);
+  scene.setAttribute("aria-hidden", "true");
+  const image = document.createElement("img");
+  image.className = "gi-model-choice__image";
+  image.src = new URL(asset.image, import.meta.url).href;
+  image.alt = "";
+  image.loading = "eager";
+  image.decoding = "async";
+  image.draggable = false;
+  scene.append(image);
+  return scene;
+}
+
+function humanAuthorityStrip() {
+  const strip = el("div", "generation-intake-v4__authority");
+  strip.dataset.generationIntakeHumanAuthority = "";
+  [
+    ["ai", "ИИ-центр", "Рекомендует черновик"],
+    ["human", "Человек", "Правит под задачу"],
+    ["confirm", "Подтверждение", "Фиксирует решение"],
+  ].forEach(([state, title, detail], index) => {
+    const item = el("span", "generation-intake-v4__authority-step");
+    item.dataset.state = state;
+    item.append(
+      el("span", "generation-intake-v4__authority-number", String(index + 1)),
+      (() => {
+        const copy = el("span", "generation-intake-v4__authority-copy");
+        copy.append(el("strong", "", title), el("small", "", detail));
+        return copy;
+      })(),
+    );
+    strip.append(item);
+  });
+  return strip;
 }
 
 function routeButton(id, number, title, summary) {
   const button = el("button", "generation-intake-v4__route");
   button.type = "button";
   button.dataset.generationIntakeRoute = id;
+  const visual = STRATEGY_VISUALS[id] || STRATEGY_VISUALS.strategy_video;
+  button.dataset.visual = visual.art;
   button.setAttribute("aria-pressed", "false");
+  const scene = routeSceneNode(visual);
+  scene.append(el("span", "generation-intake-v4__route-number", number));
   button.append(
-    el("span", "generation-intake-v4__route-number", number),
+    scene,
     (() => {
       const copy = el("span", "generation-intake-v4__route-copy");
-      copy.append(el("strong", "", title), el("small", "", summary));
+      copy.append(
+        el("span", "generation-intake-v4__route-kicker", visual.label),
+        el("strong", "", title),
+        el("small", "", summary),
+        (() => {
+          const facts = el("span", "generation-intake-v4__route-facts");
+          facts.append(
+            el("span", "", visual.timing),
+            el("span", "", visual.result),
+          );
+          return facts;
+        })(),
+      );
       return copy;
     })(),
+    el("span", "generation-intake-v4__route-selected", "Выбран"),
   );
   return button;
 }
@@ -295,6 +580,14 @@ function sourceChooser(route, heading = "Исходный ролик *") {
   );
   const select = document.createElement("select");
   select.dataset.generationIntakeExistingVideo = route;
+  // Роль исходника нужна привязке (bindRoleAsset): она ищет контрол с этой
+  // ролью и опцией нужного медиа. Раньше роль была только у скрытого
+  // легаси-селекта мастера, который на экране «Копия» остаётся пустым, —
+  // поэтому привязка не находила ролик, который человек уже выбрал ЗДЕСЬ, и
+  // писала «материалы загружены, но не привязались автоматически». Этот селект
+  // и есть выбор исходника на экране копии; роль просто называет вещь своим
+  // именем.
+  select.dataset.generationStrategyRole = "source_video";
   select.append(new Option("Не выбран файл проекта", ""));
   const projectField = field(
     "MP4 из файлов проекта",
@@ -351,6 +644,46 @@ function imageInput({ multiple = false, purpose = "product" } = {}) {
   return input;
 }
 
+// Кадр исходного товара собирает декодер браузера: сначала из локального
+// файла, потом из скачанного ролика проекта. Там, где декодер молчит —
+// перекрытое окно, сборка без проприетарных кодеков, корпоративная политика —
+// отваливаются обе ветки сразу, и маршрут «Копия» упирается в тупик: снимок
+// кадра требует контракт спецификации. Поэтому у человека есть прямой способ
+// дать кадр самому, не завися от декодера вовсе.
+function originalFrameSlot() {
+  const section = el("section", "generation-intake-v4__original-frame");
+  section.dataset.generationIntakeOriginalFrame = "";
+  section.hidden = true;
+  const input = imageInput({ multiple: false, purpose: "original_frame" });
+  input.id = "generation-intake-copy-original-frame";
+  const upload = el(
+    "label",
+    "generation-intake-v4__drop generation-intake-v4__drop--compact",
+  );
+  upload.htmlFor = input.id;
+  upload.append(
+    el("strong", "", "Кадр исходного товара — один файл"),
+    el(
+      "span",
+      "",
+      "JPG, PNG или WEBP · стоп-кадр этого же ролика, где виден заменяемый товар",
+    ),
+    input,
+  );
+  const status = el("p", "generation-intake-v4__selection-count", "");
+  status.dataset.generationIntakeOriginalFrameStatus = "";
+  section.append(
+    el(
+      "p",
+      "gi-card__hint",
+      "Браузер не собрал раскадровку этого ролика. Приложите стоп-кадр исходного товара сами — без него подготовка не дойдёт до цены.",
+    ),
+    upload,
+    status,
+  );
+  return section;
+}
+
 function productSlot() {
   const section = el("section", "generation-intake-v4__product");
   section.dataset.generationIntakeProductSlot = "";
@@ -365,10 +698,24 @@ function productSlot() {
   );
   const count = el("p", "generation-intake-v4__selection-count", `Сейчас: 0 из ${MAX_PRODUCT_IMAGES}`);
   count.dataset.generationIntakeProductCount = "";
+  // Очередь файлов, ещё не зарегистрированных в проекте. Она переживает
+  // перерисовку формы — иначе выбор терялся, — но из-за этого поле загрузки
+  // может выглядеть пустым, пока файлы всё ещё считаются. Значит очередь
+  // обязана быть видимой и снимаемой: невидимое, что нельзя убрать, читается
+  // как «форма не даёт удалить фото».
+  const pending = el("p", "generation-intake-v4__selection-count", "");
+  pending.dataset.generationIntakePendingFiles = "";
+  pending.hidden = true;
+  const pendingClear = el("button", "gi-link-button", "Убрать файлы из очереди");
+  pendingClear.type = "button";
+  pendingClear.dataset.generationIntakePendingClear = "";
+  pendingClear.hidden = true;
   section.append(
     el("p", "gi-card__hint", `Добавьте 1–${MAX_PRODUCT_IMAGES} фото одного товара — новые файлы или уже проверенные фотографии проекта.`),
     upload,
     count,
+    pending,
+    pendingClear,
     el("div", "generation-intake-v4__product-items"),
   );
   return section;
@@ -411,16 +758,47 @@ function executionControls() {
   return section;
 }
 
+// Compact keeps the native campaign select as the paid authority, but exposes
+// a dedicated mirror before price/preflight.  Giving the mirror a different
+// name is deliberate: two `campaign_id` controls would turn
+// `form.elements.campaign_id` into a RadioNodeList and break the exact start
+// contract in app.js.
+function compactCampaignChoice() {
+  const section = el("section", "gi-card generation-intake-v4__campaign");
+  section.dataset.generationIntakeCampaignCard = "";
+  const select = document.createElement("select");
+  select.dataset.generationIntakeCampaignSelect = "";
+  select.setAttribute("aria-label", "Кампания и её бюджет");
+  select.append(new Option("Кампании загружаются…", ""));
+  select.disabled = true;
+  const hint = el(
+    "p",
+    "gi-card__hint generation-intake-v4__campaign-hint",
+    "Кампания выбирается до бесплатной проверки цены. Смена кампании аннулирует прежнюю цену и подтверждение списания.",
+  );
+  hint.dataset.generationIntakeCampaignHint = "";
+  section.append(
+    el("h4", "gi-card__title", "Кампания и бюджет"),
+    field(
+      "Куда отнести расход *",
+      "Платный запуск будет привязан ровно к выбранной здесь активной кампании.",
+      select,
+    ),
+    hint,
+  );
+  return section;
+}
+
 function recommendationSlot(route) {
   const section = el("section", "generation-intake-v4__recommendation");
   section.dataset.generationIntakeRecommendation = route;
   const header = el("div", "generation-intake-v4__recommendation-head");
   header.append(
     el("h4", "", route === "copy_video"
-      ? "Рекомендация: что сохранить и как заменить"
-      : "Рекомендация для ролика с аватаром"),
+      ? "Стартовая заготовка: что сохранить и как заменить"
+      : "Стартовая заготовка для ролика с аватаром"),
     (() => {
-      const badge = el("span", "badge", "Можно исправить");
+      const badge = el("span", "badge", "Базовый шаблон");
       badge.dataset.generationIntakeRecommendationSource = "";
       return badge;
     })(),
@@ -430,9 +808,10 @@ function recommendationSlot(route) {
   const fallback = el("div", "generation-intake-v4__recommendation-fallback");
   fallback.dataset.generationIntakeRecommendationFallback = route;
   fallback.append(
-    el("p", "", DEFAULT_RECOMMENDATIONS[route]),
+    el("small", "", "Локальный шаблон, не рекомендация ИИ-центра."),
+    el("p", "", DEFAULT_BRIEF_TEMPLATES[route]),
     (() => {
-      const button = el("button", "btn btn-secondary", "Использовать эту рекомендацию");
+      const button = el("button", "btn btn-secondary", "Вставить базовый шаблон");
       button.type = "button";
       button.dataset.action = "generation-intake-apply-recommendation";
       button.dataset.route = route;
@@ -441,7 +820,12 @@ function recommendationSlot(route) {
   );
   const meta = el("small", "generation-intake-v4__recommendation-meta", `0 / ${BRIEF_LIMIT}`);
   meta.dataset.generationIntakeBriefMeta = route;
-  section.append(header, slot, fallback, meta);
+  const rule = el(
+    "p",
+    "generation-intake-v4__recommendation-rule",
+    "Рекомендация приходит из ИИ-центра как редактируемый черновик. Автозапуска нет: человек проверяет, правит и подтверждает финальную версию.",
+  );
+  section.append(header, rule, humanAuthorityStrip(), slot, fallback, meta);
   return section;
 }
 
@@ -461,6 +845,527 @@ function rightsConfirmation(route) {
     ),
   );
   return label;
+}
+
+// Ведущие проекта и раскладка врезки. Кэш по проекту: список меняется редко, а
+// перерисовок панели много.
+const duetPresenterCache = new Map();
+
+const DUET_CORNERS = Object.freeze([
+  ["bottom_left", "Слева внизу"],
+  ["bottom_right", "Справа внизу"],
+  ["top_left", "Слева вверху"],
+  ["top_right", "Справа вверху"],
+]);
+const DUET_SHAPES = Object.freeze([
+  ["cutout", "Вырезом"],
+  ["window", "Окном с подложкой"],
+]);
+// Те же пределы, что в базе и в сборщике. Меньше пятой части ширины кадра
+// ведущего не разглядеть на телефоне, больше половины — он закрывает то, что
+// комментирует.
+const DUET_WIDTH_MIN = 20;
+const DUET_WIDTH_MAX = 50;
+
+/*
+ * Выбор ведущего для дуэта.
+ *
+ * Форма отдаёт НАШ идентификатор ведущего, а не его личность у провайдера:
+ * avatar_id живёт на сервере и в браузер не приходит вовсе. Подменить, кто
+ * будет говорить в оплаченном ролике, из формы невозможно.
+ */
+/*
+ * Товар, под которым оформляется дуэт.
+ *
+ * У «Копии» товар называют ЗАГРУЖЕННЫЕ ФОТОГРАФИИ: артикул и название вводят
+ * при загрузке, и сервер выводит товар из медиа-объекта. У дуэта фотографий
+ * товара нет вовсе — он комментирует чужой ролик, — поэтому товар приходится
+ * называть отдельно.
+ *
+ * Зачем он тут вообще: под товар считается бюджет и по нему фильтруется архив.
+ * Без товара запуск выпал бы из обоих разрезов — деньги ушли бы, а в товарном
+ * учёте их бы не было.
+ */
+function duetProductChooser() {
+  const section = el("fieldset", "generation-intake-v4__presenter");
+  section.dataset.generationIntakeDuetProduct = "";
+  section.append(el("legend", "", "Товар, для которого делаем дуэт *"));
+
+  const select = document.createElement("select");
+  select.name = "generation_intake_duet_product_id";
+  select.dataset.generationIntakeDuetProductSelect = "";
+  select.setAttribute("aria-label", "Товар, под которым оформляется запуск");
+  select.append(new Option("Загружаем товары проекта…", ""));
+  select.disabled = true;
+
+  const note = el("p", "generation-intake-v4__hint");
+  note.dataset.generationIntakeDuetProductNote = "";
+  setNodeText(
+    note,
+    "Ролик комментируют чужой, а бюджет и архив считаются по вашему товару — поэтому его называем отдельно.",
+  );
+
+  section.append(select, note);
+  return section;
+}
+
+/*
+ * Перечень товаров выводится из страницы ассетов, а не спрашивается отдельно:
+ * товар в проекте появляется вместе со своей первой фотографией, и отдельного
+ * списка товаров не существует.
+ */
+function renderDuetProducts(form, state) {
+  const panel = panelFor(state, "avatar_video");
+  const section = panel ? q("[data-generation-intake-duet-product]", panel) : null;
+  if (!section) return;
+  const select = q("[data-generation-intake-duet-product-select]", section);
+  const note = q("[data-generation-intake-duet-product-note]", section);
+  if (!(select instanceof HTMLSelectElement)) return;
+
+  const products = window.ContentEngineGenerationGuidedV4
+    ?.getProjectProducts?.() || [];
+  const previous = String(select.value || "");
+
+  select.replaceChildren();
+  if (!products.length) {
+    select.append(new Option("В проекте ещё нет заведённых товаров", ""));
+    select.disabled = true;
+    if (note) {
+      setNodeText(
+        note,
+        "Товар заводится вместе с первой своей фотографией — загрузите её на экране «Скопировать ролик», и он появится здесь.",
+      );
+    }
+    return;
+  }
+
+  select.disabled = false;
+  select.append(new Option("Выберите товар", ""));
+  products.forEach((product) => {
+    const title = product.sku
+      ? `${product.product_name} · ${product.sku}`
+      : product.product_name;
+    select.append(new Option(title, product.product_id));
+  });
+  if (products.some((product) => product.product_id === previous)) {
+    select.value = previous;
+  }
+  if (note) {
+    setNodeText(
+      note,
+      "Ролик комментируют чужой, а бюджет и архив считаются по вашему товару — поэтому его называем отдельно.",
+    );
+  }
+}
+
+/*
+ * Товар дуэта для наряда. Пустое значение возвращается как пустая строка, а не
+ * подставляется «первым попавшимся»: угаданный товар списал бы деньги в чужой
+ * бюджет, и заметили бы это только при сверке.
+ */
+function duetProductIdFromForm(state) {
+  const panel = panelFor(state, "avatar_video");
+  const select = panel
+    ? q("[data-generation-intake-duet-product-select]", panel)
+    : null;
+  return select instanceof HTMLSelectElement
+    ? String(select.value || "").trim().toLowerCase()
+    : "";
+}
+
+function duetPresenterChooser() {
+  const section = el("fieldset", "generation-intake-v4__presenter");
+  section.dataset.generationIntakeDuetPresenter = "";
+  section.append(el("legend", "", "Ведущий дуэта *"));
+
+  const select = document.createElement("select");
+  select.name = "generation_intake_duet_presenter_id";
+  select.dataset.generationIntakeDuetPresenterSelect = "";
+  select.setAttribute("aria-label", "Ведущий, который комментирует ролик");
+  select.append(new Option("Загружаем ведущих проекта…", ""));
+  select.disabled = true;
+
+  const note = el("p", "generation-intake-v4__hint");
+  note.dataset.generationIntakeDuetPresenterNote = "";
+  setNodeText(
+    note,
+    "Ведущий заводится один раз на проект и остаётся тем же во всех роликах — на этом и держится узнаваемость.",
+  );
+
+  section.append(select, note, duetLayoutControls(), duetPresenterRegistration());
+  return section;
+}
+
+/*
+ * Регистрация ведущего прямо из формы. Личности берутся из кабинета
+ * провайдера (каталог читает сервер, ключ в браузер не приходит): оператор
+ * выбирает фото-аватар или видеоаватар и голос, даёт имя — и ведущий
+ * становится ведущим проекта. Дальше он тот же во всех роликах.
+ */
+function duetPresenterRegistration() {
+  const details = document.createElement("details");
+  details.className = "generation-intake-v4__presenter-register";
+  details.dataset.generationIntakeDuetRegister = "";
+  const summary = document.createElement("summary");
+  setNodeText(summary, "Завести ведущего проекта");
+  details.append(summary);
+
+  const hint = el("p", "generation-intake-v4__hint");
+  setNodeText(
+    hint,
+    "Личность и голос берутся из вашего кабинета HeyGen. Ведущий регистрируется один раз на проект; создание новой личности у провайдера стоит отдельно и здесь не происходит.",
+  );
+
+  const load = document.createElement("button");
+  load.type = "button";
+  load.className = "generation-intake-v4__secondary";
+  load.dataset.action = "generation-intake-duet-catalog";
+  setNodeText(load, "Показать личности и голоса");
+
+  const presenter = document.createElement("select");
+  presenter.name = "generation_intake_duet_catalog_presenter";
+  presenter.dataset.generationIntakeDuetCatalogPresenter = "";
+  presenter.setAttribute("aria-label", "Личность ведущего из кабинета провайдера");
+  presenter.append(new Option("Сначала загрузите каталог", ""));
+  presenter.disabled = true;
+
+  const voice = document.createElement("select");
+  voice.name = "generation_intake_duet_catalog_voice";
+  voice.dataset.generationIntakeDuetCatalogVoice = "";
+  voice.setAttribute("aria-label", "Голос ведущего");
+  voice.append(new Option("Сначала загрузите каталог", ""));
+  voice.disabled = true;
+
+  const name = document.createElement("input");
+  name.type = "text";
+  name.name = "generation_intake_duet_presenter_name";
+  name.dataset.generationIntakeDuetPresenterName = "";
+  name.maxLength = 80;
+  name.placeholder = "Как зовут ведущего в проекте";
+  name.setAttribute("aria-label", "Имя ведущего в проекте");
+
+  const register = document.createElement("button");
+  register.type = "button";
+  register.className = "generation-intake-v4__secondary";
+  register.dataset.action = "generation-intake-duet-register";
+  register.disabled = true;
+  setNodeText(register, "Зарегистрировать ведущего");
+
+  const status = el("p", "generation-intake-v4__hint");
+  status.dataset.generationIntakeDuetRegisterStatus = "";
+
+  details.append(
+    hint,
+    load,
+    labelled("Личность", presenter),
+    labelled("Голос", voice),
+    labelled("Имя", name),
+    register,
+    status,
+  );
+  return details;
+}
+
+async function loadDuetPresenterCatalog(form, state) {
+  const panel = panelFor(state, "avatar_video");
+  const block = panel ? q("[data-generation-intake-duet-register]", panel) : null;
+  if (!block) return;
+  const presenterSelect = q("[data-generation-intake-duet-catalog-presenter]", block);
+  const voiceSelect = q("[data-generation-intake-duet-catalog-voice]", block);
+  const register = q('[data-action="generation-intake-duet-register"]', block);
+  const status = q("[data-generation-intake-duet-register-status]", block);
+  if (!(presenterSelect instanceof HTMLSelectElement) || !(voiceSelect instanceof HTMLSelectElement)) return;
+  setNodeText(status, "Читаем каталог провайдера…");
+  try {
+    const api = await apiRuntime();
+    const catalog = await api.duetPresenterCatalog();
+    presenterSelect.replaceChildren(new Option("Выберите личность", ""));
+    catalog.presenters.forEach((item) => {
+      const label = `${cleanText(item.name, 60)} · ${item.kind === "avatar" ? "видеоаватар" : "фото-аватар"}`;
+      const option = new Option(label, item.id);
+      option.dataset.kind = item.kind;
+      presenterSelect.append(option);
+    });
+    voiceSelect.replaceChildren(new Option("Выберите голос", ""));
+    catalog.voices.forEach((item) => {
+      const meta = [item.language, item.gender].filter(Boolean).join(", ");
+      voiceSelect.append(new Option(
+        `${cleanText(item.name, 60)}${meta ? ` · ${meta}` : ""}`,
+        item.id,
+      ));
+    });
+    presenterSelect.disabled = catalog.presenters.length === 0;
+    voiceSelect.disabled = catalog.voices.length === 0;
+    if (register instanceof HTMLButtonElement) {
+      register.disabled = !(catalog.presenters.length && catalog.voices.length);
+    }
+    setNodeText(
+      status,
+      catalog.presenters.length
+        ? `Личностей: ${catalog.presenters.length}, голосов: ${catalog.voices.length}. Выберите и дайте имя.`
+        : "В кабинете провайдера нет ни одной личности: создайте фото-аватар в HeyGen и загрузите каталог снова.",
+    );
+  } catch (error) {
+    const code = String(error?.code || "");
+    setNodeText(
+      status,
+      code === "duet_provider_key_missing"
+        ? "Ключ HeyGen не настроен на сервере — без него каталог не прочитать."
+        : "Каталог провайдера сейчас недоступен. Попробуйте позже.",
+    );
+  }
+}
+
+async function registerDuetPresenterFromForm(form, state) {
+  const panel = panelFor(state, "avatar_video");
+  const block = panel ? q("[data-generation-intake-duet-register]", panel) : null;
+  if (!block) return;
+  const presenterSelect = q("[data-generation-intake-duet-catalog-presenter]", block);
+  const voiceSelect = q("[data-generation-intake-duet-catalog-voice]", block);
+  const nameInput = q("[data-generation-intake-duet-presenter-name]", block);
+  const status = q("[data-generation-intake-duet-register-status]", block);
+  const presenterId = presenterSelect instanceof HTMLSelectElement
+    ? String(presenterSelect.value || "").trim()
+    : "";
+  const kind = presenterSelect instanceof HTMLSelectElement
+    ? String(presenterSelect.selectedOptions?.[0]?.dataset?.kind || "talking_photo")
+    : "talking_photo";
+  const voiceId = voiceSelect instanceof HTMLSelectElement
+    ? String(voiceSelect.value || "").trim()
+    : "";
+  const displayName = nameInput instanceof HTMLInputElement
+    ? cleanText(nameInput.value, 80)
+    : "";
+  if (!presenterId || !voiceId) {
+    setNodeText(status, "Выберите личность и голос.");
+    return;
+  }
+  if (displayName.length < 2) {
+    setNodeText(status, "Дайте ведущему имя — хотя бы два знака.");
+    return;
+  }
+  setNodeText(status, "Регистрируем ведущего…");
+  try {
+    const api = await apiRuntime();
+    const presenter = await api.registerDuetPresenter(projectId(), {
+      displayName,
+      providerAvatarId: presenterId,
+      providerAvatarKind: kind,
+      providerVoiceId: voiceId,
+      isDefault: true,
+    });
+    duetPresenterCache.delete(projectId());
+    await ensureDuetPresenters(form, state);
+    const select = q("[data-generation-intake-duet-presenter-select]", panel);
+    if (select instanceof HTMLSelectElement && presenter?.id) {
+      select.value = String(presenter.id);
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    setNodeText(status, `Ведущий «${displayName}» зарегистрирован и выбран.`);
+  } catch (error) {
+    setNodeText(
+      status,
+      `Не удалось зарегистрировать ведущего: ${cleanText(error?.message, 160) || "ошибка сервера"}.`,
+    );
+  }
+}
+
+/*
+ * Раскладка врезки. Значения приходят от выбранного ведущего и служат
+ * умолчанием; здесь их можно переопределить для конкретного ролика.
+ */
+function duetLayoutControls() {
+  const layout = el("div", "generation-intake-v4__presenter-layout");
+  layout.dataset.generationIntakeDuetLayout = "";
+
+  const corner = document.createElement("select");
+  corner.name = "generation_intake_duet_corner";
+  corner.dataset.generationIntakeDuetCorner = "";
+  corner.setAttribute("aria-label", "Где встанет ведущий");
+  DUET_CORNERS.forEach(([value, title]) => corner.append(new Option(title, value)));
+
+  const shape = document.createElement("select");
+  shape.name = "generation_intake_duet_shape";
+  shape.dataset.generationIntakeDuetShape = "";
+  shape.setAttribute("aria-label", "Вид врезки");
+  DUET_SHAPES.forEach(([value, title]) => shape.append(new Option(title, value)));
+
+  const width = document.createElement("input");
+  width.type = "range";
+  width.name = "generation_intake_duet_width";
+  width.dataset.generationIntakeDuetWidth = "";
+  width.min = String(DUET_WIDTH_MIN);
+  width.max = String(DUET_WIDTH_MAX);
+  width.step = "1";
+  width.value = "34";
+  width.setAttribute("aria-label", "Размер ведущего в кадре");
+
+  const widthValue = el("span", "generation-intake-v4__presenter-width");
+  widthValue.dataset.generationIntakeDuetWidthValue = "";
+  setNodeText(widthValue, "34% ширины кадра");
+
+  layout.append(
+    labelled("Где", corner),
+    labelled("Вид", shape),
+    labelled("Размер", width, widthValue),
+  );
+  return layout;
+}
+
+function labelled(title, control, extra = null) {
+  const label = el("label", "generation-intake-v4__presenter-field");
+  label.append(el("span", "", title), control);
+  if (extra) label.append(extra);
+  return label;
+}
+
+async function ensureDuetPresenters(form, state) {
+  const projectIdValue = projectId();
+  if (!projectIdValue) return [];
+  if (duetPresenterCache.has(projectIdValue)) {
+    return duetPresenterCache.get(projectIdValue);
+  }
+  // Пустой список кладётся в кэш тоже: без ведущего дуэт не запустить, и
+  // спрашивать об этом сервер на каждой перерисовке незачем.
+  duetPresenterCache.set(projectIdValue, []);
+  try {
+    const api = await apiRuntime();
+    const presenters = await api.duetPresenters(projectIdValue);
+    duetPresenterCache.set(projectIdValue, presenters);
+  } catch {
+    // Отказ списка не ломает форму: панель скажет, что ведущего нет, а запуск
+    // и без того упрётся в серверную проверку.
+    duetPresenterCache.set(projectIdValue, []);
+  }
+  renderDuetPresenters(form, state);
+  return duetPresenterCache.get(projectIdValue);
+}
+
+function renderDuetPresenters(form, state) {
+  const panel = panelFor(state, "avatar_video");
+  const section = panel
+    ? q("[data-generation-intake-duet-presenter]", panel)
+    : null;
+  if (!section) return;
+  const select = q("[data-generation-intake-duet-presenter-select]", section);
+  const note = q("[data-generation-intake-duet-presenter-note]", section);
+  const layout = q("[data-generation-intake-duet-layout]", section);
+  if (!(select instanceof HTMLSelectElement)) return;
+
+  const presenters = duetPresenterCache.get(projectId()) || [];
+  const previous = String(select.value || "");
+
+  select.replaceChildren();
+  if (!presenters.length) {
+    select.append(new Option("Ведущий проекта ещё не заведён", ""));
+    select.disabled = true;
+    if (layout instanceof HTMLElement) layout.hidden = true;
+    if (note) {
+      setNodeText(
+        note,
+        "Чтобы собрать дуэт, сначала заведите ведущего проекта: он останется тем же во всех роликах.",
+      );
+    }
+    return;
+  }
+
+  select.disabled = false;
+  if (layout instanceof HTMLElement) layout.hidden = false;
+  presenters.forEach((presenter) => {
+    const suffix = presenter.is_default ? " · по умолчанию" : "";
+    select.append(new Option(
+      `${cleanText(presenter.display_name, 60)}${suffix}`,
+      String(presenter.id || ""),
+    ));
+  });
+  const restored = presenters.some((presenter) => String(presenter.id) === previous)
+    ? previous
+    : String(
+      (presenters.find((presenter) => presenter.is_default) || presenters[0]).id,
+    );
+  select.value = restored;
+  applyDuetPresenterLayout(section, presenters, restored);
+  if (note) {
+    setNodeText(
+      note,
+      "Ведущий остаётся тем же во всех роликах проекта — на этом и держится узнаваемость. Раскладку ниже можно поменять для конкретного ролика.",
+    );
+  }
+}
+
+/*
+ * Раскладка выбранного ведущего становится умолчанием формы. Это и есть смысл
+ * хранить её у него: «наша Аня всегда слева внизу вырезом» задаётся один раз, а
+ * не выставляется заново при каждом запуске.
+ */
+function applyDuetPresenterLayout(section, presenters, presenterId) {
+  const presenter = presenters.find(
+    (candidate) => String(candidate.id) === String(presenterId),
+  );
+  if (!presenter) return;
+  const corner = q("[data-generation-intake-duet-corner]", section);
+  const shape = q("[data-generation-intake-duet-shape]", section);
+  const width = q("[data-generation-intake-duet-width]", section);
+  if (corner instanceof HTMLSelectElement && presenter.overlay_corner) {
+    corner.value = String(presenter.overlay_corner);
+  }
+  if (shape instanceof HTMLSelectElement && presenter.overlay_shape) {
+    shape.value = String(presenter.overlay_shape);
+  }
+  if (width instanceof HTMLInputElement && presenter.overlay_width_percent) {
+    width.value = String(presenter.overlay_width_percent);
+  }
+  syncDuetWidthLabel(section);
+}
+
+function syncDuetWidthLabel(section) {
+  const width = q("[data-generation-intake-duet-width]", section);
+  const value = q("[data-generation-intake-duet-width-value]", section);
+  if (!(width instanceof HTMLInputElement) || !value) return;
+  setNodeText(value, `${width.value}% ширины кадра`);
+}
+
+/*
+ * Раскладка для наряда. Читается из формы, а не из записи ведущего: оператор
+ * мог переопределить её для этого ролика.
+ */
+function duetPresenterIdFromForm(state) {
+  const panel = panelFor(state, "avatar_video");
+  const select = panel
+    ? q("[data-generation-intake-duet-presenter-select]", panel)
+    : null;
+  const value = select instanceof HTMLSelectElement
+    ? String(select.value || "").trim().toLowerCase()
+    : "";
+  // Пустая строка вместо мусора: сервер отвергнет и то и другое, но пустое
+  // значение читается как «ведущий не выбран», а мусор — как ошибка формы.
+  return UUID_PATTERN.test(value) ? value : "";
+}
+
+function duetLayoutFromForm(state) {
+  const panel = panelFor(state, "avatar_video");
+  const section = panel
+    ? q("[data-generation-intake-duet-presenter]", panel)
+    : null;
+  if (!section) return null;
+  const corner = q("[data-generation-intake-duet-corner]", section);
+  const shape = q("[data-generation-intake-duet-shape]", section);
+  const width = q("[data-generation-intake-duet-width]", section);
+  const widthPercent = Number.parseInt(
+    width instanceof HTMLInputElement ? width.value : "",
+    10,
+  );
+  return {
+    corner: corner instanceof HTMLSelectElement ? corner.value : "",
+    shape: shape instanceof HTMLSelectElement ? shape.value : "",
+    // Значение за пределами не отправляется вовсе: сборщик его всё равно
+    // отвергнет, но уже после того, как за ведущего заплачено.
+    widthPercent: Number.isInteger(widthPercent)
+        && widthPercent >= DUET_WIDTH_MIN
+        && widthPercent <= DUET_WIDTH_MAX
+      ? widthPercent
+      : null,
+  };
 }
 
 function avatarIdentityChooser() {
@@ -686,6 +1591,23 @@ const MODEL_PUBLIC_LABELS = Object.freeze({
   "fal:fal-ai/pika/v2/pikaswaps": "Pika Swaps",
   "runway:aleph2": "Runway Aleph",
   "fal:fal-ai/kling-video/o3/pro/video-to-video/edit": "Kling O3 Pro",
+  // Движки «Копии», заведённые 23.08.2026 (миграция 202608230020).
+  "fal:fal-ai/kling-video/o3/standard/video-to-video/edit": "Kling O3 Standard",
+  "fal:alibaba/happy-horse/video-edit": "Happy Horse Edit",
+  "fal:bytedance/seedance-2.5/reference-to-video": "Seedance 2.5",
+  "fal:minimax/h3/reference-to-video": "MiniMax H3",
+  // Движки «Создания» (миграция 202608230021).
+  "fal:xai/grok-imagine-video/reference-to-video": "Grok Imagine",
+  "fal:alibaba/happy-horse/reference-to-video": "Happy Horse",
+});
+
+// Что движок делает с роликом — словами человека. Приходит из реестра
+// (engine_family); незнакомое семейство не получает описания вместо честного
+// молчания.
+const ENGINE_FAMILY_LABELS = Object.freeze({
+  edit: "правит кадр исходника",
+  regenerate: "пересобирает ролик по референсу",
+  overlay: "накладывает поверх нетронутого ролика",
 });
 
 function engineId(route) {
@@ -741,38 +1663,160 @@ function routePriceNote(engine) {
   return "цену назовёт сервер";
 }
 
-// Цена уровня: самая дешёвая известная ставка среди его моделей. Если ставки
-// нет ни у одной — говорим об этом прямо, а не показываем ноль.
-function tierPriceNote(engines) {
-  const perRun = engines
-    .filter((engine) => engine.priceKind === "usd_minor_per_run" && engine.priceRateMinor)
-    .map((engine) => engine.priceRateMinor);
-  const perSecond = engines
-    .filter((engine) => engine.priceKind === "usd_minor_per_second" && engine.priceRateMinor)
-    .map((engine) => engine.priceRateMinor);
-  const parts = [];
-  if (perRun.length) parts.push(`от ${usdFromMinor(Math.min(...perRun))} за ролик`);
-  if (perSecond.length) {
-    parts.push(`от ${usdFromMinor(Math.min(...perSecond))} за секунду`);
-  }
-  if (parts.length) return parts.join(" · ");
-  return engines.some((engine) => engine.priceKind === "runway_credit_tiers")
-    ? "по ступеням кредитов"
-    : "цену назовёт сервер";
+function engineVisualKey(engine) {
+  const id = String(engine?.id || "").toLowerCase();
+  if (id.includes("pika")) return "pika";
+  if (id.includes("kling")) return "kling";
+  if (id.includes("runway") || id.includes("aleph")) return "runway";
+  if (id.includes("happy-horse")) return "happyhorse";
+  if (id.includes("seedance")) return "seedance";
+  if (id.includes("minimax")) return "minimax";
+  if (id.includes("grok")) return "grok";
+  return "model";
 }
 
-// Количество моделей уровня по-русски: «2 модели», но «5 моделей».
-function modelCountLabel(count) {
-  const tail = count % 100;
-  const last = count % 10;
-  const word = tail >= 11 && tail <= 14
-    ? "моделей"
-    : last === 1
-    ? "модель"
-    : last >= 2 && last <= 4
-    ? "модели"
-    : "моделей";
-  return `${count} ${word}`;
+// Профиль входа движка из реестра (input_profile): сколько фото он возьмёт,
+// какой исходник ему нужен, останется ли звук. Ничего не достраивается: про
+// движок без профиля экран говорит ровно то, что знает.
+function engineInputNote(engine) {
+  const profile = engine?.inputProfile;
+  if (!profile) return "";
+  const parts = [];
+  const family = ENGINE_FAMILY_LABELS[engine.engineFamily];
+  if (family) parts.push(family);
+  const images = Number(profile.images?.max);
+  if (Number.isFinite(images)) {
+    parts.push(images === 0
+      ? "фото товара не принимает"
+      : images === 1
+        ? "одно фото товара"
+        : `до ${images} фото товара`);
+  }
+  const minSide = Number(profile.video?.min_short_side_px);
+  if (Number.isFinite(minSide) && minSide > 0) {
+    parts.push(`исходник от ${minSide}px по короткой стороне`);
+  }
+  if (profile.keeps_source_audio === true) parts.push("звук исходника сохраняется");
+  else if (profile.keeps_source_audio === false) parts.push("звук исходника не сохраняется");
+  return parts.join(" · ");
+}
+
+function engineDurationNote(engine) {
+  const minimum = Number(engine?.minDurationSeconds);
+  const maximum = Number(engine?.maxDurationSeconds);
+  const hasWindow = Number.isFinite(minimum)
+    && Number.isFinite(maximum)
+    && minimum > 0
+    && maximum >= minimum;
+  if (engine?.durationSource === "source_video") {
+    return hasWindow
+      ? `как в MP4 · допустимо ${minimum}–${maximum} с`
+      : "как в проверенном MP4";
+  }
+  if (!hasWindow) return "диапазон подтвердит сервер";
+  return minimum === maximum ? `${minimum} с` : `${minimum}–${maximum} с`;
+}
+
+// Факты о запуске для совета ИИ-центра. Берётся только то, что уже известно
+// экрану: измеренная сервером длительность исходника, сколько фото товара
+// отмечено, категория и замысел. Неизвестное остаётся null — советчик не
+// достраивает факты.
+function copyEngineFacts(form, state) {
+  let sourceDurationSeconds = null;
+  try {
+    sourceDurationSeconds = verifiedSourceDurationSeconds(form);
+  } catch {
+    sourceDurationSeconds = null;
+  }
+  let productImageCount = 0;
+  try {
+    productImageCount = orderedCheckedProductInputs(form).length;
+  } catch {
+    productImageCount = 0;
+  }
+  return {
+    sourceDurationSeconds,
+    sourceShortSidePx: null,
+    productImageCount,
+    productCategory: String(
+      identityInput(state, "product_category")?.value
+      || form?.elements?.product_category?.value
+      || "",
+    ).trim(),
+    brief: String(form?.elements?.brief?.value || "").trim(),
+    budgetMinorPerRun: null,
+  };
+}
+
+// Факты для «Создания»: исходник провайдеру не уходит, поэтому его длина не
+// важна; важны фото товара, категория, замысел и выбранная длительность.
+function rebuildEngineFacts(form, state) {
+  let productImageCount = 0;
+  try {
+    productImageCount = orderedCheckedProductInputs(form).length;
+  } catch {
+    productImageCount = 0;
+  }
+  const requested = Number(form?.elements?.generation_strategy_duration_seconds?.value);
+  return {
+    sourceDurationSeconds: null,
+    requestedDurationSeconds: Number.isFinite(requested) && requested > 0 ? requested : null,
+    sourceShortSidePx: null,
+    productImageCount,
+    productCategory: String(
+      identityInput(state, "product_category")?.value
+      || form?.elements?.product_category?.value
+      || "",
+    ).trim(),
+    brief: String(form?.elements?.brief?.value || "").trim(),
+    budgetMinorPerRun: null,
+  };
+}
+
+// Подпись под каскадом: что советует ИИ-центр и почему, и что исполнится на
+// самом деле. Совет и исполнение называются отдельно всегда — даже когда они
+// совпадают, чтобы человек видел, что выбор остаётся за ним.
+function engineAdviceNote(selectedEngine, advisedEngine, advice) {
+  if (!selectedEngine?.enabled) {
+    return "Эта модель пока недоступна — выберите другую, иначе запуск выполнит маршрут по умолчанию.";
+  }
+  const reasons = Array.isArray(advice?.reasons) && advice.reasons.length
+    ? `: ${advice.reasons.slice(0, 3).join("; ")}`
+    : "";
+  const excluded = Array.isArray(advice?.excluded) && advice.excluded.length
+    ? ` Отсеяно: ${advice.excluded.slice(0, 2).map((item) => (
+      `${engineLabelById(item.engineId)} — ${item.reason}`
+    )).join("; ")}.`
+    : "";
+  if (!advisedEngine) {
+    return `ИИ-центру нечего посоветовать для этого запуска${reasons}. Исполнит «${selectedEngine.label}» — выбор человека.${excluded}`;
+  }
+  if (advisedEngine.id === selectedEngine.id) {
+    return `ИИ-центр советует «${selectedEngine.label}»${reasons}. Исполнит «${selectedEngine.label}»; человек может выбрать другую модель до бесплатной проверки.${excluded}`;
+  }
+  return `ИИ-центр советует «${advisedEngine.label}»${reasons}. Исполнит «${selectedEngine.label}» — выбор человека важнее совета. Точную сумму подтвердит сервер.${excluded}`;
+}
+
+function engineLabelById(engineId) {
+  const [provider, ...rest] = String(engineId || "").split(":");
+  return modelPublicLabel({ provider, model_key: rest.join(":") });
+}
+
+function engineConditionNote(engine) {
+  if (!engine?.enabled) return "маршрут временно недоступен";
+  const input = engineInputNote(engine);
+  if (input) {
+    return engine.durationSource === "source_video"
+      ? `${input} · нужен MP4 с серверной проверкой длительности`
+      : input;
+  }
+  if (engine.durationSource === "source_video") {
+    return "нужен MP4 с серверной проверкой длительности";
+  }
+  const modes = Array.isArray(engine.qualityModes) ? engine.qualityModes.length : 0;
+  if (modes > 1) return `${modes} режима качества на выбор`;
+  if (modes === 1) return "качество задаёт маршрут";
+  return "условия подтвердит бесплатная проверка";
 }
 
 function chipRow(name, kind) {
@@ -787,11 +1831,13 @@ function chipRow(name, kind) {
 // вешает вкладку намертво.
 function renderChoiceChips(row, options, selectedValue) {
   const name = row.dataset.choiceName;
+  const kind = String(row.dataset.generationIntakeChoice || "");
   const stamp = JSON.stringify([selectedValue || "", options]);
   if (row.dataset.stamp === stamp) return;
   row.dataset.stamp = stamp;
   row.replaceChildren(...options.map((option) => {
     const chip = el("label", "gi-chip gi-chip--choice");
+    if (kind === "model") chip.classList.add("gi-model-choice");
     if (option.recommended) chip.dataset.recommended = "true";
     const input = document.createElement("input");
     input.type = "radio";
@@ -805,10 +1851,50 @@ function renderChoiceChips(row, options, selectedValue) {
       chip.dataset.disabled = "true";
     }
     const body = el("span", "gi-chip__body");
-    if (option.recommended) body.append(el("span", "gi-chip__badge", "Советуем"));
-    body.append(el("span", "gi-chip__title", option.title));
-    if (option.note) body.append(el("span", "gi-chip__note", option.note));
-    chip.append(input, body);
+    if (kind === "model") {
+      const visual = option.visual || "model";
+      chip.dataset.visual = visual;
+      const copy = el("span", "gi-model-choice__copy");
+      const head = el("span", "gi-model-choice__head");
+      head.append(el("span", "gi-model-choice__provider", option.provider || "Модель"));
+      if (option.recommended) {
+        head.append(el("span", "gi-chip__badge", "ИИ-центр рекомендует"));
+      }
+      copy.append(head, el("span", "gi-chip__title", option.title));
+      const facts = el("span", "gi-model-choice__facts");
+      [
+        ["Цена", option.price || option.note],
+        ["Длина", option.duration],
+        ["Условия", option.condition],
+      ].forEach(([label, value]) => {
+        if (!value) return;
+        const fact = el("span", "gi-model-choice__fact");
+        fact.append(
+          el("span", "gi-model-choice__fact-label", label),
+          el("span", "gi-model-choice__fact-value", value),
+        );
+        facts.append(fact);
+      });
+      body.append(
+        modelVisualNode(visual),
+        copy,
+        facts,
+      );
+      chip.append(
+        input,
+        body,
+        el(
+          "span",
+          "gi-model-choice__selector",
+          input.checked ? "Выбрано" : "Выбрать модель",
+        ),
+      );
+    } else {
+      if (option.recommended) body.append(el("span", "gi-chip__badge", "Советуем"));
+      body.append(el("span", "gi-chip__title", option.title));
+      if (option.note) body.append(el("span", "gi-chip__note", option.note));
+      chip.append(input, body);
+    }
     return chip;
   }));
 }
@@ -827,7 +1913,8 @@ function cascadeStep(kind, ordinal, title, name, extraRowClass = "") {
   return block;
 }
 
-function copyEngineChoice() {
+// Карточка каскада. Имя нейтральное: её рисует не только «Копия».
+function engineCascadeCard() {
   const section = el("section", "gi-card gi-cascade");
   section.dataset.giStep = "engine";
   section.dataset.generationIntakeEngine = "";
@@ -840,6 +1927,16 @@ function copyEngineChoice() {
     "generation_intake_duration",
     "gi-chips--compact",
   );
+  const qualityStep = cascadeStep(
+    "quality",
+    "2",
+    "Сложность",
+    "generation_intake_quality",
+  );
+  const qualityNotice = el("p", "gi-cascade__notice", "");
+  qualityNotice.dataset.generationIntakeQualityNotice = "";
+  qualityNotice.hidden = true;
+  qualityStep.append(qualityNotice);
   const durationNotice = el("p", "gi-cascade__notice", "");
   durationNotice.dataset.generationIntakeDurationNotice = "";
   durationNotice.hidden = true;
@@ -851,9 +1948,9 @@ function copyEngineChoice() {
   routeNote.dataset.generationIntakeRouteNote = "";
 
   section.append(
-    el("h4", "gi-card__title", "Чем генерируем и как долго"),
-    cascadeStep("tier", "1", "Уровень", "generation_intake_tier"),
-    cascadeStep("model", "2", "Модель", "generation_intake_generator"),
+    el("h4", "gi-card__title", "Чем генерируем, как сложно и как долго"),
+    cascadeStep("model", "1", "Модель", "generation_intake_generator"),
+    qualityStep,
     durationStep,
     price,
     routeNote,
@@ -930,8 +2027,14 @@ function copyPanel() {
   campaignNote.hidden = true;
   const campaignLink = el("a", "", "Создать кампанию");
   campaignLink.href = NEW_CAMPAIGN_ROUTE_HASH;
+  const campaignMessage = el(
+    "span",
+    "",
+    "В проекте нет активной кампании, поэтому платный запуск честно невозможен. ",
+  );
+  campaignMessage.dataset.generationIntakeCampaignNoteText = "";
   campaignNote.append(
-    el("span", "", "В проекте нет активной кампании, поэтому платный запуск честно невозможен. "),
+    campaignMessage,
     campaignLink,
     el("span", "", " и вернитесь в эту форму."),
   );
@@ -959,6 +2062,7 @@ function copyPanel() {
     el("h4", "gi-card__title", "1. Исходный ролик"),
     sourceChooser("copy_video", null),
     storyboardNode(),
+    originalFrameSlot(),
   );
 
   const productCard = el("section", "gi-card");
@@ -981,7 +2085,8 @@ function copyPanel() {
     sourceCard,
     productCard,
     copyPreserveChips(),
-    copyEngineChoice(),
+    compactCampaignChoice(),
+    engineCascadeCard(),
     briefCard,
     rightsConfirmation("copy_video"),
     campaignNote,
@@ -1010,18 +2115,24 @@ function avatarPanel() {
   panel.append(
     routeHeader(
       "ОТДЕЛЬНАЯ ФОРМА",
-      "Сделать с аватаром",
-      "Добавляем аватара из фотографии или описания в выбранный исходный MP4.",
-      "Character Performance",
+      "Дуэт с ведущим",
+      "Исходный ролик остаётся нетронутым; ведущий проекта комментирует его из угла кадра.",
+      "Дуэт",
     ),
     sourceChooser("avatar_video"),
-    avatarIdentityChooser(),
+    duetProductChooser(),
+    duetPresenterChooser(),
+    // Тот же каскад «модель → сложность → длительность», что и у «Копии»: с
+    // 21.08.2026 «Аватар» — такая же правка готового ролика и ездит теми же
+    // движками. Карточка скрыта, пока реестр не отдаст маршруты этой стратегии,
+    // поэтому появление формы ничего не обещает раньше времени.
+    engineCascadeCard(),
     recommendationSlot("avatar_video"),
     rightsConfirmation("avatar_video"),
     el(
       "p",
       "generation-intake-v4__gate-note",
-      "Форма и mock-подготовка работают локально. Платный Character Performance останется закрыт до подтверждения точного provider-adapter — он не подменяется Product UGC.",
+      "Текст ниже — речь ведущего: он произнесёт её вслух. Длина дуэта равна длине речи; если речь короче ролика, ролик обрежется на её конце.",
     ),
     statusNode(),
     actions,
@@ -1033,34 +2144,34 @@ function strategyPanel() {
   const panel = el("section", "generation-intake-v4__panel generation-intake-v4__panel--strategy");
   panel.dataset.generationIntakePanel = "strategy_video";
   panel.hidden = true;
-  const input = mp4Input({ multiple: true });
-  input.id = "generation-intake-strategy-mp4";
-  const upload = el("button", "btn btn-secondary", "Добавить исходники в проект");
-  upload.type = "button";
-  upload.dataset.action = "generation-intake-upload-strategy";
-  const actions = el("div", "generation-intake-v4__actions");
-  actions.append(upload);
-  panel.append(
-    routeHeader(
-      "ПОЛНЫЙ КОНСТРУКТОР",
-      "Создать видео по стратегии",
-      "Товар, площадка, сценарий, исходники, рекомендованная модель, длительность, звук и бюджет.",
-      "До 10 MP4",
-    ),
-    field(
-      "Дополнительные видео-исходники — по желанию",
-      "Выберите до 10 MP4. После загрузки они появятся среди материалов проекта и будут доступны полному конструктору.",
-      input,
-    ),
-    statusNode(),
-    actions,
-    el(
-      "p",
-      "generation-intake-v4__full-note",
-      "Ниже остаётся действующая шестишаговая форма. Ничего из её функций не удалено.",
-    ),
-  );
+  const host = el("div", "generation-intake-v4__strategy-host");
+  host.dataset.generationIntakeStrategyHost = "";
+  panel.append(host);
   return panel;
+}
+
+function placeGuidedShell(form, state, route = state?.route) {
+  const host = q("[data-generation-intake-strategy-host]", state?.shell);
+  const guidedShell = q("[data-ce-v4-generation-guided-shell]", form);
+  if (!(host instanceof HTMLElement) || !(guidedShell instanceof HTMLElement)) return;
+  if (route === "strategy_video") {
+    if (guidedShell.parentElement !== host) host.append(guidedShell);
+    guidedShell.dataset.ceV4GenerationPurpose = "from-zero";
+    return;
+  }
+  // Compact modules still use the same native hidden fields as their paid
+  // authority. Move the constructor out before the inactive strategy panel is
+  // disabled, otherwise those canonical fields would be disabled with it.
+  if (guidedShell.parentElement !== form) state.shell.after(guidedShell);
+  delete guidedShell.dataset.ceV4GenerationPurpose;
+}
+
+function ensureStrategyAuthority(form, state) {
+  if (state?.route !== "strategy_video" || state.strategyAuthorityRequested !== true) return;
+  const current = String(form.elements?.generation_strategy_id?.value || "").trim();
+  if (current === STRATEGY_AUTHORITY_STRATEGY) return;
+  if (!selectStrategy(form, STRATEGY_AUTHORITY_STRATEGY)) return;
+  void window.ContentEngineGenerationGuidedV4?.refreshStrategyAssets?.(form);
 }
 
 function shellNode() {
@@ -1102,7 +2213,16 @@ function collectProductNodes(form) {
       const text = cleanText(container.textContent, 240);
       return !mime.startsWith("video/") && !/\bmp4\b|исходное видео/iu.test(text);
     })
-    .map((input) => input.closest("label, article, li") || input.parentElement)
+    // В карточке товара checkbox и radio «Главное фото» — одна неделимая
+    // сущность. Перенос одного ближайшего label оставлял radio в старом
+    // fieldset: визуально фото было выбрано, но primary_media_id становился
+    // недоступен handoff и synthetic-карточку уже нельзя было корректно
+    // заменить серверной. Если есть штатная карточка, переносим именно её.
+    .map((input) => (
+      input.closest(".generation-media-option")
+      || input.closest("label, article, li")
+      || input.parentElement
+    ))
     .filter((node) => {
       if (!node || seen.has(node)) return false;
       seen.add(node);
@@ -1223,6 +2343,121 @@ function collectPickerVideos(form) {
   return result;
 }
 
+// Исходники проекта панель спрашивает у сервера САМА. Раньше она собирала их
+// только из разметки, которую рисует мастер, а мастер рисует карточки лишь
+// после выбора стратегии — выбора, который намеренно откладывается до кнопки
+// «Подготовить…» (см. комментарий в setRoute: он необратим). Получалось
+// замкнутое кольцо: список пуст, пока не начата подготовка, а подготовку
+// нельзя начать без выбранного исходника. Своя загрузка это кольцо разрывает и
+// ничего не активирует: чтение кандидатов не выбирает стратегию и не трогает
+// деньги.
+const copySourceVideoCache = { status: "idle", videos: [] };
+
+// Добавляет ролик в список исходников, если его там ещё нет. Нужна ровно для
+// свежезагруженных файлов: сервер уже знает про них, а список — ещё нет.
+// Значение при этом не выбирается — выбор остаётся действием человека либо
+// привязки, которая идёт следом.
+function ensureSourceOption(form, mediaId, filename, durationSeconds = null) {
+  const id = String(mediaId || "").trim().toLowerCase();
+  if (!UUID_PATTERN.test(id)) return false;
+  const label = cleanText(filename, 120) || "Загруженный ролик";
+  const verifiedDuration = Number(durationSeconds);
+  const duration = Number.isFinite(verifiedDuration) && verifiedDuration > 0
+    ? Math.ceil(verifiedDuration)
+    : null;
+  let added = false;
+  qa("[data-generation-intake-existing-video]", form).forEach((select) => {
+    if (!(select instanceof HTMLSelectElement)) return;
+    if ([...select.options].some((option) => option.value === id)) return;
+    select.append(new Option(label, id));
+    added = true;
+  });
+  const cachedIndex = copySourceVideoCache.videos.findIndex((video) => video.id === id);
+  if (cachedIndex < 0 && (added || duration !== null)) {
+    copySourceVideoCache.videos = [
+      ...copySourceVideoCache.videos,
+      {
+        id,
+        label,
+        verified: duration !== null,
+        durationSeconds: duration,
+      },
+    ];
+  } else if (cachedIndex >= 0 && duration !== null) {
+    copySourceVideoCache.videos = copySourceVideoCache.videos.map((video, index) => (
+      index === cachedIndex
+        ? { ...video, verified: true, durationSeconds: duration }
+        : video
+    ));
+  }
+  return added;
+}
+
+// Свежий стоп-кадр уже прошёл uploadProjectMedia/registerMedia как
+// creator_reference, но refreshStrategyAssets может ожидать более ранний
+// запрос и вернуть список, снятый до регистрации. Временная option не объявляет
+// asset eligible и не подтверждает права: она лишь даёт существующему bind
+// передать exact UUID дальше, где роль и права снова проверяет сервер.
+function ensureOriginalProductOption(form, mediaId) {
+  const id = String(mediaId || "").trim().toLowerCase();
+  const select = form?.elements?.generation_strategy_original_product_media_id;
+  if (!UUID_PATTERN.test(id) || !(select instanceof HTMLSelectElement)) return null;
+  const existing = [...select.options].find((option) => option.value === id);
+  if (existing) return existing;
+  const option = new Option("Кадр исходного товара · загружен только что", id);
+  option.dataset.generationIntakeSynthetic = "true";
+  select.append(option);
+  return option;
+}
+
+async function ensureCopySourceVideos() {
+  if (copySourceVideoCache.status !== "idle") return;
+  copySourceVideoCache.status = "loading";
+  try {
+    const api = await apiRuntime();
+    const response = await api.generationStrategyAssetCandidates({
+      projectId: projectId(),
+      kind: "source_video",
+      pageSize: 100,
+    });
+    const payload = response?.data ?? response;
+    const assets = Array.isArray(payload?.assets) ? payload.assets : [];
+    copySourceVideoCache.videos = assets
+      .map((asset) => ({
+        id: String(asset?.id || "").trim().toLowerCase(),
+        filename: cleanText(asset?.filename, 120),
+        durationSeconds: Number(asset?.duration_seconds),
+      }))
+      .filter((asset) => UUID_PATTERN.test(asset.id) && asset.filename)
+      .map((asset) => ({
+        id: asset.id,
+        // Подпись повторяет ту, что рисует мастер: человек не должен видеть
+        // два разных названия одного файла на одном экране.
+        label: Number.isFinite(asset.durationSeconds) && asset.durationSeconds > 0
+          ? `${asset.filename} · сервером проверен`
+          : asset.filename,
+        verified: Number.isFinite(asset.durationSeconds) && asset.durationSeconds > 0,
+        // Длительность приходит вместе со списком и дальше задаёт ступень
+        // «Длительность»: измеренная сервером величина — та же, которую он
+        // потребует при привязке.
+        durationSeconds: Number.isFinite(asset.durationSeconds)
+          && asset.durationSeconds > 0
+          ? asset.durationSeconds
+          : null,
+      }));
+    copySourceVideoCache.status = "ready";
+  } catch {
+    // Отказ списка не ломает форму: остаётся загрузка файла с диска.
+    copySourceVideoCache.videos = [];
+    copySourceVideoCache.status = "error";
+  }
+  // Список исходников общий для всех маршрутов, поэтому годится контекст любой
+  // смонтированной панели: берём первый живой.
+  const context = [...engineRenderContexts.values()]
+    .find((entry) => entry?.form?.isConnected && entry?.state);
+  if (context) refreshVideoSelects(context.form, context.state);
+}
+
 function refreshVideoSelects(form, state) {
   const nativeSource = form.elements?.generation_strategy_source_video_id;
   const nativeVideos = nativeSource instanceof HTMLSelectElement
@@ -1239,11 +2474,21 @@ function refreshVideoSelects(form, state) {
   const verifiedIds = new Set([
     ...nativeVideos.map(({ id }) => id),
     ...pickerVideos.filter(({ verified }) => verified).map(({ id }) => id),
+    ...copySourceVideoCache.videos
+      .filter(({ verified }) => verified).map(({ id }) => id),
   ]);
+  // Пока мастер не нарисовал карточки, свой список — единственный источник.
+  // Запрос уходит один раз за загрузку страницы и только когда показывать
+  // действительно нечего.
+  if (!collectProjectVideos(form).length && !nativeVideos.length
+      && !pickerVideos.length && !copySourceVideoCache.videos.length) {
+    void ensureCopySourceVideos();
+  }
   const videos = [...new Map([
     ...collectProjectVideos(form),
     ...nativeVideos,
     ...pickerVideos,
+    ...copySourceVideoCache.videos,
   ].map((item) => [item.id, item])).values()]
     .map((item) => ({
       ...item,
@@ -1321,15 +2566,90 @@ function refreshAvatarSelect(form, state) {
 function checkedProductInputs(form) {
   const productRoot = q(".generation-intake-v4__product-items", form);
   const busyLocked = form?.dataset?.busy === "true";
-  return qa('input[name="media_id"]:checked', productRoot).filter((input) => (
+  // В compact-режиме карточки находятся в productRoot. После
+  // openNativeLaunch обычный маршрут возвращает РОВНО ТЕ ЖЕ узлы в нативный
+  // fieldset, поэтому productRoot законно становится пустым. Считываем оба
+  // положения и дедуплицируем объекты: это сохраняет счётчик, click-order и
+  // handoff, не создавая второй выбор материалов.
+  const inputs = [...new Set([
+    ...qa('input[name="media_id"]:checked', productRoot),
+    ...qa('input[name="media_id"]:checked', form),
+  ])];
+  return inputs.filter((input) => (
     busyLocked ? input.dataset.wasDisabled !== "true" : !input.disabled
   ));
+}
+
+function productSelectionOrder(input) {
+  const order = Number(input?.dataset?.generationIntakeSelectionOrder);
+  return Number.isSafeInteger(order) && order > 0 ? order : null;
+}
+
+// DOM-порядок карточек задаёт каталог, а не человек. Для Product Swap порядок
+// кликов семантичен: первое фото становится primary для Pika, первые четыре
+// уходят в Kling. Ранжированные кликом/восстановлением фото идут первыми;
+// старые отмеченные карточки без ранга остаются стабильны в DOM-порядке.
+function orderedProductInputs(inputs) {
+  return inputs
+    .map((input, domIndex) => ({
+      input,
+      domIndex,
+      order: productSelectionOrder(input),
+    }))
+    .sort((left, right) => {
+      if (left.order !== null && right.order !== null) {
+        return left.order - right.order || left.domIndex - right.domIndex;
+      }
+      if (left.order !== null) return -1;
+      if (right.order !== null) return 1;
+      return left.domIndex - right.domIndex;
+    })
+    .map(({ input }) => input);
+}
+
+function orderedCheckedProductInputs(form) {
+  return orderedProductInputs(checkedProductInputs(form));
+}
+
+function setProductSelectionOrder(input, order) {
+  if (!input?.dataset) return;
+  if (Number.isSafeInteger(order) && order > 0) {
+    input.dataset.generationIntakeSelectionOrder = String(order);
+  } else {
+    delete input.dataset.generationIntakeSelectionOrder;
+  }
+}
+
+function rememberProductSelectionChange(form, input) {
+  if (!input?.checked) {
+    setProductSelectionOrder(input, null);
+    return;
+  }
+  if (productSelectionOrder(input) !== null) return;
+  const nextOrder = checkedProductInputs(form).reduce(
+    (highest, candidate) => Math.max(
+      highest,
+      productSelectionOrder(candidate) || 0,
+    ),
+    0,
+  ) + 1;
+  setProductSelectionOrder(input, nextOrder);
+}
+
+// Нативный checkbox сначала испускает input, затем change. Между ними общий
+// app.js может изменить DOM, а MutationObserver — запланировать mount/restore.
+// Сохраняем checked-state уже на input, чтобы restore никогда не увидел старые
+// пять ID и не вернул только что снятую человеком галку. Programmatic change
+// по-прежнему проходит через тот же helper из change-listener ниже.
+function captureProductSelectionChange(form, input) {
+  rememberProductSelectionChange(form, input);
+  persistCopyPhotoSelection(form);
 }
 
 function selectedProductMediaIds(form) {
   const result = [];
   const seen = new Set();
-  checkedProductInputs(form).forEach((input) => {
+  orderedCheckedProductInputs(form).forEach((input) => {
     const id = String(input.value || "").trim().toLowerCase();
     if (!UUID_PATTERN.test(id) || seen.has(id)) return;
     seen.add(id);
@@ -1401,8 +2721,36 @@ function refreshProductSelectionCount(form, state) {
       `Сейчас: ${count} из ${MAX_PRODUCT_IMAGES} — фото разных товаров. Оставьте SKU ${conflict.keep} и снимите: ${conflict.removeLabels.join(", ")}.`,
     );
   }
+  // Очередь показывается только когда в ней что-то есть: пустая строка про
+  // «0 файлов в очереди» была бы шумом, а невидимая непустая очередь —
+  // фотографиями, которые считаются и которых человек не видит.
+  const queued = selectedProductFiles(panel);
+  const pendingLine = q("[data-generation-intake-pending-files]", panel);
+  const pendingClear = q("[data-generation-intake-pending-clear]", panel);
+  if (pendingLine) {
+    setNodeText(
+      pendingLine,
+      queued.length
+        ? `Файлы в очереди на регистрацию (${queued.length}): ${
+          queued.map((file) => cleanText(file.name, 40)).join(", ")
+        }`
+        : "",
+    );
+    if (pendingLine.hidden === Boolean(queued.length)) {
+      pendingLine.hidden = !queued.length;
+    }
+  }
+  if (pendingClear && pendingClear.hidden === Boolean(queued.length)) {
+    pendingClear.hidden = !queued.length;
+  }
   refreshCopyChecklist(form, state);
-  refreshEngineChoice(form, state);
+  refreshEngineChoice(form, state, "copy_video");
+  refreshEngineChoice(form, state, "avatar_video");
+  // Ведущие грузятся один раз на проект и кэшируются: список меняется редко, а
+  // перерисовок панели много.
+  void ensureDuetPresenters(form, state);
+  renderDuetPresenters(form, state);
+  renderDuetProducts(form, state);
 }
 
 // Каскад «Чем генерируем и как долго» рисуется только по тому, что реально
@@ -1418,19 +2766,31 @@ let engineChoiceBusy = false;
 // экрана есть собственная загрузка: он спрашивает каталог сам, один раз, и
 // перерисовывается, когда ответ пришёл. Мастер остаётся первичным источником:
 // как только он загрузит каталог, берутся его данные.
-const copyEngineRouteCache = { status: "idle", routes: [] };
-let copyEngineRenderContext = null;
+// Кэш и контекст перерисовки живут ПО СТРАТЕГИЯМ, а не в одиночных переменных:
+// каскад теперь рисуется не только у «Копии», и общий кэш означал бы, что
+// маршруты одной стратегии показываются на панели другой. Это не косметика —
+// движок доезжает до цены, и подмена показала бы человеку не ту сумму.
+const engineRouteCaches = new Map();
+const engineRenderContexts = new Map();
 
-function guidedCopyEngineRoutes() {
+function engineRouteCache(strategyId) {
+  if (!engineRouteCaches.has(strategyId)) {
+    engineRouteCaches.set(strategyId, { status: "idle", routes: [] });
+  }
+  return engineRouteCaches.get(strategyId);
+}
+
+function guidedEngineRoutes(strategyId) {
   const routes = window.ContentEngineGenerationGuidedV4
-    ?.getStrategyProviderRoutes?.(COPY_AUTHORITY_STRATEGY);
+    ?.getStrategyProviderRoutes?.(strategyId);
   return Array.isArray(routes) ? routes : [];
 }
 
-async function ensureCopyEngineRoutes() {
-  if (copyEngineRouteCache.status !== "idle") return;
-  if (guidedCopyEngineRoutes().length) return;
-  copyEngineRouteCache.status = "loading";
+async function ensureEngineRoutes(strategyId) {
+  const cache = engineRouteCache(strategyId);
+  if (cache.status !== "idle") return;
+  if (guidedEngineRoutes(strategyId).length) return;
+  cache.status = "loading";
   try {
     const api = await apiRuntime();
     const response = await api.generationStrategyCatalog({
@@ -1438,24 +2798,24 @@ async function ensureCopyEngineRoutes() {
       projectId: projectId(),
     });
     const catalog = response?.catalog ?? response;
-    const routes = catalog?.strategyProviderRoutes?.[COPY_AUTHORITY_STRATEGY];
-    copyEngineRouteCache.routes = Array.isArray(routes) ? routes : [];
-    copyEngineRouteCache.status = "ready";
+    const routes = catalog?.strategyProviderRoutes?.[strategyId];
+    cache.routes = Array.isArray(routes) ? routes : [];
+    cache.status = "ready";
   } catch {
     // Отказ каталога не должен ломать форму: карточка просто не появится, а
     // запуск по-прежнему идёт по действующему маршруту реестра.
-    copyEngineRouteCache.routes = [];
-    copyEngineRouteCache.status = "error";
+    cache.routes = [];
+    cache.status = "error";
   }
-  const context = copyEngineRenderContext;
+  const context = engineRenderContexts.get(strategyId);
   if (context?.section?.isConnected) {
-    renderEngineChoice(context.form, context.state, context.section);
+    renderEngineChoice(context.form, context.state, context.section, strategyId);
   }
 }
 
-function copyEngineRoutes() {
-  const guided = guidedCopyEngineRoutes();
-  const routes = guided.length ? guided : copyEngineRouteCache.routes;
+function engineRoutesFor(strategyId) {
+  const guided = guidedEngineRoutes(strategyId);
+  const routes = guided.length ? guided : engineRouteCache(strategyId).routes;
   return (Array.isArray(routes) ? routes : [])
     .filter((route) => (
       route
@@ -1479,6 +2839,39 @@ function copyEngineRoutes() {
       maxDurationSeconds: Number.isFinite(Number(route.max_duration_seconds))
         ? Number(route.max_duration_seconds)
         : null,
+      // Кто задаёт длительность. Правка видео отдаёт ролик длиной с исходник:
+      // параметра длительности у таких моделей нет вовсе, и там, где секунда
+      // стоит денег, выбор оператора означал бы резерв под чужой ролик.
+      durationSource: route.duration_source === "source_video"
+        ? "source_video"
+        : "operator_choice",
+      // Уровни качества движка. Ничего не достраиваем: движок, про режимы
+      // которого сервер молчит, показывает одну ступень «как есть» — выдумать
+      // разрешение значило бы обещать результат, которого не будет.
+      qualityModes: Array.isArray(route.quality_modes)
+        ? route.quality_modes
+          .filter((mode) => (
+            mode
+            && typeof mode === "object"
+            && String(mode.code || "").trim()
+            && String(mode.label || "").trim()
+            && ["720p", "1080p"].includes(String(mode.resolution || "").trim())
+          ))
+          .map((mode) => ({
+            code: String(mode.code).trim(),
+            label: String(mode.label).trim(),
+            resolution: String(mode.resolution).trim(),
+          }))
+        : [],
+      // Семейство и профиль входа движка — новые свойства реестра
+      // (202608230020). Старый сервер их не отдаёт; тогда экран просто не
+      // объясняет движок, а не выдумывает объяснение.
+      engineFamily: ["edit", "regenerate", "overlay"].includes(route.engine_family)
+        ? route.engine_family
+        : null,
+      inputProfile: route.input_profile && typeof route.input_profile === "object"
+        ? route.input_profile
+        : null,
       recommended: route.recommended === true,
       enabled: route.enabled === true,
     }));
@@ -1496,6 +2889,54 @@ function orderedTiers(engines) {
 function wizardDurationControl(form) {
   const control = form?.elements?.generation_strategy_duration_seconds;
   return control instanceof HTMLInputElement ? control : null;
+}
+
+// Длительность исходника, ИЗМЕРЕННАЯ СЕРВЕРОМ во время бесплатной проверки
+// MP4. Берётся из проекции выбранных исходников — там лежит именно серверный
+// факт, а не браузерный замер: сервер потребует совпадения с ним, и показать
+// человеку своё число значило бы подвести его под отказ.
+//
+// Округление ВВЕРХ: провайдер не умеет отдать ролик короче исходника, а резерв
+// не имеет права быть меньше списания.
+function verifiedSourceDurationSeconds(form) {
+  // Источников серверной длительности два, и оба — один и тот же факт,
+  // положенный в разные места: проекция выбранных исходников и список
+  // исходников мастера, где длительность приезжает в data-атрибуте опции.
+  // Экран «Копии» доходит до маршрута обоими путями (файл только что загружен
+  // либо исходник выбран из проекта), поэтому спрашиваются оба: если знать
+  // длительность можно, показывать вместо неё список секунд нельзя.
+  const projection = window.ContentEngineGenerationGuidedV4
+    ?.getStrategySourcePickerProjection?.(form);
+  const selected = Array.isArray(projection?.selected)
+    ? projection.selected
+    : [];
+  if (selected.length === 1) {
+    const seconds = Number(selected[0]?.duration_seconds);
+    if (Number.isFinite(seconds) && seconds > 0) return Math.ceil(seconds);
+  }
+  const control = form?.elements?.generation_strategy_source_video_id;
+  const option = control instanceof HTMLSelectElement
+    ? control.selectedOptions?.[0] || null
+    : null;
+  if (option?.dataset?.serverDurationVerified === "true") {
+    const seconds = Number(option.dataset.durationSeconds);
+    if (Number.isFinite(seconds) && seconds > 0) return Math.ceil(seconds);
+  }
+  // Третий источник — тот самый ролик, который выбран ЗДЕСЬ, в панели. Список
+  // приходит с сервера вместе с измеренными длительностями, поэтому величина
+  // остаётся серверной, а не браузерной.
+  const panelSelect = q("[data-generation-intake-existing-video]", form);
+  const panelValue = panelSelect instanceof HTMLSelectElement
+    ? String(panelSelect.value || "").trim().toLowerCase()
+    : "";
+  if (UUID_PATTERN.test(panelValue)) {
+    const video = copySourceVideoCache.videos
+      .find((item) => item.id === panelValue);
+    if (Number.isFinite(video?.durationSeconds) && video.durationSeconds > 0) {
+      return Math.ceil(video.durationSeconds);
+    }
+  }
+  return null;
 }
 
 // Окно, которое разрешает сам мастер: его min/max приходят из серверных
@@ -1531,6 +2972,31 @@ function engineDurationWindow(engine, form) {
   };
 }
 
+// Программная запись поля платного контекста.
+//
+// Движок и кампания входят в подпись цены, поэтому их смена обязана пройти
+// через путь инвалидации в app.js: он слушает input/change по имени поля и
+// сбрасывает и галку подтверждения траты, и её значение. Присваивание без
+// события этот путь минует — и подтверждение остаётся от прежней конфигурации,
+// то есть человек платит не за то, что подтверждал.
+//
+// Событие шлётся ТОЛЬКО при фактической смене значения, и это не оптимизация.
+// Восстановление того же выбора после перерисовки — не изменение: панель
+// слушает собственные мутации, и безусловная запись увела бы наблюдатель в
+// цикл, а цену сбрасывала бы на ровном месте. Ровно та же семантика, что у
+// applyCopyDuration и applyCopyResolution ниже.
+function assignPaidContextValue(field, value) {
+  const editable = field instanceof HTMLInputElement
+    || field instanceof HTMLSelectElement;
+  if (!editable || field.disabled) return false;
+  const next = String(value ?? "");
+  if (field.value === next) return false;
+  field.value = next;
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+  field.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+}
+
 // Длительность живёт там же, где её держит форма, — в
 // generation_strategy_duration_seconds. Каскад её только выставляет, поэтому
 // в подписанный выбор она попадает прежним путём (selection.duration_seconds).
@@ -1545,69 +3011,186 @@ function applyCopyDuration(form, seconds) {
   return true;
 }
 
-function refreshEngineChoice(form, state) {
-  const panel = panelFor(state, "copy_video");
+// Compact -> guided is a real state handoff, not a second duration choice.
+// Carry the same server measurement twice (top-level convenience + exact
+// source asset) and accept it only when both copies agree with the same UUID.
+// A malformed/stale session value therefore cannot silently rewrite output.
+function handoffSourceDurationSeconds(handoff) {
+  const sourceMediaId = String(handoff?.source_media_id || "")
+    .trim().toLowerCase();
+  if (!UUID_PATTERN.test(sourceMediaId) || !Array.isArray(handoff?.assets)) {
+    return null;
+  }
+  const source = handoff.assets.find((asset) => (
+    asset?.role === "source_video"
+    && String(asset?.media_id || "").trim().toLowerCase() === sourceMediaId
+  ));
+  const topLevel = Number(handoff.source_duration_seconds);
+  const assetLevel = Number(source?.duration_seconds);
+  if (
+    !Number.isFinite(topLevel)
+    || !Number.isFinite(assetLevel)
+    || topLevel <= 0
+    || Math.ceil(topLevel) !== Math.ceil(assetLevel)
+  ) return null;
+  return Math.ceil(topLevel);
+}
+
+function applyHandoffSourceDuration(form, handoff) {
+  const seconds = handoffSourceDurationSeconds(handoff);
+  const control = wizardDurationControl(form);
+  if (seconds === null || !control || control.disabled) return false;
+  const minimum = Number(control.min);
+  const maximum = Number(control.max);
+  if (
+    (Number.isFinite(minimum) && minimum > 0 && seconds < minimum)
+    || (Number.isFinite(maximum) && maximum > 0 && seconds > maximum)
+  ) return false;
+  return applyCopyDuration(form, seconds) || control.value === String(seconds);
+}
+
+// Сложность выражена разрешением, и живёт оно там же, где его держит мастер, —
+// в generation_strategy_resolution. Каскад его только выставляет, поэтому в
+// подписанный выбор оно попадает прежним путём (selection.resolution) и тем же
+// путём участвует в цене: маршрутный расчёт принимает разрешение отдельным
+// аргументом. Значение, которого нет в списке мастера, не навязывается: сервер
+// такой выбор всё равно не подпишет, и молчаливая подстановка обернулась бы
+// отказом без объяснения.
+function applyCopyResolution(form, resolution) {
+  const control = form?.elements?.generation_strategy_resolution;
+  if (!(control instanceof HTMLSelectElement) || control.disabled) return false;
+  const next = String(resolution || "");
+  if (!next || control.value === next) return false;
+  if (![...control.options].some((option) => option.value === next)) return false;
+  control.value = next;
+  control.dispatchEvent(new Event("input", { bubbles: true }));
+  control.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+}
+
+// Есть ли у «Аватара» фотография прямо сейчас. Нужна не для красоты: обе модели
+// fal требуют хотя бы одну ссылку на изображение — у Pika поле image_url
+// обязательно, а ссылки @ImageN у Kling должны на что-то указывать. Режим
+// «Описание аватара» исполняет только Runway Aleph, который принимает текст.
+//
+// Без этой проверки движок fal можно было бы выбрать в режиме описания: деньги
+// зарезервировались бы, а сборка запроса упала бы уже после резерва — тем самым
+// отказом, который выглядит как случайный сбой провайдера.
+// Гашение движков, которым нечем работать без фотографии аватара. Вынесено
+// отдельно, потому что это решение о доступности, а не оформление: его надо
+// уметь проверить без DOM.
+//
+// Признак берётся по провайдеру: обе модели fal требуют ссылку на изображение
+// (у Pika image_url обязателен, у Kling ссылки @ImageN должны на что-то
+// указывать), а Runway Aleph принимает только текст. По-хорошему это свойство
+// маршрута и должно приходить из реестра — тогда новый движок добавлялся бы
+// строкой, а не правкой этой функции.
+function withAvatarPhotoGate(engines, photoMissing) {
+  if (!photoMissing) return engines;
+  return engines.map((engine) => (
+    engine.provider === "fal"
+      ? { ...engine, enabled: false, unavailableReason: "нужна фотография аватара" }
+      : engine
+  ));
+}
+
+function avatarPhotoAvailable(state) {
+  const panel = panelFor(state, "avatar_video");
+  if (!panel) return false;
+  if (avatarInputMode(panel) !== "photo") return false;
+  return Boolean(selectedAvatarFile(panel) || selectedAvatarMediaId(panel));
+}
+
+function refreshEngineChoice(form, state, routeKey = "copy_video") {
+  const strategyId = ROUTE_AUTHORITY_STRATEGY[routeKey];
+  if (!strategyId) return;
+  const panel = panelFor(state, routeKey);
   const section = panel ? q("[data-generation-intake-engine]", panel) : null;
   if (!section || engineChoiceBusy) return;
   engineChoiceBusy = true;
   try {
-    renderEngineChoice(form, state, section);
+    renderEngineChoice(form, state, section, strategyId);
   } finally {
     engineChoiceBusy = false;
   }
 }
 
-function renderEngineChoice(form, state, section) {
-  copyEngineRenderContext = { form, state, section };
-  const engines = copyEngineRoutes();
+function renderEngineChoice(form, state, section, strategyId) {
+  engineRenderContexts.set(strategyId, { form, state, section });
+  // Модель, которой нечего показать, недоступна — и сказать об этом надо ЗДЕСЬ,
+  // на экране выбора, а не отказом после резервирования денег.
+  const photoMissing = strategyId === AVATAR_AUTHORITY_STRATEGY
+    && !avatarPhotoAvailable(state);
+  const engines = withAvatarPhotoGate(engineRoutesFor(strategyId), photoMissing);
   if (!engines.length) {
     // Пока маршрутов нет, карточка скрыта целиком: три пустых пронумерованных
     // ряда молчат хуже, чем их отсутствие. Загрузку запускаем здесь же.
     if (!section.hidden) section.hidden = true;
-    void ensureCopyEngineRoutes();
+    void ensureEngineRoutes(strategyId);
     return;
   }
-  const cascade = state.copyEngine || { tier: "", modelId: "", durationNotice: "" };
+  const cascade = state.copyEngine
+    || { modelId: "", qualityCode: "", durationNotice: "" };
 
-  // Ступень 1 — уровень. Смена уровня снимает выбранную модель: список моделей
-  // ниже перерисовывается, и старый идентификатор в нём больше не значится.
-  const tiers = orderedTiers(engines);
-  const fallbackEngine = engines.find((engine) => engine.recommended && engine.enabled)
-    || engines.find((engine) => engine.enabled)
-    || engines[0];
-  const selectedTier = tiers.includes(cascade.tier)
-    ? cascade.tier
-    : fallbackEngine.tier;
-  renderChoiceChips(
-    q('[data-generation-intake-choice="tier"]', section),
-    tiers.map((tier) => {
-      const tierEngines = engines.filter((engine) => engine.tier === tier);
-      return {
-        value: tier,
-        title: tierPublicLabel(tier),
-        note: `${tierPriceNote(tierEngines)} · ${modelCountLabel(tierEngines.length)}`,
-        recommended: tierEngines.some((engine) => engine.recommended),
-        disabled: !tierEngines.some((engine) => engine.enabled),
-      };
-    }),
-    selectedTier,
-  );
+  // ИИ-центр: совет по движку под ЭТОТ запуск — по фактам об исходнике,
+  // товаре и замысле, а не по глобальной отметке «по умолчанию» в реестре.
+  // Отметка реестра остаётся запасным ответом, когда советчику нечего сказать.
+  // «Копия» и «Создание» получают совет; «Дуэт» — нет: у него один движок,
+  // ведущий, и советовать там нечего.
+  const advice = (strategyId === COPY_AUTHORITY_STRATEGY
+      || strategyId === STRATEGY_AUTHORITY_STRATEGY)
+      && typeof adviseGenerationEngine === "function"
+    ? adviseGenerationEngine({
+      routes: engines,
+      facts: strategyId === COPY_AUTHORITY_STRATEGY
+        ? copyEngineFacts(form, state)
+        : rebuildEngineFacts(form, state),
+    })
+    : null;
+  const advisedEngine = advice?.engineId
+    ? engines.find((engine) => engine.id === advice.engineId && engine.enabled) || null
+    : null;
 
-  // Ступень 2 — модели выбранного уровня, человеческими именами и с ценой.
-  const tierEngines = engines.filter((engine) => engine.tier === selectedTier);
-  const selectedEngine = tierEngines.find((engine) => engine.id === cascade.modelId)
-    || tierEngines.find((engine) => engine.recommended && engine.enabled)
-    || tierEngines.find((engine) => engine.enabled)
-    || tierEngines[0];
+  // Ступень 1 — сами движки, подряд и от дешёвого к дорогому. Уровень цены не
+  // отдельная ступень, а подпись: человек выбирает не «дёшево», а модель,
+  // и цена — её свойство, а не самостоятельный вопрос.
+  const tierOrder = orderedTiers(engines);
+  const orderedEngines = [...engines].sort((left, right) => {
+    const byTier = tierOrder.indexOf(left.tier) - tierOrder.indexOf(right.tier);
+    if (byTier !== 0) return byTier;
+    return Number(right.recommended) - Number(left.recommended);
+  });
+  // Порядок старшинства: явный выбор человека → совет ИИ-центра → отметка
+  // реестра → первый включённый. Выбор, который сделал не человек, а прошлый
+  // совет, не закрепляется: изменились факты — изменится и совет.
+  const humanChoice = cascade.humanChoice === true
+    ? orderedEngines.find((engine) => engine.id === cascade.modelId && engine.enabled)
+    : null;
+  const selectedEngine = humanChoice
+    || advisedEngine
+    || orderedEngines.find((engine) => engine.id === cascade.modelId && engine.enabled)
+    || orderedEngines.find((engine) => engine.recommended && engine.enabled)
+    || orderedEngines.find((engine) => engine.enabled)
+    || orderedEngines[0];
+  const advisedId = advisedEngine?.id
+    || orderedEngines.find((engine) => engine.recommended && engine.enabled)?.id
+    || "";
   renderChoiceChips(
     q('[data-generation-intake-choice="model"]', section),
-    tierEngines.map((engine) => ({
+    orderedEngines.map((engine) => ({
       value: engine.id,
       title: engine.label,
-      note: `${providerPublicLabel(engine.provider)} · ${routePriceNote(engine)}${
-        engine.enabled ? "" : " · пока недоступна"
+      note: `${tierPublicLabel(engine.tier)} · ${providerPublicLabel(engine.provider)} · ${routePriceNote(engine)}${
+        engine.enabled
+          ? ""
+          : ` · ${engine.unavailableReason || "пока недоступна"}`
       }`,
-      recommended: engine.recommended,
+      provider: `${tierPublicLabel(engine.tier)} · ${providerPublicLabel(engine.provider)}`,
+      price: routePriceNote(engine),
+      duration: engineDurationNote(engine),
+      condition: engineConditionNote(engine),
+      visual: engineVisualKey(engine),
+      recommended: engine.id === advisedId,
       disabled: !engine.enabled,
     })),
     selectedEngine?.id,
@@ -1618,27 +3201,107 @@ function renderEngineChoice(form, state, section) {
     return;
   }
 
+  // Ступень 2 — сложность: уровни качества выбранной модели из реестра. Там,
+  // где разрешение задаёт исходник, режим один — и подпись говорит об этом
+  // прямо, вместо переключателя, который ничего не переключает.
+  const qualityModes = Array.isArray(selectedEngine.qualityModes)
+    ? selectedEngine.qualityModes
+    : [];
+  const selectedQuality = qualityModes.find((mode) => mode.code === cascade.qualityCode)
+    || qualityModes[0]
+    || null;
+  renderChoiceChips(
+    q('[data-generation-intake-choice="quality"]', section),
+    qualityModes.map((mode) => ({
+      value: mode.code,
+      title: mode.label,
+      note: mode.resolution,
+      disabled: qualityModes.length < 2,
+    })),
+    selectedQuality?.code || "",
+  );
+  if (selectedQuality) applyCopyResolution(form, selectedQuality.resolution);
+  const qualityNotice = q("[data-generation-intake-quality-notice]", section);
+  if (qualityNotice) {
+    setNodeText(
+      qualityNotice,
+      !qualityModes.length
+        ? "Реестр пока не отдаёт уровни этой модели — сервер выполнит запуск в разрешении по умолчанию."
+        : qualityModes.length < 2
+        ? `У «${selectedEngine.label}» разрешение результата задаёт исходник, выбирать нечего.`
+        : `«${selectedEngine.label}» умеет ${qualityModes.length} уровня: чем выше, тем дороже.`,
+    );
+    if (qualityNotice.hidden) qualityNotice.hidden = false;
+  }
+
   // Ступень 3 — тайминги выбранной модели. Несовместимое значение не остаётся
   // молча неверным: оно приводится к ближайшему допустимому, и об этом говорят
   // вслух.
+  //
+  // У правки видео длительности как выбора не существует: модель отдаёт ролик
+  // длиной с исходник. Показывать там список секунд значило бы обещать выбор,
+  // которого нет, а у посекундной ставки — ещё и зарезервировать деньги под
+  // чужой ролик. Поэтому список сжимается до одного значения — длины
+  // исходника, ИЗМЕРЕННОЙ СЕРВЕРОМ (та же величина, которую сервер потребует
+  // при привязке; браузерный замер сюда не годится, он про другой файл).
   const durationWindow = engineDurationWindow(selectedEngine, form);
+  // Длина загруженного ролика меряется один раз и нужна обоим видам маршрутов:
+  // одному она задаёт длительность целиком, другому — подсказывает разумное
+  // значение. Поэтому спрашивается всегда, а не только там, где обязательна.
+  const measuredSeconds = verifiedSourceDurationSeconds(form);
+  const bySource = selectedEngine.durationSource === "source_video";
+  const sourceFits = measuredSeconds !== null
+    && measuredSeconds >= durationWindow.min
+    && measuredSeconds <= durationWindow.max;
+  const sourceSeconds = bySource && sourceFits ? measuredSeconds : null;
   const durations = [];
-  for (
-    let seconds = durationWindow.min;
-    seconds <= durationWindow.max;
-    seconds += 1
-  ) durations.push(seconds);
+  if (sourceSeconds !== null) {
+    durations.push(sourceSeconds);
+  } else if (!bySource) {
+    for (
+      let seconds = durationWindow.min;
+      seconds <= durationWindow.max;
+      seconds += 1
+    ) durations.push(seconds);
+  }
+  // Модели, которые взяли бы этот ролик целиком. Нужны, когда выбранная не
+  // берёт: человеку показывают не тупик, а выход.
+  const fittingEngines = measuredSeconds === null ? [] : engines.filter((engine) => (
+    engine.enabled
+    && engine.id !== selectedEngine.id
+    && Number.isFinite(engine.minDurationSeconds)
+    && Number.isFinite(engine.maxDurationSeconds)
+    && measuredSeconds >= engine.minDurationSeconds
+    && measuredSeconds <= engine.maxDurationSeconds
+  ));
+  // У маршрута, где длительность задаёт исходник, список секунд не строится
+  // вовсе, пока длительность не измерена сервером. Показать выбор было бы
+  // обманом дважды: выбрать всё равно нельзя, а у посекундной ставки
+  // выбранная цифра ещё и назвала бы цену за чужой ролик.
   const control = wizardDurationControl(form);
   const current = Number(control?.value);
   let chosen = durations.includes(current) ? current : null;
   let notice = String(cascade.durationNotice || "");
   if (durations.length && chosen === null) {
-    chosen = Number.isFinite(current) && current > 0
+    // Значение по умолчанию берётся у ролика, а не у середины окна: человек
+    // копирует конкретный ролик, и его длина — самый осмысленный ответ из
+    // возможных. К окну модели она всё равно приводится.
+    chosen = sourceFits && durations.includes(measuredSeconds)
+      ? measuredSeconds
+      : Number.isFinite(current) && current > 0
       ? Math.min(durationWindow.max, Math.max(durationWindow.min, Math.round(current)))
       : durations[0];
-    if (Number.isFinite(current) && current > 0 && applyCopyDuration(form, chosen)) {
-      notice = `${current} с не подходит для «${selectedEngine.label}»: допустимо `
-        + `${durationWindow.min}–${durationWindow.max} с. Оставили ${chosen} с.`;
+    if (
+      Number.isFinite(current) && current > 0 && current !== chosen
+      && applyCopyDuration(form, chosen)
+    ) {
+      // Причина замены называется честно: у маршрута с длительностью от
+      // исходника дело не в «недопустимом окне», а в том, что выбора нет
+      // вовсе — и прежнее значение осталось от другого ролика или движка.
+      notice = bySource
+        ? `Длительность задаёт исходник: ${chosen} с. Прежнее значение ${current} с заменено.`
+        : `${current} с не подходит для «${selectedEngine.label}»: допустимо `
+          + `${durationWindow.min}–${durationWindow.max} с. Оставили ${chosen} с.`;
     } else {
       applyCopyDuration(form, chosen);
     }
@@ -1648,18 +3311,42 @@ function renderEngineChoice(form, state, section) {
     durations.map((seconds) => ({
       value: String(seconds),
       title: `${seconds} с`,
-      disabled: !control || control.disabled,
+      // Длина ролика подписана прямо на варианте: так видно, какой из них
+      // «как в исходнике», а какой — сознательное отклонение от него.
+      ...(measuredSeconds === seconds ? { note: "как в исходнике" } : {}),
+      // Единственное значение показывается, но не выбирается: это факт
+      // исходника, а не решение оператора.
+      disabled: !control || control.disabled || sourceSeconds !== null,
     })),
     chosen === null ? "" : String(chosen),
   );
   const durationNotice = q("[data-generation-intake-duration-notice]", section);
   if (durationNotice) {
+    const fittingNames = fittingEngines.map((engine) => `«${engine.label}»`).join(", ");
     setNodeText(
       durationNotice,
-      notice || (durations.length
-        ? durationWindow.fromRegistry
-          ? `«${selectedEngine.label}» принимает ${durationWindow.min}–${durationWindow.max} с.`
-          : `Реестр пока не отдаёт пределы этой модели, поэтому показано окно стратегии: ${durationWindow.min}–${durationWindow.max} с.`
+      notice || (sourceSeconds !== null
+        ? `«${selectedEngine.label}» отдаёт ролик длиной с исходник: ${sourceSeconds} с, проверено сервером. Выбирать здесь нечего.`
+        // Ролик длиннее (или короче) того, что берёт выбранная модель. Это не
+        // тупик: другие модели могут его взять, и они названы поимённо.
+        : bySource && measuredSeconds !== null
+        ? `Ролик длится ${measuredSeconds} с, а «${selectedEngine.label}» принимает ${durationWindow.min}–${durationWindow.max} с.${
+          fittingNames ? ` Такой ролик возьмут: ${fittingNames}.` : " Другой подходящей модели сейчас нет — укоротите исходник."
+        }`
+        : bySource
+        ? "Длительность задаёт исходник, но сервер её ещё не измерил — сделайте бесплатную проверку MP4."
+        : durations.length
+        ? `${
+          durationWindow.fromRegistry
+            ? `«${selectedEngine.label}» принимает ${durationWindow.min}–${durationWindow.max} с.`
+            : `Реестр пока не отдаёт пределы этой модели, поэтому показано окно стратегии: ${durationWindow.min}–${durationWindow.max} с.`
+        }${
+          measuredSeconds !== null && sourceFits
+            ? ` Ролик длится ${measuredSeconds} с — это значение и подставлено.`
+            : measuredSeconds !== null
+            ? ` Ролик длится ${measuredSeconds} с, в это окно он не помещается — выберите длительность вручную.`
+            : ""
+        }`
         : "Совместимой длительности у этой модели нет — выберите другую."),
     );
     if (durationNotice.hidden) durationNotice.hidden = false;
@@ -1683,23 +3370,39 @@ function renderEngineChoice(form, state, section) {
       : "Точную сумму подтвердит сервер бесплатной проверкой — деньги при этом не списываются.",
   );
 
-  // Честность про исполнение: маршрут запуска берётся из реестра по отметке
-  // «Советуем», и выбор модели его пока не переключает. Умолчать об этом
-  // значило бы показать выбор, которого нет.
-  const activeEngine = engines.find((engine) => engine.recommended && engine.enabled);
+  // Выбранный движок уходит в привязку отдельным полем и подписывается
+  // сервером вместе с ценой. Поле формы пишется только при смене значения:
+  // панель слушает собственные мутации, и безусловная запись увела бы
+  // наблюдатель в цикл.
+  // Поле движка ОДНО на всю форму, а панелей с каскадом несколько («Копия»,
+  // «Дуэт», «Создание»), и перерисовываются они все разом. Пишет поле только
+  // панель АКТИВНОГО маршрута: иначе две панели по очереди ставили бы свои
+  // значения, каждая запись рождала change, наблюдатель перерисовывал панели
+  // снова — и вкладка зависала в бесконечном пинг-понге.
+  const activeStrategyId = ROUTE_AUTHORITY_STRATEGY[state?.route] || null;
+  if (activeStrategyId === strategyId) {
+    assignPaidContextValue(
+      form?.elements?.generation_intake_engine,
+      selectedEngine?.enabled ? selectedEngine.id : "",
+    );
+  }
+
+  // Честность про исполнение: запуск идёт выбранной моделью, а отметка
+  // «Советуем» остаётся подсказкой, а не приговором. Про недоступную модель
+  // говорим прямо — иначе человек ждал бы от выбора того, чего не будет.
+  const activeEngine = engines.find((engine) => engine.id === advisedId && engine.enabled)
+    || engines.find((engine) => engine.recommended && engine.enabled);
   setNodeText(
     q("[data-generation-intake-route-note]", section),
-    !activeEngine
-      ? "Действующий маршрут реестра не отмечен — запуск подтвердит сервер."
-      : selectedEngine && selectedEngine.id !== activeEngine.id
-      ? `Исполняет пока «${activeEngine.label}» — действующий маршрут реестра. Ваш выбор модели меняет тайминги и оценку цены, но не переключает запуск.`
-      : `Исполняет «${activeEngine.label}» — действующий маршрут реестра.`,
+    engineAdviceNote(selectedEngine, activeEngine, advice),
   );
 
   state.copyEngine = {
-    tier: selectedTier,
     modelId: selectedEngine?.id || "",
+    qualityCode: selectedQuality?.code || "",
     durationNotice: notice,
+    humanChoice: cascade.humanChoice === true && humanChoice !== null,
+    advisedId,
   };
   if (section.hidden) section.hidden = false;
 }
@@ -1826,7 +3529,7 @@ function renderCopyChecklist(form, state, panel) {
 }
 
 function selectedProductIdentityFromCheckboxes(form) {
-  for (const input of checkedProductInputs(form)) {
+  for (const input of orderedCheckedProductInputs(form)) {
     const sku = cleanText(input.dataset?.mediaSku, 120);
     const productName = cleanText(input.dataset?.mediaProductName, 180);
     if (sku && productName) return { sku, product_name: productName };
@@ -1914,7 +3617,7 @@ function copyPhotoStorageKey() {
 
 function persistCopyPhotoSelection(form) {
   try {
-    const entries = checkedProductInputs(form)
+    const entries = orderedCheckedProductInputs(form)
       .map((input) => ({
         id: String(input.value || "").trim().toLowerCase(),
         sku: cleanText(input.dataset?.mediaSku, 120),
@@ -1940,11 +3643,12 @@ function restoreCopyPhotoSelection(form, state) {
     entries = [];
   }
   if (!Array.isArray(entries) || !entries.length) return;
-  entries.slice(0, MAX_PRODUCT_IMAGES).forEach((entry) => {
+  entries.slice(0, MAX_PRODUCT_IMAGES).forEach((entry, index) => {
     const id = String(entry?.id || "").trim().toLowerCase();
     if (!UUID_PATTERN.test(id)) return;
     const existing = existingMediaCheckbox(form, id);
     if (existing instanceof HTMLInputElement) {
+      setProductSelectionOrder(existing, index + 1);
       if (!existing.disabled && !existing.checked) {
         existing.checked = true;
         existing.dispatchEvent(new Event("change", { bubbles: true }));
@@ -1953,14 +3657,18 @@ function restoreCopyPhotoSelection(form, state) {
     }
     const sku = cleanText(entry?.sku, 120);
     const productName = cleanText(entry?.product_name, 180);
-    ensureProductCheckbox(
+    const restored = ensureProductCheckbox(
       form,
       state,
       id,
       sku && productName ? { sku, product_name: productName } : null,
       cleanText(entry?.label, 120),
     );
+    setProductSelectionOrder(restored, index + 1);
   });
+  // ensureProductCheckbox может породить change до назначения восстановленного
+  // ранга. Финальная запись канонизирует массив ровно в сохранённом порядке.
+  persistCopyPhotoSelection(form);
   refreshProductSelectionCount(form, state);
 }
 
@@ -2020,15 +3728,19 @@ async function registerSelectedProductPhotos(form, state) {
       } catch (imageError) {
         queue.shift();
         pendingCopyProductFiles.set(project, queue);
+        const rejection = imageError?.message === "media_kind_mime_mismatch"
+          ? mediaKindMimeMismatchMessage(imageError, file.name)
+          : `«${cleanText(file.name, 60)}»: ${dropMessages[imageError?.message] || "файл не прошёл проверку."}`;
         setStatus(
           panel,
-          `«${cleanText(file.name, 60)}»: ${dropMessages[imageError?.message] || "файл не прошёл проверку."} Остальные файлы в очереди не потеряны (${queue.length}).`,
+          `${rejection} Остальные файлы в очереди не потеряны (${queue.length}).`,
           "error",
         );
         continue;
       }
       const mediaId = await uploadProjectMedia(file, "product_photo", identity);
-      ensureProductCheckbox(form, state, mediaId, identity, file.name);
+      const registered = ensureProductCheckbox(form, state, mediaId, identity, file.name);
+      attachProductFilePreview(registered, file);
       queue.shift();
       pendingCopyProductFiles.set(project, queue);
       persistCopyPhotoSelection(form);
@@ -2093,7 +3805,8 @@ function syncCopyScreenChrome(state) {
   // кнопка не ждёт отдельного клика «Разобрать MP4».
   const button = priceButtonFor(panel);
   if (copyScreen && button instanceof HTMLButtonElement && !state.busy) {
-    button.disabled = false;
+    const form = state.shell?.closest?.("form");
+    button.disabled = expressPaidAuthorityLocked(form);
   }
 }
 
@@ -2104,7 +3817,39 @@ async function sha256Hex(blob) {
     .join("");
 }
 
+// Browser `accept` is only a chooser hint and can be bypassed by drag/drop or
+// automation. The kind↔MIME contract therefore runs again immediately before
+// upload and registration. A mismatch throws before apiRuntime, Storage or RPC
+// are touched and carries enough safe detail for an exact operator message.
+function assertMediaKindMime(file, kind) {
+  const contract = MEDIA_KIND_MIME_CONTRACT[String(kind || "")];
+  const mime = String(file?.type || "").trim().toLowerCase();
+  if (
+    contract
+    && file instanceof File
+    && contract.allowed.has(mime)
+  ) return true;
+  const failure = new Error("media_kind_mime_mismatch");
+  failure.filename = cleanText(file?.name, 120) || "файл без имени";
+  failure.mime = cleanText(mime, 120) || "MIME не указан";
+  failure.expectedClass = contract?.expected || "поддерживаемый медиакласс";
+  failure.kind = String(kind || "");
+  throw failure;
+}
+
+function mediaKindMimeMismatchMessage(error, fallbackFilename = "") {
+  const filename = cleanText(
+    error?.filename || fallbackFilename,
+    120,
+  ) || "файл без имени";
+  const expected = cleanText(error?.expectedClass, 120)
+    || "поддерживаемый медиакласс";
+  const received = cleanText(error?.mime, 120) || "MIME не указан";
+  return `«${filename}» не принят: ожидалось ${expected}, получено ${received}. Файл не загружен и не зарегистрирован.`;
+}
+
 async function assertImage(file) {
+  assertMediaKindMime(file, "product_photo");
   if (!(file instanceof File) || file.size < 32) throw new Error("image_required");
   if (file.size > MAX_IMAGE_BYTES) throw new Error("image_too_large");
   if (!PRODUCT_IMAGE_TYPES.has(String(file.type || "").toLowerCase())) {
@@ -2127,6 +3872,7 @@ async function assertImage(file) {
 }
 
 async function assertMp4(file, maximumDuration) {
+  assertMediaKindMime(file, "source_video");
   if (!(file instanceof File) || file.size < 32) throw new Error("mp4_required");
   if (file.size > MAX_MP4_BYTES) throw new Error("mp4_too_large");
   const head = new Uint8Array(await file.slice(0, 64).arrayBuffer());
@@ -2436,6 +4182,7 @@ async function registerUploadedMedia(
   sha256,
   productIdentity = null,
 ) {
+  assertMediaKindMime(file, kind);
   if (typeof api.registerMedia !== "function") {
     throw new Error("register_media_unavailable");
   }
@@ -2456,7 +4203,40 @@ async function registerUploadedMedia(
   return mediaId;
 }
 
+// Приложенный человеком кадр регистрируется тем же creator_reference, что и
+// кадр раскадровки: дальше по конвейеру между ними разницы нет, и спецификация
+// получает ровно тот же вид ассета.
+async function registerCopyOriginalFrame(state, file) {
+  const panel = panelFor(state, "copy_video");
+  const slot = panel ? q("[data-generation-intake-original-frame]", panel) : null;
+  const status = slot
+    ? q("[data-generation-intake-original-frame-status]", slot)
+    : null;
+  if (status) status.textContent = "Загружаем кадр исходного товара…";
+  try {
+    const mediaId = await uploadProjectMedia(file, "creator_reference");
+    state.routes.copy_video = {
+      ...state.routes.copy_video,
+      originalFrameMediaId: mediaId,
+    };
+    if (status) {
+      status.textContent =
+        `Кадр принят: ${file.name}. Нажмите «Подготовить ролик».`;
+    }
+  } catch (error) {
+    if (status) {
+      status.textContent = error?.message === "media_kind_mime_mismatch"
+        ? mediaKindMimeMismatchMessage(error, file?.name)
+        : "Кадр не загрузился. Попробуйте ещё раз или выберите другой файл.";
+    }
+    console.warn("Original product frame upload failed", error);
+  }
+}
+
 async function uploadProjectMedia(file, kind, productIdentity = null) {
+  // Must precede apiRuntime/object-key/hash work: a cross-kind file performs
+  // zero upload and zero registration calls.
+  assertMediaKindMime(file, kind);
   const api = await apiRuntime();
   if (typeof api.uploadPrivateObject !== "function") {
     throw new Error("private_upload_unavailable");
@@ -2485,7 +4265,112 @@ async function uploadProjectMedia(file, kind, productIdentity = null) {
 }
 
 function panelFor(state, route) {
+  if (!state?.shell) return null;
   return q(`[data-generation-intake-panel="${CSS.escape(route)}"]`, state.shell);
+}
+
+function routeBusyActionButtons(state, route, action) {
+  const panel = panelFor(state, route);
+  const actionButtons = action
+    ? qa(`[data-action="${CSS.escape(action)}"]`, panel)
+    : [];
+  return [
+    ...actionButtons,
+    ...qa("[data-generation-intake-route]", state.shell),
+  ].filter((button) => button instanceof HTMLButtonElement);
+}
+
+function lockBusyButton(button) {
+  if (button.dataset.generationIntakeBusyManaged !== "true") {
+    button.dataset.generationIntakeBusyPreviousDisabled = String(button.disabled);
+    button.dataset.generationIntakeBusyPreviousAriaDisabled =
+      button.getAttribute("aria-disabled") ?? "__missing__";
+    button.dataset.generationIntakeBusyManaged = "true";
+  }
+  button.disabled = true;
+  button.setAttribute("aria-disabled", "true");
+}
+
+function unlockBusyButton(button) {
+  if (button.dataset.generationIntakeBusyManaged !== "true") return;
+  button.disabled = button.dataset.generationIntakeBusyPreviousDisabled === "true";
+  const previousAriaDisabled =
+    button.dataset.generationIntakeBusyPreviousAriaDisabled;
+  if (previousAriaDisabled === "__missing__") button.removeAttribute("aria-disabled");
+  else button.setAttribute("aria-disabled", previousAriaDisabled || "false");
+  delete button.dataset.generationIntakeBusyPreviousDisabled;
+  delete button.dataset.generationIntakeBusyPreviousAriaDisabled;
+  delete button.dataset.generationIntakeBusyManaged;
+}
+
+function syncRouteBusyUi(state) {
+  if (!state?.shell) return;
+  const busy = state.busy === true;
+  const route = BRIEF_ROUTES.includes(state.busyRoute)
+    ? state.busyRoute
+    : state.route;
+  qa("[data-generation-intake-panel]", state.shell).forEach((panel) => {
+    const active = busy && panel.dataset.generationIntakePanel === route;
+    if (active) panel.setAttribute("aria-busy", "true");
+    else panel.removeAttribute("aria-busy");
+  });
+  if (busy) {
+    state.shell.setAttribute("aria-busy", "true");
+    state.shell.dataset.generationIntakeBusyRoute = route;
+    routeBusyActionButtons(state, route, state.busyAction).forEach(lockBusyButton);
+    return;
+  }
+  state.shell.removeAttribute("aria-busy");
+  delete state.shell.dataset.generationIntakeBusyRoute;
+  qa('[data-generation-intake-busy-managed="true"]', state.shell)
+    .forEach(unlockBusyButton);
+}
+
+function reportRouteBusy(state, requestedRoute = state?.route) {
+  if (!state) return false;
+  syncRouteBusyUi(state);
+  const runningRoute = BRIEF_ROUTES.includes(state.busyRoute)
+    ? state.busyRoute
+    : requestedRoute;
+  const panel = panelFor(state, runningRoute) || panelFor(state, requestedRoute);
+  if (panel) {
+    setStatus(
+      panel,
+      "Операция уже выполняется. Дождитесь её завершения — повторный запуск заблокирован.",
+      "busy",
+    );
+  }
+  return false;
+}
+
+function beginRouteBusy(state, route, action, message) {
+  if (!state) return false;
+  if (state.busy) return reportRouteBusy(state, route);
+  state.busy = true;
+  state.busyRoute = route;
+  state.busyAction = action;
+  syncRouteBusyUi(state);
+  const panel = panelFor(state, route);
+  if (panel && message) setStatus(panel, message, "busy");
+  return true;
+}
+
+function adoptRouteBusy(state, route = "copy_video", action = "generation-intake-prepare-copy") {
+  if (!state) return false;
+  state.busy = true;
+  state.busyRoute = route;
+  state.busyAction = action;
+  syncRouteBusyUi(state);
+  return true;
+}
+
+function finishRouteBusy(state) {
+  if (!state) return;
+  state.busy = false;
+  state.busyRoute = "";
+  state.busyAction = "";
+  syncRouteBusyUi(state);
+  if (state.route === "copy_video") syncExpressPriceButton(state);
 }
 
 function currentSourceUrl(panel) {
@@ -2500,8 +4385,159 @@ function currentAvatarWishes(panel) {
   return cleanText(q('[data-generation-intake-field="avatar_wishes"]', panel)?.value, 1_200);
 }
 
+function briefDatasetSnapshot(dataset, keys) {
+  return Object.fromEntries(
+    keys
+      .filter((key) => dataset && Object.hasOwn(dataset, key))
+      .map((key) => [key, String(dataset[key] || "")]),
+  );
+}
+
+function restoreBriefDataset(dataset, keys, snapshot = {}) {
+  if (!dataset) return;
+  keys.forEach((key) => {
+    if (Object.hasOwn(snapshot, key)) dataset[key] = String(snapshot[key] || "");
+    else delete dataset[key];
+  });
+}
+
+function blankBriefDraft() {
+  return {
+    value: "",
+    controlDataset: {},
+    formDataset: {},
+  };
+}
+
+function readBriefDraft(form, brief) {
+  if (!(brief instanceof HTMLTextAreaElement)) return blankBriefDraft();
+  return {
+    // Не trim и не slice: переключение маршрута не имеет права незаметно
+    // переписать пользовательский черновик. Ограничения проверяются штатным
+    // preflight каждого маршрута.
+    value: String(brief.value || ""),
+    controlDataset: briefDatasetSnapshot(
+      brief.dataset,
+      BRIEF_CONTROL_DATASET_KEYS,
+    ),
+    formDataset: briefDatasetSnapshot(
+      form?.dataset,
+      BRIEF_FORM_DATASET_KEYS,
+    ),
+  };
+}
+
+function cloneBriefDraft(draft) {
+  return {
+    value: String(draft?.value || ""),
+    controlDataset: { ...(draft?.controlDataset || {}) },
+    formDataset: { ...(draft?.formDataset || {}) },
+  };
+}
+
+function cloneRouteBriefDrafts(drafts = {}) {
+  return Object.fromEntries(BRIEF_ROUTES.map((route) => [
+    route,
+    cloneBriefDraft(drafts[route]),
+  ]));
+}
+
+function routeBriefDraftMemoryKey() {
+  return projectId() || "unscoped-project";
+}
+
+function declaredBriefRoute(form) {
+  const route = String(
+    form?.dataset?.generationIntakeV4Route
+      || form?.elements?.generation_intake_route?.value
+      || "",
+  );
+  return BRIEF_ROUTES.includes(route) ? route : "copy_video";
+}
+
+function initialRouteBriefDrafts(form, brief) {
+  const key = routeBriefDraftMemoryKey();
+  const saved = routeBriefDraftsMemory.get(key);
+  if (saved) return cloneRouteBriefDrafts(saved);
+  const drafts = cloneRouteBriefDrafts();
+  const owner = declaredBriefRoute(form);
+  drafts[owner] = readBriefDraft(form, brief);
+  routeBriefDraftsMemory.set(key, cloneRouteBriefDrafts(drafts));
+  return drafts;
+}
+
+function rememberRouteBriefDrafts(state) {
+  if (!state?.briefDrafts) return;
+  routeBriefDraftsMemory.set(
+    state.briefDraftMemoryKey || routeBriefDraftMemoryKey(),
+    cloneRouteBriefDrafts(state.briefDrafts),
+  );
+}
+
+function captureBriefDraft(form, state, route = state?.briefRoute || state?.route) {
+  if (!state || !BRIEF_ROUTES.includes(route)) return false;
+  const brief = form?.elements?.brief;
+  if (!(brief instanceof HTMLTextAreaElement)) return false;
+  state.briefDrafts[route] = readBriefDraft(form, brief);
+  state.briefRoute = route;
+  rememberRouteBriefDrafts(state);
+  return true;
+}
+
+function restoreBriefDraft(form, state, route) {
+  if (!state || !BRIEF_ROUTES.includes(route)) return false;
+  const brief = form?.elements?.brief;
+  if (!(brief instanceof HTMLTextAreaElement)) return false;
+  const draft = cloneBriefDraft(state.briefDrafts?.[route]);
+  state.briefDrafts[route] = draft;
+  brief.value = draft.value;
+  restoreBriefDataset(
+    brief.dataset,
+    BRIEF_CONTROL_DATASET_KEYS,
+    draft.controlDataset,
+  );
+  restoreBriefDataset(
+    form.dataset,
+    BRIEF_FORM_DATASET_KEYS,
+    draft.formDataset,
+  );
+  // app.js keeps this exact mirror for spec fingerprints and draft recovery.
+  // Update it without a synthetic input event: a route switch is not a human
+  // edit and must not forge `researchRecommendationEdited` in the AI Centre.
+  form.dataset.generationScenarioIntent = draft.value.trim().slice(0, 1_200);
+  delete form.dataset.autoGenerationPreflightKey;
+  state.briefRoute = route;
+  return true;
+}
+
+function scheduleBriefDraftCapture(form, state) {
+  queueMicrotask(() => {
+    if (!formStates.has(form) || formStates.get(form) !== state) return;
+    captureBriefDraft(form, state);
+  });
+}
+
 function currentRecommendation(form) {
   return cleanText(form.elements?.brief?.value, 1_200);
+}
+
+function markBriefAsOperatorOwned(form, brief) {
+  if (!form?.dataset || !brief?.dataset) return;
+  delete brief.dataset.researchRecommendationApplied;
+  delete brief.dataset.researchRecommendationField;
+  delete brief.dataset.researchRecommendationEdited;
+  brief.dataset.generationIntakeOperatorOwned = "true";
+  const remainingAppliedFields = String(
+    form.dataset.researchRecommendationAppliedFields || "",
+  )
+    .split(",")
+    .map((field) => field.trim())
+    .filter((field) => field && field !== "brief");
+  if (remainingAppliedFields.length) {
+    form.dataset.researchRecommendationAppliedFields = remainingAppliedFields.join(",");
+  } else {
+    delete form.dataset.researchRecommendationAppliedFields;
+  }
 }
 
 function recommendationSource(form) {
@@ -2510,6 +4546,8 @@ function recommendationSource(form) {
   const verified = form.dataset.researchRecommendationVerificationState === "verified";
   const applied = Boolean(brief?.dataset?.researchRecommendationApplied);
   const edited = brief?.dataset?.researchRecommendationEdited === "true";
+  const operatorOwned = brief?.dataset?.generationIntakeOperatorOwned === "true";
+  if (operatorOwned && !applied) return currentRecommendation(form) ? "operator" : "empty";
   if (active && verified && applied) return edited ? "ai_center_edited" : "ai_center";
   if (active || applied) return "ai_center_unverified";
   return currentRecommendation(form) ? "operator" : "empty";
@@ -2600,10 +4638,13 @@ function setNodeText(node, value) {
 
 function refreshRecommendationUi(form, state) {
   const route = state.route;
-  if (!DEFAULT_RECOMMENDATIONS[route]) return;
+  if (!DEFAULT_BRIEF_TEMPLATES[route]) return;
   moveSharedBrief(form, state, route);
   const brief = form.elements?.brief;
   if (!(brief instanceof HTMLTextAreaElement)) return;
+  if (brief.dataset.researchRecommendationApplied) {
+    delete brief.dataset.generationIntakeOperatorOwned;
+  }
   const label = q("#generation-brief-label", state.briefField);
   const hint = q("#generation-brief-hint", state.briefField);
   if (label) {
@@ -2617,10 +4658,12 @@ function refreshRecommendationUi(form, state) {
       "Это единый редактируемый замысел проекта. Проверенная рекомендация ИИ‑центра появляется здесь же и не перезаписывает ваши правки.",
     );
   }
-  brief.placeholder = "Напишите свою рекомендацию или примените базовый вариант ниже.";
+  brief.placeholder = "Напишите инструкцию своими словами или вставьте базовый шаблон ниже.";
   brief.maxLength = BRIEF_LIMIT;
   const value = String(brief.value || "");
   const source = recommendationSource(form);
+  const isUneditedBaseTemplate = source === "operator"
+    && value === DEFAULT_BRIEF_TEMPLATES[route];
   const badge = q(
     `[data-generation-intake-recommendation="${CSS.escape(route)}"] [data-generation-intake-recommendation-source]`,
     state.shell,
@@ -2633,9 +4676,11 @@ function refreshRecommendationUi(form, state) {
         ? "ИИ‑центр + ваша правка"
         : source === "ai_center_unverified"
           ? "ИИ‑черновик требует проверки"
-          : value
-            ? "Ваш текст"
-            : "Базовая рекомендация");
+          : isUneditedBaseTemplate
+            ? "Базовый шаблон · проверьте"
+            : value
+              ? "Ваш текст"
+              : "Базовый шаблон");
   }
   const fallback = q(
     `[data-generation-intake-recommendation-fallback="${CSS.escape(route)}"]`,
@@ -2680,13 +4725,13 @@ function setPanelControlsActive(panel, active) {
   }
 }
 
-function clearSpendConfirmation(form) {
+function clearSpendConfirmation(form, { notify = true } = {}) {
   const confirmation = form.elements?.real_spend_confirmation;
   if (!(confirmation instanceof HTMLInputElement)) return;
   const changed = confirmation.checked || Boolean(confirmation.value);
   confirmation.checked = false;
   confirmation.value = "";
-  if (changed) {
+  if (changed && notify) {
     confirmation.dispatchEvent(new Event("input", { bubbles: true }));
     confirmation.dispatchEvent(new Event("change", { bubbles: true }));
   }
@@ -2771,28 +4816,205 @@ function approvePendingSpecVersions(form) {
   });
 }
 
-// Кампания выбирается автоматически: единственная или последняя активная.
-// Если активных кампаний нет — честное сообщение со ссылкой на создание.
-function autoSelectCampaign(form, panel) {
-  const note = q("[data-generation-intake-campaign-note]", panel);
-  const campaign = form.elements?.campaign_id;
+function normalizedCampaignId(value) {
+  const id = String(value || "").trim().toLowerCase();
+  return UUID_PATTERN.test(id) ? id : "";
+}
+
+function availableCampaignOptions(form) {
+  const campaign = form?.elements?.campaign_id;
   const options = campaign instanceof HTMLSelectElement
     ? [...campaign.options].filter((option) => (
-      UUID_PATTERN.test(String(option.value || "").trim().toLowerCase())
+      Boolean(normalizedCampaignId(option.value)) && !option.disabled
     ))
     : [];
-  if (!options.length) {
-    if (note instanceof HTMLElement) note.hidden = false;
-    return "";
+  return { campaign, options };
+}
+
+// `campaign_explicit` distinguishes a human choice from a safe initial
+// default.  If an explicit campaign disappears or is disabled, falling back
+// to another valid budget would silently charge the wrong campaign; that case
+// must remain unresolved until the person chooses again.  A fallback is only
+// allowed when there has never been a human campaign choice.
+function resolveExpressCampaign(form) {
+  const { campaign, options } = availableCampaignOptions(form);
+  const saved = expressDefaultsMemory.get(projectId()) || {};
+  const explicit = saved.campaign_explicit === true;
+  const savedId = normalizedCampaignId(saved.campaign_id);
+  const currentId = normalizedCampaignId(campaign?.value);
+  const optionById = new Map(options.map((option) => [
+    normalizedCampaignId(option.value),
+    option,
+  ]));
+  let target = null;
+  if (explicit) {
+    target = optionById.get(savedId) || null;
+  } else {
+    target = optionById.get(savedId)
+      || optionById.get(currentId)
+      || options[options.length - 1]
+      || null;
   }
-  if (note instanceof HTMLElement) note.hidden = true;
-  const target = options[options.length - 1];
-  if (campaign.value !== target.value) {
-    campaign.value = target.value;
-    campaign.dispatchEvent(new Event("input", { bubbles: true }));
-    campaign.dispatchEvent(new Event("change", { bubbles: true }));
+  return {
+    campaign,
+    options,
+    id: normalizedCampaignId(target?.value),
+    explicit,
+    invalidExplicit: explicit && !target,
+  };
+}
+
+function rememberExpressCampaign(id, { explicit }) {
+  const key = projectId();
+  const previous = expressDefaultsMemory.get(key) || {};
+  expressDefaultsMemory.set(key, {
+    ...previous,
+    campaign_id: normalizedCampaignId(id),
+    campaign_explicit: explicit === true,
+  });
+}
+
+function setCampaignNote(panel, resolution) {
+  const note = q("[data-generation-intake-campaign-note]", panel);
+  const message = q("[data-generation-intake-campaign-note-text]", panel);
+  if (message) {
+    setNodeText(
+      message,
+      resolution.invalidExplicit
+        ? "Выбранная кампания стала недоступна. Выберите другую активную кампанию выше или "
+        : "В проекте нет активной кампании, поэтому платный запуск честно невозможен. ",
+    );
   }
-  return String(target.value).trim().toLowerCase();
+  if (note instanceof HTMLElement) {
+    note.hidden = Boolean(resolution.id) || (
+      !resolution.invalidExplicit && resolution.options.length > 0
+    );
+  }
+}
+
+// Rebuild the visible compact mirror from the native campaign catalog.  The
+// native `campaign_id` remains the only field submitted to app.js; the mirror
+// merely lets the person make that exact choice before price/preflight.
+function syncCompactCampaignControl(form, state) {
+  const panel = state ? panelFor(state, "copy_video") : null;
+  const mirror = panel
+    ? q("[data-generation-intake-campaign-select]", panel)
+    : null;
+  const hint = panel
+    ? q("[data-generation-intake-campaign-hint]", panel)
+    : null;
+  const resolution = resolveExpressCampaign(form);
+  if (resolution.campaign instanceof HTMLSelectElement) {
+    // Restoring the same human choice after a render is not a change and stays
+    // event-free — that was the original intent here. But when the resolver
+    // lands on a DIFFERENT campaign (the previous one became unavailable and the
+    // selection falls back to empty), the paid context really did change, and
+    // the spend confirmation has to see it. assignPaidContextValue keeps both:
+    // silent on restore, loud on an actual change.
+    assignPaidContextValue(resolution.campaign, resolution.id);
+  }
+  setCampaignNote(panel, resolution);
+  if (!(mirror instanceof HTMLSelectElement)) return resolution;
+
+  const options = [];
+  if (!resolution.options.length) {
+    options.push(new Option("Нет активной кампании", ""));
+  } else if (resolution.invalidExplicit) {
+    options.push(new Option(
+      "Ранее выбранная кампания недоступна — выберите другую",
+      "",
+    ));
+  }
+  resolution.options.forEach((option) => {
+    options.push(new Option(
+      cleanText(option.textContent || option.text || "Кампания", 180),
+      normalizedCampaignId(option.value),
+    ));
+  });
+  // This function is called from mount(), while the intake observer watches
+  // childList mutations across the whole document. Replacing identical option
+  // nodes on every mount would therefore schedule another mount forever and
+  // eventually crash the browser renderer. Reconcile only when the catalogue
+  // really changed; keeping the current nodes also preserves the live choice.
+  const optionsUnchanged = mirror.options.length === options.length
+    && options.every((option, index) => {
+      const current = mirror.options[index];
+      return current?.value === option.value
+        && String(current?.textContent || current?.text || "") === option.text
+        && current?.disabled === option.disabled;
+    });
+  if (!optionsUnchanged) mirror.replaceChildren(...options);
+  mirror.value = resolution.id;
+  mirror.disabled = !resolution.options.length
+    || expressPaidAuthorityLocked(form);
+  mirror.dataset.selectionState = resolution.invalidExplicit
+    ? "invalid"
+    : resolution.explicit
+      ? "explicit"
+      : "default";
+  if (hint) {
+    setNodeText(
+      hint,
+      resolution.invalidExplicit
+        ? "Выбранная кампания больше не активна. Цена, токен и подтверждение списания недействительны — выберите другую кампанию."
+        : resolution.id
+          ? "Именно эта кампания будет сверена ещё раз перед платным запуском. Её смена потребует новой бесплатной цены."
+          : "Создайте или включите кампанию. Бесплатную подготовку можно продолжить, но платный запуск останется заблокирован.",
+    );
+  }
+  if (
+    state?.express?.phase === "priced"
+    && state.express.campaign_id !== resolution.id
+  ) {
+    invalidateExpressPriceForCommittedInput(form, state, mirror);
+  }
+  return resolution;
+}
+
+function commitCompactCampaignSelection(form, state, mirror) {
+  if (!(mirror instanceof HTMLSelectElement)) return "";
+  const requestedId = normalizedCampaignId(mirror.value);
+  const { campaign, options } = availableCampaignOptions(form);
+  const accepted = options.some(
+    (option) => normalizedCampaignId(option.value) === requestedId,
+  ) ? requestedId : "";
+  // Even a malformed/now-stale choice is remembered as explicit-empty: this
+  // prevents a concurrent render from substituting a different valid budget.
+  rememberExpressCampaign(accepted, { explicit: true });
+  invalidateExpressPriceForCommittedInput(form, state, mirror);
+  if (campaign instanceof HTMLSelectElement) {
+    const changed = campaign.value !== accepted;
+    campaign.value = accepted;
+    if (changed) {
+      campaign.dataset.generationIntakeCampaignMirrorSync = "true";
+      campaign.dispatchEvent(new Event("input", { bubbles: true }));
+      campaign.dispatchEvent(new Event("change", { bubbles: true }));
+      delete campaign.dataset.generationIntakeCampaignMirrorSync;
+    }
+  }
+  syncCompactCampaignControl(form, state);
+  return accepted;
+}
+
+// Resolve the exact live choice. An explicit invalid choice fails closed;
+// only a never-chosen/default context may adopt a valid fallback.
+function autoSelectCampaign(form, panel, state = null) {
+  const resolution = syncCompactCampaignControl(form, state);
+  setCampaignNote(panel, resolution);
+  if (!resolution.id) return "";
+  if (!resolution.explicit) {
+    rememberExpressCampaign(resolution.id, { explicit: false });
+  }
+  return resolution.id;
+}
+
+function expressCampaignMatchesPrice(form, express, campaignId) {
+  const campaign = form?.elements?.campaign_id;
+  return campaign instanceof HTMLSelectElement
+    && !campaign.disabled
+    && Boolean(campaignId)
+    && normalizedCampaignId(campaign.value) === campaignId
+    && normalizedCampaignId(express?.campaign_id) === campaignId;
 }
 
 function serverPriceLabel(form) {
@@ -2817,6 +5039,33 @@ function liveGenerationForm(form) {
   return live instanceof HTMLFormElement ? live : form;
 }
 
+// Любой await внутри handoff/preflight может совпасть с patch-render app.js.
+// В таком случае старые form/state/panel остаются валидными JS-объектами, но
+// уже не управляют видимой кнопкой. Контекст принимается только от живой формы;
+// fallback разрешён лишь пока объект формы действительно тот же самый.
+function liveCopyLaunchContext(
+  initialForm,
+  fallbackState = null,
+  fallbackPanel = null,
+  {
+    busy = false,
+    busyRoute = "copy_video",
+    busyAction = "generation-intake-prepare-copy",
+  } = {},
+) {
+  const form = liveGenerationForm(initialForm);
+  if (!formStates.has(form)) mount(form);
+  const state = formStates.get(form)
+    || (form === initialForm ? fallbackState : null);
+  const panel = state
+    ? panelFor(state, "copy_video")
+    : form === initialForm
+    ? fallbackPanel
+    : null;
+  if (busy && state) adoptRouteBusy(state, busyRoute, busyAction);
+  return { form, state, panel };
+}
+
 // Отпечаток видимого состояния мастера. Пока он меняется, бесплатная проверка
 // движется; замерший отпечаток при нажатой кнопке означает, что клики уходят
 // в никуда.
@@ -2839,15 +5088,81 @@ async function driveStrategyPreflight(initialForm, panel) {
   const deadline = Date.now() + EXPRESS_PREFLIGHT_TIMEOUT_MS;
   let blockedPolls = 0;
   let stalledPolls = 0;
+  let attestationRenderPolls = 0;
+  let durationControlPolls = 0;
   let lastSignature = "";
   let lastReportedStep = "";
   while (Date.now() < deadline) {
-    const form = liveGenerationForm(initialForm);
+    // Preflight сам перерисовывает guided-мастер. Каждая новая compact-shell
+    // сразу наследует busy=true: второй клик «Подготовить ролик» не может
+    // запустить параллельную подготовку на новом state.
+    const context = liveCopyLaunchContext(
+      initialForm,
+      null,
+      panel,
+      { busy: true },
+    );
+    const { form } = context;
+    if (!context.state || !context.panel) {
+      throw new Error("express_live_context_missing");
+    }
     const submitButton = q("#generation-submit", form);
     if (!(submitButton instanceof HTMLButtonElement)) {
       throw new Error("express_submit_missing");
     }
+    // У свежего локального MP4 handoff ещё не знает серверную длительность:
+    // она появляется только после бесплатной probe-кнопки ниже. Как только
+    // guided вернул этот факт, заменяем catalog default ДО любой spec/preflight
+    // кнопки и ждём новый render. Цена за 10 с никогда не может пережить
+    // серверно подтверждённый исходник длиной 5 с.
+    const sourceDuration = verifiedSourceDurationSeconds(form);
+    // Native setFormBusy временно disabled все контролы, включая уже принятые
+    // 5 секунд. Busy — это ожидание текущей бесплатной операции, а не отказ
+    // длительности; до любых disabled/readiness выводов ждём её завершения.
+    if (form.dataset.busy === "true") {
+      blockedPolls = 0;
+      stalledPolls = 0;
+      await waitMs(EXPRESS_POLL_INTERVAL_MS);
+      continue;
+    }
+    if (sourceDuration !== null) {
+      const durationControl = wizardDurationControl(form);
+      // input/change может синхронно patch-render'ить форму. Точный value на
+      // временно disabled контроле уже является корректным состоянием: disabled
+      // здесь означает native busy, а не отказ принять длительность. Если же
+      // нового контрола ещё нет или его value пока старый и он заблокирован,
+      // ждём bounded число опросов вместо ошибки по detached DOM.
+      const durationMatches = durationControl?.value === String(sourceDuration);
+      if (!durationControl || (!durationMatches && durationControl.disabled)) {
+        durationControlPolls += 1;
+        if (durationControlPolls >= EXPRESS_BLOCKED_POLL_LIMIT) {
+          throw new Error("express_source_duration_unavailable");
+        }
+        await waitMs(EXPRESS_POLL_INTERVAL_MS);
+        continue;
+      }
+      durationControlPolls = 0;
+      if (!durationMatches) {
+        const window = wizardDurationWindow(form);
+        if (sourceDuration < window.min || sourceDuration > window.max) {
+          throw new Error("express_source_duration_incompatible");
+        }
+        applyCopyDuration(form, sourceDuration);
+        setStatus(
+          context.panel,
+          `Сервер измерил исходник: ${sourceDuration} с. Пересчитываем ТЗ и цену именно для этой длительности…`,
+          "busy",
+        );
+        await waitMs(EXPRESS_POLL_INTERVAL_MS);
+        continue;
+      }
+    }
     if (form.dataset.generationStrategyConfirmationReady === "true") {
+      if (sourceDuration === null) {
+        // Даже если stale DOM сохранил readiness от прежнего ролика, платная
+        // цена без длительности exact выбранного MP4 не принимается.
+        throw new Error("express_source_duration_unverified");
+      }
       return serverPriceLabel(form);
     }
     const signature = preflightSignature(form, submitButton);
@@ -2855,18 +5170,29 @@ async function driveStrategyPreflight(initialForm, panel) {
       stalledPolls = 0;
       lastSignature = signature;
     }
-    if (form.dataset.busy === "true") {
-      blockedPolls = 0;
-      stalledPolls = 0;
-      await waitMs(EXPRESS_POLL_INTERVAL_MS);
-      continue;
-    }
-    const missingAttestations = applyConsolidatedRights(form, panel);
+    const rightsPanel = context.panel;
+    const missingAttestations = applyConsolidatedRights(form, rightsPanel);
     if (missingAttestations.length) {
+      attestationRenderPolls += 1;
+      if (attestationRenderPolls < EXPRESS_ATTESTATION_RENDER_POLL_LIMIT) {
+        // Каталог мог завершить загрузку уже после openNativeLaunch. Повторно
+        // нажимаем только безопасный SELECT стратегии; платный submit здесь не
+        // трогаем. Как только guided создаст реальные четыре checkbox, обычный
+        // applyConsolidatedRights поставит их через change-события.
+        selectStrategy(form, COPY_AUTHORITY_STRATEGY);
+        setStatus(
+          rightsPanel,
+          "Подключаем нативные подтверждения прав… Провайдер не запускается и деньги не списываются.",
+          "busy",
+        );
+        await waitMs(EXPRESS_POLL_INTERVAL_MS);
+        continue;
+      }
       const failure = new Error("express_attestations_unavailable");
       failure.missingAttestations = missingAttestations;
       throw failure;
     }
+    attestationRenderPolls = 0;
     approvePendingSpecVersions(form);
     applyAutoOutputDefaults(form);
     const probe = q('[data-action="probe-generation-strategy-media"]', form);
@@ -2877,7 +5203,7 @@ async function driveStrategyPreflight(initialForm, panel) {
     if (step && step !== lastReportedStep) {
       lastReportedStep = step;
       setStatus(
-        panel,
+        rightsPanel,
         `Бесплатная проверка идёт: «${step}». Провайдер не запускается и деньги не списываются…`,
         "busy",
       );
@@ -2931,26 +5257,72 @@ function priceButtonFor(panel) {
   return q('[data-action="generation-intake-prepare-copy"]', panel);
 }
 
+function expressPaidAuthorityLocked(form) {
+  if (!form) return false;
+  if (form?.dataset?.generationStrategyPaidLocked === "true") return true;
+  const nativeSubmit = q("#generation-submit", form);
+  return nativeSubmit?.dataset?.launchPhase ===
+    "strategy_product_swap_paid_locked";
+}
+
 // Двухфазная кнопка: «Показать цену» после бесплатного preflight превращается
 // в «Запустить за $X». Платный старт происходит только по этому явному клику.
 function syncExpressPriceButton(state) {
   const panel = panelFor(state, "copy_video");
   const button = panel ? priceButtonFor(panel) : null;
   if (!(button instanceof HTMLButtonElement)) return;
+  const form = state.shell?.closest?.("form");
+  const paidAuthorityLocked = expressPaidAuthorityLocked(form);
+  if (paidAuthorityLocked) {
+    if (button.dataset.expressPaidAuthorityLocked !== "true") {
+      button.dataset.expressDisabledBeforePaidLock = String(button.disabled);
+    }
+    button.dataset.expressPaidAuthorityLocked = "true";
+    button.dataset.expressPhase = "locked";
+    button.disabled = true;
+    button.title = "Одноразовая квитанция уже зарезервирована или использована. Создайте новый контекст и заново пройдите бесплатную проверку цены.";
+    state.express = {
+      ...state.express,
+      phase: "idle",
+      price: "",
+      spend_confirmation: "",
+      campaign_id: "",
+    };
+    setNodeText(button, "Этот запуск уже использован");
+    return;
+  }
+  if (button.dataset.expressPaidAuthorityLocked === "true") {
+    button.disabled = button.dataset.expressDisabledBeforePaidLock === "true";
+    delete button.dataset.expressPaidAuthorityLocked;
+    delete button.dataset.expressDisabledBeforePaidLock;
+    button.title = "";
+  }
   const priced = state.express?.phase === "priced" && state.express.price;
   button.dataset.expressPhase = priced ? "priced" : "idle";
+  // Replacement-shell starts with the prepare action disabled. Once the exact
+  // server price is present, finishing the busy phase must restore the explicit
+  // human launch click instead of leaving a silent, permanently disabled CTA.
+  if (priced && !state.busy) button.disabled = false;
   setNodeText(
     button,
     priced ? `Запустить за ${state.express.price}` : "Подготовить ролик",
   );
 }
 
-function setExpressPricePhase(state, price, spendConfirmation) {
+function setExpressPricePhase(
+  state,
+  price,
+  spendConfirmation,
+  campaignId = "",
+) {
   state.express = {
     ...state.express,
     phase: price ? "priced" : "idle",
     price: price || "",
     spend_confirmation: price ? String(spendConfirmation || "") : "",
+    campaign_id: price
+      ? String(campaignId || "").trim().toLowerCase()
+      : "",
   };
   syncExpressPriceButton(state);
 }
@@ -2960,16 +5332,168 @@ function resetExpressPrice(state) {
   setExpressPricePhase(state, "", "");
 }
 
+function resetExpressAuthorityForStrategyRepeat(form, state) {
+  setExpressPricePhase(state, "", "");
+  clearSpendConfirmation(form, { notify: false });
+  return syncCompactCampaignControl(form, state);
+}
+
+function resetExpressPriceStatus(form, state) {
+  const panel = panelFor(state, "copy_video");
+  const status = panel ? q("[data-generation-intake-status]", panel) : null;
+  const result = String(status?.dataset?.expressPriceResult || "");
+  if (!result || status?.dataset?.state === "error") return false;
+  const campaignMissing = result === "campaign_missing"
+    && !String(form?.elements?.campaign_id?.value || "").trim();
+  setStatus(
+    panel,
+    campaignMissing
+      ? "Параметры изменились, поэтому предыдущая цена больше не действует. Нажмите «Подготовить ролик» для новой бесплатной проверки. Для запуска по-прежнему нужна активная кампания."
+      : "Параметры изменились, поэтому предыдущая цена больше не действует. Нажмите «Подготовить ролик», чтобы бесплатно получить новую точную цену.",
+    campaignMissing ? "warning" : "neutral",
+  );
+  return true;
+}
+
+// Любое изменение exact paid-контекста делает прежнюю цену чужой. Compact
+// controls живут в своей sibling shell, native strategy/campaign controls — в
+// остальной форме; обе области перечислены намеренно. Чекбокс свежего
+// real_spend_confirmation исключён: он подтверждает уже рассчитанную цену, а
+// не меняет её контекст.
+function expressPaidContextInput(form, state, target) {
+  if (!target || target.name === "real_spend_confirmation") return false;
+  const panel = panelFor(state, "copy_video");
+  if (
+    panel?.contains?.(target)
+    && target.matches?.("input, select, textarea")
+  ) return true;
+  const name = String(target.name || "");
+  return name === "campaign_id"
+    || name === "media_id"
+    || name === "primary_media_id"
+    || name === "brief"
+    || name === "sku"
+    || name === "product_name"
+    || name === "product_category"
+    || name === "platform"
+    || name === "destination_ref"
+    || name === "generation_mode"
+    || name === "generation_intake_engine"
+    || ["generator", "quality", "duration"].some(
+      (part) => name === `generation_intake_${part}`,
+    )
+    || name.startsWith("generation_strategy_");
+}
+
+function invalidateExpressPriceForCommittedInput(form, state, target) {
+  if (!expressPaidContextInput(form, state, target)) return false;
+  const confirmation = form?.elements?.real_spend_confirmation;
+  const stale = state.express?.phase === "priced"
+    || Boolean(state.express?.price)
+    || Boolean(state.express?.spend_confirmation)
+    || Boolean(confirmation?.checked)
+    || Boolean(confirmation?.value);
+  if (stale) {
+    // Clear the compact authorization first so a synchronous native re-render
+    // cannot carry the old CTA forward, then remove its paired form token.
+    setExpressPricePhase(state, "", "");
+    // This runs inside the committed context event. Dispatching a nested
+    // confirmation event here could patch-render the form before the original
+    // engine/media/prompt event reaches the app; the original event will do the
+    // authoritative readiness invalidation itself.
+    clearSpendConfirmation(form, { notify: false });
+  }
+  const statusReset = resetExpressPriceStatus(form, state);
+  return stale || statusReset;
+}
+
 function rememberExpressDefaults(state) {
   const panel = panelFor(state, "copy_video");
   if (!panel) return;
-  expressDefaultsMemory.set(projectId(), {
+  const key = projectId();
+  const previous = expressDefaultsMemory.get(key) || {};
+  const liveCampaignId = normalizedCampaignId(
+    state.shell?.closest?.("form")?.elements?.campaign_id?.value,
+  );
+  expressDefaultsMemory.set(key, {
     audio: String(q('[data-generation-intake-field="audio"]', panel)?.value || ""),
     sku: String(identityInput(state, "sku")?.value || ""),
     product_name: String(identityInput(state, "product_name")?.value || ""),
     product_category: String(identityInput(state, "product_category")?.value || ""),
     rights: q('[data-generation-intake-rights="copy_video"]', panel)?.checked === true,
+    engine: String(
+      state.copyEngine?.modelId
+      || state.shell?.closest?.("form")?.elements?.generation_intake_engine?.value
+      || "",
+    ),
+    quality: String(state.copyEngine?.qualityCode || ""),
+    // Unrelated edits must not replace an explicit-but-temporarily-unavailable
+    // campaign with the native form's freshly rendered default.
+    campaign_id: previous.campaign_explicit === true
+      ? normalizedCampaignId(previous.campaign_id)
+      : liveCampaignId,
+    campaign_explicit: previous.campaign_explicit === true,
   });
+}
+
+// `input` испускается сразу после фактического переключения checkbox/radio и
+// раньше `change`. app.js может patch-render'ить форму между этими событиями;
+// поэтому именно здесь фиксируется уже совершённый человеческий выбор. Это не
+// ставит согласие само: pointerdown/click без checked input сюда не попадает.
+function captureExpressCommittedInput(form, state, target) {
+  const patch = {};
+  const rights = target?.closest?.('[data-generation-intake-rights="copy_video"]');
+  if (rights instanceof HTMLInputElement) patch.rights = rights.checked === true;
+  const engine = target?.closest?.(
+    '[data-generation-intake-choice-block="model"] input[type="radio"]',
+  );
+  if (engine instanceof HTMLInputElement && engine.checked) {
+    patch.engine = String(engine.value || "");
+    patch.quality = "";
+    state.copyEngine = {
+      ...(state.copyEngine || {}),
+      modelId: patch.engine,
+      qualityCode: "",
+      durationNotice: "",
+      // Человек выбрал сам: совет ИИ-центра больше не перекрывает этот выбор,
+      // пока человек не выберет снова.
+      humanChoice: true,
+    };
+  }
+  const quality = target?.closest?.(
+    '[data-generation-intake-choice-block="quality"] input[type="radio"]',
+  );
+  if (quality instanceof HTMLInputElement && quality.checked) {
+    patch.quality = String(quality.value || "");
+    state.copyEngine = {
+      ...(state.copyEngine || {}),
+      qualityCode: patch.quality,
+      durationNotice: "",
+    };
+  }
+  if (target === form?.elements?.campaign_id) {
+    const previous = expressDefaultsMemory.get(projectId()) || {};
+    patch.campaign_id = String(target.value || "").trim().toLowerCase();
+    patch.campaign_explicit = previous.campaign_explicit === true
+      || target?.isTrusted === true;
+  }
+  const compactCampaign = target?.closest?.(
+    "[data-generation-intake-campaign-select]",
+  );
+  if (
+    compactCampaign
+    && compactCampaign.dataset?.generationIntakeCampaignSelect !== undefined
+  ) {
+    patch.campaign_id = String(compactCampaign.value || "").trim().toLowerCase();
+    patch.campaign_explicit = true;
+  }
+  if (!Object.keys(patch).length) return false;
+  const key = projectId();
+  expressDefaultsMemory.set(key, {
+    ...(expressDefaultsMemory.get(key) || {}),
+    ...patch,
+  });
+  return true;
 }
 
 function applyExpressDefaults(form, state) {
@@ -2987,6 +5511,33 @@ function applyExpressDefaults(form, state) {
     audio.value = saved?.audio === "true" ? "true" : "false";
   }
   if (!saved) return;
+  if (saved.engine) {
+    state.copyEngine = {
+      ...(state.copyEngine || {}),
+      modelId: saved.engine,
+      qualityCode: saved.quality || "",
+      durationNotice: "",
+      humanChoice: true,
+    };
+    assignPaidContextValue(
+      form.elements?.generation_intake_engine,
+      saved.engine,
+    );
+  }
+  const campaign = form.elements?.campaign_id;
+  if (
+    campaign instanceof HTMLSelectElement
+    && (saved.campaign_id || saved.campaign_explicit === true)
+  ) {
+    const option = [...campaign.options].find((candidate) => (
+      candidate.value === saved.campaign_id && !candidate.disabled
+    ));
+    // Восстановление того же выбора событий не даёт, а вот подстановка другой
+    // кампании (или сброс в пустую, когда прежняя стала недоступна) — это смена
+    // платного контекста, и подтверждение траты обязано её увидеть.
+    if (option) assignPaidContextValue(campaign, option.value);
+    else if (saved.campaign_explicit === true) assignPaidContextValue(campaign, "");
+  }
   [
     ["sku", saved.sku],
     ["product_name", saved.product_name],
@@ -3008,23 +5559,17 @@ function applyExpressDefaults(form, state) {
   }
 }
 
-// Владелец просил предзаполненный текст «что надо сделать»: пустой замысел
-// сразу получает базовую рекомендацию, правки человека не перезаписываются.
-function prefillCopyRecommendation(form, state) {
-  const brief = form.elements?.brief;
-  if (!(brief instanceof HTMLTextAreaElement)) return;
-  if (String(brief.value || "").trim()) return;
-  if (state.express?.recommendationPrefilled) return;
-  state.express = { ...state.express, recommendationPrefilled: true };
-  brief.value = DEFAULT_RECOMMENDATIONS.copy_video;
-  brief.dispatchEvent(new Event("input", { bubbles: true }));
-  brief.dispatchEvent(new Event("change", { bubbles: true }));
-}
-
 function persistHandoff(form, handoff) {
   setHidden(form, "generation_intake_version", HANDOFF_VERSION);
   setHidden(form, "generation_intake_route", handoff.route);
   setHidden(form, "generation_intake_source_media_id", handoff.source_media_id || "");
+  setHidden(
+    form,
+    "generation_intake_source_duration_seconds",
+    Number.isSafeInteger(handoff.source_duration_seconds)
+      ? String(handoff.source_duration_seconds)
+      : "",
+  );
   setHidden(form, "generation_intake_original_product_media_id", handoff.original_product_media_id || "");
   setHidden(form, "generation_intake_avatar_media_id", handoff.avatar_media_id || "");
   setHidden(form, "generation_intake_avatar_mode", handoff.avatar_mode || "");
@@ -3075,9 +5620,53 @@ function existingMediaCheckbox(form, mediaId) {
   return q(`input[name="media_id"][value="${CSS.escape(mediaId)}"]`, form);
 }
 
+// Нативная карточка товара всегда содержит пару media_id + primary_media_id.
+// Карточка свежезарегистрированного фото раньше содержала только checkbox, и
+// первый handoff не мог назначить «Главное фото» до следующей перерисовки
+// серверного каталога. Создаём тот же radio только внутри нашей synthetic-
+// карточки и только когда её paid-ready атрибуты и идентичность полны. Если
+// хотя бы одно условие не выполнено, openNativeLaunch останется fail-closed.
+function ensureSyntheticProductPrimary(input) {
+  if (!(input instanceof HTMLInputElement) || input.name !== "media_id") {
+    return null;
+  }
+  const mediaId = String(input.value || "").trim().toLowerCase();
+  const option = input.closest("[data-generation-intake-synthetic]");
+  if (
+    !UUID_PATTERN.test(mediaId)
+    || input.disabled
+    || !(option instanceof HTMLElement)
+    || option.dataset.paidReady !== "true"
+    || input.dataset.mediaIdentityVerified !== "true"
+    || input.dataset.mediaRightsConfirmed !== "true"
+    || !cleanText(input.dataset.mediaSku, 120)
+    || !cleanText(input.dataset.mediaProductName, 180)
+  ) {
+    return null;
+  }
+  const existing = qa('input[name="primary_media_id"]', option).find(
+    (radio) => String(radio.value || "").trim().toLowerCase() === mediaId,
+  );
+  if (existing instanceof HTMLInputElement) {
+    return existing.disabled ? null : existing;
+  }
+  const primaryLabel = el("label", "generation-media-option__primary");
+  // До выбора Product Swap обычный app.js тоже прячет этот control. Его
+  // делегированный change-handler покажет radio после выбора стратегии.
+  primaryLabel.hidden = true;
+  const primary = el("input");
+  primary.type = "radio";
+  primary.name = "primary_media_id";
+  primary.value = mediaId;
+  primaryLabel.append(primary, el("span", "", "Главное фото"));
+  option.append(primaryLabel);
+  return primary;
+}
+
 function ensureProductCheckbox(form, state, mediaId, identity, filename) {
   const existing = existingMediaCheckbox(form, mediaId);
   if (existing instanceof HTMLInputElement) {
+    ensureSyntheticProductPrimary(existing);
     if (!existing.disabled && !existing.checked) {
       existing.checked = true;
       existing.dispatchEvent(new Event("change", { bubbles: true }));
@@ -3117,9 +5706,28 @@ function ensureProductCheckbox(form, state, mediaId, identity, filename) {
   );
   label.append(input, text);
   option.append(label);
+  ensureSyntheticProductPrimary(input);
   host.append(option);
   input.dispatchEvent(new Event("change", { bubbles: true }));
   return input;
+}
+
+function attachProductFilePreview(input, file) {
+  if (!(input instanceof HTMLInputElement) || !(file instanceof File)) return;
+  if (!String(file.type || "").toLowerCase().startsWith("image/")) return;
+  const option = input.closest(".generation-media-option");
+  const label = option?.querySelector?.(".generation-media-option__select");
+  if (!(label instanceof HTMLLabelElement)) return;
+  label.querySelector(".generation-media-option__thumbnail")?.remove();
+  const previewUrl = URL.createObjectURL(file);
+  const image = document.createElement("img");
+  image.className = "generation-media-option__thumbnail";
+  image.src = previewUrl;
+  image.alt = cleanText(file.name, 120) || "Новое фото товара";
+  const release = () => URL.revokeObjectURL(previewUrl);
+  image.addEventListener("load", release, { once: true });
+  image.addEventListener("error", release, { once: true });
+  input.after(image);
 }
 
 function pruneSyntheticProductOptions(form) {
@@ -3134,6 +5742,10 @@ function pruneSyntheticProductOptions(form) {
         && !candidate.closest("[data-generation-intake-synthetic]")
       ));
       if (!real) return;
+      const restoredOrder = productSelectionOrder(input);
+      if (restoredOrder !== null && productSelectionOrder(real) === null) {
+        setProductSelectionOrder(real, restoredOrder);
+      }
       if (input.checked && !real.disabled && !real.checked) {
         real.checked = true;
         real.dispatchEvent(new Event("change", { bubbles: true }));
@@ -3142,7 +5754,7 @@ function pruneSyntheticProductOptions(form) {
     });
 }
 
-function bindRoleAsset(form, role, mediaId) {
+function bindRoleAsset(form, role, mediaId, selectionOrder = null) {
   const escapedRole = CSS.escape(role);
   const escapedMedia = CSS.escape(mediaId);
   const selectors = [
@@ -3164,6 +5776,14 @@ function bindRoleAsset(form, role, mediaId) {
         control.parentElement?.dispatchEvent(new Event("change", { bubbles: true }));
       } else if (control instanceof HTMLInputElement) {
         if (
+          ["new_product_image", "product_image"].includes(role)
+          && Number.isSafeInteger(selectionOrder)
+          && selectionOrder > 0
+          && control.name === "media_id"
+        ) {
+          setProductSelectionOrder(control, selectionOrder);
+        }
+        if (
           control.name === "generation_strategy_source_selection"
           && !control.checked
         ) {
@@ -3179,44 +5799,190 @@ function bindRoleAsset(form, role, mediaId) {
   return changed;
 }
 
-async function openNativeLaunch(form, handoff) {
-  const state = formStates.get(form);
-  if (state) state.phase = "review";
+function bindHandoffAsset(form, handoff, asset) {
+  const role = String(asset?.role || "");
+  const mediaId = String(asset?.media_id || "").trim().toLowerCase();
+  const productIds = Array.isArray(handoff?.product_media_ids)
+    ? handoff.product_media_ids.map((value) => String(value || "").trim().toLowerCase())
+    : [];
+  const productIndex = ["new_product_image", "product_image"].includes(role)
+    ? productIds.indexOf(mediaId)
+    : -1;
+  return bindRoleAsset(
+    form,
+    role,
+    mediaId,
+    productIndex < 0 ? null : productIndex + 1,
+  );
+}
+
+function bindHandoffPrimaryProduct(form, handoff) {
+  const mediaId = String(handoff?.product_media_ids?.[0] || "")
+    .trim().toLowerCase();
+  if (!UUID_PATTERN.test(mediaId)) return false;
+  const primary = qa('input[name="primary_media_id"]', form).find(
+    (radio) => String(radio.value || "").trim().toLowerCase() === mediaId,
+  );
+  if (!(primary instanceof HTMLInputElement) || primary.disabled) return false;
+  qa('input[name="primary_media_id"]', form).forEach((radio) => {
+    radio.checked = radio === primary;
+  });
+  primary.dispatchEvent(new Event("input", { bubbles: true }));
+  primary.dispatchEvent(new Event("change", { bubbles: true }));
+  return primary.checked === true;
+}
+
+async function openNativeLaunch(initialForm, handoff) {
   // На отдельном экране копии движок остаётся невидимым: режим не
   // переключается в "full", пять блоков не разъезжаются по шагам мастера.
   const copyScreen = copyViewActive();
-  form.dataset.generationIntakeV4Mode = copyScreen ? "copy" : "full";
-  form.dataset.generationIntakeV4Phase = "review";
-  form.dataset.generationIntakeV4Route = handoff.route;
-  if (!copyScreen) {
-    moveProductNodes(form, state, false);
-    moveSharedBrief(form, state, "strategy_video");
-  }
-  selectStrategy(form, handoff.strategy_id);
-  await window.ContentEngineGenerationGuidedV4
-    ?.refreshStrategyAssets?.(form);
-  applyCompactPreferences(form, handoff);
-  let missing = handoff.assets.filter(
-    ({ role, media_id: mediaId }) => !bindRoleAsset(form, role, mediaId),
-  );
-  if (missing.length) {
-    // Кандидаты могли дорисоваться асинхронно после refreshStrategyAssets —
-    // одна повторная попытка с небольшой паузой.
-    await new Promise((resolve) => { setTimeout(resolve, 700); });
-    missing = missing.filter(
-      ({ role, media_id: mediaId }) => !bindRoleAsset(form, role, mediaId),
+  const materialize = (form) => {
+    // Только что загруженный ролик/кадр уже зарегистрирован в проекте, но
+    // refresh мог вернуть список, снятый до регистрации. Временные option
+    // переносят exact UUID; eligibility и права всё равно проверит сервер.
+    const handoffSource = handoff.assets.find(
+      ({ role }) => role === "source_video",
     );
-  }
-  // Серверное ТЗ требует «Главное фото» (primary_media_id); компактная форма
-  // выбирает его автоматически — первое фото нового товара.
-  const firstProduct = handoff.assets.find(
-    ({ role }) => role === "new_product_image",
-  );
-  if (firstProduct) {
-    const primary = qa('input[name="primary_media_id"]', form).find(
-      (radio) => radio.value === firstProduct.media_id,
+    if (handoffSource) {
+      ensureSourceOption(
+        form,
+        handoffSource.media_id,
+        "",
+        handoffSource.duration_seconds,
+      );
+      // registerMedia + direct-MP4 attachment already succeeded before this
+      // handoff. Materialize the exact UUID in the authoritative source picker
+      // too; the compatibility select alone must never count as a selection.
+      window.ContentEngineGenerationGuidedV4
+        ?.materializeRegisteredSource?.(form, {
+          media_id: handoffSource.media_id,
+          filename: "Загруженный ролик",
+          duration_seconds: handoffSource.duration_seconds ?? null,
+        });
+    }
+    const handoffOriginalProduct = handoff.assets.find(
+      ({ role }) => role === "original_product_image",
     );
-    if (primary && !primary.checked && !primary.disabled) primary.click();
+    if (handoffOriginalProduct) {
+      ensureOriginalProductOption(form, handoffOriginalProduct.media_id);
+    }
+  };
+  const activate = (form, { persist = false } = {}) => {
+    // app.js вправе patch-render'ить #mock-batch-form, пока refresh ждёт
+    // сервер. Старый DOM всё ещё принимает click(), но нативная форма его уже
+    // не читает. Монтируем/настраиваем именно живой объект и повторяем handoff.
+    if (!formStates.has(form)) mount(form);
+    const state = formStates.get(form);
+    if (state) {
+      state.phase = "review";
+      // Новый state создаётся с busy=false. Handoff ещё идёт, поэтому такая
+      // shell иначе разрешила бы второй параллельный prepare по тому же клику.
+      adoptRouteBusy(state);
+    }
+    ensureContractFields(form);
+    form.dataset.generationIntakeV4Mode = copyScreen ? "copy" : "full";
+    form.dataset.generationIntakeV4Phase = "review";
+    form.dataset.generationIntakeV4Route = handoff.route;
+    if (!copyScreen && state) {
+      captureBriefDraft(form, state, state.briefRoute || handoff.route);
+      restoreBriefDraft(form, state, "strategy_video");
+      moveProductNodes(form, state, false);
+      moveSharedBrief(form, state, "strategy_video");
+    }
+    if (persist) persistHandoff(form, handoff);
+    selectStrategy(form, handoff.strategy_id);
+    applyCompactPreferences(form, handoff);
+    materialize(form);
+    if (!copyScreen && state) captureBriefDraft(form, state, "strategy_video");
+    return state;
+  };
+  const refreshAssets = async (form) => {
+    await window.ContentEngineGenerationGuidedV4
+      ?.refreshStrategyAssets?.(form);
+  };
+
+  let form = initialForm;
+  let state = activate(form, { persist: true });
+  await refreshAssets(form);
+  // A refresh may patch the form more than once (loading -> ready). Adopt at
+  // most three successive live objects; every adoption replays only free UI
+  // binding and never calls provider/start.
+  for (let adoption = 0; adoption < 3; adoption += 1) {
+    const live = liveGenerationForm(form);
+    if (live === form) break;
+    form = live;
+    state = activate(form, { persist: true });
+    await refreshAssets(form);
+  }
+  let missing = [];
+  let stable = false;
+  // Кандидаты и сама форма дорисовываются асинхронно. Важен не только первый
+  // успешный bind: input/change от duration/primary тоже может вызвать
+  // patch-render уже ПОСЛЕ missing=[]. Поэтому каждая итерация начинает с
+  // adoption живой формы, повторяет ВЕСЬ handoff и завершается event-loop yield
+  // с проверкой, что объект формы не сменился. Вернуть missing от detached A и
+  // live form B без ассетов теперь невозможно.
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const live = liveGenerationForm(form);
+    if (live !== form) {
+      form = live;
+      state = activate(form, { persist: true });
+      await refreshAssets(form);
+    }
+    materialize(form);
+    missing = handoff.assets.filter(
+      (asset) => !bindHandoffAsset(form, handoff, asset),
+    );
+    const handoffSource = handoff.assets.find(
+      ({ role }) => role === "source_video",
+    );
+    const sourceProjection = window.ContentEngineGenerationGuidedV4
+      ?.getStrategySourcePickerProjection?.(form);
+    const exactSourceBound = Boolean(
+      handoffSource
+      && sourceProjection?.selected_count === 1
+      && sourceProjection.selected?.[0]?.source_media_id
+        === String(handoffSource.media_id || "").trim().toLowerCase()
+    );
+    if (
+      handoffSource
+      && !exactSourceBound
+      && !missing.some(({ role }) => role === "source_video")
+    ) {
+      missing.push({ role: "source_video" });
+    }
+    // SELECT стратегии ставит server default (сейчас 10 с). Для уже
+    // проверенного project MP4 возвращаем exact секунды после каждого rebind;
+    // fresh upload получит их после бесплатного probe в preflight.
+    applyHandoffSourceDuration(form, handoff);
+    if (state) refreshProductSelectionCount(form, state);
+    // Серверное ТЗ требует «Главное фото» (primary_media_id); компактная форма
+    // выбирает ПЕРВОЕ фото click-order handoff на каждом новом DOM.
+    const primaryBound = bindHandoffPrimaryProduct(form, handoff);
+    if (
+      Array.isArray(handoff.product_media_ids)
+      && handoff.product_media_ids.length
+      && !primaryBound
+      && !missing.some(({ role }) => role === "new_product_image")
+    ) {
+      missing.push({ role: "new_product_image" });
+    }
+
+    // MutationObserver/microtasks, вызванные событиями выше, получают шанс
+    // заменить форму до того, как мы объявим handoff устойчивым.
+    await waitMs(0);
+    if (liveGenerationForm(form) === form) {
+      if (!missing.length || attempt === 7) {
+        stable = true;
+        break;
+      }
+      // Ассеты ещё не дорисованы. До пяти секунд ждём каталог короткими
+      // шагами; на следующей итерации binding выполняется целиком заново.
+      await waitMs(700);
+    }
+  }
+  if (!stable || liveGenerationForm(form) !== form) {
+    throw new Error("express_native_handoff_unstable");
   }
   if (!copyScreen) {
     q('[data-ce-v4-generation-target="media"]', form)?.click?.();
@@ -3227,7 +5993,16 @@ async function openNativeLaunch(form, handoff) {
       });
     });
   }
-  return missing.map(({ role }) => role);
+  const context = liveCopyLaunchContext(form, state, null, { busy: true });
+  if (context.form !== form || !context.state || !context.panel) {
+    throw new Error("express_native_handoff_unstable");
+  }
+  return {
+    missingRoles: missing.map(({ role }) => role),
+    form: context.form,
+    state: context.state,
+    panel: context.panel,
+  };
 }
 
 function frameAsFile(frame, route) {
@@ -3259,6 +6034,23 @@ function durationTooShortMessage(durationSeconds) {
     : `Для Product Swap нужен ролик не короче ${MIN_COPY_DURATION} секунд. Файл не принят — выберите более длинный MP4.`;
 }
 
+// Текст статуса должен называть кнопку, которая действительно есть на текущем
+// экране. У compact Copy это «Проверить ролик бесплатно», у Avatar —
+// «Разобрать MP4», а отдельный экран Copy ведёт через основную кнопку цены.
+// Чтение подписи из DOM не даёт подсказкам снова разойтись с интерфейсом.
+function selectedSourceNextStep(panel, route) {
+  const action = copyViewActive() && route === "copy_video"
+    ? "generation-intake-prepare-copy"
+    : route === "copy_video"
+    ? "generation-intake-analyze-copy"
+    : "generation-intake-analyze-avatar";
+  const fallback = route === "copy_video"
+    ? copyViewActive() ? "Подготовить ролик" : "Проверить ролик бесплатно"
+    : "Разобрать MP4";
+  const button = q(`[data-action="${action}"]`, panel);
+  return `«${cleanText(button?.textContent, 80) || fallback}»`;
+}
+
 // Проверка длительности сразу после выбора файла: раньше несоответствие
 // вскрывалось только при подготовке, и выбранный ролик отвергался молча.
 async function reportSelectedSourceDuration(state, route, input) {
@@ -3266,9 +6058,7 @@ async function reportSelectedSourceDuration(state, route, input) {
   const file = input?.files?.[0];
   if (!panel || !(file instanceof File)) return;
   const limit = route === "copy_video" ? MAX_COPY_DURATION : MAX_AVATAR_DURATION;
-  const nextStep = copyViewActive() && route === "copy_video"
-    ? "«Подготовить ролик»"
-    : "«Разобрать MP4»";
+  const nextStep = selectedSourceNextStep(panel, route);
   const unreadable = `Браузер не смог измерить длительность этого файла. Нажмите ${nextStep} — форма проверит файл ещё раз и назовёт точную причину.`;
   let metadata = null;
   try {
@@ -3297,8 +6087,8 @@ async function reportSelectedSourceDuration(state, route, input) {
   setStatus(
     panel,
     copyViewActive() && route === "copy_video"
-      ? `MP4 выбран · ${secondsLabel(seconds)} из допустимых ${limit} с. Нажмите «Подготовить ролик» — разбор и бесплатная проверка выполнятся автоматически.`
-      : `MP4 выбран · ${secondsLabel(seconds)} из допустимых ${limit} с. Нажмите «Разобрать MP4».`,
+      ? `MP4 выбран · ${secondsLabel(seconds)} из допустимых ${limit} с. Нажмите ${nextStep} — разбор и бесплатная проверка выполнятся автоматически.`
+      : `MP4 выбран · ${secondsLabel(seconds)} из допустимых ${limit} с. Нажмите ${nextStep}.`,
     "ready",
   );
 }
@@ -3306,7 +6096,11 @@ async function reportSelectedSourceDuration(state, route, input) {
 async function analyzeRoute(form, route) {
   const state = formStates.get(form);
   const panel = panelFor(state, route);
-  if (!state || !panel || state.busy) return;
+  if (!state || !panel) return;
+  if (state.busy) {
+    reportRouteBusy(state, route);
+    return;
+  }
   const file = selectedFile(panel);
   const existingMediaId = selectedExistingVideo(panel);
   if (!file && !existingMediaId) {
@@ -3332,8 +6126,15 @@ async function analyzeRoute(form, route) {
     q(`[data-action="generation-intake-prepare-${route === "copy_video" ? "copy" : "avatar"}"]`, panel).disabled = false;
     return;
   }
-  state.busy = true;
-  setStatus(panel, "Проверяем MP4 и собираем storyboard…", "busy");
+  const busyAction = route === "copy_video"
+    ? "generation-intake-analyze-copy"
+    : "generation-intake-analyze-avatar";
+  beginRouteBusy(
+    state,
+    route,
+    busyAction,
+    "Проверяем MP4 и собираем storyboard…",
+  );
   try {
     const maximum = route === "copy_video" ? MAX_COPY_DURATION : MAX_AVATAR_DURATION;
     const metadata = await assertMp4(file, maximum);
@@ -3371,17 +6172,42 @@ async function analyzeRoute(form, route) {
       selectedFrameIndex: storyboard?.recommendedIndex ?? null,
     };
     if (storyboard) renderStoryboard(panel, storyboard, state.routes[route]);
+    // Раскадровки нет — значит и кадра исходного товара автоматика не даст.
+    // Блок ручного кадра открывается сразу, а не после отказа подготовки:
+    // человек должен узнать о недостающем шаге до того, как упрётся в него.
+    const frameSlot = q("[data-generation-intake-original-frame]", panel);
+    if (frameSlot instanceof HTMLElement) frameSlot.hidden = Boolean(storyboard);
     q(`[data-action="generation-intake-prepare-${route === "copy_video" ? "copy" : "avatar"}"]`, panel).disabled = false;
+    // assertMp4 намеренно возвращает duration = null там, где браузер не смог
+    // прочитать метаданные: замер браузера — удобство, а власть у серверного.
+    // Строка статуса обязана это выдержать. Раньше она звала
+    // metadata.duration.toFixed(1) без проверки, падала на null внутри общего
+    // try и выходила наружу как «Не удалось разобрать MP4. Попробуйте другой
+    // файл» — совет сменить исправный файл, из-за которого маршрут закрывался
+    // целиком. Ширины и высоты в таком ответе нет вовсе, поэтому проверяются
+    // все три числа, а не одна длительность.
+    const measured = Number.isFinite(metadata.duration)
+      && Number.isFinite(metadata.width)
+      && Number.isFinite(metadata.height)
+      ? `${metadata.duration.toFixed(1)} с · ${metadata.width}×${metadata.height}`
+      : "Длительность и размер измерит сервер при подготовке";
+    // Раскадровка собирается тем же декодером, поэтому там, где нет замера,
+    // обычно нет и кадров. Обещать «предложенный кадр», которого не собрали,
+    // значит отправить человека искать несуществующий элемент.
+    const storyboardNote = storyboard
+      ? ` · ${STORYBOARD_FRAME_COUNT} кадров. Проверьте предложенный кадр исходного товара и нажмите «Показать цену».`
+      : ". Раскадровку браузер не собрал — нажмите «Показать цену», кадр исходного товара подберёт сервер.";
     setStatus(
       panel,
       route === "copy_video"
-        ? `${metadata.duration.toFixed(1)} с · ${metadata.width}×${metadata.height} · ${STORYBOARD_FRAME_COUNT} кадров. Проверьте предложенный кадр исходного товара и нажмите «Показать цену».`
-        : `${metadata.duration.toFixed(1)} с · ${metadata.width}×${metadata.height}. Исходный ролик готов; теперь задайте аватара фотографией или описанием.`,
+        ? `${measured}${storyboardNote}`
+        : `${measured}. Исходный ролик готов; теперь задайте аватара фотографией или описанием.`,
       "ready",
     );
   } catch (error) {
     const limit = route === "copy_video" ? MAX_COPY_DURATION : MAX_AVATAR_DURATION;
     const messages = {
+      media_kind_mime_mismatch: mediaKindMimeMismatchMessage(error, file?.name),
       mp4_required: "Нужен настоящий MP4-файл.",
       mp4_too_large: "MP4 больше 32 МБ.",
       mp4_signature_invalid: "Файл не содержит корректную MP4/ISO-BMFF сигнатуру.",
@@ -3393,7 +6219,7 @@ async function analyzeRoute(form, route) {
     };
     setStatus(panel, messages[error?.message] || "Не удалось разобрать MP4. Попробуйте другой файл.", "error");
   } finally {
-    state.busy = false;
+    finishRouteBusy(state);
   }
 }
 
@@ -3533,36 +6359,54 @@ async function serverStoryboardForCopy(state, panel, sourceMediaId) {
 // списания и жмёт действующую кнопку запуска мастера. Серверный контракт
 // (spend_confirmation + campaign_id + start) не обходится.
 async function startExpressLaunch(initialForm) {
-  const state = formStates.get(initialForm);
-  const panel = panelFor(state, "copy_video");
-  if (!state || !panel || state.busy) return;
-  const express = state.express || {};
-  if (express.phase !== "priced") {
-    void prepareCopy(initialForm);
+  const initialState = formStates.get(initialForm);
+  const initialPanel = initialState ? panelFor(initialState, "copy_video") : null;
+  const initialContext = liveCopyLaunchContext(
+    initialForm,
+    initialState,
+    initialPanel,
+  );
+  let { form, state, panel } = initialContext;
+  if (!state || !panel) return;
+  if (state.busy) {
+    reportRouteBusy(state, "copy_video");
     return;
   }
-  state.busy = true;
+  const express = { ...(state.express || {}) };
+  if (express.phase !== "priced") {
+    void prepareCopy(form);
+    return;
+  }
+  beginRouteBusy(
+    state,
+    "copy_video",
+    "generation-intake-prepare-copy",
+    "Проверяем цену и подтверждение перед единственным платным запуском…",
+  );
   try {
     // Мастер мог быть перерисован после получения цены: и подтверждение
     // списания, и кнопка запуска берутся из живой формы, иначе клик уйдёт в
     // отсоединённый узел и платный старт молча не случится.
-    const form = liveGenerationForm(initialForm);
-    const campaignId = autoSelectCampaign(form, panel);
+    const campaignId = autoSelectCampaign(form, panel, state);
     if (!campaignId) {
+      setExpressPricePhase(state, "", "");
       setStatus(
         panel,
-        "Платный запуск невозможен: в проекте нет активной кампании. Создайте её по ссылке выше и вернитесь.",
+        "Платный запуск невозможен: выбранная кампания недоступна или не выбрана. Выберите активную кампанию выше и заново получите цену.",
         "error",
       );
       return;
     }
     const confirmation = form.elements?.real_spend_confirmation;
-    const submitButton = q("#generation-submit", form);
     if (
       form.dataset.generationStrategyConfirmationReady !== "true"
       || !(confirmation instanceof HTMLInputElement)
       || confirmation.disabled
-      || !confirmation.value
+      || !express.spend_confirmation
+      || confirmation.value !== express.spend_confirmation
+      || !express.price
+      || serverPriceLabel(form) !== express.price
+      || !expressCampaignMatchesPrice(form, express, campaignId)
     ) {
       setExpressPricePhase(state, "", "");
       setStatus(
@@ -3573,10 +6417,39 @@ async function startExpressLaunch(initialForm) {
       return;
     }
     if (!confirmation.checked) confirmation.click();
-    if (confirmation.checked !== true) {
+    // change/input могут сразу patch-render'ить мастер. Нельзя продолжать с
+    // checkbox и submitButton, захваченными до человеческого подтверждения.
+    await waitMs(0);
+    const confirmedContext = liveCopyLaunchContext(
+      form,
+      state,
+      panel,
+      { busy: true },
+    );
+    form = confirmedContext.form;
+    state = confirmedContext.state;
+    panel = confirmedContext.panel;
+    const liveConfirmation = form?.elements?.real_spend_confirmation;
+    const liveCampaignId = state && panel
+      ? autoSelectCampaign(form, panel, state)
+      : "";
+    const submitButton = q("#generation-submit", form);
+    if (
+      !state
+      || !panel
+      || form.dataset.generationStrategyConfirmationReady !== "true"
+      || !(liveConfirmation instanceof HTMLInputElement)
+      || liveConfirmation.disabled
+      || liveConfirmation.checked !== true
+      || liveConfirmation.value !== express.spend_confirmation
+      || serverPriceLabel(form) !== express.price
+      || liveCampaignId !== express.campaign_id
+      || !expressCampaignMatchesPrice(form, express, liveCampaignId)
+    ) {
+      if (state) setExpressPricePhase(state, "", "");
       setStatus(
         panel,
-        "Не удалось поставить подтверждение списания. Отметьте его вручную в мастере ниже.",
+        "Цена или подтверждение изменились после клика. Ничего не запущено; нажмите «Подготовить ролик» ещё раз.",
         "error",
       );
       return;
@@ -3596,8 +6469,22 @@ async function startExpressLaunch(initialForm) {
       "busy",
     );
     submitButton.click();
+    // Нативный submit синхронно ставит data-busy до первого provider await.
+    // Если этого не произошло, клик не был принят и compact-кнопка не должна
+    // делать вид, что платный запуск начался.
+    if (form.dataset.busy !== "true") {
+      setStatus(
+        panel,
+        "Мастер не принял платный запуск. Ничего не отправлено; проверьте сообщение в шаге «Исходники» и заново подтвердите цену.",
+        "error",
+      );
+      return;
+    }
   } finally {
-    state.busy = false;
+    finishRouteBusy(initialState);
+    finishRouteBusy(state);
+    const finalContext = liveCopyLaunchContext(form, state, panel);
+    finishRouteBusy(finalContext.state);
   }
 }
 
@@ -3605,7 +6492,17 @@ async function prepareCopy(form) {
   const state = formStates.get(form);
   let route = state?.routes.copy_video;
   const panel = panelFor(state, "copy_video");
-  if (!state || !route || !panel || state.busy) return;
+  if (!state || !route || !panel) return;
+  if (state.busy) {
+    reportRouteBusy(state, "copy_video");
+    return;
+  }
+  // Эти ссылки обновляются после каждого async-этапа, который может заменить
+  // #mock-batch-form. До handoff они совпадают с исходными; после него только
+  // active* разрешено менять видимую shell и её двухфазную кнопку.
+  let activeForm = form;
+  let activeState = state;
+  let activePanel = panel;
   if (
     !route.sourceFile
     && !route.sourceMediaId
@@ -3652,11 +6549,11 @@ async function prepareCopy(form) {
     return;
   }
   if (!recommendation) {
-    setStatus(panel, "Добавьте рекомендацию или явно примените предложенный базовый вариант.", "error");
+    setStatus(panel, "Добавьте инструкцию или явно вставьте базовый шаблон.", "error");
     return;
   }
   if (recommendation.length > BRIEF_LIMIT) {
-    setStatus(panel, `Сократите рекомендацию до ${BRIEF_LIMIT} символов. Текст не был обрезан.`, "error");
+    setStatus(panel, `Сократите инструкцию до ${BRIEF_LIMIT} символов. Текст не был обрезан.`, "error");
     return;
   }
   if (audio === null) {
@@ -3671,8 +6568,12 @@ async function prepareCopy(form) {
     );
     return;
   }
-  state.busy = true;
-  setStatus(panel, "Проверяем фотографии, загружаем MP4 и готовим кадр исходного товара…", "busy");
+  beginRouteBusy(
+    state,
+    "copy_video",
+    "generation-intake-prepare-copy",
+    "Проверяем фотографии, загружаем MP4 и готовим кадр исходного товара…",
+  );
   try {
     const fileHashes = [];
     for (const file of productFiles) {
@@ -3697,13 +6598,14 @@ async function prepareCopy(form) {
       ));
     }
     uploadedProductMediaIds.forEach((mediaId, index) => {
-      ensureProductCheckbox(
+      const registered = ensureProductCheckbox(
         form,
         state,
         mediaId,
         productIdentity,
         productFiles[index]?.name,
       );
+      attachProductFilePreview(registered, productFiles[index]);
     });
     if (uploadedProductMediaIds.length) {
       pendingCopyProductFiles.delete(projectId());
@@ -3721,6 +6623,12 @@ async function prepareCopy(form) {
     // нативного селекта, (4) серверный разбор скачанного MP4. Только если всё
     // мимо — честное сообщение с одной конкретной инструкцией.
     let originalProductMediaId = wizardOriginalProductMediaId(form);
+    // Кадр, приложенный человеком, идёт сразу за выбором мастера: он точнее
+    // любой автоматики и остаётся единственным доступным там, где браузерный
+    // декодер молчит и обе автоматические ветки ниже заведомо пусты.
+    if (!originalProductMediaId && route.originalFrameMediaId) {
+      originalProductMediaId = route.originalFrameMediaId;
+    }
     if (
       !originalProductMediaId
       && route.storyboard
@@ -3759,8 +6667,15 @@ async function prepareCopy(form) {
     ) {
       noteChosenFrame(form, panel, originalProductMediaId);
     }
+    const sourceDurationSeconds = verifiedSourceDurationSeconds(form);
     const assets = [
-      { role: "source_video", media_id: sourceMediaId },
+      {
+        role: "source_video",
+        media_id: sourceMediaId,
+        ...(sourceDurationSeconds === null
+          ? {}
+          : { duration_seconds: sourceDurationSeconds }),
+      },
       ...(originalProductMediaId
         ? [{ role: "original_product_image", media_id: originalProductMediaId }]
         : []),
@@ -3775,6 +6690,7 @@ async function prepareCopy(form) {
       paid_authority: PAID_AUTHORITY,
       strategy_id: COPY_AUTHORITY_STRATEGY,
       source_media_id: sourceMediaId,
+      source_duration_seconds: sourceDurationSeconds,
       original_product_media_id: originalProductMediaId,
       product_media_ids: productMediaIds,
       reference_media_ids: [],
@@ -3789,65 +6705,121 @@ async function prepareCopy(form) {
       launch_enabled: Boolean(originalProductMediaId),
     };
     persistHandoff(form, handoff);
-    const missingRoles = await openNativeLaunch(form, handoff);
+    const launch = await openNativeLaunch(activeForm, handoff);
+    activeForm = launch.form;
+    activeState = launch.state;
+    activePanel = launch.panel;
+    if (!activeState || !activePanel) {
+      throw new Error("express_live_context_missing");
+    }
+    const missingRoles = launch.missingRoles;
     const missingLabels = [...new Set(missingRoles || [])]
       .map((role) => ASSET_ROLE_LABELS[role] || role);
     if (missingLabels.length) {
       setStatus(
-        panel,
+        activePanel,
         `Материалы загружены, но не привязались автоматически: ${missingLabels.join(", ")}. Отметьте их вручную в шаге «Исходники» — без этого запуск заблокирован.`,
         "warning",
       );
       return;
     }
     if (!originalProductMediaId) {
+      // Прежний совет «загрузите локальный MP4» отправлял человека делать то,
+      // что он только что сделал: обе автоматические ветки идут через один и
+      // тот же декодер, и повтор загрузки их не оживляет. Открываем ручной
+      // кадр и говорим про него прямо.
+      const frameSlot = q("[data-generation-intake-original-frame]", activePanel);
+      if (frameSlot instanceof HTMLElement) frameSlot.hidden = false;
       setStatus(
-        panel,
-        "Не удалось получить кадр исходного товара автоматически. Один шаг: загрузите локальный MP4 этого ролика — форма сама выберет лучший кадр и доведёт до цены.",
+        activePanel,
+        "Браузер не смог собрать кадр исходного товара — ни из выбранного файла, ни из ролика проекта. Приложите стоп-кадр сами в блоке «Кадр исходного товара» под исходником, и подготовка дойдёт до цены.",
         "warning",
       );
       return;
     }
     setStatus(
-      panel,
+      activePanel,
       "Материалы привязаны. Бесплатно получаем точную серверную цену — провайдер не запускается и деньги не списываются…",
       "busy",
     );
-    const price = await driveStrategyPreflight(form, panel);
+    const price = await driveStrategyPreflight(activeForm, activePanel);
     // Мастер мог быть перерисован за время бесплатной проверки: подпись
-    // списания и кампания читаются из живой формы, а не из устаревшего узла.
-    const pricedForm = liveGenerationForm(form);
-    const spendConfirmation = String(
-      pricedForm.elements?.real_spend_confirmation?.value || "",
+    // списания, state, панель и кампания читаются из одного живого контекста,
+    // а не из смеси нового DOM и отсоединённой compact-shell.
+    const pricedContext = liveCopyLaunchContext(
+      activeForm,
+      activeState,
+      activePanel,
+      { busy: true },
     );
-    const campaignId = autoSelectCampaign(pricedForm, panel);
-    setExpressPricePhase(state, price, spendConfirmation);
+    if (!pricedContext.state || !pricedContext.panel) {
+      throw new Error("express_live_context_missing");
+    }
+    activeForm = pricedContext.form;
+    activeState = pricedContext.state;
+    activePanel = pricedContext.panel;
+    const spendConfirmation = String(
+      activeForm.elements?.real_spend_confirmation?.value || "",
+    );
+    const campaignId = autoSelectCampaign(
+      activeForm,
+      activePanel,
+      activeState,
+    );
     if (!price) {
+      setExpressPricePhase(activeState, "", "");
       setStatus(
-        panel,
+        activePanel,
         "Сервер подтвердил готовность, но цена не отобразилась. Проверьте цену в мастере ниже перед запуском.",
         "warning",
+        { expressPriceResult: "price_missing" },
       );
     } else if (!campaignId) {
+      // A server token without its exact campaign is not reusable authority.
+      // Keep the informational price visible, but discard compact price/token
+      // and the native confirmation until a campaign is chosen and re-priced.
+      setExpressPricePhase(activeState, "", "");
+      clearSpendConfirmation(activeForm, { notify: false });
       setStatus(
-        panel,
-        `Точная цена: ${price}, деньги не списаны. Для запуска нужна активная кампания — создайте её по ссылке выше.`,
+        activePanel,
+        `Точная цена: ${price}, деньги не списаны. Выбранная кампания недоступна или не выбрана: выберите активную выше и заново получите цену.`,
         "warning",
+        { expressPriceResult: "campaign_missing" },
       );
     } else {
+      setExpressPricePhase(
+        activeState,
+        price,
+        spendConfirmation,
+        campaignId,
+      );
       setStatus(
-        panel,
+        activePanel,
         `Точная цена: ${price}. Деньги не списаны. Кнопка «Запустить за ${price}» и есть подтверждение цены — запуск случится только после вашего клика.`,
         "success",
+        { expressPriceResult: "priced" },
       );
     }
   } catch (error) {
     console.warn("Copy Product Swap preparation failed", error);
+    // Ошибка тоже должна появиться на текущей shell. Если replacement успел
+    // случиться между последним await и catch, забираем его state/panel сейчас.
+    const failureContext = liveCopyLaunchContext(
+      activeForm,
+      activeState,
+      activePanel,
+      { busy: true },
+    );
+    if (failureContext.state && failureContext.panel) {
+      activeForm = failureContext.form;
+      activeState = failureContext.state;
+      activePanel = failureContext.panel;
+    }
     if (error?.message === "express_attestations_unavailable") {
       const labels = (error.missingAttestations || [])
         .map((id) => COPY_ATTESTATION_LABELS[id] || id);
       setStatus(
-        panel,
+        activePanel,
         `Не удалось автоматически проставить подтверждения прав: ${labels.join(", ")}. Отметьте их вручную в шаге «Исходники» — без них запуск честно заблокирован.`,
         "error",
       );
@@ -3855,7 +6827,7 @@ async function prepareCopy(form) {
     }
     if (error?.message === "express_preflight_blocked") {
       setStatus(
-        panel,
+        activePanel,
         `Бесплатная проверка остановилась: ${error.blocker || "мастер сообщил о блокировке"} Деньги не списаны.`,
         "error",
       );
@@ -3863,7 +6835,7 @@ async function prepareCopy(form) {
     }
     if (error?.message === "express_preflight_timeout") {
       setStatus(
-        panel,
+        activePanel,
         "Сервер долго готовит цену. Ничего не списано; нажмите «Показать цену» ещё раз.",
         "error",
       );
@@ -3871,7 +6843,7 @@ async function prepareCopy(form) {
     }
     if (error?.message === "express_preflight_stalled") {
       setStatus(
-        panel,
+        activePanel,
         `Мастер не отвечает на бесплатную проверку${error.step ? `: шаг «${error.step}» не сдвигается` : ""}. Ничего не запущено и не оплачено. Обновите страницу (F5) и нажмите «Подготовить ролик» ещё раз — выбранные материалы сохранены.`,
         "error",
       );
@@ -3879,7 +6851,7 @@ async function prepareCopy(form) {
     }
     if (error?.message === "express_submit_missing") {
       setStatus(
-        panel,
+        activePanel,
         "Кнопка запуска мастера не найдена на странице. Ничего не запущено и не оплачено. Обновите страницу (F5) и повторите подготовку.",
         "error",
       );
@@ -3893,14 +6865,31 @@ async function prepareCopy(form) {
       image_signature_invalid: "Расширение одной из фотографий не совпадает с её содержимым.",
       image_dimensions_too_small: "Фотография должна быть не меньше 256×256 пикселей.",
       source_media_required: "Сначала выберите и разберите исходный MP4.",
+      express_live_context_missing: "Форма обновилась во время подготовки. Ничего не запущено и не оплачено; нажмите «Подготовить ролик» ещё раз — выбранные материалы сохранены.",
+      express_native_handoff_unstable: "Форма продолжила обновляться во время привязки материалов. Ничего не запущено и не оплачено; выбранные материалы сохранены — нажмите «Подготовить ролик» ещё раз.",
+      express_source_duration_unavailable: "Нативная форма не приняла серверную длительность исходника. Ничего не запущено и не оплачено; обновите страницу и повторите подготовку.",
+      express_source_duration_incompatible: "Длительность исходника не входит в допустимый диапазон выбранной модели. Ничего не запущено и не оплачено; выберите другую модель или укоротите ролик.",
+      express_source_duration_unverified: "Сервер ещё не подтвердил длительность выбранного MP4. Ничего не запущено и не оплачено; повторите бесплатную подготовку.",
     };
     setStatus(
-      panel,
-      messages[error?.message] || "Не удалось подготовить материалы. Ничего не запущено и не оплачено.",
+      activePanel,
+      error?.message === "media_kind_mime_mismatch"
+        ? mediaKindMimeMismatchMessage(error)
+        : messages[error?.message] || "Не удалось подготовить материалы. Ничего не запущено и не оплачено.",
       "error",
     );
   } finally {
-    state.busy = false;
+    // Снимаем lock и с исходной shell, и с принятой replacement-shell. Ещё
+    // один render мог произойти уже после catch, поэтому проверяем live state
+    // последний раз; фазу/цену это не сбрасывает.
+    finishRouteBusy(state);
+    finishRouteBusy(activeState);
+    const finalContext = liveCopyLaunchContext(
+      activeForm,
+      activeState,
+      activePanel,
+    );
+    finishRouteBusy(finalContext.state);
   }
 }
 
@@ -3908,55 +6897,79 @@ async function prepareAvatar(form) {
   const state = formStates.get(form);
   const route = state?.routes.avatar_video;
   const panel = panelFor(state, "avatar_video");
-  if (!state || !route || !panel || state.busy) return;
-  const mode = avatarInputMode(panel);
-  const avatarWishes = mode === "description" ? currentAvatarWishes(panel) : "";
-  const avatarFile = mode === "photo" ? selectedAvatarFile(panel) : null;
-  const existingAvatarMediaId = mode === "photo" ? selectedAvatarMediaId(panel) : "";
+  if (!state || !route || !panel) return;
+  if (state.busy) {
+    reportRouteBusy(state, "avatar_video");
+    return;
+  }
+  // С 23.08.2026 у «Дуэта» нет фото и описания аватара: ведущий — это
+  // зарегистрированная личность проекта, а его внешность живёт у провайдера.
+  const avatarWishes = "";
+  const avatarFile = null;
+  const existingAvatarMediaId = "";
+  const mode = "presenter";
   const recommendation = currentRecommendation(form);
   const rights = q('[data-generation-intake-rights="avatar_video"]', panel)?.checked === true;
-  const likenessConsent = q("[data-generation-intake-avatar-consent]", panel)?.checked === true;
+  if (!duetPresenterIdFromForm(state)) {
+    setStatus(panel, "Выберите ведущего проекта — или заведите его ниже, из каталога HeyGen.", "error");
+    return;
+  }
   if (!rights) {
     setStatus(panel, "Подтвердите право использовать исходный ролик.", "error");
     return;
   }
   if (!recommendation) {
-    setStatus(panel, "Добавьте рекомендацию или явно примените предложенный базовый вариант.", "error");
+    setStatus(panel, "Добавьте инструкцию или явно вставьте базовый шаблон.", "error");
     return;
   }
   if (recommendation.length > BRIEF_LIMIT) {
-    setStatus(panel, `Сократите рекомендацию до ${BRIEF_LIMIT} символов. Текст не был обрезан.`, "error");
+    setStatus(panel, `Сократите инструкцию до ${BRIEF_LIMIT} символов. Текст не был обрезан.`, "error");
     return;
   }
-  if (mode === "photo" && Boolean(avatarFile) === Boolean(existingAvatarMediaId)) {
-    setStatus(panel, "Выберите ровно одно фото аватара: новое или уже сохранённое в проекте.", "error");
+  // Товар называется отдельно и угадыванию не подлежит: подставленный «первый
+  // попавшийся» списал бы деньги в чужой бюджет, и заметили бы это при сверке.
+  if (!duetProductIdFromForm(state)) {
+    setStatus(
+      panel,
+      "Выберите товар, для которого делаете дуэт: по нему считаются бюджет и архив.",
+      "error",
+    );
     return;
   }
-  if (mode === "photo" && !likenessConsent) {
-    setStatus(panel, "Подтвердите согласие на использование внешности.", "error");
-    return;
-  }
-  if (mode === "description" && avatarWishes.length < 10) {
-    setStatus(panel, "Опишите аватара хотя бы одним понятным предложением.", "error");
-    return;
-  }
-  state.busy = true;
-  setStatus(panel, "Проверяем аватара и сохраняем подготовку…", "busy");
+  beginRouteBusy(
+    state,
+    "avatar_video",
+    "generation-intake-prepare-avatar",
+    "Проверяем аватара и сохраняем подготовку…",
+  );
   try {
-    if (avatarFile) await assertImage(avatarFile);
     const sourceMediaId = await ensureSourceMedia(route);
-    const avatarMediaId = avatarFile
-      ? await uploadProjectMedia(avatarFile, "creator_reference")
-      : existingAvatarMediaId;
+    // Фото аватара у «Дуэта» нет: личность живёт у провайдера.
+    const avatarMediaId = existingAvatarMediaId;
     const handoff = {
       version: HANDOFF_VERSION,
       route: "avatar_video",
       paid_authority: PAID_AUTHORITY,
-      strategy_id: "character_performance",
+      // Настоящий идентификатор стратегии вместо выдуманного. До 22.08.2026
+      // здесь стояло "character_performance" — значение, которого нет в реестре
+      // стратегий базы: форма собирала данные, писала их в скрытые поля и
+      // рапортовала успех, ни разу не обратившись к серверу.
+      strategy_id: AVATAR_AUTHORITY_STRATEGY,
       source_media_id: sourceMediaId,
       original_product_media_id: "",
       avatar_media_id: avatarMediaId,
       avatar_mode: mode,
+      // Ведущий и раскладка врезки. В наряд уходит НАШ идентификатор ведущего:
+      // личность у провайдера живёт на сервере и в браузер не приходит вовсе,
+      // поэтому подменить, кто будет говорить в оплаченном ролике, отсюда
+      // нельзя. Раскладка читается из формы, а не из записи ведущего: оператор
+      // мог переопределить её для этого ролика.
+      duet_presenter_id: duetPresenterIdFromForm(state),
+      duet_layout: duetLayoutFromForm(state),
+      // Товар, под которым оформляется запуск. У дуэта его не из чего вывести:
+      // фотографий товара в нём нет. Без товара запуск выпал бы и из бюджета,
+      // и из архива по товару — деньги ушли бы мимо учёта.
+      product_id: duetProductIdFromForm(state),
       product_media_ids: [],
       reference_media_ids: avatarMediaId ? [avatarMediaId] : [],
       source_url: currentSourceUrl(panel),
@@ -3970,12 +6983,39 @@ async function prepareAvatar(form) {
           : []),
       ],
       provider_feature_flag: CHARACTER_PERFORMANCE_FEATURE,
-      launch_enabled: false,
+      // Платный старт закрыт не этим полем, а тем, что все маршруты «Аватара» в
+      // реестре выключены: серверная политика не находит действующего маршрута
+      // и отвечает блокером provider_route_not_allowed, а расчёт готовности в
+      // браузере по той же причине держит модуль заблокированным. Поле осталось
+      // как честная отметка «этот handoff не про запуск».
+      // Запуск открыт ровно тогда, когда выбран ведущий: без него сервер
+      // отвергнет привязку, а маршрут дуэта с 23.08.2026 включён.
+      launch_enabled: Boolean(duetPresenterIdFromForm(state)),
     };
     persistHandoff(form, handoff);
+    // Дальше — тот же путь, что у «Копии»: подготовка доходит до сервера, а не
+    // заканчивается зелёной надписью над скрытыми полями. Провайдера здесь не
+    // вызывают и денег не тратят: это бесплатная привязка ассетов и подготовка
+    // ТЗ, после которой человек отдельно нажмёт «Показать цену».
+    const launch = await openNativeLaunch(form, handoff);
+    const liveState = launch.state;
+    const livePanel = launch.panel;
+    if (!liveState || !livePanel) throw new Error("express_live_context_missing");
+    const missingLabels = [...new Set(launch.missingRoles || [])]
+      .map((role) => ASSET_ROLE_LABELS[role] || role);
+    if (missingLabels.length) {
+      setStatus(
+        livePanel,
+        `Материалы загружены, но не привязались автоматически: ${missingLabels.join(", ")}. Отметьте их вручную в шаге «Исходники» — без этого запуск заблокирован.`,
+        "warning",
+      );
+      return;
+    }
     setStatus(
-      panel,
-      "MP4 и пожелания сохранены. Character Performance не подменяется Product UGC: платная стадия станет доступна только после включения отдельного provider-adapter.",
+      livePanel,
+      mode === "description"
+        ? "Исходник и описание аватара привязаны. Описание исполняет только Runway: модели fal требуют фотографию. Провайдер не вызывался, средства не списывались."
+        : "Исходник и фото аватара привязаны. Провайдер не вызывался, средства не списывались.",
       "success",
     );
   } catch (error) {
@@ -3990,11 +7030,13 @@ async function prepareAvatar(form) {
     };
     setStatus(
       panel,
-      messages[error?.message] || "Не удалось сохранить подготовку аватара. Ничего не запущено и не оплачено.",
+      error?.message === "media_kind_mime_mismatch"
+        ? mediaKindMimeMismatchMessage(error)
+        : messages[error?.message] || "Не удалось сохранить подготовку аватара. Ничего не запущено и не оплачено.",
       "error",
     );
   } finally {
-    state.busy = false;
+    finishRouteBusy(state);
   }
 }
 
@@ -4003,7 +7045,11 @@ async function uploadStrategySources(form) {
   const panel = panelFor(state, "strategy_video");
   const input = q('input[data-generation-intake-mp4="strategy"]', panel);
   const files = [...(input?.files || [])];
-  if (!state || !panel || state.busy) return;
+  if (!state || !panel) return;
+  if (state.busy) {
+    reportRouteBusy(state, "strategy_video");
+    return;
+  }
   if (!files.length) {
     setStatus(panel, "Выберите один или несколько MP4.", "error");
     return;
@@ -4012,7 +7058,12 @@ async function uploadStrategySources(form) {
     setStatus(panel, `Можно добавить не больше ${MAX_STRATEGY_FILES} MP4 за один раз.`, "error");
     return;
   }
-  state.busy = true;
+  beginRouteBusy(
+    state,
+    "strategy_video",
+    "generation-intake-upload-strategy",
+    `Готовим к загрузке ${files.length} MP4…`,
+  );
   const mediaIds = [];
   try {
     for (let index = 0; index < files.length; index += 1) {
@@ -4024,7 +7075,6 @@ async function uploadStrategySources(form) {
       version: HANDOFF_VERSION,
       route: "strategy_video",
       paid_authority: PAID_AUTHORITY,
-      strategy_id: STRATEGY_AUTHORITY_STRATEGY,
       source_media_id: mediaIds[0] || "",
       original_product_media_id: "",
       product_media_ids: [],
@@ -4035,7 +7085,6 @@ async function uploadStrategySources(form) {
       launch_enabled: false,
     };
     persistHandoff(form, handoff);
-    selectStrategy(form, STRATEGY_AUTHORITY_STRATEGY);
     await window.ContentEngineGenerationGuidedV4
       ?.refreshStrategyAssets?.(form);
     mediaIds.forEach((mediaId) => {
@@ -4043,7 +7092,7 @@ async function uploadStrategySources(form) {
     });
     setStatus(
       panel,
-      `${mediaIds.length} MP4 добавлено в проект и выбрано в полном конструкторе. Бесплатная проверка длительности остаётся обязательной перед запуском.`,
+      `${mediaIds.length} MP4 добавлено в проект и отмечено как исходники. Стратегия не выбрана: выберите подходящий маршрут вручную в полном конструкторе, затем пройдите бесплатную проверку длительности.`,
       "success",
     );
     input.value = "";
@@ -4051,18 +7100,37 @@ async function uploadStrategySources(form) {
     refreshVideoSelects(form, state);
   } catch (error) {
     console.warn("Strategy MP4 upload failed", error);
-    setStatus(panel, "Загрузка остановлена. Уже добавленные исходники остаются в проекте; платный запуск не выполнялся.", "error");
+    setStatus(
+      panel,
+      error?.message === "media_kind_mime_mismatch"
+        ? mediaKindMimeMismatchMessage(error)
+        : "Загрузка остановлена. Уже добавленные исходники остаются в проекте; платный запуск не выполнялся.",
+      "error",
+    );
   } finally {
-    state.busy = false;
+    finishRouteBusy(state);
   }
 }
 
 function setRoute(form, state, route) {
-  if (!DEFAULT_RECOMMENDATIONS[route] && route !== "strategy_video") return;
+  if (!DEFAULT_BRIEF_TEMPLATES[route] && route !== "strategy_video") return;
+  if (state.busy && state.busyRoute && state.busyRoute !== route) {
+    reportRouteBusy(state, state.busyRoute);
+    return;
+  }
+  if (state.briefDraftReady === false) {
+    // initialRouteBriefDrafts уже принял решение, какому маршруту принадлежит
+    // значение нового DOM. Не перетираем сохранённый черновик stale-значением
+    // формы, которую app.js только что пересоздал.
+    state.briefDraftReady = true;
+  } else {
+    captureBriefDraft(form, state, state.briefRoute || state.route);
+  }
   state.route = route;
   state.phase = "edit";
   form.dataset.generationIntakeV4Route = route;
   form.dataset.generationIntakeV4Phase = "edit";
+  placeGuidedShell(form, state, route);
   clearSpendConfirmation(form);
   qa("[data-generation-intake-route]", state.shell).forEach((button) => {
     const selected = button.dataset.generationIntakeRoute === route;
@@ -4079,21 +7147,22 @@ function setRoute(form, state, route) {
     ? "copy"
     : compact
       ? "compact"
-      : "full";
+      : "strategy";
+  restoreBriefDraft(form, state, route);
   moveProductNodes(form, state, route === "copy_video");
   moveSharedBrief(form, state, route);
   qa("[data-generation-intake-panel]", state.shell).forEach((panel) => {
     setPanelControlsActive(panel, panel.dataset.generationIntakePanel === route);
   });
-  // Переключение вкладки маршрута не выбирает стратегию: выбор необратим и
-  // происходит только по кнопкам «Подготовить…» (openNativeLaunch) или
-  // загрузки исходников стратегии. Так dry-run остаётся доступным, а платная
-  // стратегия не активируется случайным кликом по вкладке.
+  ensureStrategyAuthority(form, state);
+  // Переключение вкладки и загрузка исходников не выбирают стратегию. Точное
+  // решение остаётся отдельным человеческим действием в полном конструкторе;
+  // compact Copy передаёт свой route только после явной подготовки.
   if (route === "copy_video") {
     prefillIdentityFields(form, state);
     applyExpressDefaults(form, state);
-    prefillCopyRecommendation(form, state);
     refreshIdentityVisibility(form, state);
+    syncCompactCampaignControl(form, state);
     syncExpressPriceButton(state);
     syncCopyScreenChrome(state);
   }
@@ -4108,7 +7177,26 @@ function bind(form, state) {
   state.shell.addEventListener("click", (event) => {
     const routeButtonNode = event.target.closest?.("[data-generation-intake-route]");
     if (routeButtonNode) {
-      setRoute(form, state, routeButtonNode.dataset.generationIntakeRoute);
+      const nextRoute = routeButtonNode.dataset.generationIntakeRoute;
+      state.strategyAuthorityRequested = nextRoute === "strategy_video";
+      setRoute(form, state, nextRoute);
+      return;
+    }
+    // Очередь файлов снимается целиком и только по прямому действию человека:
+    // это единственное место, где её видно, и единственное, где её можно
+    // убрать. Само поле загрузки тоже очищается — иначе тот же файл вернулся
+    // бы в очередь на ближайшей регистрации.
+    if (event.target.closest?.("[data-generation-intake-pending-clear]")) {
+      const panel = panelFor(state, "copy_video");
+      pendingCopyProductFiles.delete(projectId());
+      const fileInput = q('input[data-generation-intake-image="product"]', panel);
+      if (fileInput instanceof HTMLInputElement) fileInput.value = "";
+      refreshProductSelectionCount(form, state);
+      setStatus(
+        panel,
+        "Файлы убраны из очереди. Уже зарегистрированные фотографии проекта остались — снимите с них галочки, если они лишние.",
+        "neutral",
+      );
       return;
     }
     const action = event.target.closest?.("[data-action]")?.dataset.action;
@@ -4122,6 +7210,12 @@ function bind(form, state) {
       else void prepareCopy(form);
     }
     if (action === "generation-intake-prepare-avatar") void prepareAvatar(form);
+    if (action === "generation-intake-duet-catalog") {
+      void loadDuetPresenterCatalog(form, formStates.get(form));
+    }
+    if (action === "generation-intake-duet-register") {
+      void registerDuetPresenterFromForm(form, formStates.get(form));
+    }
     if (action === "generation-intake-upload-strategy") void uploadStrategySources(form);
     if (action === "generation-intake-apply-recommendation") {
       const route = String(event.target.closest?.("[data-route]")?.dataset.route || state.route);
@@ -4129,9 +7223,12 @@ function bind(form, state) {
       if (
         brief instanceof HTMLTextAreaElement
         && !String(brief.value || "").trim()
-        && DEFAULT_RECOMMENDATIONS[route]
+        && DEFAULT_BRIEF_TEMPLATES[route]
       ) {
-        brief.value = DEFAULT_RECOMMENDATIONS[route];
+        // Этот локальный шаблон становится рабочим текстом только по прямому
+        // действию человека и не получает provenance ИИ-центра.
+        markBriefAsOperatorOwned(form, brief);
+        brief.value = DEFAULT_BRIEF_TEMPLATES[route];
         brief.dispatchEvent(new Event("input", { bubbles: true }));
         brief.dispatchEvent(new Event("change", { bubbles: true }));
         refreshRecommendationUi(form, state);
@@ -4155,6 +7252,16 @@ function bind(form, state) {
   });
 
   state.shell.addEventListener("change", (event) => {
+    // The mirror commits on `input`, before a native campaign event can
+    // patch-render the form. Its following `change` must not commit twice.
+    if (event.target.closest?.("[data-generation-intake-campaign-select]")) {
+      return;
+    }
+    // A committed context change must invalidate the previous paid phase before
+    // any downstream handler can patch-render the native form. In particular,
+    // engine radios can replace this shell between `input` and `change`.
+    captureExpressCommittedInput(form, state, event.target);
+    invalidateExpressPriceForCommittedInput(form, state, event.target);
     const input = event.target.closest?.('input[data-generation-intake-mp4="single"]');
     if (input) {
       const route = input.closest("[data-generation-intake-panel]")?.dataset.generationIntakePanel;
@@ -4196,6 +7303,10 @@ function bind(form, state) {
 
     const existingVideo = event.target.closest?.("[data-generation-intake-existing-video]");
     if (existingVideo instanceof HTMLSelectElement) {
+      // Другой ролик — другая длительность, поэтому прежнее предупреждение
+      // о длительности снимается: оно относилось к предыдущему исходнику и
+      // после смены читалось бы как утверждение о новом.
+      state.copyEngine = { ...(state.copyEngine || {}), durationNotice: "" };
       const route = existingVideo.dataset.generationIntakeExistingVideo;
       const panel = panelFor(state, route);
       const fileInput = q('input[data-generation-intake-mp4="single"]', panel);
@@ -4218,8 +7329,8 @@ function bind(form, state) {
           panel,
           existingVideo.value
             ? copyViewActive() && route === "copy_video"
-              ? "Ролик проекта выбран. Нажмите «Показать цену» — проверка выполнится автоматически."
-              : "Ролик проекта выбран. Нажмите «Разобрать MP4»."
+              ? `Ролик проекта выбран. Нажмите ${selectedSourceNextStep(panel, route)} — проверка выполнится автоматически.`
+              : `Ролик проекта выбран. Нажмите ${selectedSourceNextStep(panel, route)}.`
             : "Выберите исходный MP4.",
           "neutral",
         );
@@ -4228,6 +7339,7 @@ function bind(form, state) {
 
     const productFileInput = event.target.closest?.('[data-generation-intake-image="product"]');
     const productCheckbox = event.target.closest?.('input[name="media_id"]');
+    if (productCheckbox) captureProductSelectionChange(form, productCheckbox);
     if (productFileInput || productCheckbox) {
       refreshProductSelectionCount(form, state);
       refreshIdentityVisibility(form, state);
@@ -4235,6 +7347,15 @@ function bind(form, state) {
     // Выбранные файлы сразу уходят в серверную регистрацию и очередь;
     // отмеченные чипы персистятся в sessionStorage по проекту.
     if (productFileInput) void registerSelectedProductPhotos(form, state);
+    const originalFrameInput = event.target.closest?.(
+      '[data-generation-intake-image="original_frame"]',
+    );
+    if (
+      originalFrameInput instanceof HTMLInputElement
+      && originalFrameInput.files?.length
+    ) {
+      void registerCopyOriginalFrame(state, originalFrameInput.files[0]);
+    }
     if (productCheckbox) persistCopyPhotoSelection(form);
     const rightsToggle = event.target.closest?.('[data-generation-intake-rights="copy_video"]');
     if (rightsToggle instanceof HTMLInputElement && rightsToggle.checked) {
@@ -4265,28 +7386,56 @@ function bind(form, state) {
     const model = event.target.closest?.('[data-generation-intake-field="model"]');
     if (model instanceof HTMLSelectElement) state.requestedModel = model.value;
 
-    // Каскад «уровень → модель → тайминги». Смена уровня снимает модель, смена
-    // модели снимает прежнее предупреждение о длительности: каждая ступень
-    // перерисовывает следующую, а не оставляет её от прошлого выбора.
-    const tierChoice = event.target.closest?.('input[name="generation_intake_tier"]');
-    if (tierChoice instanceof HTMLInputElement && tierChoice.checked) {
-      state.copyEngine = {
-        tier: String(tierChoice.value || ""),
-        modelId: "",
-        durationNotice: "",
-      };
-      refreshEngineChoice(form, state);
-    }
+    // Каскад «модель → сложность → время». Смена модели снимает и уровень
+    // качества, и прежнее предупреждение о длительности: у другой модели свои
+    // режимы и свои пределы, и оставлять от прошлого выбора нечего.
     const engineChoice = event.target.closest?.(
       'input[name="generation_intake_generator"]',
     );
     if (engineChoice instanceof HTMLInputElement && engineChoice.checked) {
       state.copyEngine = {
-        ...(state.copyEngine || {}),
         modelId: String(engineChoice.value || ""),
+        qualityCode: "",
         durationNotice: "",
       };
-      refreshEngineChoice(form, state);
+      refreshEngineChoice(form, state, "copy_video");
+  refreshEngineChoice(form, state, "avatar_video");
+    }
+    const qualityChoice = event.target.closest?.(
+      'input[name="generation_intake_quality"]',
+    );
+    if (qualityChoice instanceof HTMLInputElement && qualityChoice.checked) {
+      state.copyEngine = {
+        ...(state.copyEngine || {}),
+        qualityCode: String(qualityChoice.value || ""),
+        durationNotice: "",
+      };
+      refreshEngineChoice(form, state, "copy_video");
+  refreshEngineChoice(form, state, "avatar_video");
+    }
+    // Смена ведущего подтягивает ЕГО раскладку: у каждого своя привычная
+    // посадка в кадре, и подставлять чужую было бы сюрпризом.
+    const presenterChoice = event.target.closest?.(
+      "[data-generation-intake-duet-presenter-select]",
+    );
+    if (presenterChoice instanceof HTMLSelectElement) {
+      const section = presenterChoice.closest(
+        "[data-generation-intake-duet-presenter]",
+      );
+      if (section) {
+        applyDuetPresenterLayout(
+          section,
+          duetPresenterCache.get(projectId()) || [],
+          presenterChoice.value,
+        );
+      }
+    }
+    const widthChoice = event.target.closest?.(
+      "[data-generation-intake-duet-width]",
+    );
+    if (widthChoice instanceof HTMLInputElement) {
+      const section = widthChoice.closest("[data-generation-intake-duet-presenter]");
+      if (section) syncDuetWidthLabel(section);
     }
     const durationChoice = event.target.closest?.(
       'input[name="generation_intake_duration"]',
@@ -4294,10 +7443,14 @@ function bind(form, state) {
     if (durationChoice instanceof HTMLInputElement && durationChoice.checked) {
       state.copyEngine = { ...(state.copyEngine || {}), durationNotice: "" };
       applyCopyDuration(form, Number(durationChoice.value));
-      refreshEngineChoice(form, state);
+      refreshEngineChoice(form, state, "copy_video");
+  refreshEngineChoice(form, state, "avatar_video");
     }
 
-    if (event.target === form.elements?.brief) refreshRecommendationUi(form, state);
+    if (event.target === form.elements?.brief) {
+      refreshRecommendationUi(form, state);
+      scheduleBriefDraftCapture(form, state);
+    }
 
     const copyPanelNode = panelFor(state, "copy_video");
     if (copyPanelNode?.contains?.(event.target)) {
@@ -4310,7 +7463,26 @@ function bind(form, state) {
   });
 
   state.shell.addEventListener("input", (event) => {
-    if (event.target === form.elements?.brief) refreshRecommendationUi(form, state);
+    const campaignMirror = event.target.closest?.(
+      "[data-generation-intake-campaign-select]",
+    );
+    if (campaignMirror instanceof HTMLSelectElement) {
+      // This records the human choice and clears price/token/confirmation
+      // before dispatching the authoritative native campaign_id events.
+      commitCompactCampaignSelection(form, state, campaignMirror);
+      return;
+    }
+    // Capture happens on the compact shell before the event reaches form/app.js
+    // and can trigger a patch-render. A checked rights box or selected engine
+    // therefore survives replacement even when the later `change` is lost.
+    captureExpressCommittedInput(form, state, event.target);
+    const productCheckbox = event.target.closest?.('input[name="media_id"]');
+    if (productCheckbox) captureProductSelectionChange(form, productCheckbox);
+    invalidateExpressPriceForCommittedInput(form, state, event.target);
+    if (event.target === form.elements?.brief) {
+      refreshRecommendationUi(form, state);
+      scheduleBriefDraftCapture(form, state);
+    }
     const identityField = event.target?.dataset?.generationIntakeField;
     if (identityField === "sku" || identityField === "product_name") {
       syncIdentityToForm(
@@ -4324,17 +7496,51 @@ function bind(form, state) {
     }
     if (identityField) rememberExpressDefaults(state);
   });
+
+  // Кампания находится в native sibling, а не внутри state.shell. Сохраняем её
+  // на раннем input той же формы; spend confirmation намеренно не сохраняется.
+  form.addEventListener("input", (event) => {
+    if (event.target === form.elements?.brief) {
+      refreshRecommendationUi(form, state);
+      scheduleBriefDraftCapture(form, state);
+    }
+    if (event.target === form.elements?.campaign_id) {
+      captureExpressCommittedInput(form, state, event.target);
+    }
+    if (!state.shell.contains(event.target)) {
+      invalidateExpressPriceForCommittedInput(form, state, event.target);
+    }
+  });
+  form.addEventListener("change", (event) => {
+    if (event.target === form.elements?.brief) {
+      refreshRecommendationUi(form, state);
+      scheduleBriefDraftCapture(form, state);
+    }
+    if (event.target === form.elements?.campaign_id) {
+      captureExpressCommittedInput(form, state, event.target);
+    }
+    if (!state.shell.contains(event.target)) {
+      invalidateExpressPriceForCommittedInput(form, state, event.target);
+    }
+  });
+  form.addEventListener("contentengine:generation-restore-strategy", () => {
+    // Repeat restores only a selection template. It may keep the operator's
+    // current campaign choice available, but never the previous price, token,
+    // checkbox or compact paid CTA.
+    resetExpressAuthorityForStrategyRepeat(form, state);
+  });
 }
 
 function mount(form) {
   if (!(form instanceof HTMLFormElement)) return;
   const existing = formStates.get(form);
   if (existing?.shell?.isConnected) {
-    if (existing.shell.parentElement !== form) {
-      const guidedShell = q("[data-ce-v4-generation-guided-shell]", form);
-      if (guidedShell?.parentElement === form) guidedShell.before(existing.shell);
-      else form.prepend(existing.shell);
-    }
+    // Внешний модуль ИИ-центра может применить/уточнить рекомендацию между
+    // render-событиями. Сначала фиксируем живой маршрут, затем обновляем UI.
+    captureBriefDraft(form, existing, existing.briefRoute || existing.route);
+    if (existing.shell.parentElement !== form) form.prepend(existing.shell);
+    placeGuidedShell(form, existing, existing.route);
+    ensureStrategyAuthority(form, existing);
     refreshVideoSelects(form, existing);
     refreshAvatarSelect(form, existing);
     refreshModelSelects(form, existing);
@@ -4347,12 +7553,14 @@ function mount(form) {
         // монтирование восстанавливает звук/категорию и фазу кнопки цены.
         applyExpressDefaults(form, existing);
         refreshIdentityVisibility(form, existing);
+        syncCompactCampaignControl(form, existing);
         syncExpressPriceButton(existing);
       }
     } else if (existing.phase === "review") {
       moveProductNodes(form, existing, false);
       moveSharedBrief(form, existing, "strategy_video");
     }
+    syncRouteBusyUi(existing);
     if (copyViewActive()) {
       if (
         existing.route !== "copy_video"
@@ -4393,20 +7601,29 @@ function mount(form) {
     route: "copy_video",
     phase: "edit",
     busy: false,
+    busyRoute: "",
+    busyAction: "",
     productUploadBusy: false,
     requestedModel: "",
+    // Set only by the operator clicking the outer “Видео по стратегии” card.
+    // A mount or programmatic default must never masquerade as human choice.
+    strategyAuthorityRequested: false,
     // Выбор каскада «Копии»: уровень, модель и последнее объяснение того,
     // почему длительность была приведена к допустимой.
-    copyEngine: { tier: "", modelId: "", durationNotice: "" },
+    copyEngine: { modelId: "", qualityCode: "", durationNotice: "" },
     express: {
       phase: "idle",
       price: "",
       spend_confirmation: "",
-      recommendationPrefilled: false,
+      campaign_id: "",
     },
     productNodes: [],
     briefControl,
     briefField,
+    briefDraftMemoryKey: routeBriefDraftMemoryKey(),
+    briefDrafts: initialRouteBriefDrafts(form, briefControl),
+    briefRoute: declaredBriefRoute(form),
+    briefDraftReady: false,
     briefOrigin: briefField instanceof HTMLElement ? briefOrigin : null,
     briefOriginal: briefField instanceof HTMLElement
       ? {
@@ -4436,12 +7653,32 @@ function mount(form) {
   formStates.set(form, state);
   form.dataset.generationIntakeV4Bound = HANDOFF_VERSION;
   bind(form, state);
+  placeGuidedShell(form, state, state.route);
   setRoute(form, state, "copy_video");
   if (copyViewActive()) {
     ensureCopyEngineStrategy(form);
     restoreCopyPhotoSelection(form, state);
   }
   syncCopyScreenChrome(state);
+}
+
+// Что наблюдаем и зачем это выделено в функцию: наблюдатель нужно снимать на
+// время перерисовки и ставить обратно, поэтому набор опций должен быть один и
+// тот же в обоих случаях.
+const MOUNT_OBSERVER_OPTIONS = Object.freeze({
+  childList: true,
+  attributes: true,
+  attributeFilter: Object.freeze([
+    "data-generation-strategy-paid-locked",
+    "data-launch-phase",
+  ]),
+  subtree: true,
+});
+
+let mountObserver = null;
+
+function observeMountTriggers() {
+  mountObserver?.observe(document.documentElement, MOUNT_OBSERVER_OPTIONS);
 }
 
 function scheduleMount() {
@@ -4451,7 +7688,21 @@ function scheduleMount() {
     mountQueued = false;
     if (routePath() !== ROUTE) return;
     const form = q("#mock-batch-form");
-    if (form) mount(form);
+    if (!form) return;
+    // Наблюдатель снимается на время перерисовки. Оба атрибута, за которыми он
+    // следит, пишутся БЕЗУСЛОВНО при каждой синхронизации готовности, а во
+    // время платного запуска поллер статусов зовёт её раз в пять секунд. Пока
+    // наблюдатель подключён, любой не-идемпотентный участок mount замыкает цикл
+    // в микрозадачах — не в кадрах, — и вкладка встаёт намертво. Панель «Копия»
+    // на этом уже дважды вешала браузер, флага mountQueued для защиты не хватает:
+    // он снимается ДО mount, поэтому мутации самой перерисовки ставят следующую
+    // микрозадачу.
+    mountObserver?.disconnect();
+    try {
+      mount(form);
+    } finally {
+      observeMountTriggers();
+    }
   });
 }
 
@@ -4459,10 +7710,8 @@ window.addEventListener("hashchange", scheduleMount);
 window.addEventListener("contentengine:rendered", scheduleMount);
 window.addEventListener("contentengine:generation-research-preset-applied", scheduleMount);
 window.addEventListener("contentengine:generation-research-preset-opt-out", scheduleMount);
-new MutationObserver(scheduleMount).observe(document.documentElement, {
-  childList: true,
-  subtree: true,
-});
+mountObserver = new MutationObserver(scheduleMount);
+observeMountTriggers();
 scheduleMount();
 
 export {
@@ -4470,7 +7719,25 @@ export {
   MAX_STRATEGY_FILES,
   PAID_AUTHORITY,
   COPY_AUTHORITY_STRATEGY,
+  assertMediaKindMime,
+  mediaKindMimeMismatchMessage,
+  uploadProjectMedia,
   assertMp4,
   captureStoryboard,
+  applyHandoffSourceDuration,
+  applyConsolidatedRights,
+  bindHandoffPrimaryProduct,
+  captureProductSelectionChange,
+  ensureProductCheckbox,
+  ensureOriginalProductOption,
+  handoffSourceDurationSeconds,
+  rememberProductSelectionChange,
   selectedProductMediaIds,
+  expressPaidAuthorityLocked,
+  resolveExpressCampaign,
+  syncCompactCampaignControl,
+  commitCompactCampaignSelection,
+  expressCampaignMatchesPrice,
+  resetExpressAuthorityForStrategyRepeat,
+  syncExpressPriceButton,
 };

@@ -60,11 +60,26 @@ def test_output_body_deadline_stays_armed_until_the_bounded_body_is_read() -> No
     assert controller < timer < fetch < consume < finally_block < clear
     assert "signal: controller.signal" in deadline
 
+    # Ролик Runway принимается потоком (archiveProviderOutputStream): дедлайн
+    # передаётся помощнику и держится у него на всём пути — от первого GET до
+    # конца загрузки в Storage. Буферного чтения тела в этой секции больше
+    # нет: именно оно валило изолят по памяти на больших роликах.
     output = _output_section(source)
-    output_fetch = output.index("await withFetchDeadline(")
-    body_read = output.index("await readBoundedBytes(", output_fetch)
-    assert output_fetch < output.index("OUTPUT_TIMEOUT_MS", output_fetch) < body_read
+    streamed = output.index("await archiveProviderOutputStream(")
+    assert output.index("OUTPUT_TIMEOUT_MS", streamed) > streamed
+    assert "await readBoundedBytes(" not in output.split("} else {", 1)[1]
     assert "fetchWithTimeout(" not in output
+
+    archive = _text(ROOT / "supabase/functions/_shared/provider-output-archive.ts")
+    helper = _balanced_block(archive, "export async function archiveProviderOutputStream")
+    controller = helper.index("new AbortController()")
+    timer = helper.index("setTimeout(", controller)
+    first_pass = helper.index("pipeTo(", timer)
+    upload = helper.index("method: \"POST\"", first_pass)
+    finally_block = helper.index("finally", upload)
+    clear = helper.index("clearTimeout(", finally_block)
+    assert controller < timer < first_pass < upload < finally_block < clear
+    assert helper.count("signal: controller.signal") >= 2
 
 
 def test_output_finalization_has_budget_inside_the_worker_dispatch_deadline() -> None:
@@ -194,15 +209,29 @@ def test_output_validation_accepts_octet_stream_only_after_signature_check() -> 
     source = _text(GENERATOR_PATH)
     output = _output_section(source)
 
-    mime = output.index("const mimeType")
+    # `application/octet-stream` допускается только вместе с проверкой
+    # сигнатуры файла. Буферная ветка (Google): байты → isMp4 → upload.
+    # Потоковая ветка (Runway): сниффер передаётся помощнику, и тот сверяет
+    # первые байты ДО того, как отдать их в Storage.
+    mime = output.index("const allowedOutputMimeTypes")
     octet_stream = output.index('"application/octet-stream"', mime)
-    body_read = output.index("await readBoundedBytes(", octet_stream)
-    signature = output.index("!isMp4(outputBytes)", body_read)
-    upload = output.index("storage.upload(", signature)
+    google_signature = output.index("!isMp4(outputBytes)", octet_stream)
+    google_upload = output.index("storage.upload(", google_signature)
+    streamed = output.index("await archiveProviderOutputStream(", google_upload)
+    sniff = output.index("sniff: photoOutput ? isPng : isMp4", streamed)
+    assert mime < octet_stream < google_signature < google_upload < streamed < sniff
+    assert "MAX_OUTPUT_BYTES" in output[streamed:]
 
-    assert mime < octet_stream < body_read < signature < upload
-    assert '"output_validation_failed"' in output[mime:upload]
-    assert "MAX_OUTPUT_BYTES" in output[mime:signature]
+    archive = _text(ROOT / "supabase/functions/_shared/provider-output-archive.ts")
+    meter = archive[
+        archive.index("export function providerOutputMeter") : archive.index(
+            "export function providerOutputStorageUrl"
+        )
+    ]
+    sniff_call = meter.index("!sniff(head)")
+    enqueue = meter.index("controller.enqueue(chunk)")
+    assert sniff_call < enqueue
+    assert '"output_validation_failed"' in meter[sniff_call:enqueue]
 
 
 def test_output_retry_never_creates_a_second_paid_provider_task() -> None:

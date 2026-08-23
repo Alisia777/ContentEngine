@@ -243,7 +243,9 @@ def test_generation_and_content_review_fetch_and_render_only_the_requested_uuid(
     review = _between(APP, "function renderContentReviewSection(", "function selectPendingContentReviewMedia(")
 
     for marker in (
-        'state.api.realGenerationStatus(routeGenerationJobId, { projectId })',
+        "generationDeepLinkStatusKind(",
+        "state.api.generationStrategyStatus(strategyRequest)",
+        "state.api.realGenerationStatus(",
         'String(deepLinkJob?.id || "") === routeGenerationJobId',
         "mergeGenerationDeepLinkedBatch(",
         'state.api.contentReviewStatus(routeReviewId, { projectId })',

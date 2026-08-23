@@ -24,7 +24,8 @@ const MIME_BY_KIND = Object.freeze({
 });
 const KINDS = Object.freeze(new Set(["all", ...Object.keys(MIME_BY_KIND)]));
 const STRATEGY_ROLES = Object.freeze({
-  viral_avatar_ugc: new Set(["source_video", "avatar_image", "product_image"]),
+  // «Дуэт»: только исходник. Ведущий приходит из библиотеки, а не ассетом.
+  viral_avatar_ugc: new Set(["source_video"]),
   viral_product_swap: new Set([
     "source_video",
     "original_product_image",
@@ -235,18 +236,22 @@ function normalizeEligibleStrategyRoles(value, field) {
     throw new AssetContractError("eligible_strategy_roles_invalid", field);
   }
   const seen = new Set();
-  const normalized = value.map((entry, index) => {
+  const normalized = [];
+  value.forEach((entry, index) => {
     const itemField = `${field}.${index}`;
     exactObject(entry, ELIGIBLE_ROLE_KEYS, itemField);
     const strategyId = exactCode(entry.strategy_id, `${itemField}.strategy_id`);
     const role = exactCode(entry.role, `${itemField}.role`);
-    if (!STRATEGY_ROLES[strategyId]?.has(role)) {
-      throw new AssetContractError("eligible_strategy_role_invalid", itemField);
-    }
+    // Пара (стратегия, роль), которой этот экран не знает, ОТБРАСЫВАЕТСЯ, а не
+    // валит страницу. Иначе одна чужая роль — например, старая роль «Аватара»
+    // от сервера, который ещё не получил миграции «Дуэта», — оставляла бы без
+    // исходников «Копию» и «Создание» целиком. Экран не ставит ассет на роль,
+    // которой не знает, и этого достаточно; остальное — дело сервера.
+    if (!STRATEGY_ROLES[strategyId]?.has(role)) return;
     const key = `${strategyId}:${role}`;
     if (seen.has(key)) throw new AssetContractError("eligible_strategy_role_duplicate", itemField);
     seen.add(key);
-    return Object.freeze({ strategy_id: strategyId, role });
+    normalized.push(Object.freeze({ strategy_id: strategyId, role }));
   });
   return Object.freeze(normalized);
 }
@@ -327,9 +332,9 @@ function normalizeAsset(value, index, projectId) {
   if (!Array.isArray(value.eligible_roles) || value.eligible_roles.length > 8) {
     throw new AssetContractError("eligible_roles_invalid", `${field}.eligible_roles`);
   }
-  const eligibleRoles = value.eligible_roles.map((role, roleIndex) =>
+  const declaredRoles = value.eligible_roles.map((role, roleIndex) =>
     exactCode(role, `${field}.eligible_roles.${roleIndex}`));
-  if (new Set(eligibleRoles).size !== eligibleRoles.length) {
+  if (new Set(declaredRoles).size !== declaredRoles.length) {
     throw new AssetContractError("eligible_roles_duplicate", `${field}.eligible_roles`);
   }
   const eligibleStrategyRoles = normalizeEligibleStrategyRoles(
@@ -337,6 +342,13 @@ function normalizeAsset(value, index, projectId) {
     `${field}.eligible_strategy_roles`,
   );
   const pairRoles = new Set(eligibleStrategyRoles.map((entry) => entry.role));
+  // Роль без пары (стратегия, роль) после отсева незнакомых пар — это роль,
+  // которой этот экран не знает (например, прежняя роль «Аватара» от сервера
+  // без миграций «Дуэта»). Она отбрасывается вместе с парой, а не валит
+  // страницу: ассет просто не встанет на незнакомую роль.
+  // Ассет, у которого все роли оказались чужими, остаётся в списке без ролей
+  // и ниже честно считается «не подходит ни одной роли».
+  const eligibleRoles = declaredRoles.filter((role) => pairRoles.has(role));
   if (eligibleRoles.some((role) => !pairRoles.has(role))) {
     throw new AssetContractError("eligible_roles_unbound", `${field}.eligible_roles`);
   }

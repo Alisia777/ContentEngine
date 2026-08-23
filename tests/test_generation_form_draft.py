@@ -43,6 +43,7 @@ def test_generation_draft_is_bounded_and_never_contains_spend_confirmation() -> 
             "generation_mode": "real_seedance",
             "duration_seconds": "15",
             "campaign_id": "11111111-1111-4111-8111-111111111111",
+            "campaign_selection_required": True,
             "sku": " WB-42 ",
             "product_name": " Точный товар ",
             "product_category": "cosmetics",
@@ -75,6 +76,7 @@ def test_generation_draft_is_bounded_and_never_contains_spend_confirmation() -> 
     assert result["context"]["handoffDraftId"] == "draft-1"
     assert result["values"]["sku"] == "WB-42"
     assert result["values"]["duration_seconds"] == "15"
+    assert result["values"]["campaign_selection_required"] is True
     assert result["values"]["media_ids"] == ["media-a", "media-b"]
     assert result["values"]["primary_media_id"] == "media-b"
     assert result["values"]["scenario_intent"] == "Блогер готовит лосось в пароварке"
@@ -197,9 +199,9 @@ def test_portal_restores_generation_draft_but_requires_fresh_spend_confirmation(
         "persistGenerationFormDraft(form, { manual: true })",
     ):
         assert token in APP
-    assert "generation-form-draft.js?v=20260814.os4.41" in APP
+    assert "generation-form-draft.js?v=20260823.copy-engines.39" in APP
     assert "form.dataset.generationScenarioIntent" in APP
-    assert "app.js?v=20260816.adaptive.4" in INDEX
+    assert "app.js?v=20260823.copy-engines.39" in INDEX
 
 
 def test_generated_video_review_starts_automatically_after_durable_evidence() -> None:
