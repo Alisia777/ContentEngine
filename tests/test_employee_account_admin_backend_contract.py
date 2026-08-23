@@ -643,7 +643,9 @@ def test_creator_rpc_inventory_counts_the_two_new_authenticated_admin_rpcs() -> 
 
     assert "'creator_admin_snapshot', 'creator_admin_mutate'" in flat
     assert "91, 'all browser rpcs expose exactly p_payload jsonb'" in flat
-    assert "117, 'authenticated can execute all creator rpcs'" in flat
+    # 120 = 117 + библиотека ведущих «Дуэта» (202608220008/09/12); число и
+    # подпись разделены пояснением в фикстуре, поэтому проверяются порознь.
+    assert "120, 'authenticated can execute all creator rpcs'" in flat
 
 
 def test_admin_snapshot_exposes_audited_waiver_state_without_secret_material() -> None:

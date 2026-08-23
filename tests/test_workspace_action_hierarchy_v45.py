@@ -399,7 +399,10 @@ def test_dock_promotes_research_and_ai_while_tools_stay_compact_and_gated() -> N
     assert "routeForWorkspaceWindow(windowRecord)" in mission
     assert "authorizedRoutes(ALL_ROUTES).map" in spotlight
     assert "DOCK_APPS" in shortcuts
-    assert ".filter((candidate) => routeIsAuthorized(candidate.route))[Number(event.code.slice(-1)) - 1]" in shortcuts
+    # Alt+цифра считает только авторизованные и видимые пункты Dock:
+    # авторизация по маршруту записи, видимость — по самому узлу.
+    assert "return Boolean(record && routeIsAuthorized(record.route) && isVisible(node));" in shortcuts
+    assert "})[Number(event.code.slice(-1)) - 1]" in shortcuts
     assert 'attributeFilter: ["data-workspace-authorized-routes"]' in observer
     for key in ("ArrowDown", "ArrowUp", "Home", "End", "Escape"):
         assert key in tools_keyboard
@@ -415,7 +418,9 @@ def test_dock_access_matrix_updates_without_recreating_the_dock() -> None:
     assert "DOCK_APPS.forEach" in ensure
     assert "link.dataset.ceV4DockKey = item.key" in ensure
     assert "syncDockPresentation(activeKey)" in update
-    assert "DOCK_APPS.filter((item) => routeIsAuthorized(item.route))" in update
+    # Индексы горячих клавиш строятся по представлению Dock, отфильтрованному
+    # той же проверкой авторизации маршрута.
+    assert ".filter((item) => item && routeIsAuthorized(item.route))" in update
     assert 'item.classList.toggle("is-unavailable", !authorized)' in update
     assert 'item.dataset.ceV4DockAvailability = authorized ? "available" : "role_blocked"' in update
     assert 'if (locked || !authorized) item.setAttribute("aria-disabled", "true")' in update

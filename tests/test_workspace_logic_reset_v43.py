@@ -464,7 +464,9 @@ def test_dock_is_the_only_global_switcher_and_project_progress_is_contextual() -
     assert "activeAppId: activeKey" in dock_presentation
     assert "runningAppIds: runningDockAppIds(activeKey)" in dock_presentation
     assert "selectedShortcutId" in dock_presentation
-    assert "const activeKey = activeDockKey(window.location.hash || route)" in update_dock
+    # Активный пункт Dock берётся от ключевого окна, если оно есть, иначе — от
+    # адреса: окна («живые окна» 23.08.2026) стоят перед hash.
+    assert "const activeKey = activeDockKey(keyWindowRoute || window.location.hash || route)" in update_dock
     assert "const presentation = syncDockPresentation(activeKey)" in update_dock
     assert "new Map((presentation?.items || []).map((item) => [item.key, item]))" in update_dock
     assert "const key = String(item.dataset.ceV4DockKey || \"\")" in update_dock
