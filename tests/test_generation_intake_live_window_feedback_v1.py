@@ -68,6 +68,22 @@ def test_duet_product_list_refreshes_after_copy_registration() -> None:
     ) in source
 
 
+def test_paid_launch_status_follows_the_job_to_its_end() -> None:
+    """24.08.2026: первый платный дуэт прошёл (HeyGen, $0.30), файл лёг в
+    проект — а панель навсегда осталась на «Отправляем…»: после диспатча за
+    задачей никто не следил. Мастер публикует id задачи на форме, панель
+    опрашивает бесплатный статус до терминального и называет, где ролик."""
+    app = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
+    assert 'form.dataset.generationStrategyLastJobId = String(projection.job.id);' in app
+    intake = text(INTAKE)
+    assert "async function watchExpressLaunchJob(initialForm, route, price)" in intake
+    assert "void watchExpressLaunchJob(form, expressRoute(state), express.price);" in intake
+    assert "api.realGenerationStatus(jobId, { projectId: projectId() })" in intake
+    assert "Готово! Ролик за ${price} собран и сохранён в проекте" in intake
+    # Провайдера опрашивает только сервер; терминальные статусы — закрытый список.
+    assert 'succeeded: "succeeded",\n  failed: "failed",\n  cancelled: "cancelled",' in intake
+
+
 def test_flow_probes_can_run_inside_the_live_window() -> None:
     for probe in (DUET_PROBE, COPY_PROBE):
         source = text(probe)

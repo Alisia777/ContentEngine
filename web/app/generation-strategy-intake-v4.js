@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260823.copy-engines.50",
+  "./generation-strategy-intake-v4.css?v=20260823.copy-engines.51",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260823.copy-engines.50"
+  "./generation-engine-advisor.js?v=20260823.copy-engines.51"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -7292,11 +7292,108 @@ async function startExpressLaunch(initialForm) {
       );
       return;
     }
+    // Задача создана мастером асинхронно; как только он опубликует её id на
+    // форме, панель начнёт следить за ней и скажет, когда ролик будет готов.
+    // Раньше статус «Отправляем…» застывал навсегда, хотя задача успевала
+    // завершиться и файл лежал в проекте.
+    void watchExpressLaunchJob(form, expressRoute(state), express.price);
   } finally {
     finishRouteBusy(initialState);
     finishRouteBusy(state);
     const finalContext = liveCopyLaunchContext(form, state, panel);
     finishRouteBusy(finalContext.state);
+  }
+}
+
+const EXPRESS_JOB_WATCH_INTERVAL_MS = 10_000;
+const EXPRESS_JOB_WATCH_DEADLINE_MS = 20 * 60_000;
+const EXPRESS_JOB_TERMINAL_STATUSES = Object.freeze({
+  succeeded: "succeeded",
+  failed: "failed",
+  cancelled: "cancelled",
+});
+
+// Наблюдение за оплаченной задачей из компактной панели. Бесплатный статус
+// (действие "status") опрашивается, пока задача не станет терминальной; провайдера
+// при этом опрашивает только сервер. Паникующих сообщений нет: не дождались —
+// говорим, где смотреть, а не «что-то сломалось».
+async function watchExpressLaunchJob(initialForm, route, price) {
+  // Вне настоящего DOM (исполняемые контракты гоняют панель в Node) наблюдать
+  // не за чем — и падать с ReferenceError тоже нельзя.
+  const doc = initialForm?.ownerDocument
+    || (typeof document === "undefined" ? null : document);
+  if (!doc) return;
+  let jobId = "";
+  const deadline = Date.now() + EXPRESS_JOB_WATCH_DEADLINE_MS;
+  // id публикуется мастером после ответа сервера — ждём его недолго.
+  for (let attempt = 0; attempt < 120 && !jobId; attempt += 1) {
+    await waitMs(500);
+    const form = doc.querySelector("#mock-batch-form");
+    jobId = String(form?.dataset?.generationStrategyLastJobId || "").trim();
+  }
+  const describe = (form) => {
+    const state = form ? formStates.get(form) : null;
+    return { form, state, panel: state ? panelFor(state, route) : null };
+  };
+  if (!jobId) {
+    const { panel } = describe(doc.querySelector("#mock-batch-form"));
+    if (panel) {
+      setStatus(
+        panel,
+        `Платный запуск за ${price} отправлен. Ход задачи виден во вкладке «Запуски и готовые файлы»; готовый ролик появится там же.`,
+        "busy",
+      );
+    }
+    return;
+  }
+  let lastShown = "";
+  while (Date.now() < deadline) {
+    let jobStatus = "";
+    try {
+      const api = await apiRuntime();
+      const data = await api.realGenerationStatus(jobId, { projectId: projectId() });
+      jobStatus = String(data?.job?.status || "").trim();
+    } catch {
+      jobStatus = "";
+    }
+    const { panel } = describe(doc.querySelector("#mock-batch-form"));
+    if (!panel) return;
+    if (jobStatus === EXPRESS_JOB_TERMINAL_STATUSES.succeeded) {
+      setStatus(
+        panel,
+        `Готово! Ролик за ${price} собран и сохранён в проекте: откройте вкладку «Запуски и готовые файлы» (он же — в «Материалах», kind generated_video). Можно готовить следующий запуск.`,
+        "success",
+      );
+      return;
+    }
+    if (
+      jobStatus === EXPRESS_JOB_TERMINAL_STATUSES.failed
+      || jobStatus === EXPRESS_JOB_TERMINAL_STATUSES.cancelled
+    ) {
+      setStatus(
+        panel,
+        `Платная задача завершилась со статусом «${jobStatus}». Деньги защищены серверной сверкой: откройте «Запуски и готовые файлы», там точная причина и дальнейшие шаги.`,
+        "error",
+      );
+      return;
+    }
+    if (jobStatus && jobStatus !== lastShown) {
+      lastShown = jobStatus;
+      setStatus(
+        panel,
+        `Задача за ${price} выполняется у провайдера (статус: ${jobStatus}). Это занимает несколько минут; готовый ролик сам появится в «Запусках и готовых файлах».`,
+        "busy",
+      );
+    }
+    await waitMs(EXPRESS_JOB_WATCH_INTERVAL_MS);
+  }
+  const { panel } = describe(doc.querySelector("#mock-batch-form"));
+  if (panel) {
+    setStatus(
+      panel,
+      "Задача ещё выполняется. Готовый ролик появится во вкладке «Запуски и готовые файлы» — панель можно закрыть, запуск не потеряется.",
+      "busy",
+    );
   }
 }
 
