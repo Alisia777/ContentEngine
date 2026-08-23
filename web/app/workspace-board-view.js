@@ -771,7 +771,17 @@ function safePreviewUrl(value) {
   if (!candidate) return "";
   try {
     const parsed = new URL(candidate);
-    return parsed.protocol === "https:" || parsed.protocol === "blob:" ? parsed.href : "";
+    // Локальный стенд подписывает URL по http с того же хоста, что и сама
+    // страница — это тот же наш приватный сторедж. На проде
+    // страница живёт на https, поэтому http-превью там по-прежнему отвергаются;
+    // адресных литералов здесь нет намеренно — их запрещает сборка Pages.
+    const sameHostHttp = parsed.protocol === "http:"
+      && typeof window !== "undefined"
+      && window.location?.protocol === "http:"
+      && parsed.hostname === window.location.hostname;
+    return parsed.protocol === "https:" || parsed.protocol === "blob:" || sameHostHttp
+      ? parsed.href
+      : "";
   } catch {
     return "";
   }
@@ -1372,7 +1382,11 @@ function itemPreviewMarkup(item, detailed = false) {
     return `<img src="${escapeHtml(imagePreviewUrl)}" alt="" loading="lazy" decoding="async" />`;
   }
   if (previewUrl && item.mimeType.startsWith("video/")) {
-    return `<span class="workspace-board__preview-symbol" aria-hidden="true">▶</span>`;
+    // Первый кадр вместо фиолетовой заглушки: фрагмент #t= заставляет браузер
+    // отрисовать кадр, не проигрывая и не скачивая ролик целиком (metadata +
+    // один кадр). Элемент немой и не интерактивный — карточкой остаётся сама
+    // плитка.
+    return `<video class="workspace-board__preview-frame" src="${escapeHtml(previewUrl)}#t=0.4" preload="metadata" muted playsinline disablepictureinpicture disableremoteplayback tabindex="-1" aria-hidden="true"></video><span class="workspace-board__preview-play" aria-hidden="true">▶</span>`;
   }
   return `<span class="workspace-board__preview-symbol" aria-hidden="true">${escapeHtml(ENTITY_ICONS[item.entityType] || "◇")}</span>`;
 }

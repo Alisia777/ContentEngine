@@ -154,7 +154,7 @@ process.stdout.write(JSON.stringify({{
 
 def test_paid_flow_prepares_then_requires_separate_human_approval() -> None:
     for token in (
-            'from "./generation-spec.js?v=20260823.copy-engines.51"',
+            'from "./generation-spec.js?v=20260823.copy-engines.52"',
         "approvedGenerationSpecContext",
         "generationSpecCardMarkup",
         "currentGenerationSpecContext(form)",
@@ -480,8 +480,8 @@ def test_edge_accepts_only_atomic_terminal_stale_claim_as_non_retryable() -> Non
 
 
 def test_generation_spec_cache_versions_are_published_consistently() -> None:
-    assert './supabase-api.js?v=20260823.copy-engines.51' in APP
-    assert './app.js?v=20260823.copy-engines.51' in INDEX
+    assert './supabase-api.js?v=20260823.copy-engines.52' in APP
+    assert './app.js?v=20260823.copy-engines.52' in INDEX
     for name in (
         "workspace-os-v4-context-trash.js",
         "workspace-os-v4-trash-rpc-alias.js",
