@@ -1973,11 +1973,16 @@ def test_copy_engine_cascade_does_not_touch_the_signed_route() -> None:
     assert "selectedEngine?.enabled ? selectedEngine.id : \"\"" in render
 
     # Отметка «Советуем» осталась подсказкой, а не приговором. С 23.08.2026
-    # совет даёт ИИ-центр по фактам запуска, отметка реестра — запасной ответ;
-    # фраза «Исполнит …» живёт в engineAdviceNote и называет исполнение отдельно
-    # от совета всегда.
-    assert "engines.find((engine) => engine.recommended && engine.enabled)" in render
-    assert "engineAdviceNote(selectedEngine, activeEngine, advice)" in render
+    # совет даёт ИИ-центр по фактам запуска; отметка реестра `recommended` —
+    # умолчание ВЫБОРА, но не совет: бейдж «ИИ-центр рекомендует» ставится
+    # только по ответу советчика, а у стратегии без советчика («Дуэт») подпись
+    # прямо говорит, что совета нет. Фраза «Исполнит …» живёт в engineAdviceNote
+    # и называет исполнение отдельно от совета всегда.
+    assert "orderedEngines.find((engine) => engine.recommended && engine.enabled)" in render
+    assert 'const advisedId = advisedEngine?.id || "";' in render
+    assert "engineAdviceNote(selectedEngine, activeEngine, advice, {" in render
+    assert "advised: advice !== null," in render
+    assert "ИИ-центр здесь не советует" in source
     assert "не переключает запуск" not in render
     assert "Исполнит «${selectedEngine.label}»" in source.split(
         "function engineAdviceNote(", 1
@@ -2147,3 +2152,32 @@ def test_copy_panel_survives_mp4_selection_without_remount_ping_pong() -> None:
     # Раскладка ведущего подставляется при смене ведущего, а не на каждой
     # перерисовке: иначе угол и форма, выбранные под ролик, откатывались бы.
     assert "if (select.dataset.layoutPresenter !== restored) {" in presenters
+
+
+def test_express_preflight_cannot_be_silently_blocked_by_hidden_required_fields() -> None:
+    """Отказ «мастер не отвечает» 23.08.2026 на «Подготовить точное ТЗ бесплатно».
+
+    Нативная форма держала два скрытых обязательных поля пустыми —
+    `destination_ref` (стратегиям его ставит сервер) и `product_category`
+    (нужна ТЗ). `form.reportValidity()` молча возвращал false, и двенадцать
+    нажатий мастера уходили в пустоту. Теперь: назначение не обязательно при
+    выбранной стратегии, категорию «Копия» спрашивает вслух до загрузки, а
+    отказ сервера на любом бесплатном шаге панель называет по имени.
+    """
+    source = text(V4)
+    app = text(ROOT / "web/app/app.js")
+
+    destination = between(app, "function syncGenerationDestination(form)", "function syncGenerationCampaignSelectUi")
+    assert "destination.required = !strategySelected;" in destination
+
+    prepare = between(source, "async function prepareCopy(form)", "async function prepareAvatar(form)")
+    assert "if (!currentProductCategory(form, state)) {" in prepare
+    assert "revealIdentityCategory(state);" in prepare
+    assert prepare.index("currentProductCategory(form, state)") < prepare.index("beginRouteBusy(")
+
+    driver = between(source, "async function driveStrategyPreflight(initialForm, panel)", "function priceButtonFor(panel)")
+    assert "form.dataset.generationStrategyLastFailureAt" in driver
+    assert 'new Error("express_preflight_rejected")' in driver
+    assert "Сервер отказал на шаге" in source
+    assert app.count("recordGenerationStrategyFailure(form, error);") == 3
+

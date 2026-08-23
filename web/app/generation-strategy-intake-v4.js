@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260823.copy-engines.40",
+  "./generation-strategy-intake-v4.css?v=20260823.copy-engines.41",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260823.copy-engines.40"
+  "./generation-engine-advisor.js?v=20260823.copy-engines.41"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -1805,9 +1805,22 @@ function rebuildEngineFacts(form, state) {
 // Подпись под каскадом: что советует ИИ-центр и почему, и что исполнится на
 // самом деле. Совет и исполнение называются отдельно всегда — даже когда они
 // совпадают, чтобы человек видел, что выбор остаётся за ним.
-function engineAdviceNote(selectedEngine, advisedEngine, advice) {
+function engineAdviceNote(
+  selectedEngine,
+  advisedEngine,
+  advice,
+  { advised = true, engineCount = 0 } = {},
+) {
   if (!selectedEngine?.enabled) {
     return "Эта модель пока недоступна — выберите другую, иначе запуск выполнит маршрут по умолчанию.";
+  }
+  // У стратегии без советчика («Дуэт») честная подпись: совета нет, выбор —
+  // умолчание реестра или человека. Раньше здесь печаталось «ИИ-центр
+  // советует…» по флагу таблицы.
+  if (!advised) {
+    return engineCount <= 1
+      ? `Исполнит «${selectedEngine.label}» — единственный движок этой стратегии; ИИ-центр здесь не советует.`
+      : `Исполнит «${selectedEngine.label}» — умолчание реестра или ваш выбор; ИИ-центр для этой стратегии не советует.`;
   }
   const reasons = Array.isArray(advice?.reasons) && advice.reasons.length
     ? `: ${advice.reasons.slice(0, 3).join("; ")}`
@@ -3240,9 +3253,11 @@ function renderEngineChoice(form, state, section, strategyId) {
     || orderedEngines.find((engine) => engine.recommended && engine.enabled)
     || orderedEngines.find((engine) => engine.enabled)
     || orderedEngines[0];
-  const advisedId = advisedEngine?.id
-    || orderedEngines.find((engine) => engine.recommended && engine.enabled)?.id
-    || "";
+  // Отметка «ИИ-центр рекомендует» ставится только по совету советчика.
+  // Флаг `recommended` реестра — умолчание маршрута, а не решение ИИ: печатать
+  // его как совет значило бы выдавать умолчание за анализ («Дуэт» с одним
+  // движком получал такую подпись ни за что).
+  const advisedId = advisedEngine?.id || "";
   renderChoiceChips(
     q('[data-generation-intake-choice="model"]', section),
     orderedEngines.map((engine) => ({
@@ -3459,10 +3474,13 @@ function renderEngineChoice(form, state, section, strategyId) {
   // «Советуем» остаётся подсказкой, а не приговором. Про недоступную модель
   // говорим прямо — иначе человек ждал бы от выбора того, чего не будет.
   const activeEngine = engines.find((engine) => engine.id === advisedId && engine.enabled)
-    || engines.find((engine) => engine.recommended && engine.enabled);
+    || null;
   setNodeText(
     q("[data-generation-intake-route-note]", section),
-    engineAdviceNote(selectedEngine, activeEngine, advice),
+    engineAdviceNote(selectedEngine, activeEngine, advice, {
+      advised: advice !== null,
+      engineCount: engines.filter((engine) => engine.enabled).length,
+    }),
   );
 
   storeCascadeState(state, strategyId, {
@@ -4650,6 +4668,30 @@ function currentProductIdentity(form) {
   return sku && productName ? { sku, product_name: productName } : null;
 }
 
+// Категория берётся из нативного поля, а если панель ещё не успела её туда
+// перенести — из собственного селекта блока идентичности; в этом случае она
+// переносится в форму здесь же, чтобы reportValidity() и ТЗ видели одно и то же.
+function currentProductCategory(form, state) {
+  const native = cleanText(form?.elements?.product_category?.value, 64);
+  if (native) return native;
+  const own = cleanText(identityInput(state, "product_category")?.value, 64);
+  if (own) {
+    syncIdentityToForm(form, "product_category", own);
+    return cleanText(form?.elements?.product_category?.value, 64) || own;
+  }
+  return "";
+}
+
+function revealIdentityCategory(state) {
+  const block = q("[data-generation-intake-identity]", state?.shell);
+  if (block instanceof HTMLElement && block.hidden) block.hidden = false;
+  const item = q(
+    '[data-generation-intake-identity-item="product_category"]',
+    state?.shell,
+  );
+  if (item instanceof HTMLElement && item.hidden) item.hidden = false;
+}
+
 function refreshModelSelects(form, state) {
   qa('[data-generation-intake-field="model"]', state.shell).forEach((select) => {
     const desired = [{
@@ -5153,7 +5195,8 @@ function preflightSignature(form, submitButton) {
 // Провайдер не вызывается, деньги не списываются; платный старт остаётся за
 // отдельным человеческим кликом.
 async function driveStrategyPreflight(initialForm, panel) {
-  const deadline = Date.now() + EXPRESS_PREFLIGHT_TIMEOUT_MS;
+  const startedAt = Date.now();
+  const deadline = startedAt + EXPRESS_PREFLIGHT_TIMEOUT_MS;
   let blockedPolls = 0;
   let stalledPolls = 0;
   let attestationRenderPolls = 0;
@@ -5177,6 +5220,16 @@ async function driveStrategyPreflight(initialForm, panel) {
     const submitButton = q("#generation-submit", form);
     if (!(submitButton instanceof HTMLButtonElement)) {
       throw new Error("express_submit_missing");
+    }
+    // Отказ сервера на одном из бесплатных шагов мастер записывает на форму.
+    // Повторять нажатие бессмысленно — причина названа, и её надо показать.
+    const failureAt = Number(form.dataset.generationStrategyLastFailureAt || 0);
+    const failureText = String(form.dataset.generationStrategyLastFailure || "");
+    if (failureAt >= startedAt && failureText) {
+      const rejected = new Error("express_preflight_rejected");
+      rejected.serverMessage = failureText;
+      rejected.step = cleanText(submitButton.textContent, 120);
+      throw rejected;
     }
     // У свежего локального MP4 handoff ещё не знает серверную длительность:
     // она появляется только после бесплатной probe-кнопки ниже. Как только
@@ -6636,6 +6689,20 @@ async function prepareCopy(form) {
     );
     return;
   }
+  // Категория товара уходит в серверное ТЗ (правила безопасности и допустимые
+  // обещания) и у нативной формы обязательна. Без неё мастер молча не проходил
+  // reportValidity() и через 12 нажатий сдавался с «мастер не отвечает».
+  // Спрашиваем здесь и вслух — до загрузки файлов.
+  if (!currentProductCategory(form, state)) {
+    revealIdentityCategory(state);
+    setStatus(
+      panel,
+      "Выберите «Категория товара» в этой форме: она нужна серверному ТЗ (правила безопасности для косметики, БАД, еды и т. д.).",
+      "error",
+    );
+    identityInput(state, "product_category")?.focus?.({ preventScroll: true });
+    return;
+  }
   beginRouteBusy(
     state,
     "copy_video",
@@ -6905,6 +6972,14 @@ async function prepareCopy(form) {
       setStatus(
         activePanel,
         "Сервер долго готовит цену. Ничего не списано; нажмите «Показать цену» ещё раз.",
+        "error",
+      );
+      return;
+    }
+    if (error?.message === "express_preflight_rejected") {
+      setStatus(
+        activePanel,
+        `Сервер отказал на шаге «${error.step || "бесплатная проверка"}»: ${error.serverMessage} Ничего не запущено и не оплачено. Устраните причину и нажмите «Подготовить ролик» ещё раз — выбранные материалы сохранены.`,
         "error",
       );
       return;

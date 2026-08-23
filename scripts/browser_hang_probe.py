@@ -184,6 +184,23 @@ def main() -> int:
             send("DOM.setFileInputFiles", {"objectId": object_id, "files": [str(args.mp4)]})
             print(f"file selected; waiting {args.wait}s before interrupting")
             time.sleep(args.wait)
+            # Сначала — мягкая попытка прочитать строку статуса панели: если
+            # поток свободен, она вернётся сразу и скажет, что экран думает о
+            # файле; если висит — evaluate не вернётся, и ниже его прервёт пауза.
+            try:
+                status_probe = cdp("Runtime.evaluate", {
+                    "expression": (
+                        "JSON.stringify({ status: document.querySelector("
+                        + json.dumps("[data-generation-intake-panel=" + json.dumps(args.route) + "] .generation-intake-v4__status")
+                        + ")?.textContent || '', checklist: [...document.querySelectorAll("
+                        + json.dumps("[data-generation-intake-panel=" + json.dumps(args.route) + "] .gi-check")
+                        + ")].map((node) => node.textContent.trim().replace(/\s+/g, ' ')) })"
+                    ),
+                    "returnByValue": True,
+                }, timeout=4)
+                print("panel status:", status_probe.get("result", {}).get("result", {}).get("value"))
+            except TimeoutError:
+                print("panel status: main thread did not answer within 4s")
             pause_id = send("Debugger.pause")
             stop = time.monotonic() + 15
             paused = None

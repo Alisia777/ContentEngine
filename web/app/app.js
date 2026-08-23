@@ -3,7 +3,7 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260823.copy-engines.40";
+} from "./supabase-api.js?v=20260823.copy-engines.41";
 import {
   adminPeopleMarkup,
   normalizeAdminSnapshot,
@@ -34,9 +34,9 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
-} from "./generation-spec.js?v=20260823.copy-engines.40";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260823.copy-engines.40";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260823.copy-engines.40";
+} from "./generation-spec.js?v=20260823.copy-engines.41";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260823.copy-engines.41";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260823.copy-engines.41";
 import {
   normalizeWorkspaceInternalTarget,
   resolveWorkspaceCommand,
@@ -73,7 +73,7 @@ import {
   generationSpendSnapshotMarkup,
   managerGenerationSpendMarkup,
   normalizeGenerationSpendOverview,
-} from "./generation-spend-view.js?v=20260823.copy-engines.40";
+} from "./generation-spend-view.js?v=20260823.copy-engines.41";
 import {
   generationProviderReadinessPreflights,
   normalizeGenerationProviderPreflight,
@@ -109,7 +109,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260823.copy-engines.40";
+} from "./product-research-view.js?v=20260823.copy-engines.41";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -120,7 +120,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260823.copy-engines.40";
+} from "./ai-learning-control-room.js?v=20260823.copy-engines.41";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -136,7 +136,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260823.copy-engines.40";
+} from "./content-generation-handoff.js?v=20260823.copy-engines.41";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -158,7 +158,7 @@ import {
   invalidateGenerationStrategyRuntimeState,
   normalizeGenerationStrategyProbeResponse,
   reduceGenerationStrategyRuntimeState,
-} from "./generation-strategy-runtime.js?v=20260823.copy-engines.40";
+} from "./generation-strategy-runtime.js?v=20260823.copy-engines.41";
 import {
   createGenerationStrategyQueue,
   generationStrategyQueueAggregateReview,
@@ -167,17 +167,17 @@ import {
   planGenerationStrategyQueueFreeWork,
   planGenerationStrategyQueueSequentialStarts,
   updateGenerationStrategyQueueRow,
-} from "./generation-strategy-queue.js?v=20260823.copy-engines.40";
+} from "./generation-strategy-queue.js?v=20260823.copy-engines.41";
 import {
   renderGenerationStrategyQueueView,
-} from "./generation-strategy-queue-view.js?v=20260823.copy-engines.40";
+} from "./generation-strategy-queue-view.js?v=20260823.copy-engines.41";
 import {
   buildGenerationStrategySpecApprovalRequest,
   buildGenerationStrategySpecPrepareRequest,
   generationStrategySpecSafeProjection,
   normalizeGenerationStrategySpecControlResponse,
   normalizeGenerationStrategySpecPrepareResponse,
-} from "./generation-strategy-spec.js?v=20260823.copy-engines.40";
+} from "./generation-strategy-spec.js?v=20260823.copy-engines.41";
 import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
@@ -188,7 +188,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260823.copy-engines.40";
+} from "./generation-form-draft.js?v=20260823.copy-engines.41";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
@@ -227,7 +227,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260823.copy-engines.40";
+} from "./content-review-view.js?v=20260823.copy-engines.41";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -249,7 +249,7 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260823.copy-engines.40";
+} from "./portal-experience.js?v=20260823.copy-engines.41";
 import {
   isWorkspaceSmartFolderId,
   normalizeWorkspaceBoard,
@@ -286,7 +286,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260823.copy-engines.40";
+} from "./training-journey.js?v=20260823.copy-engines.41";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -335,7 +335,7 @@ const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
   ),
 );
 const MEDIA_UPLOAD_CONCURRENCY = DEFAULT_MEDIA_UPLOAD_CONCURRENCY;
-const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260823.copy-engines.40";
+const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260823.copy-engines.41";
 const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260716.2";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
@@ -27743,6 +27743,18 @@ function syncGenerationDestination(form) {
   const destination = form?.elements?.destination_ref;
   const platform = form?.elements?.platform;
   if (!destination || !platform) return null;
+  // Стратегии («Копия», «Дуэт», «Создание») назначение публикации не
+  // спрашивают: наряд получает его от сервера (`'generation-strategy'` в
+  // creator_generation_strategy_start). Скрытое обязательное поле с пустым
+  // значением молча валило form.reportValidity() при каждом нажатии мастера —
+  // так 23.08.2026 выглядел отказ «Мастер не отвечает на бесплатную проверку:
+  // шаг „Подготовить точное ТЗ бесплатно“ не сдвигается» у любого проекта без
+  // истории запусков. Обязательность остаётся только у legacy-режимов, где
+  // поле действительно уходит в наряд.
+  const strategySelected = Boolean(
+    String(form.elements?.generation_strategy_id?.value || "").trim(),
+  );
+  destination.required = !strategySelected;
   const batches = listFrom(state.sections.generation.data || {}, "batches");
   const resolution = resolveGenerationDestination({
     batches,
@@ -30886,6 +30898,15 @@ async function submitGenerationStrategyExactTen(
   }
 }
 
+// Экспресс-панель «Копии» ведёт мастер сама и тостов не читает: отказ любого
+// бесплатного шага (ТЗ, одобрение, проверка сервиса и цены) записывается на
+// форму, чтобы панель назвала настоящую причину, а не «мастер не отвечает».
+function recordGenerationStrategyFailure(form, error) {
+  if (!(form instanceof HTMLFormElement)) return;
+  form.dataset.generationStrategyLastFailure = actionErrorMessage(error);
+  form.dataset.generationStrategyLastFailureAt = String(Date.now());
+}
+
 async function submitGenerationStrategy(form, values, entry, projectId) {
   const sourceProjection = generationStrategySourceProjectionForForm(form);
   const selections = generationStrategySelectionsForForm(form);
@@ -30944,6 +30965,7 @@ async function submitGenerationStrategy(form, values, entry, projectId) {
         ?.focus({ preventScroll: true });
     } catch (error) {
       toast(`Product Swap не подготовлен: ${actionErrorMessage(error)}`, "error");
+      recordGenerationStrategyFailure(form, error);
     } finally {
       if (form.isConnected) {
         setFormBusy(form, false);
@@ -30974,6 +30996,7 @@ async function submitGenerationStrategy(form, values, entry, projectId) {
       globalThis.ContentEngineGenerationGuidedV4?.goToStep?.("launch");
     } catch (error) {
       toast(`ТЗ Product Swap не одобрено: ${actionErrorMessage(error)}`, "error");
+      recordGenerationStrategyFailure(form, error);
     } finally {
       if (form.isConnected) {
         setFormBusy(form, false);
@@ -31327,6 +31350,10 @@ async function submitGenerationStrategy(form, values, entry, projectId) {
     }
   } catch (error) {
     toast(`Product Swap не запущен: ${actionErrorMessage(error)}`, "error");
+    // Экспресс-панель «Копии» ведёт мастер сама и тост не читает. Отказ
+    // сервера записывается на форму, чтобы панель назвала настоящую причину
+    // («сервис генерации не настроен», «баланс»), а не «мастер не отвечает».
+    recordGenerationStrategyFailure(form, error);
   } finally {
     state.generationStrategyStartInFlight = false;
     if (form.isConnected) {

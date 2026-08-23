@@ -30,12 +30,12 @@ QUEUE = (APP_DIR / "generation-strategy-queue.js").read_text(encoding="utf-8")
 
 def test_build_id_is_consistent_across_entrypoints() -> None:
     build_id = MANIFEST["id"]
-    assert build_id == "20260823.copy-engines.40"
+    assert build_id == "20260823.copy-engines.41"
     assert f'content="{build_id}"' in APP_INDEX
     assert f'content="{build_id}"' in ROOT_INDEX
     assert f'const CURRENT_BUILD = "{build_id}"' in SCRIPT
     assert MANIFEST["label"] == (
-        "ContentEngine Desktop v4.41 · Copy engines 40"
+        "ContentEngine Desktop v4.41 · Copy engines 41"
     )
     assert MANIFEST["released_at"] == "2026-08-23"
     assert 'const BUILD_BADGE = "Desktop · 21.08.17"' in SCRIPT

@@ -226,7 +226,8 @@ def test_screen_prefers_human_choice_over_advice_and_re_advises_otherwise() -> N
     registry = render.index("engine.recommended && engine.enabled")
     assert human < selected < advised < registry
     assert "recommended: engine.id === advisedId," in render
-    assert "engineAdviceNote(selectedEngine, activeEngine, advice)" in render
+    assert 'const advisedId = advisedEngine?.id || "";' in render
+    assert "engineAdviceNote(selectedEngine, activeEngine, advice, {" in render
     assert "humanChoice: cascade.humanChoice === true && humanChoice !== null," in render
     chip = INTAKE_SOURCE.split("function captureExpressCommittedInput(", 1)[1].split(
         "function applyExpressDefaults(", 1

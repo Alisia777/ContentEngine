@@ -7,7 +7,7 @@
  * without starting any provider or paid operation.
  */
 
-import { productResearchInputMarkup } from "./product-research-view.js?v=20260823.copy-engines.40";
+import { productResearchInputMarkup } from "./product-research-view.js?v=20260823.copy-engines.41";
 import {
   readExactYoutubeMediaHandoff,
   writeExactYoutubeMediaHandoff,
