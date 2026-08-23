@@ -11,20 +11,20 @@ import {
   reduceGenerationStrategyViewState,
   selectedGenerationStrategySummary,
   validateSelectedGenerationStrategyDraft,
-} from "./generation-strategy-view.js?v=20260823.copy-engines.49";
+} from "./generation-strategy-view.js?v=20260823.copy-engines.50";
 import {
   generationStrategyAssetEligibility,
   mergeGenerationStrategyAssetPages,
   normalizeGenerationStrategyAssetCandidates,
-} from "./generation-strategy-assets.js?v=20260823.copy-engines.49";
+} from "./generation-strategy-assets.js?v=20260823.copy-engines.50";
 import {
   GENERATION_STRATEGY_SOURCE_PICKER_ACTIONS,
   createGenerationStrategySourcePicker,
   generationStrategyRequiredSourceCount,
   generationStrategySourcePickerProjection,
   reduceGenerationStrategySourcePicker,
-} from "./generation-strategy-source-picker.js?v=20260823.copy-engines.49";
-import { resolveGenerationModelVisual } from "./generation-model-visuals-v1.js?v=20260823.copy-engines.49";
+} from "./generation-strategy-source-picker.js?v=20260823.copy-engines.50";
+import { resolveGenerationModelVisual } from "./generation-model-visuals-v1.js?v=20260823.copy-engines.50";
 
 /*
  * ContentEngine Desktop v4 · guided generation.
@@ -2586,6 +2586,25 @@ function syncLegacyModelVisibility(form, strategySelected) {
     brief.maxLength = strategySelected ? 800 : 1_200;
     syncStrategyBriefValidity(form, strategySelected);
   }
+  // Идентичность НОВОГО товара (артикул/название/категория QA) принадлежит
+  // легаси-потоку; в стратегиях товар либо называется идентификатором
+  // («Дуэт» выбирает готовый из списка), либо панель «Копии» заполняет эти
+  // поля сама перед регистрацией фото. Пустые required-поля здесь молча
+  // валили reportValidity() на бесплатных шагах, и мастер «не отвечал» у
+  // «Дуэта» с готовым товаром — при том, что заполнить их в этой панели
+  // человеку просто негде.
+  [
+    form.elements?.sku,
+    form.elements?.product_name,
+    form.elements?.product_category,
+  ].forEach((control) => {
+    if (
+      control instanceof HTMLInputElement
+      || control instanceof HTMLSelectElement
+    ) {
+      control.required = !strategySelected;
+    }
+  });
   const advisor = q("[data-ce-v4-model-advisor]", form);
   if (advisor instanceof HTMLElement) {
     // При выбранной стратегии старый каталог моделей (Runway «как совет»)

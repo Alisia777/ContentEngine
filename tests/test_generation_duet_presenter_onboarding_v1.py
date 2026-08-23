@@ -53,6 +53,26 @@ def test_onboarding_is_one_numbered_scenario_that_opens_itself() -> None:
     assert ".generation-intake-v4__presenter-preview[hidden] {\n  display: none;" in css
 
 
+def test_duet_with_an_existing_product_passes_native_validation() -> None:
+    """Сценарий владелицы 23.08: готовый товар из списка, «Копия» не тронута.
+    Мастер молча стоял на «Подготовить точное ТЗ»: нативные required-поля
+    идентичности НОВОГО товара (артикул/название/категория) пустые, а потом
+    сервер отверг ТЗ без request.product_category — категории в этой панели
+    было просто негде указать."""
+    guided = text(ROOT / "web/app/workspace-os-v4-generation-guided.js")
+    sync = between(guided, "function syncLegacyModelVisibility(form, strategySelected)", "function strategyEngineResolutions(")
+    assert "form.elements?.sku,\n    form.elements?.product_name,\n    form.elements?.product_category,\n  ].forEach((control) => {" in sync
+    assert "control.required = !strategySelected;" in sync
+    intake = text(INTAKE)
+    assert 'category.dataset.generationIntakeDuetCategory = "";' in intake
+    assert "function ensureDuetCategoryControl(form, state)" in intake
+    # Словарь категорий один — нативный; своя копия однажды разошлась бы.
+    assert "const options = [...native.options].map((option) => ({" in intake
+    prepare = between(intake, "async function prepareAvatar(form)", "async function uploadStrategySources(")
+    assert 'if (!cleanText(form.elements?.product_category?.value, 64)) {' in prepare
+    assert "Выберите категорию товара" in prepare
+
+
 def test_real_person_requires_recorded_consent_and_reaches_the_server() -> None:
     source = text(INTAKE)
     assert '["synthetic", "Выдуманный персонаж"' in source

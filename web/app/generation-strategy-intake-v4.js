@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260823.copy-engines.49",
+  "./generation-strategy-intake-v4.css?v=20260823.copy-engines.50",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260823.copy-engines.49"
+  "./generation-engine-advisor.js?v=20260823.copy-engines.50"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -1071,8 +1071,38 @@ function duetProductChooser() {
     "Ролик комментируют чужой, а бюджет и архив считаются по вашему товару — поэтому его называем отдельно.",
   );
 
-  section.append(select, note);
+  // Категория товара нигде не хранится у товара — она едет в ТЗ из формы и
+  // нужна AI-проверке результата. У «Дуэта» с готовым товаром её раньше было
+  // просто негде указать, и подготовка падала на request.product_category.
+  const category = document.createElement("select");
+  category.dataset.generationIntakeDuetCategory = "";
+  category.setAttribute("aria-label", "Категория товара для AI-проверки");
+  category.append(new Option("Выберите категорию", ""));
+  const categoryField = field(
+    "Категория товара *",
+    "Нужна AI-проверке готового ролика: для БАД включатся дополнительные предупреждения.",
+    category,
+  );
+  categoryField.dataset.generationIntakeDuetCategoryField = "";
+
+  section.append(select, note, categoryField);
   return section;
+}
+
+// Список категорий — ровно тот, что в нативном поле формы: два источника
+// одного словаря разошлись бы. Значение зеркалится в натив в обе стороны.
+function ensureDuetCategoryControl(form, state) {
+  const panel = panelFor(state, "avatar_video");
+  const own = panel ? q("[data-generation-intake-duet-category]", panel) : null;
+  const native = form?.elements?.product_category;
+  if (!(own instanceof HTMLSelectElement) || !(native instanceof HTMLSelectElement)) return;
+  const options = [...native.options].map((option) => ({
+    label: option.value ? option.textContent : "Выберите категорию",
+    value: option.value,
+  }));
+  syncSelectOptions(own, options.length ? options : [{ label: "Выберите категорию", value: "" }]);
+  const nativeValue = String(native.value || "");
+  if (nativeValue && own.value !== nativeValue) assignSelectValue(own, nativeValue);
 }
 
 /*
@@ -3299,6 +3329,7 @@ function refreshProductSelectionCount(form, state) {
   void ensureDuetPresenters(form, state);
   renderDuetPresenters(form, state);
   renderDuetProducts(form, state);
+  ensureDuetCategoryControl(form, state);
   ensureDuetMechanicsInputs(state);
 }
 
@@ -7758,6 +7789,24 @@ async function prepareAvatar(form) {
     setStatus(panel, `Разбор ролика для речи ведущего: ${mechanicsProblem}`, "error");
     return;
   }
+  // Категория обязательна контракту ТЗ (request.product_category) и нужна
+  // AI-проверке; без неё сервер отверг бы подготовку — спрашиваем до неё.
+  const duetCategory = q("[data-generation-intake-duet-category]", panel);
+  if (duetCategory instanceof HTMLSelectElement && duetCategory.value) {
+    const nativeCategory = form.elements?.product_category;
+    if (nativeCategory instanceof HTMLSelectElement && nativeCategory.value !== duetCategory.value) {
+      assignPaidContextValue(nativeCategory, duetCategory.value);
+    }
+  }
+  if (!cleanText(form.elements?.product_category?.value, 64)) {
+    setStatus(
+      panel,
+      "Выберите категорию товара (поле под списком товаров): она уходит в ТЗ и AI-проверку готового ролика.",
+      "error",
+    );
+    duetCategory?.focus?.({ preventScroll: false });
+    return;
+  }
   const duetMechanics = duetMechanicsFromForm(state);
   beginRouteBusy(
     state,
@@ -8225,6 +8274,14 @@ function bind(form, state) {
     if (registerBlock instanceof HTMLElement) {
       syncDuetCatalogPreview(registerBlock);
       syncDuetLikenessConsent(registerBlock);
+    }
+
+    const duetCategory = event.target.closest?.("[data-generation-intake-duet-category]");
+    if (duetCategory instanceof HTMLSelectElement) {
+      const native = form.elements?.product_category;
+      if (native instanceof HTMLSelectElement && native.value !== duetCategory.value) {
+        assignPaidContextValue(native, duetCategory.value);
+      }
     }
 
     const existingVideo = event.target.closest?.("[data-generation-intake-existing-video]");
