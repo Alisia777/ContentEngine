@@ -1,6 +1,6 @@
 import {
   generationStrategyAssetEligibility,
-} from "./generation-strategy-assets.js?v=20260823.copy-engines.46";
+} from "./generation-strategy-assets.js?v=20260823.copy-engines.47";
 
 /*
  * Pure ordered source-video picker for a ten-output strategy run.

@@ -902,6 +902,13 @@ function readResearchOutcomeScopeRegistry(value, expectedRunId) {
   return { raw: source, scopes, truncated: source.truncated };
 }
 
+// Действия ведущего «Дуэта» в creator-generate: у них собственная форма ответа.
+const DUET_PRESENTER_ACTIONS = new Set([
+  "duet_presenter_catalog",
+  "duet_presenter_generate",
+  "duet_presenter_generation_status",
+]);
+
 export class CreatorApiError extends Error {
   constructor(message, details = {}) {
     super(message);
@@ -6603,6 +6610,12 @@ export class CreatorApi {
       return { ...data, preflight };
     }
     if (action === "model_catalog") return data;
+    // Действия ведущего «Дуэта» — чтение каталога и персонаж по описанию —
+    // отвечают своей формой, без `job`: проверка ниже написана для платного
+    // запуска и на них не распространяется. До 23.08 каталог HeyGen на проде
+    // из-за неё не открывался вовсе («Сервис генерации вернул некорректную
+    // задачу»), а созданный персонаж терялся на стороне браузера.
+    if (DUET_PRESENTER_ACTIONS.has(action)) return data;
     if (action === "strategy_bind") {
       if (generatedIdempotencyKey) {
         delete this.mutationKeys[fingerprint];

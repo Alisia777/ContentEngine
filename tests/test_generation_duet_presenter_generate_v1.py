@@ -68,6 +68,14 @@ def test_browser_api_validates_both_responses_exactly() -> None:
     allowed = between(api, "const legacyAction = new Set([", "]).has(action);")
     assert '"duet_presenter_generate",' in allowed
     assert '"duet_presenter_generation_status",' in allowed
+    # Ответы ведущего не несут `job`: общая проверка платного запуска их не
+    # касается — иначе каталог и персонаж падали бы на «некорректную задачу».
+    actions = between(api, "const DUET_PRESENTER_ACTIONS = new Set([", "]);")
+    for action in ("duet_presenter_catalog", "duet_presenter_generate", "duet_presenter_generation_status"):
+        assert f'"{action}",' in actions
+    invoke = between(api, "async invokeRealGeneration(action, payload = {})", "recordMetric(snapshot)")
+    assert "if (DUET_PRESENTER_ACTIONS.has(action)) return data;" in invoke
+    assert invoke.index("DUET_PRESENTER_ACTIONS.has(action)") < invoke.index("Сервис генерации вернул некорректную задачу")
     for code in ("duet_provider_credits_unavailable", "duet_provider_generation_rejected", "duet_provider_key_missing"):
         assert f"{code}:" in api
 
