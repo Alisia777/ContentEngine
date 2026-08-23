@@ -284,6 +284,12 @@ new MutationObserver((records) => {
             click('[data-generation-intake-route="copy_video"]')
             wait_js("document.querySelector('#mock-batch-form')?.dataset.generationIntakeV4Route === 'copy_video'", 10)
             time.sleep(1.0)
+            # Регистрация фото идёт только после единой галки прав: без неё
+            # очередь ждёт, и на чистой базе у «Дуэта» не было бы товара.
+            evaluate(
+                "(() => { const box = document.querySelector(" + json.dumps(COPY + ' [data-generation-intake-rights="copy_video"]') + ");"
+                " if (box && !box.checked) box.click(); return Boolean(box?.checked); })()"
+            )
             set_files(COPY + ' input[data-generation-intake-image="product"]', args.photo)
             time.sleep(1.0)
             evaluate(
