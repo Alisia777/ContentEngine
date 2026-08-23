@@ -1775,9 +1775,11 @@ def test_opt_out_rolls_back_untouched_fields_and_retains_edited_lineage() -> Non
 
 def test_copy_separates_openai_advice_from_runway_render_requirement() -> None:
     assert "OpenAI помогает с исследованием" in GENERATION
-    assert "рендерит отдельный сервис Runway" in GENERATION
-    assert "нужен настроенный ключ и баланс Runway" in GENERATION
-    assert "Runway не вызывает и ничего не списывает" in GENERATION
+    # С 23.08.2026 рендер идёт движком из каскада (fal / HeyGen / Runway), и
+    # подпись больше не называет одного провайдера; суть та же: применение
+    # совета провайдера не вызывает и ничего не списывает.
+    assert "рендерит выбранный в каскаде движок" in GENERATION
+    assert "провайдера не вызывает и ничего не списывает" in GENERATION
 
 
 def test_api_boundary_and_scoped_cache_edges_are_wired() -> None:
@@ -1785,7 +1787,7 @@ def test_api_boundary_and_scoped_cache_edges_are_wired() -> None:
     assert '"contentengine_generation_ai_research_working_draft"' in API
     assert "generationResearchRecommendation(input = {})" in API
     assert "generationAiResearchWorkingDraft(input = {})" in API
-    assert '"workspace-ai-research-training.js":\n      "20260823.copy-engines.42"' in BOOTSTRAP
+    assert '"workspace-ai-research-training.js":\n      "20260823.copy-engines.43"' in BOOTSTRAP
     assert '"workspace-generation-research-recommendations.js":\n      "20260817.os4.42"' in BOOTSTRAP
     assert "generation-ai-research-working-draft.js?v=20260814.os4.41" in APP
     assert "generation-ai-research-working-draft.js?v=20260814.os4.41" in GENERATION

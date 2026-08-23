@@ -177,3 +177,16 @@
   .generation-research-recommendations__actions .btn,
   .generation-research-recommendations__recovery .btn { width: 100%; }
 }
+
+/* В компактных панелях «Копии» и «Дуэта» блок стоит рядом с полем замысла:
+   длинные пояснения прячем, остаются заголовок, варианты, предпросмотр и
+   действия — совет читается за один взгляд. */
+.generation-intake-v4__recommendation > .generation-research-recommendations {
+  margin: 0;
+  padding: 13px;
+}
+
+.generation-intake-v4__recommendation > .generation-research-recommendations
+  .generation-research-recommendations__header p.muted {
+  display: none;
+}

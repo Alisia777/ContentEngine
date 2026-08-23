@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260823.copy-engines.42",
+  "./generation-strategy-intake-v4.css?v=20260823.copy-engines.43",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260823.copy-engines.42"
+  "./generation-engine-advisor.js?v=20260823.copy-engines.43"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -4858,7 +4858,9 @@ function setNodeText(node, value) {
 
 function refreshRecommendationUi(form, state) {
   const route = state.route;
-  if (!DEFAULT_BRIEF_TEMPLATES[route]) return;
+  // «Создание» держит замысел в шаге «Замысел» полного мастера — слота панели у
+  // него нет, но бейдж происхождения рекомендации считается и для него.
+  if (!DEFAULT_BRIEF_TEMPLATES[route] && route !== "strategy_video") return;
   moveSharedBrief(form, state, route);
   const brief = form.elements?.brief;
   if (!(brief instanceof HTMLTextAreaElement)) return;
@@ -4867,18 +4869,29 @@ function refreshRecommendationUi(form, state) {
   }
   const label = q("#generation-brief-label", state.briefField);
   const hint = q("#generation-brief-hint", state.briefField);
-  if (label) {
-    setNodeText(label, route === "copy_video"
-      ? "Что сохранить и как заменить товар"
-      : "Как встроить аватара в ролик");
-  }
-  if (hint) {
-    setNodeText(
-      hint,
-      "Это единый редактируемый замысел проекта. Проверенная рекомендация ИИ‑центра появляется здесь же и не перезаписывает ваши правки.",
-    );
-  }
-  brief.placeholder = "Напишите инструкцию своими словами или вставьте базовый шаблон ниже.";
+  // Три стратегии — три смысла одного поля: у «Копии» замысел говорит, что
+  // сохранить и как заменить; у «Дуэта» это речь ведущего; у «Создания» —
+  // концепция нового ролика. Рекомендация ИИ-центра собирается под каждый.
+  const briefCopy = route === "copy_video"
+    ? {
+      label: "Что сохранить и как заменить товар",
+      hint: "Это единый редактируемый замысел проекта. Рекомендация ИИ-центра (что сохранить из разобранных роликов, что не обещать) появляется здесь же и не перезаписывает ваши правки.",
+      placeholder: "Напишите инструкцию своими словами или вставьте базовый шаблон ниже.",
+    }
+    : route === "avatar_video"
+      ? {
+        label: "Речь ведущего",
+        hint: "Ведущий произнесёт этот текст вслух. Рекомендация ИИ-центра подставляет реплику из разбора; её можно переписать — предел по длине ролика показан под полем.",
+        placeholder: "Что скажет ведущий — или вставьте реплику из рекомендации ниже.",
+      }
+      : {
+        label: "Концепция нового ролика",
+        hint: "Замысел нового ролика по механике референсов. Рекомендация ИИ-центра (хук, сообщение, кадры, CTA) появляется здесь же и не перезаписывает ваши правки.",
+        placeholder: "Опишите, каким должен быть новый ролик, или примените рекомендацию ИИ-центра.",
+      };
+  if (label) setNodeText(label, briefCopy.label);
+  if (hint) setNodeText(hint, briefCopy.hint);
+  brief.placeholder = briefCopy.placeholder;
   brief.maxLength = BRIEF_LIMIT;
   const value = String(brief.value || "");
   const source = recommendationSource(form);
