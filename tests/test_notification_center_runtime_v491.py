@@ -227,7 +227,7 @@ def test_release_literals_are_not_changed_by_notification_integration() -> None:
     shell = _read(SHELL)
     registry = _read(REGISTRY)
     assert "20260814.os4.41" in app
-    assert 'const BUILD = "20260823.copy-engines.45"' in shell
+    assert 'const BUILD = "20260823.copy-engines.46"' in shell
     assert 'WORKSPACE_COMMAND_REGISTRY_CONTRACT_VERSION = "4.9.1"' in registry
     assert "os4.40" not in app
     assert "os4.40" not in shell

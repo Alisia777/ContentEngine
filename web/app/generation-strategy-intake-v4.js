@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260823.copy-engines.45",
+  "./generation-strategy-intake-v4.css?v=20260823.copy-engines.46",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260823.copy-engines.45"
+  "./generation-engine-advisor.js?v=20260823.copy-engines.46"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -916,6 +916,10 @@ function rightsConfirmation(route) {
 // Ведущие проекта и раскладка врезки. Кэш по проекту: список меняется редко, а
 // перерисовок панели много.
 const duetPresenterCache = new Map();
+// Проекты, у которых список ведущих уже ПРОЧИТАН с сервера. Пустой кэш до
+// ответа — не «ведущих нет», а «ещё не знаем»: раскрывать сценарий заведения и
+// дёргать каталог HeyGen по нему нельзя.
+const duetPresentersLoaded = new Set();
 
 const DUET_CORNERS = Object.freeze([
   ["bottom_left", "Слева внизу"],
@@ -1263,6 +1267,37 @@ function duetPresenterRegistration() {
   voice.append(new Option("Сначала загрузите каталог", ""));
   voice.disabled = true;
 
+  // Нет подходящей личности — персонаж собирается по описанию прямо отсюда:
+  // сервер просит HeyGen сгенерировать фото-аватар (кредиты кабинета HeyGen,
+  // не деньги завода), и готовый образ встаёт в список выше. Это всегда
+  // выдуманный персонаж — живого человека за ним нет.
+  const generate = document.createElement("details");
+  generate.className = "generation-intake-v4__presenter-generate";
+  generate.dataset.generationIntakeDuetGenerate = "";
+  const generateSummary = document.createElement("summary");
+  setNodeText(generateSummary, "Нет подходящей личности? Создать персонажа по описанию");
+  const generatePrompt = document.createElement("textarea");
+  generatePrompt.name = "generation_intake_duet_generate_prompt";
+  generatePrompt.dataset.generationIntakeDuetGeneratePrompt = "";
+  generatePrompt.rows = 4;
+  generatePrompt.maxLength = 1000;
+  generatePrompt.placeholder = "Кто это и как выглядит: возраст, лицо, одежда, обстановка, свет. Например: добродушный мужчина лет пятидесяти с густыми усами, в кепке и фартуке, с шампуром в руке, на фоне мангала, тёплый вечерний свет.";
+  generatePrompt.setAttribute("aria-label", "Описание персонажа для генерации");
+  const generateButton = document.createElement("button");
+  generateButton.type = "button";
+  generateButton.className = "btn btn-secondary";
+  generateButton.dataset.action = "generation-intake-duet-generate";
+  setNodeText(generateButton, "Создать персонажа");
+  const generateStatus = el("p", "generation-intake-v4__hint");
+  generateStatus.dataset.generationIntakeDuetGenerateStatus = "";
+  generate.append(
+    generateSummary,
+    el("p", "generation-intake-v4__hint", "Образ генерирует HeyGen по вашему описанию (1–3 минуты, списываются кредиты кабинета HeyGen). Имя возьмётся из шага 3 — заполните его заранее. Готовый персонаж появится в списке личностей и будет выбран."),
+    labelled("Описание", generatePrompt),
+    generateButton,
+    generateStatus,
+  );
+
   const name = document.createElement("input");
   name.type = "text";
   name.name = "generation_intake_duet_presenter_name";
@@ -1312,7 +1347,7 @@ function duetPresenterRegistration() {
   details.append(
     hint,
     presenterStep(1, "Каталог кабинета HeyGen", "", load, catalogStatus),
-    presenterStep(2, "Личность и голос", "", labelled("Личность", presenter), preview, labelled("Голос", voice)),
+    presenterStep(2, "Личность и голос", "", labelled("Личность", presenter), preview, generate, labelled("Голос", voice)),
     presenterStep(3, "Имя в проекте", "Так ведущий будет называться в списках и архиве.", labelled("Имя", name)),
     presenterStep(4, "Кто это", "", likeness, consent),
     register,
@@ -1407,6 +1442,95 @@ async function loadDuetPresenterCatalog(form, state) {
   }
 }
 
+const DUET_GENERATION_POLL_MS = 5_000;
+const DUET_GENERATION_DEADLINE_MS = 6 * 60_000;
+
+// Персонаж по описанию: запрос → опрос готовности → образ в списке личностей.
+// Кнопка заблокирована на время работы: повторный клик создал бы второго
+// персонажа и второй раз списал бы кредиты.
+async function generateDuetPresenterFromDescription(form, state) {
+  const panel = panelFor(state, "avatar_video");
+  const block = panel ? q("[data-generation-intake-duet-register]", panel) : null;
+  if (!block) return;
+  const promptInput = q("[data-generation-intake-duet-generate-prompt]", block);
+  const nameInput = q("[data-generation-intake-duet-presenter-name]", block);
+  const button = q('[data-action="generation-intake-duet-generate"]', block);
+  const status = q("[data-generation-intake-duet-generate-status]", block);
+  const presenterSelect = q("[data-generation-intake-duet-catalog-presenter]", block);
+  const prompt = promptInput instanceof HTMLTextAreaElement ? cleanText(promptInput.value, 1000) : "";
+  const displayName = nameInput instanceof HTMLInputElement ? cleanText(nameInput.value, 80) : "";
+  if (prompt.length < 10) {
+    setNodeText(status, "Опишите персонажа хотя бы одной фразой (от 10 знаков).");
+    return;
+  }
+  if (displayName.length < 2) {
+    setNodeText(status, "Сначала дайте персонажу имя на шаге 3 — под ним он появится в HeyGen и в проекте.");
+    nameInput?.focus?.();
+    return;
+  }
+  if (button instanceof HTMLButtonElement) {
+    if (button.disabled) return;
+    button.disabled = true;
+  }
+  try {
+    const api = await apiRuntime();
+    setNodeText(status, "Просим HeyGen собрать персонажа…");
+    const started = await api.duetPresenterGenerate({ name: displayName, prompt, aspectRatio: "9:16" });
+    const deadline = Date.now() + DUET_GENERATION_DEADLINE_MS;
+    let result = null;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, DUET_GENERATION_POLL_MS));
+      result = await api.duetPresenterGenerationStatus(started.lookId);
+      if (result.status === "completed" || result.status === "failed") break;
+      setNodeText(
+        status,
+        `HeyGen рисует «${displayName}»… (${Math.round((Date.now() - (deadline - DUET_GENERATION_DEADLINE_MS)) / 1000)} с)`,
+      );
+    }
+    if (!result || result.status !== "completed" || !result.presenter) {
+      setNodeText(
+        status,
+        result?.status === "failed"
+          ? `HeyGen не смог собрать персонажа${result.errorMessage ? `: ${result.errorMessage}` : "."} Измените описание и попробуйте снова.`
+          : "HeyGen ещё не закончил. Нажмите «Обновить каталог» через минуту — готовый персонаж появится в списке личностей.",
+      );
+      return;
+    }
+    if (presenterSelect instanceof HTMLSelectElement) {
+      const existing = [...presenterSelect.options].find((option) => option.value === result.presenter.id);
+      const option = existing || new Option(
+        `${cleanText(result.presenter.name || displayName, 60)} · ${result.presenter.kind === "avatar" ? "видеоаватар" : "фото-аватар"}`,
+        result.presenter.id,
+      );
+      option.dataset.kind = result.presenter.kind;
+      if (result.presenter.preview_image_url) option.dataset.preview = result.presenter.preview_image_url;
+      if (!existing) presenterSelect.append(option);
+      presenterSelect.disabled = false;
+      presenterSelect.value = result.presenter.id;
+      syncDuetCatalogPreview(block);
+    }
+    const register = q('[data-action="generation-intake-duet-register"]', block);
+    const voiceSelect = q("[data-generation-intake-duet-catalog-voice]", block);
+    if (register instanceof HTMLButtonElement && voiceSelect instanceof HTMLSelectElement && !voiceSelect.disabled) {
+      register.disabled = false;
+    }
+    setNodeText(
+      status,
+      `Персонаж «${displayName}» готов и выбран${result.presenter.catalog_confirmed ? "" : " (каталог HeyGen ещё не показал его — это нормально)"}. Выберите голос и зарегистрируйте ведущего как выдуманного персонажа.`,
+    );
+    const generateDetails = block.querySelector("[data-generation-intake-duet-generate]");
+    if (generateDetails instanceof HTMLDetailsElement) generateDetails.open = false;
+  } catch (error) {
+    const hint = cleanText(error?.hint, 200);
+    setNodeText(
+      status,
+      `${cleanText(error?.message, 160) || "Не удалось создать персонажа."}${hint ? ` HeyGen: ${hint}` : ""}`,
+    );
+  } finally {
+    if (button instanceof HTMLButtonElement) button.disabled = false;
+  }
+}
+
 async function registerDuetPresenterFromForm(form, state) {
   const panel = panelFor(state, "avatar_video");
   const block = panel ? q("[data-generation-intake-duet-register]", panel) : null;
@@ -1460,6 +1584,7 @@ async function registerDuetPresenterFromForm(form, state) {
       likenessConsentConfirmed,
     });
     duetPresenterCache.delete(projectId());
+    duetPresentersLoaded.delete(projectId());
     await ensureDuetPresenters(form, state);
     const select = q("[data-generation-intake-duet-presenter-select]", panel);
     if (select instanceof HTMLSelectElement && presenter?.id) {
@@ -1542,6 +1667,7 @@ async function ensureDuetPresenters(form, state) {
     const api = await apiRuntime();
     const presenters = await api.duetPresenters(projectIdValue);
     duetPresenterCache.set(projectIdValue, presenters);
+    duetPresentersLoaded.add(projectIdValue);
   } catch {
     // Отказ списка не ломает форму: панель скажет, что ведущего нет, а запуск
     // и без того упрётся в серверную проверку.
@@ -1579,7 +1705,11 @@ function renderDuetPresenters(form, state) {
     if (note && !note.hidden) note.hidden = true;
     // Сценарий заведения раскрыт сам: человеку не нужно догадываться, что
     // под свёрнутой строкой прячется единственный путь дальше.
-    if (register instanceof HTMLDetailsElement && register.dataset.autoOpened !== "true") {
+    if (
+      register instanceof HTMLDetailsElement
+      && duetPresentersLoaded.has(projectId())
+      && register.dataset.autoOpened !== "true"
+    ) {
       register.dataset.autoOpened = "true";
       register.open = true;
     }
@@ -2495,7 +2625,12 @@ function strategyPanel() {
   panel.hidden = true;
   const host = el("div", "generation-intake-v4__strategy-host");
   host.dataset.generationIntakeStrategyHost = "";
-  panel.append(host);
+  // Тот же каскад «модель → сложность → длительность» из реестра маршрутов,
+  // что у «Копии» и «Дуэта». До 23.08 «Создание» показывало в шаге «Модель»
+  // старый каталог Runway «как совет», а четыре движка fal из реестра, которыми
+  // реально идёт запуск, на экране не появлялись — три способа выглядели как
+  // три разных системы.
+  panel.append(engineCascadeCard("strategy_video"), host);
   return panel;
 }
 
@@ -3095,6 +3230,7 @@ function refreshProductSelectionCount(form, state) {
   refreshCopyChecklist(form, state);
   refreshEngineChoice(form, state, "copy_video");
   refreshEngineChoice(form, state, "avatar_video");
+  refreshEngineChoice(form, state, "strategy_video");
   // Ведущие грузятся один раз на проект и кэшируются: список меняется редко, а
   // перерисовок панели много.
   void ensureDuetPresenters(form, state);
@@ -7859,6 +7995,9 @@ function bind(form, state) {
     }
     if (action === "generation-intake-duet-catalog") {
       void loadDuetPresenterCatalog(form, formStates.get(form));
+    }
+    if (action === "generation-intake-duet-generate") {
+      void generateDuetPresenterFromDescription(form, formStates.get(form));
     }
     if (action === "generation-intake-duet-register") {
       void registerDuetPresenterFromForm(form, formStates.get(form));

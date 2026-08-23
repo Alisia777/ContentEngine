@@ -9,11 +9,11 @@
 import {
   GENERATION_STRATEGY_SOURCE_COUNT,
   GENERATION_STRATEGY_SOURCE_PICKER_VERSION,
-} from "./generation-strategy-source-picker.js?v=20260823.copy-engines.45";
+} from "./generation-strategy-source-picker.js?v=20260823.copy-engines.46";
 import {
   GENERATION_STRATEGY_QUEUE_SIZE,
   GENERATION_STRATEGY_QUEUE_VERSION,
-} from "./generation-strategy-queue.js?v=20260823.copy-engines.45";
+} from "./generation-strategy-queue.js?v=20260823.copy-engines.46";
 
 export const GENERATION_STRATEGY_QUEUE_VIEW_VERSION =
   "generation-strategy-queue-view-v1";

@@ -6036,6 +6036,90 @@ export class CreatorApi {
   }
 
   /*
+   * Персонаж по описанию: сервер просит HeyGen собрать фото-аватар из текста
+   * (синтетическая личность, живого человека за ней нет). Возвращает
+   * идентификатор образа; готовность опрашивается отдельно.
+   */
+  async duetPresenterGenerate(input) {
+    const name = String(input?.name || "").trim();
+    const prompt = String(input?.prompt || "").trim();
+    if (name.length < 2 || name.length > 80) {
+      throw new CreatorApiError("Дайте персонажу имя от 2 до 80 знаков.", {
+        code: "duet_presenter_name_invalid",
+      });
+    }
+    if (prompt.length < 10 || prompt.length > 1000) {
+      throw new CreatorApiError("Опишите персонажа: от 10 до 1000 знаков.", {
+        code: "duet_presenter_prompt_invalid",
+      });
+    }
+    const data = await this.invokeRealGeneration("duet_presenter_generate", {
+      action: "duet_presenter_generate",
+      organization_id: String(this.organizationId || ""),
+      name,
+      prompt,
+      aspect_ratio: ["9:16", "1:1", "16:9"].includes(input?.aspectRatio)
+        ? input.aspectRatio
+        : "9:16",
+    });
+    if (
+      !hasExactObjectKeys(data, ["ok", "version", "look_id", "group_id", "status"])
+      || data.ok !== true
+      || data.version !== "duet-presenter-generation-v1"
+      || typeof data.look_id !== "string"
+      || !/^[A-Za-z0-9_-]{1,128}$/u.test(data.look_id)
+    ) {
+      throw new CreatorApiError("Сервер не подтвердил создание персонажа.", {
+        code: "duet_presenter_generation_response_invalid",
+      });
+    }
+    return { lookId: data.look_id, status: String(data.status || "processing") };
+  }
+
+  async duetPresenterGenerationStatus(lookId) {
+    const id = String(lookId || "").trim();
+    if (!/^[A-Za-z0-9_-]{1,128}$/u.test(id)) {
+      throw new CreatorApiError("Идентификатор персонажа повреждён.", {
+        code: "duet_presenter_look_id_invalid",
+      });
+    }
+    const data = await this.invokeRealGeneration("duet_presenter_generation_status", {
+      action: "duet_presenter_generation_status",
+      organization_id: String(this.organizationId || ""),
+      look_id: id,
+    });
+    if (
+      !hasExactObjectKeys(data, ["ok", "version", "look_id", "status", "error_message", "presenter"])
+      || data.ok !== true
+      || data.version !== "duet-presenter-generation-status-v1"
+      || data.look_id !== id
+    ) {
+      throw new CreatorApiError("Сервер вернул состояние персонажа в неизвестной форме.", {
+        code: "duet_presenter_generation_response_invalid",
+      });
+    }
+    const text = (value, limit) => String(value || "").trim().slice(0, limit);
+    const presenter = data.presenter && typeof data.presenter === "object"
+      ? {
+        kind: data.presenter.kind === "avatar" ? "avatar" : "talking_photo",
+        id: text(data.presenter.id, 128),
+        name: text(data.presenter.name, 120),
+        preview_image_url: typeof data.presenter.preview_image_url === "string"
+          && data.presenter.preview_image_url.startsWith("https://")
+          ? data.presenter.preview_image_url
+          : null,
+        catalog_confirmed: data.presenter.catalog_confirmed === true,
+      }
+      : null;
+    return {
+      lookId: id,
+      status: text(data.status, 40) || "processing",
+      errorMessage: text(data.error_message, 300),
+      presenter: presenter && presenter.id ? presenter : null,
+    };
+  }
+
+  /*
    * Раскладка врезки: где встанет ведущий и каким видом. Меняется отдельно от
    * самого ведущего — сменить угол не значит завести нового человека.
    */
@@ -6382,6 +6466,10 @@ export class CreatorApi {
       // Каталог личностей ведущего из кабинета HeyGen — чтение без денег;
       // форма запроса та же, что у model_catalog: действие + организация.
       "duet_presenter_catalog",
+      // Персонаж по описанию: тратит кредиты кабинета HeyGen, но не деньги
+      // завода — резервов и квитанций у него нет.
+      "duet_presenter_generate",
+      "duet_presenter_generation_status",
     ]).has(action);
     if (!legacyAction && !GENERATION_STRATEGY_EDGE_ACTIONS.has(action)) {
       throw new CreatorApiError("Неизвестное действие платной генерации.", {
@@ -8877,6 +8965,12 @@ function toFriendlyMessage(error) {
     .join(" ");
   const known = {
     project_id_required: "Выберите активный проект и заново подготовьте версию ТЗ.",
+    duet_provider_key_missing: "Ключ HeyGen не настроен на сервере — каталог и создание персонажа недоступны.",
+    duet_provider_credits_unavailable: "В кабинете HeyGen не хватает кредитов на создание персонажа.",
+    duet_provider_authentication_failed: "HeyGen не принял ключ сервера. Проверьте секрет HEYGEN_API_KEY.",
+    duet_provider_generation_rejected: "HeyGen отклонил запрос на создание персонажа.",
+    duet_provider_response_invalid: "HeyGen ответил в неизвестной форме; персонаж не создан.",
+    duet_provider_catalog_unavailable: "Кабинет HeyGen сейчас недоступен. Повторите позже.",
     workspace_project_not_found: "Активный проект больше недоступен. Вернитесь на рабочий стол и выберите проект заново.",
     workspace_project_access_required: "Нет доступа к выбранному проекту. Попросите владельца или администратора добавить вас в проект.",
     research_run_project_scope_mismatch: "Исследование относится к другому проекту. Откройте исходный проект и обновите снимок этапов.",

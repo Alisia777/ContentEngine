@@ -423,10 +423,10 @@ def _run_fixture(width: int, height: int = 960) -> dict[str, object]:
 
 def test_strategy_harness_is_server_catalog_driven_and_uses_the_portal_form() -> None:
     assert (
-        'from "./generation-strategy-view.js?v=20260823.copy-engines.45"' in SUBJECT
+        'from "./generation-strategy-view.js?v=20260823.copy-engines.46"' in SUBJECT
     )
     assert (
-        'from "./generation-strategy-assets.js?v=20260823.copy-engines.45"' in SUBJECT
+        'from "./generation-strategy-assets.js?v=20260823.copy-engines.46"' in SUBJECT
     )
     assert "createGenerationStrategyViewState" in SUBJECT
     assert "reduceGenerationStrategyViewState" in SUBJECT
@@ -580,7 +580,10 @@ def test_three_strategy_picker_runtime_contract_and_geometry(width: int) -> None
         assert snapshot["audioRequired"] is True
         assert snapshot["durationValue"] == contract["duration"]
         assert snapshot["productMediaIds"] == [PRODUCT_MEDIA_ID]
-        assert snapshot["modelAdvisorHidden"] is False
+        # 23.08.2026: при выбранной стратегии старый каталог моделей (Runway
+        # «как совет») скрыт — движок выбирается в каскаде реестра маршрутов
+        # панели «Создания». Карточки остаются в DOM, но человеку не видны.
+        assert snapshot["modelAdvisorHidden"] is True
         assert snapshot["modelAdvisorMode"] == "true"
         assert snapshot["modelAdvisorCards"] >= 3
         assert snapshot["recommendedModelCards"] >= 1
