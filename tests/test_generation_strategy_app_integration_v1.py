@@ -727,11 +727,14 @@ def test_single_product_swap_uses_approved_strategy_spec_and_one_creator_runtime
         "async function pollGenerationStrategyStatuses",
     )
 
+    # С 23.08.2026 путь один для обеих одноисходниковых стратегий: проекция и
+    # выбор сверяются со стратегией записи, а не с литералом «Копии».
     for marker in (
-        'sourceProjection?.strategy_id !== "viral_product_swap"',
+        '!["viral_product_swap", "viral_avatar_ugc"].includes(singleSourceStrategyId)',
+        "sourceProjection?.strategy_id !== singleSourceStrategyId",
         "sourceProjection.required_count !== 1",
         "sourceProjection.all_selected_ready !== true",
-        'selection?.strategy_id !== "viral_product_swap"',
+        "selection?.strategy_id !== singleSourceStrategyId",
         "prepareGenerationStrategySpecs(form, [currentEntry], projectId)",
         "approveGenerationStrategySpecs(form, [currentEntry], projectId)",
         "generationStrategyRuntimeContextForApprovedSpec(",
@@ -784,12 +787,13 @@ def test_single_product_swap_paid_review_uses_only_server_confirmation() -> None
     )
 
     for marker in (
-        'sourceProjection?.strategy_id === "viral_product_swap"',
+        '["viral_product_swap", "viral_avatar_ugc"].includes(singleSourceStrategyId)',
+        "sourceProjection?.strategy_id === singleSourceStrategyId",
         "sourceProjection.required_count === 1",
         "sourceProjection.selected_count === 1",
         "sourceProjection.exact_required_selected === true",
         "sourceProjection.all_selected_ready === true",
-        'selections[0]?.selection?.strategy_id === "viral_product_swap"',
+        "selections[0]?.selection?.strategy_id === singleSourceStrategyId",
         "generationStrategyReceiptIsFresh(runtimeState)",
         "runtimeProjection.readiness.launch_enabled === true",
         "runtimeProjection.price.spend_confirmation",

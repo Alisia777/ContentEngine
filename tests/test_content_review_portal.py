@@ -23,9 +23,9 @@ def test_review_is_a_first_class_versioned_workspace_stage() -> None:
     assert "review: renderContentReviewSection" in APP
     assert 'section === "review"' in APP
     assert 'state.api.contentReviewCatalog({ limit: 50, projectId })' in APP
-    assert './content-review-view.js?v=20260823.copy-engines.41' in APP
+    assert './content-review-view.js?v=20260823.copy-engines.42' in APP
     assert './content-review.css?v=20260814.os4.41' in INDEX
-    assert './app.js?v=20260823.copy-engines.41' in INDEX
+    assert './app.js?v=20260823.copy-engines.42' in INDEX
     assert "20260716.1" not in INDEX
     assert "20260716.1" not in "\n".join(
         line for line in APP.splitlines() if line.startswith("import ")

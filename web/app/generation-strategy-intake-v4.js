@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260823.copy-engines.41",
+  "./generation-strategy-intake-v4.css?v=20260823.copy-engines.42",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260823.copy-engines.41"
+  "./generation-engine-advisor.js?v=20260823.copy-engines.42"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -53,7 +53,7 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const MAX_COPY_DURATION = 15;
 const MIN_COPY_DURATION = 4;
-const MAX_AVATAR_DURATION = 30;
+const MAX_AVATAR_DURATION = 60;
 const MAX_STRATEGY_FILES = 10;
 const MAX_MP4_BYTES = 32 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 16 * 1024 * 1024;
@@ -763,6 +763,28 @@ function executionControls() {
 // name is deliberate: two `campaign_id` controls would turn
 // `form.elements.campaign_id` into a RadioNodeList and break the exact start
 // contract in app.js.
+// Подпись «нет активной кампании» со ссылкой на её создание. Одна на обе
+// экспресс-панели: платный запуск без кампании честно невозможен и у «Дуэта».
+function campaignNoteBlock() {
+  const campaignNote = el("p", "generation-intake-v4__campaign-note");
+  campaignNote.dataset.generationIntakeCampaignNote = "";
+  campaignNote.hidden = true;
+  const campaignLink = el("a", "", "Создать кампанию");
+  campaignLink.href = NEW_CAMPAIGN_ROUTE_HASH;
+  const campaignMessage = el(
+    "span",
+    "",
+    "В проекте нет активной кампании, поэтому платный запуск честно невозможен. ",
+  );
+  campaignMessage.dataset.generationIntakeCampaignNoteText = "";
+  campaignNote.append(
+    campaignMessage,
+    campaignLink,
+    el("span", "", " и вернитесь в эту форму."),
+  );
+  return campaignNote;
+}
+
 function compactCampaignChoice() {
   const section = el("section", "gi-card generation-intake-v4__campaign");
   section.dataset.generationIntakeCampaignCard = "";
@@ -886,6 +908,102 @@ const DUET_WIDTH_MAX = 50;
  * Без товара запуск выпал бы из обоих разрезов — деньги ушли бы, а в товарном
  * учёте их бы не было.
  */
+/*
+ * Разбор ролика для речи ведущего. «Дуэту» разбор механики референса нужен
+ * (миграция 202608220006): модель ведущего исходное видео не получает, и всё,
+ * что он скажет о ролике, приходит текстом. Поля и пределы — те же, что у
+ * нативного редактора мастера (единый список из guided); значения уходят в
+ * черновик механики выбранного исходника после привязки.
+ */
+function duetMechanicsCard() {
+  const section = el("section", "gi-card generation-intake-v4__duet-mechanics");
+  section.dataset.generationIntakeDuetMechanics = "";
+  section.append(
+    el("h4", "gi-card__title", "Разбор ролика для речи ведущего"),
+    el(
+      "p",
+      "gi-card__hint",
+      "Ведущий видит ролик только вашими словами: что цепляет, из каких шагов он состоит, как снят и чем заканчивается. Это материал его комментария.",
+    ),
+  );
+  const grid = el("div", "generation-intake-v4__duet-mechanics-grid");
+  grid.dataset.generationIntakeDuetMechanicsGrid = "";
+  section.append(grid);
+  return section;
+}
+
+// Предел речи ведущего по длительности исходника: та же формула, что у
+// серверного снимка prompt — least(duration × 15, 1500). Длительность берётся
+// целыми секундами вверх, как её считает цена маршрута.
+function duetSpeechLimit(state) {
+  const seconds = Number(state?.routes?.avatar_video?.durationSeconds);
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  const whole = Math.ceil(seconds);
+  return { seconds: whole, limit: Math.min(whole * 15, 1500) };
+}
+
+function duetMechanicsFields() {
+  const fields = window.ContentEngineGenerationGuidedV4
+    ?.getStrategyMechanicsFields?.();
+  return Array.isArray(fields) ? fields : [];
+}
+
+function ensureDuetMechanicsInputs(state) {
+  const panel = panelFor(state, "avatar_video");
+  const grid = panel
+    ? q("[data-generation-intake-duet-mechanics-grid]", panel)
+    : null;
+  if (!(grid instanceof HTMLElement) || grid.childElementCount) return;
+  const fields = duetMechanicsFields();
+  if (!fields.length) return;
+  grid.append(...fields.map((spec) => {
+    const control = document.createElement("textarea");
+    control.rows = spec.multiline ? 4 : 2;
+    control.maxLength = spec.max;
+    control.dataset.generationIntakeDuetMechanics = spec.key;
+    control.setAttribute("aria-label", spec.label);
+    return field(spec.label, spec.hint, control);
+  }));
+}
+
+function duetMechanicsFromForm(state) {
+  const panel = panelFor(state, "avatar_video");
+  const values = {};
+  qa("textarea[data-generation-intake-duet-mechanics]", panel).forEach((control) => {
+    values[control.dataset.generationIntakeDuetMechanics] = String(control.value || "");
+  });
+  return values;
+}
+
+// Та же проверка, что у контракта ТЗ (normalizeMechanics в spec.js), только
+// раньше и словами: пустое или короткое поле называется по имени до того, как
+// что-либо загружено.
+function duetMechanicsProblem(state) {
+  const fields = duetMechanicsFields();
+  if (!fields.length) return "Поля разбора ролика ещё не загрузились. Обновите страницу (F5).";
+  const values = duetMechanicsFromForm(state);
+  for (const field of fields) {
+    const value = String(values[field.key] || "").trim();
+    if (field.key === "beat_sequence") {
+      const beats = value.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
+      if (beats.length < 2 || beats.length > 6) {
+        return "«Последовательность битов»: напишите от 2 до 6 шагов, по одному в строке.";
+      }
+      if (beats.some((beat) => beat.length < 12 || beat.length > 120)) {
+        return "«Последовательность битов»: каждый шаг — от 12 до 120 знаков.";
+      }
+      if (new Set(beats).size !== beats.length) {
+        return "«Последовательность битов»: шаги не должны повторяться.";
+      }
+      continue;
+    }
+    if (value.length < field.min || value.length > field.max) {
+      return `«${field.label}»: от ${field.min} до ${field.max} знаков, сейчас ${value.length}.`;
+    }
+  }
+  return "";
+}
+
 function duetProductChooser() {
   const section = el("fieldset", "generation-intake-v4__presenter");
   section.dataset.generationIntakeDuetProduct = "";
@@ -2073,22 +2191,7 @@ function copyPanel() {
   autoDefaults.dataset.generationIntakeAutoDefaults = "";
   autoDefaults.hidden = true;
   autoDefaults.append(executionControls());
-  const campaignNote = el("p", "generation-intake-v4__campaign-note");
-  campaignNote.dataset.generationIntakeCampaignNote = "";
-  campaignNote.hidden = true;
-  const campaignLink = el("a", "", "Создать кампанию");
-  campaignLink.href = NEW_CAMPAIGN_ROUTE_HASH;
-  const campaignMessage = el(
-    "span",
-    "",
-    "В проекте нет активной кампании, поэтому платный запуск честно невозможен. ",
-  );
-  campaignMessage.dataset.generationIntakeCampaignNoteText = "";
-  campaignNote.append(
-    campaignMessage,
-    campaignLink,
-    el("span", "", " и вернитесь в эту форму."),
-  );
+  const campaignNote = campaignNoteBlock();
   const screenLinks = el("p", "generation-intake-v4__screen-links");
   const screenLink = el("a", "generation-intake-v4__screen-link", "Открыть «Копию» отдельным экраном");
   screenLink.dataset.generationIntakeCopyScreenLink = "";
@@ -2158,9 +2261,12 @@ function avatarPanel() {
   const analyze = el("button", "btn", "Разобрать MP4");
   analyze.type = "button";
   analyze.dataset.action = "generation-intake-analyze-avatar";
-  const prepare = el("button", "btn btn-primary", "Подготовить аватара");
+  // Та же двухфазная кнопка, что у «Копии»: idle → бесплатная подготовка и
+  // серверная цена, priced → «Запустить за $X» явным человеческим кликом.
+  const prepare = el("button", "btn btn-primary", "Подготовить дуэт");
   prepare.type = "button";
   prepare.dataset.action = "generation-intake-prepare-avatar";
+  prepare.dataset.expressPhase = "idle";
   prepare.disabled = true;
   actions.append(analyze, prepare);
   panel.append(
@@ -2173,11 +2279,13 @@ function avatarPanel() {
     sourceChooser("avatar_video"),
     duetProductChooser(),
     duetPresenterChooser(),
+    duetMechanicsCard(),
     // Тот же каскад «модель → сложность → длительность», что и у «Копии»: с
     // 21.08.2026 «Аватар» — такая же правка готового ролика и ездит теми же
     // движками. Карточка скрыта, пока реестр не отдаст маршруты этой стратегии,
     // поэтому появление формы ничего не обещает раньше времени.
     engineCascadeCard("avatar_video"),
+    compactCampaignChoice(),
     recommendationSlot("avatar_video"),
     rightsConfirmation("avatar_video"),
     el(
@@ -2185,6 +2293,7 @@ function avatarPanel() {
       "generation-intake-v4__gate-note",
       "Текст ниже — речь ведущего: он произнесёт её вслух. Длина дуэта равна длине речи; если речь короче ролика, ролик обрежется на её конце.",
     ),
+    campaignNoteBlock(),
     statusNode(),
     actions,
   );
@@ -2802,6 +2911,7 @@ function refreshProductSelectionCount(form, state) {
   void ensureDuetPresenters(form, state);
   renderDuetPresenters(form, state);
   renderDuetProducts(form, state);
+  ensureDuetMechanicsInputs(state);
 }
 
 // Каскад «Чем генерируем и как долго» рисуется только по тому, что реально
@@ -4802,10 +4912,19 @@ function refreshRecommendationUi(form, state) {
     state.shell,
   );
   if (meta) {
-    meta.dataset.state = value.length > BRIEF_LIMIT ? "error" : "neutral";
-    setNodeText(meta, value.length > BRIEF_LIMIT
-      ? `${value.length} / ${BRIEF_LIMIT} · текст не обрезан: сократите его перед preflight`
-      : `${value.length} / ${BRIEF_LIMIT}`);
+    // У «Дуэта» текст — речь ведущего, и сервер принимает её только если она
+    // укладывается в ролик: ≈15 знаков на секунду, не больше 1500
+    // (generation_strategy_prompt_snapshot). Предел показывается здесь же,
+    // а не всплывает отказом после загрузки.
+    const speech = route === "avatar_video" ? duetSpeechLimit(state) : null;
+    const limit = speech?.limit || BRIEF_LIMIT;
+    const over = value.length > limit;
+    meta.dataset.state = over ? "error" : "neutral";
+    setNodeText(meta, over
+      ? `${value.length} / ${limit} · текст не обрезан: сократите его${speech ? ` — ролик ${speech.seconds} с вмещает около ${limit} знаков речи` : " перед preflight"}`
+      : speech
+        ? `${value.length} / ${limit} · ролик ${speech.seconds} с вмещает около ${limit} знаков речи`
+        : `${value.length} / ${BRIEF_LIMIT}`);
   }
 }
 
@@ -4898,12 +5017,17 @@ function wizardAttestationInput(form, attestationId) {
 // обычные change-события. Fail-closed: возвращается список подтверждений,
 // которые не удалось поставить, — их придётся отметить вручную.
 function applyConsolidatedRights(form, panel) {
-  const consolidated = q('[data-generation-intake-rights="copy_video"]', panel);
+  const consolidated = q("[data-generation-intake-rights]", panel);
+  // У «Дуэта» к четырём подтверждениям «Копии» добавляется согласие на
+  // внешность ведущего: единая галка панели покрывает и его.
+  const attestationIds = panel?.dataset?.generationIntakePanel === "avatar_video"
+    ? [...COPY_ATTESTATION_IDS, "avatar_likeness_consent_confirmed"]
+    : [...COPY_ATTESTATION_IDS];
   if (!(consolidated instanceof HTMLInputElement) || !consolidated.checked) {
-    return [...COPY_ATTESTATION_IDS];
+    return attestationIds;
   }
   const missing = [];
-  COPY_ATTESTATION_IDS.forEach((attestationId) => {
+  attestationIds.forEach((attestationId) => {
     const input = wizardAttestationInput(form, attestationId);
     if (!(input instanceof HTMLInputElement) || input.disabled) {
       missing.push(attestationId);
@@ -5006,7 +5130,7 @@ function setCampaignNote(panel, resolution) {
 // native `campaign_id` remains the only field submitted to app.js; the mirror
 // merely lets the person make that exact choice before price/preflight.
 function syncCompactCampaignControl(form, state) {
-  const panel = state ? panelFor(state, "copy_video") : null;
+  const panel = state ? panelFor(state, expressRoute(state)) : null;
   const mirror = panel
     ? q("[data-generation-intake-campaign-select]", panel)
     : null;
@@ -5159,20 +5283,27 @@ function liveCopyLaunchContext(
   fallbackPanel = null,
   {
     busy = false,
-    busyRoute = "copy_video",
-    busyAction = "generation-intake-prepare-copy",
+    busyRoute = null,
+    busyAction = null,
   } = {},
 ) {
   const form = liveGenerationForm(initialForm);
   if (!formStates.has(form)) mount(form);
   const state = formStates.get(form)
     || (form === initialForm ? fallbackState : null);
+  const route = expressRoute(state || fallbackState);
   const panel = state
-    ? panelFor(state, "copy_video")
+    ? panelFor(state, route)
     : form === initialForm
     ? fallbackPanel
     : null;
-  if (busy && state) adoptRouteBusy(state, busyRoute, busyAction);
+  if (busy && state) {
+    adoptRouteBusy(
+      state,
+      busyRoute || route,
+      busyAction || expressPrepareAction(route),
+    );
+  }
   return { form, state, panel };
 }
 
@@ -5300,7 +5431,10 @@ async function driveStrategyPreflight(initialForm, panel) {
         // нажимаем только безопасный SELECT стратегии; платный submit здесь не
         // трогаем. Как только guided создаст реальные четыре checkbox, обычный
         // applyConsolidatedRights поставит их через change-события.
-        selectStrategy(form, COPY_AUTHORITY_STRATEGY);
+        selectStrategy(
+          form,
+          ROUTE_AUTHORITY_STRATEGY[expressRoute(context.state)],
+        );
         setStatus(
           rightsPanel,
           "Подключаем нативные подтверждения прав… Провайдер не запускается и деньги не списываются.",
@@ -5374,8 +5508,31 @@ async function driveStrategyPreflight(initialForm, panel) {
   throw new Error("express_preflight_timeout");
 }
 
+// Экспресс-путь («Подготовить» → бесплатные шаги мастера → «Запустить за $X»)
+// с 23.08.2026 общий для «Копии» и «Дуэта»: у обоих один исходник и один
+// результат, и оба ведут нативный мастер из своей панели. Маршрут берётся из
+// активной панели, а не из литерала «Копии».
+const EXPRESS_ROUTES = Object.freeze(["copy_video", "avatar_video"]);
+
+function expressRoute(state) {
+  return state?.route === "avatar_video" ? "avatar_video" : "copy_video";
+}
+
+function expressPrepareAction(route) {
+  return route === "avatar_video"
+    ? "generation-intake-prepare-avatar"
+    : "generation-intake-prepare-copy";
+}
+
+function expressIdleLabel(route) {
+  return route === "avatar_video" ? "Подготовить дуэт" : "Подготовить ролик";
+}
+
 function priceButtonFor(panel) {
-  return q('[data-action="generation-intake-prepare-copy"]', panel);
+  return q(
+    '[data-action="generation-intake-prepare-copy"], [data-action="generation-intake-prepare-avatar"]',
+    panel,
+  );
 }
 
 function expressPaidAuthorityLocked(form) {
@@ -5389,7 +5546,14 @@ function expressPaidAuthorityLocked(form) {
 // Двухфазная кнопка: «Показать цену» после бесплатного preflight превращается
 // в «Запустить за $X». Платный старт происходит только по этому явному клику.
 function syncExpressPriceButton(state) {
-  const panel = panelFor(state, "copy_video");
+  const activeRoute = expressRoute(state);
+  EXPRESS_ROUTES.forEach((route) => {
+    syncExpressPriceButtonFor(state, route, route === activeRoute);
+  });
+}
+
+function syncExpressPriceButtonFor(state, route, active) {
+  const panel = panelFor(state, route);
   const button = panel ? priceButtonFor(panel) : null;
   if (!(button instanceof HTMLButtonElement)) return;
   const form = state.shell?.closest?.("form");
@@ -5418,7 +5582,9 @@ function syncExpressPriceButton(state) {
     delete button.dataset.expressDisabledBeforePaidLock;
     button.title = "";
   }
-  const priced = state.express?.phase === "priced" && state.express.price;
+  // Цена принадлежит активной панели: кнопка неактивного маршрута всегда
+  // в исходном состоянии, иначе «Дуэт» показал бы цену «Копии».
+  const priced = active && state.express?.phase === "priced" && state.express.price;
   button.dataset.expressPhase = priced ? "priced" : "idle";
   // Replacement-shell starts with the prepare action disabled. Once the exact
   // server price is present, finishing the busy phase must restore the explicit
@@ -5426,7 +5592,7 @@ function syncExpressPriceButton(state) {
   if (priced && !state.busy) button.disabled = false;
   setNodeText(
     button,
-    priced ? `Запустить за ${state.express.price}` : "Подготовить ролик",
+    priced ? `Запустить за ${state.express.price}` : expressIdleLabel(route),
   );
 }
 
@@ -5460,7 +5626,7 @@ function resetExpressAuthorityForStrategyRepeat(form, state) {
 }
 
 function resetExpressPriceStatus(form, state) {
-  const panel = panelFor(state, "copy_video");
+  const panel = panelFor(state, expressRoute(state));
   const status = panel ? q("[data-generation-intake-status]", panel) : null;
   const result = String(status?.dataset?.expressPriceResult || "");
   if (!result || status?.dataset?.state === "error") return false;
@@ -5956,7 +6122,11 @@ function bindHandoffPrimaryProduct(form, handoff) {
 async function openNativeLaunch(initialForm, handoff) {
   // На отдельном экране копии движок остаётся невидимым: режим не
   // переключается в "full", пять блоков не разъезжаются по шагам мастера.
+  // «Дуэт» с 23.08.2026 ведёт мастер так же — из своей панели: раньше он
+  // выбрасывал человека в полный конструктор с чужими подписями «Product Swap»,
+  // пятью скрытыми галками прав и потерянным выбором исходника.
   const copyScreen = copyViewActive();
+  const compactFlow = copyScreen || handoff.route === "avatar_video";
   const materialize = (form) => {
     // Только что загруженный ролик/кадр уже зарегистрирован в проекте, но
     // refresh мог вернуть список, снятый до регистрации. Временные option
@@ -5998,13 +6168,17 @@ async function openNativeLaunch(initialForm, handoff) {
       state.phase = "review";
       // Новый state создаётся с busy=false. Handoff ещё идёт, поэтому такая
       // shell иначе разрешила бы второй параллельный prepare по тому же клику.
-      adoptRouteBusy(state);
+      adoptRouteBusy(state, handoff.route, expressPrepareAction(handoff.route));
     }
     ensureContractFields(form);
-    form.dataset.generationIntakeV4Mode = copyScreen ? "copy" : "full";
+    form.dataset.generationIntakeV4Mode = copyScreen
+      ? "copy"
+      : compactFlow
+        ? "compact"
+        : "full";
     form.dataset.generationIntakeV4Phase = "review";
     form.dataset.generationIntakeV4Route = handoff.route;
-    if (!copyScreen && state) {
+    if (!compactFlow && state) {
       captureBriefDraft(form, state, state.briefRoute || handoff.route);
       restoreBriefDraft(form, state, "strategy_video");
       moveProductNodes(form, state, false);
@@ -6014,7 +6188,7 @@ async function openNativeLaunch(initialForm, handoff) {
     selectStrategy(form, handoff.strategy_id);
     applyCompactPreferences(form, handoff);
     materialize(form);
-    if (!copyScreen && state) captureBriefDraft(form, state, "strategy_video");
+    if (!compactFlow && state) captureBriefDraft(form, state, "strategy_video");
     return state;
   };
   const refreshAssets = async (form) => {
@@ -6105,7 +6279,7 @@ async function openNativeLaunch(initialForm, handoff) {
   if (!stable || liveGenerationForm(form) !== form) {
     throw new Error("express_native_handoff_unstable");
   }
-  if (!copyScreen) {
+  if (!compactFlow) {
     q('[data-ce-v4-generation-target="media"]', form)?.click?.();
     requestAnimationFrame(() => {
       q(".generation-strategy-view", form)?.scrollIntoView?.({
@@ -6197,6 +6371,12 @@ async function reportSelectedSourceDuration(state, route, input) {
   }
   const routeState = state.routes?.[route];
   if (routeState) routeState.durationSeconds = seconds;
+  // Предел речи «Дуэта» зависит от длины ролика: подпись под текстом
+  // обновляется сразу, как только длительность измерена.
+  if (route === "avatar_video") {
+    const form = state.shell?.closest?.("form");
+    if (form) refreshRecommendationUi(form, state);
+  }
   if (seconds > limit + 0.05) {
     setStatus(panel, durationTooLongMessage(seconds, limit), "error");
     return;
@@ -6322,7 +6502,7 @@ async function analyzeRoute(form, route) {
       panel,
       route === "copy_video"
         ? `${measured}${storyboardNote}`
-        : `${measured}. Исходный ролик готов; теперь задайте аватара фотографией или описанием.`,
+        : `${measured}. Исходный ролик готов. Выберите товар и ведущего и нажмите «Подготовить дуэт».`,
       "ready",
     );
   } catch (error) {
@@ -6481,7 +6661,8 @@ async function serverStoryboardForCopy(state, panel, sourceMediaId) {
 // (spend_confirmation + campaign_id + start) не обходится.
 async function startExpressLaunch(initialForm) {
   const initialState = formStates.get(initialForm);
-  const initialPanel = initialState ? panelFor(initialState, "copy_video") : null;
+  const initialRoute = expressRoute(initialState);
+  const initialPanel = initialState ? panelFor(initialState, initialRoute) : null;
   const initialContext = liveCopyLaunchContext(
     initialForm,
     initialState,
@@ -6489,19 +6670,21 @@ async function startExpressLaunch(initialForm) {
   );
   let { form, state, panel } = initialContext;
   if (!state || !panel) return;
+  const route = expressRoute(state);
   if (state.busy) {
-    reportRouteBusy(state, "copy_video");
+    reportRouteBusy(state, route);
     return;
   }
   const express = { ...(state.express || {}) };
   if (express.phase !== "priced") {
-    void prepareCopy(form);
+    if (route === "avatar_video") void prepareAvatar(form);
+    else void prepareCopy(form);
     return;
   }
   beginRouteBusy(
     state,
-    "copy_video",
-    "generation-intake-prepare-copy",
+    route,
+    expressPrepareAction(route),
     "Проверяем цену и подтверждение перед единственным платным запуском…",
   );
   try {
@@ -7069,6 +7252,16 @@ async function prepareAvatar(form) {
     setStatus(panel, `Сократите инструкцию до ${BRIEF_LIMIT} символов. Текст не был обрезан.`, "error");
     return;
   }
+  const speech = duetSpeechLimit(state);
+  if (speech && recommendation.length > speech.limit) {
+    setStatus(
+      panel,
+      `Речь ведущего длиннее ролика: ${recommendation.length} знаков, а ролик ${speech.seconds} с вмещает около ${speech.limit} (≈15 знаков в секунду). Сократите текст — он произносится вслух за деньги.`,
+      "error",
+    );
+    form.elements?.brief?.focus?.({ preventScroll: true });
+    return;
+  }
   // Товар называется отдельно и угадыванию не подлежит: подставленный «первый
   // попавшийся» списал бы деньги в чужой бюджет, и заметили бы это при сверке.
   if (!duetProductIdFromForm(state)) {
@@ -7079,11 +7272,17 @@ async function prepareAvatar(form) {
     );
     return;
   }
+  const mechanicsProblem = duetMechanicsProblem(state);
+  if (mechanicsProblem) {
+    setStatus(panel, `Разбор ролика для речи ведущего: ${mechanicsProblem}`, "error");
+    return;
+  }
+  const duetMechanics = duetMechanicsFromForm(state);
   beginRouteBusy(
     state,
     "avatar_video",
     "generation-intake-prepare-avatar",
-    "Проверяем аватара и сохраняем подготовку…",
+    "Проверяем материалы дуэта и сохраняем подготовку…",
   );
   try {
     const sourceMediaId = await ensureSourceMedia(route);
@@ -7109,6 +7308,10 @@ async function prepareAvatar(form) {
       // мог переопределить её для этого ролика.
       duet_presenter_id: duetPresenterIdFromForm(state),
       duet_layout: duetLayoutFromForm(state),
+      // Звук дуэта — речь ведущего у провайдера; отдельной озвучки результата
+      // нет, и цена маршрута считается с audio=false. Контракт выбора требует
+      // явный boolean, иначе мастер молчит на «Заполните ассеты».
+      audio: false,
       // Товар, под которым оформляется запуск. У дуэта его не из чего вывести:
       // фотографий товара в нём нет. Без товара запуск выпал бы и из бюджета,
       // и из архива по товару — деньги ушли бы мимо учёта.
@@ -7141,45 +7344,106 @@ async function prepareAvatar(form) {
     // вызывают и денег не тратят: это бесплатная привязка ассетов и подготовка
     // ТЗ, после которой человек отдельно нажмёт «Показать цену».
     const launch = await openNativeLaunch(form, handoff);
-    const liveState = launch.state;
-    const livePanel = launch.panel;
-    if (!liveState || !livePanel) throw new Error("express_live_context_missing");
+    let activeForm = launch.form;
+    let activeState = launch.state;
+    let activePanel = launch.panel;
+    if (!activeState || !activePanel) throw new Error("express_live_context_missing");
     const missingLabels = [...new Set(launch.missingRoles || [])]
       .map((role) => ASSET_ROLE_LABELS[role] || role);
     if (missingLabels.length) {
       setStatus(
-        livePanel,
+        activePanel,
         `Материалы загружены, но не привязались автоматически: ${missingLabels.join(", ")}. Отметьте их вручную в шаге «Исходники» — без этого запуск заблокирован.`,
         "warning",
       );
       return;
     }
+    // Разбор ролика становится черновиком механики привязанного исходника:
+    // его прочитают ТЗ (mechanics_summary) и нативные textarea мастера.
+    const mechanicsApplied = window.ContentEngineGenerationGuidedV4
+      ?.setStrategyMechanicsDraft?.(activeForm, sourceMediaId, duetMechanics);
+    if (mechanicsApplied !== true) throw new Error("express_mechanics_unbound");
+    // Дальше — ровно путь «Копии»: бесплатные шаги мастера (проверка MP4,
+    // точное ТЗ, одобрение, проверка сервиса и цены) проходят отсюда, и кнопка
+    // панели становится «Запустить за $X». Провайдер не вызывается, деньги не
+    // списываются до явного клика человека.
     setStatus(
-      livePanel,
-      mode === "description"
-        ? "Исходник и описание аватара привязаны. Описание исполняет только Runway: модели fal требуют фотографию. Провайдер не вызывался, средства не списывались."
-        : "Исходник и фото аватара привязаны. Провайдер не вызывался, средства не списывались.",
-      "success",
+      activePanel,
+      "Исходник, товар и ведущий привязаны. Бесплатно получаем точную серверную цену — провайдер не запускается и деньги не списываются…",
+      "busy",
     );
+    const price = await driveStrategyPreflight(activeForm, activePanel);
+    const pricedContext = liveCopyLaunchContext(
+      activeForm,
+      activeState,
+      activePanel,
+      { busy: true },
+    );
+    if (!pricedContext.state || !pricedContext.panel) {
+      throw new Error("express_live_context_missing");
+    }
+    activeForm = pricedContext.form;
+    activeState = pricedContext.state;
+    activePanel = pricedContext.panel;
+    const spendConfirmation = String(
+      activeForm.elements?.real_spend_confirmation?.value || "",
+    );
+    const campaignId = autoSelectCampaign(activeForm, activePanel, activeState);
+    if (!price) {
+      setExpressPricePhase(activeState, "", "");
+      setStatus(
+        activePanel,
+        "Сервер подтвердил готовность, но цена не отобразилась. Нажмите «Подготовить дуэт» ещё раз — это бесплатно.",
+        "warning",
+        { expressPriceResult: "price_missing" },
+      );
+    } else if (!campaignId) {
+      setExpressPricePhase(activeState, "", "");
+      clearSpendConfirmation(activeForm, { notify: false });
+      setStatus(
+        activePanel,
+        `Точная цена: ${price}, деньги не списаны. Выбранная кампания недоступна или не выбрана: выберите активную выше и заново получите цену.`,
+        "warning",
+        { expressPriceResult: "campaign_missing" },
+      );
+    } else {
+      setExpressPricePhase(activeState, price, spendConfirmation, campaignId);
+      setStatus(
+        activePanel,
+        `Точная цена: ${price}. Деньги не списаны. Кнопка «Запустить за ${price}» и есть подтверждение цены — запуск случится только после вашего клика.`,
+        "success",
+        { expressPriceResult: "priced" },
+      );
+    }
   } catch (error) {
     console.warn("Avatar preparation failed", error);
+    const failureContext = liveCopyLaunchContext(form, state, panel);
+    const failurePanel = failureContext.panel || panel;
+    if (failureContext.state) setExpressPricePhase(failureContext.state, "", "");
     const messages = {
-      image_required: "Выберите корректное фото аватара.",
-      image_too_large: "Фото аватара больше 16 МБ.",
-      image_type_invalid: "Фото аватара должно быть JPG, PNG или WEBP.",
-      image_signature_invalid: "Расширение фото не совпадает с его содержимым.",
-      image_dimensions_too_small: "Фото аватара должно быть не меньше 256×256 пикселей.",
       source_media_required: "Сначала выберите и разберите исходный MP4.",
+      express_preflight_rejected: `Сервер отказал на шаге «${error?.step || "бесплатная проверка"}»: ${error?.serverMessage || ""} Ничего не запущено и не оплачено. Устраните причину и нажмите «Подготовить дуэт» ещё раз.`,
+      express_preflight_stalled: `Мастер не отвечает на бесплатную проверку${error?.step ? `: шаг «${error.step}» не сдвигается` : ""}. Ничего не запущено и не оплачено. Обновите страницу (F5) и нажмите «Подготовить дуэт» ещё раз.`,
+      express_preflight_blocked: `Мастер заблокирован: ${error?.blocker || "причина не названа"}. Ничего не запущено и не оплачено.`,
+      express_source_duration_incompatible: "Длительность исходника не подходит выбранному движку. Выберите другой MP4 или движок.",
+      express_attestations_unavailable: "Нативные подтверждения прав не подключились. Обновите страницу (F5) и повторите подготовку.",
+      express_preflight_timeout: "Бесплатная проверка не завершилась за отведённое время. Ничего не запущено и не оплачено. Повторите подготовку.",
+      express_mechanics_unbound: "Разбор ролика не передался мастеру. Обновите страницу (F5) и повторите подготовку — материалы сохранены.",
     };
     setStatus(
-      panel,
+      failurePanel,
       error?.message === "media_kind_mime_mismatch"
         ? mediaKindMimeMismatchMessage(error)
-        : messages[error?.message] || "Не удалось сохранить подготовку аватара. Ничего не запущено и не оплачено.",
+        : messages[error?.message] || "Не удалось сохранить подготовку дуэта. Ничего не запущено и не оплачено.",
       "error",
     );
   } finally {
+    // Handoff и бесплатная проверка могли заменить shell: снимаем busy и с
+    // исходного state, и с живого — иначе новая панель осталась бы запертой.
     finishRouteBusy(state);
+    const finalContext = liveCopyLaunchContext(form, state, panel);
+    finishRouteBusy(finalContext.state);
+    if (finalContext.state) syncExpressPriceButton(finalContext.state);
   }
 }
 
@@ -7269,6 +7533,10 @@ function setRoute(form, state, route) {
   } else {
     captureBriefDraft(form, state, state.briefRoute || state.route);
   }
+  // Цена и одноразовое подтверждение принадлежат маршруту, на котором их
+  // получили: смена панели их снимает, чтобы «Дуэт» не запустился по цене
+  // «Копии» (и наоборот).
+  if (state.route !== route) setExpressPricePhase(state, "", "");
   state.route = route;
   state.phase = "edit";
   form.dataset.generationIntakeV4Route = route;
@@ -7352,7 +7620,11 @@ function bind(form, state) {
       if (trigger?.dataset.expressPhase === "priced") void startExpressLaunch(form);
       else void prepareCopy(form);
     }
-    if (action === "generation-intake-prepare-avatar") void prepareAvatar(form);
+    if (action === "generation-intake-prepare-avatar") {
+      const trigger = event.target.closest?.("[data-action]");
+      if (trigger?.dataset.expressPhase === "priced") void startExpressLaunch(form);
+      else void prepareAvatar(form);
+    }
     if (action === "generation-intake-duet-catalog") {
       void loadDuetPresenterCatalog(form, formStates.get(form));
     }

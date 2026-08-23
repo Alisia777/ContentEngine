@@ -545,7 +545,7 @@ def test_spa_consumes_the_v2_schema_without_raw_markup_or_hash_router_regression
 
     assert './styles.css?v=20260730.4' in INDEX
     assert './config.js?v=20260729.1' in INDEX
-    assert BUILD == "20260823.copy-engines.41"
-    assert './app.js?v=20260823.copy-engines.41' in INDEX
-    assert './supabase-api.js?v=20260823.copy-engines.41' in APP
+    assert BUILD == "20260823.copy-engines.42"
+    assert './app.js?v=20260823.copy-engines.42' in INDEX
+    assert './supabase-api.js?v=20260823.copy-engines.42' in APP
     assert './catalog.js?v=20260804.1' in APP

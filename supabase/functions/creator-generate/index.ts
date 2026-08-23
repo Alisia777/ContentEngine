@@ -3313,8 +3313,13 @@ function generationStrategyPriceValid(
     typeof value.price_hash !== "string" ||
     !SHA256_PATTERN.test(value.price_hash)
   ) return false;
+  // Обе правки готового ролика («Копия» и «Дуэт») кадр не выбирают: он
+  // приходит из исходника (ratio "source"), а выбор несёт разрешение. До
+  // 23.08.2026 ветка знала только «Копию», и снимок цены «Дуэта» отвергался
+  // сравнением ratio "source" с отсутствующим selection.ratio — привязка
+  // возвращала 503 generation_unavailable без имени причины.
   if (
-    strategyId === "viral_product_swap"
+    strategyId === "viral_product_swap" || strategyId === "viral_avatar_ugc"
       ? value.ratio !== "source" ||
         value.resolution !== selection.resolution
       : value.ratio !== selection.ratio
@@ -5715,6 +5720,9 @@ function readGenerationStrategyRpcError(value: unknown): {
     return { code, status: 403 };
   }
   if (code.endsWith("_payload_invalid")) return { code, status: 422 };
+  // Речь дуэта не уложилась в длительность ролика — отказ до квитанции и
+  // брони, и его надо назвать оператору, а не прятать за «сервис недоступен».
+  if (code.endsWith("_prompt_invalid")) return { code, status: 422 };
   if (
     code.includes("_conflict") || code.includes("_not_current") ||
     code.includes("_expired") || code.includes("_consumed") ||

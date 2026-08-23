@@ -19,6 +19,16 @@ def _between(source: str, start: str, end: str) -> str:
     return source.split(start, 1)[1].split(end, 1)[0]
 
 
+def _express_helpers(intake: str) -> str:
+    """Маршрутные помощники экспресс-пути (23.08.2026): «Копия» и «Дуэт»
+    ведут мастер одной машиной, и извлечённые функции ссылаются на них."""
+    return "const EXPRESS_ROUTES" + _between(
+        intake,
+        "const EXPRESS_ROUTES",
+        "function priceButtonFor",
+    )
+
+
 def _run_node(source: str, *, timeout: int = 20) -> dict[str, object]:
     node = shutil.which("node")
     assert node is not None, "Node.js is required for executable UI regressions"
@@ -1097,6 +1107,7 @@ const mount = (form) => {{
 const panelFor = (state) => state.panel;
 const adoptRouteBusy = (state) => {{ state.busy = true; }};
 const syncExpressPriceButton = (state) => {{ state.synced = true; }};
+{_express_helpers(intake)}
 {context_contract}
 {price_contract}
 
@@ -1191,6 +1202,7 @@ const moveSharedBrief = () => {{}};
 const adoptRouteBusy = (state) => {{ state.busy = true; }};
 const captureBriefDraft = () => {{}};
 const restoreBriefDraft = () => {{}};
+{_express_helpers(intake)}
 const persistHandoff = (form) => records.persisted.push(form.id);
 const selectStrategy = () => {{}};
 const applyCompactPreferences = () => {{}};
@@ -1324,6 +1336,8 @@ const adoptRouteBusy = (state) => {{ state.busy = true; }};
 const beginRouteBusy = (state) => {{ state.busy = true; return true; }};
 const finishRouteBusy = (state) => {{ if (state) state.busy = false; }};
 const reportRouteBusy = () => false;
+const prepareAvatar = () => {{ throw new Error("unexpected_prepare_avatar"); }};
+{_express_helpers(intake)}
 {context_contract}
 {launch_contract}
 
@@ -1952,12 +1966,17 @@ const q = (selector, panel) => {{
   if (selector === "[data-generation-intake-status]") return panel.status;
   return null;
 }};
-const panelFor = (state) => state.panel;
+// Кнопка цены синхронизируется у обеих экспресс-панелей; у стенда есть только
+// панель «Копии», панель «Дуэта» отсутствует — как в форме без этого маршрута.
+const panelFor = (state, route = "copy_video") => (
+  route === "copy_video" ? state.panel : null
+);
 const setNodeText = (node, text) => {{ node.textContent = text; }};
 const expressDefaultsMemory = new Map();
 const projectId = () => "project-1";
 {status_contract}
 {confirmation_contract}
+{_express_helpers(intake)}
 {invalidation_contract}
 {capture_contract}
 

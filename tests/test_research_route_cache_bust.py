@@ -43,12 +43,12 @@ def test_research_route_bootstrap_uses_content_addressed_ai_center_cache_key() -
     )
     assert (
         '"workspace-ai-research-training.js":\n'
-        '      "20260823.copy-engines.41"'
+        '      "20260823.copy-engines.42"'
         in bootstrap
     )
     assert (
         '"workspace-ai-research-training.css":\n'
-        '      "20260823.copy-engines.41"'
+        '      "20260823.copy-engines.42"'
         in bootstrap
     )
     assert (

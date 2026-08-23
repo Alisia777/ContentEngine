@@ -3,7 +3,7 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260823.copy-engines.41";
+} from "./supabase-api.js?v=20260823.copy-engines.42";
 import {
   adminPeopleMarkup,
   normalizeAdminSnapshot,
@@ -34,9 +34,9 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
-} from "./generation-spec.js?v=20260823.copy-engines.41";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260823.copy-engines.41";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260823.copy-engines.41";
+} from "./generation-spec.js?v=20260823.copy-engines.42";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260823.copy-engines.42";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260823.copy-engines.42";
 import {
   normalizeWorkspaceInternalTarget,
   resolveWorkspaceCommand,
@@ -73,7 +73,7 @@ import {
   generationSpendSnapshotMarkup,
   managerGenerationSpendMarkup,
   normalizeGenerationSpendOverview,
-} from "./generation-spend-view.js?v=20260823.copy-engines.41";
+} from "./generation-spend-view.js?v=20260823.copy-engines.42";
 import {
   generationProviderReadinessPreflights,
   normalizeGenerationProviderPreflight,
@@ -109,7 +109,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260823.copy-engines.41";
+} from "./product-research-view.js?v=20260823.copy-engines.42";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -120,7 +120,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260823.copy-engines.41";
+} from "./ai-learning-control-room.js?v=20260823.copy-engines.42";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -136,7 +136,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260823.copy-engines.41";
+} from "./content-generation-handoff.js?v=20260823.copy-engines.42";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -158,7 +158,7 @@ import {
   invalidateGenerationStrategyRuntimeState,
   normalizeGenerationStrategyProbeResponse,
   reduceGenerationStrategyRuntimeState,
-} from "./generation-strategy-runtime.js?v=20260823.copy-engines.41";
+} from "./generation-strategy-runtime.js?v=20260823.copy-engines.42";
 import {
   createGenerationStrategyQueue,
   generationStrategyQueueAggregateReview,
@@ -167,17 +167,17 @@ import {
   planGenerationStrategyQueueFreeWork,
   planGenerationStrategyQueueSequentialStarts,
   updateGenerationStrategyQueueRow,
-} from "./generation-strategy-queue.js?v=20260823.copy-engines.41";
+} from "./generation-strategy-queue.js?v=20260823.copy-engines.42";
 import {
   renderGenerationStrategyQueueView,
-} from "./generation-strategy-queue-view.js?v=20260823.copy-engines.41";
+} from "./generation-strategy-queue-view.js?v=20260823.copy-engines.42";
 import {
   buildGenerationStrategySpecApprovalRequest,
   buildGenerationStrategySpecPrepareRequest,
   generationStrategySpecSafeProjection,
   normalizeGenerationStrategySpecControlResponse,
   normalizeGenerationStrategySpecPrepareResponse,
-} from "./generation-strategy-spec.js?v=20260823.copy-engines.41";
+} from "./generation-strategy-spec.js?v=20260823.copy-engines.42";
 import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
@@ -188,7 +188,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260823.copy-engines.41";
+} from "./generation-form-draft.js?v=20260823.copy-engines.42";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
@@ -227,7 +227,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260823.copy-engines.41";
+} from "./content-review-view.js?v=20260823.copy-engines.42";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -249,7 +249,7 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260823.copy-engines.41";
+} from "./portal-experience.js?v=20260823.copy-engines.42";
 import {
   isWorkspaceSmartFolderId,
   normalizeWorkspaceBoard,
@@ -286,7 +286,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260823.copy-engines.41";
+} from "./training-journey.js?v=20260823.copy-engines.42";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -335,7 +335,7 @@ const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
   ),
 );
 const MEDIA_UPLOAD_CONCURRENCY = DEFAULT_MEDIA_UPLOAD_CONCURRENCY;
-const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260823.copy-engines.41";
+const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260823.copy-engines.42";
 const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260716.2";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
@@ -29210,6 +29210,11 @@ async function prepareGenerationStrategySpecs(form, selections, projectId) {
   const plans = [];
   for (const entry of selections) {
     if (state.generationStrategySpecs.get(entry.source_media_id)?.draft) continue;
+    // Товар «Дуэта» приходит явным полем: фотографий товара у него нет, и
+    // вывести его из ассетов нельзя. Контракт ТЗ требует ключ только у дуэта.
+    const duetProductId = entry.selection?.strategy_id === "viral_avatar_ugc"
+      ? globalThis.ContentEngineGenerationGuidedV4?.getDuetProductChoice?.(form) || null
+      : null;
     const plan = buildGenerationStrategySpecPrepareRequest({
       organization_id: organizationId,
       project_id: projectId,
@@ -29219,6 +29224,9 @@ async function prepareGenerationStrategySpecs(form, selections, projectId) {
       editable_intent: editableIntent,
       proposed_prompt: editableIntent,
       mechanics_summary: entry.mechanics_summary,
+      ...(entry.selection?.strategy_id === "viral_avatar_ugc"
+        ? { product_id: duetProductId }
+        : {}),
       confirmation: true,
       reason: exactTen
         ? `Пользователь подготовил отдельное ТЗ для исходника ${entry.position} из 10.`
@@ -29226,10 +29234,14 @@ async function prepareGenerationStrategySpecs(form, selections, projectId) {
       idempotency_key: generationStrategySpecRequestKey(entry.source_media_id),
     });
     if (!plan.ok) {
+      // Код и поле контракта — в тексте: без них отказ ТЗ читается как
+      // «что-то не так с ассетами», и чинить приходится вслепую.
+      const detail = [plan.error?.code, plan.error?.field].filter(Boolean).join(" · ");
       throw new CreatorApiError(
-        exactTen
+        (exactTen
           ? "Проверьте замысел и разбор механики для каждого из 10 роликов."
-          : "Проверьте рекомендацию и точный набор ассетов Product Swap.",
+          : "Проверьте замысел и точный набор ассетов стратегии.")
+        + (detail ? ` Контракт ТЗ: ${detail}.` : ""),
         { code: plan.error?.code || "generation_strategy_spec_prepare_invalid" },
       );
     }
@@ -30117,8 +30129,15 @@ function syncGenerationStrategySingleFormReadiness(
   const sourceMediaId = String(
     selectedSources[0]?.source_media_id || "",
   ).trim().toLowerCase();
+  // Один исходник — один результат: и у «Копии», и у «Дуэта». Проверка
+  // сверяет проекцию с ВЫБРАННОЙ стратегией формы; литерал «Копии» держал
+  // «Дуэт» на «Выбрано 1 из 1 ролика» с блокером «сейчас 1 из 1».
+  const singleSourceStrategyId = String(
+    form.elements?.generation_strategy_id?.value || "",
+  ).trim();
   const exactSourceSelected = Boolean(
-    sourceProjection?.strategy_id === "viral_product_swap"
+    ["viral_product_swap", "viral_avatar_ugc"].includes(singleSourceStrategyId)
+    && sourceProjection?.strategy_id === singleSourceStrategyId
     && sourceProjection.required_count === 1
     && sourceProjection.selected_count === 1
     && sourceProjection.exact_required_selected === true
@@ -30130,7 +30149,7 @@ function syncGenerationStrategySingleFormReadiness(
   );
   const entry = Array.isArray(selections) && selections.length === 1
     && selections[0]?.source_media_id === sourceMediaId
-    && selections[0]?.selection?.strategy_id === "viral_product_swap"
+    && selections[0]?.selection?.strategy_id === singleSourceStrategyId
     ? selections[0]
     : null;
   const specRecord = sourceMediaId
@@ -30916,17 +30935,22 @@ async function submitGenerationStrategy(form, values, entry, projectId) {
   const selection = currentEntry?.selection || null;
   const sourceMediaId = generationStrategySourceMediaId(selection);
   const confirmation = form.elements?.real_spend_confirmation;
+  // Один исходник — один результат: «Копия» и «Дуэт» идут одним путём, и
+  // проверка сверяет проекцию и выбор с ОДНОЙ И ТОЙ ЖЕ стратегией записи, а не
+  // с литералом «Копии» (он молча отвергал каждый submit «Дуэта»).
+  const singleSourceStrategyId = String(entry?.selection?.strategy_id || "");
   if (
-    sourceProjection?.strategy_id !== "viral_product_swap"
+    !["viral_product_swap", "viral_avatar_ugc"].includes(singleSourceStrategyId)
+    || sourceProjection?.strategy_id !== singleSourceStrategyId
     || sourceProjection.required_count !== 1
     || sourceProjection.all_selected_ready !== true
     || !currentEntry
     || currentEntry.source_media_id !== entry?.source_media_id
-    || selection?.strategy_id !== "viral_product_swap"
+    || selection?.strategy_id !== singleSourceStrategyId
     || !sourceMediaId
     || sourceMediaId !== currentEntry.source_media_id
   ) {
-    toast("Выберите один готовый исходный MP4 и точные ассеты Product Swap.", "error");
+    toast("Выберите один готовый исходный MP4 и точные ассеты стратегии.", "error");
     return;
   }
   if (generationStrategyQueueHasPaidAuthority()) {
@@ -31057,7 +31081,7 @@ async function submitGenerationStrategy(form, values, entry, projectId) {
     const liveRuntime = state.generationStrategyRuntimes.get(sourceMediaId);
     return generationRequestContextIsCurrent(requestContext)
       && state.api === requestApi
-      && liveProjection?.strategy_id === "viral_product_swap"
+      && liveProjection?.strategy_id === singleSourceStrategyId
       && liveProjection.required_count === 1
       && liveProjection.revision === sourceRevision
       && liveEntry?.source_media_id === sourceMediaId

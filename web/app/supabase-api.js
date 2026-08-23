@@ -9016,6 +9016,7 @@ function toFriendlyMessage(error) {
     generation_reconciliation_provider_invalid: "Не удалось подтвердить сервис этого запуска. Обновите карточку.",
     generation_reconciliation_task_id_invalid: "Укажите точный task ID или Google operation из панели сервиса генерации.",
     generation_reconciliation_forbidden: "Ручную сверку платного запуска может выполнить только владелец или администратор команды.",
+    generation_strategy_readiness_prompt_invalid: "Речь ведущего не уложилась в длительность ролика: около 15 знаков на секунду и не больше 1500. Сократите текст и повторите бесплатную проверку.",
     generation_strategy_reconciliation_forbidden: "Ручную сверку запуска стратегии может выполнить только владелец или администратор команды.",
     generation_reconciliation_task_not_found: "Задача сервиса с таким ID не найдена. Проверьте точный идентификатор в панели провайдера.",
     generation_reconciliation_task_mismatch: "Задача сервиса не совпадает со временем этого запуска. Не прикрепляйте чужую задачу.",

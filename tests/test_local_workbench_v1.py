@@ -274,7 +274,7 @@ def test_required_dev_commands_and_three_browser_routes_exist() -> None:
         '"avatar_video"',
         '"strategy_video"',
         '"copy-product-swap.png"',
-        '"avatar-character-performance.png"',
+        '"avatar-duet.png"',
         '"strategy-viral-rebuild.png"',
         '"guidedStepCount": 6',
         '"strategyCatalogReady": True',

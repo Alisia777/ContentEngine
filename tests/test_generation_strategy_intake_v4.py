@@ -885,7 +885,11 @@ def test_express_copy_single_rights_checkbox_maps_to_four_attestations() -> None
         "function applyConsolidatedRights",
         "function approvePendingSpecVersions",
     )
-    assert "COPY_ATTESTATION_IDS.forEach" in apply_rights
+    # С 23.08.2026 единая галка общая для «Копии» и «Дуэта»: список
+    # подтверждений строится по панели (у дуэта — плюс согласие на внешность).
+    assert 'const consolidated = q("[data-generation-intake-rights]", panel);' in apply_rights
+    assert '[...COPY_ATTESTATION_IDS, "avatar_likeness_consent_confirmed"]' in apply_rights
+    assert "attestationIds.forEach" in apply_rights
     assert 'input.dispatchEvent(new Event("change", { bubbles: true }))' in apply_rights
     # Fail-closed: недоступное подтверждение попадает в список missing и
     # честно показывается человеку, а не пропускается молча.
@@ -904,7 +908,9 @@ def test_express_copy_single_rights_checkbox_maps_to_four_attestations() -> None
     # it still fails closed when they never appear.
     assert "EXPRESS_ATTESTATION_RENDER_POLL_LIMIT" in drive
     assert "attestationRenderPolls += 1" in drive
-    assert "selectStrategy(form, COPY_AUTHORITY_STRATEGY)" in drive
+    # Стратегия для повторного SELECT берётся у активного маршрута: «Дуэт»
+    # ведёт тот же экспресс-путь и не должен переключаться на «Копию».
+    assert "ROUTE_AUTHORITY_STRATEGY[expressRoute(context.state)]," in drive
     assert "await waitMs(EXPRESS_POLL_INTERVAL_MS)" in drive
     assert 'new Error("express_attestations_unavailable")' in drive
 
@@ -948,8 +954,9 @@ const ids = [
 const consolidated = new HTMLInputElement({ checked: true });
 const native = new Map();
 const panel = {
+  dataset: { generationIntakePanel: "copy_video" },
   querySelector(selector) {
-    return selector === '[data-generation-intake-rights="copy_video"]'
+    return selector === "[data-generation-intake-rights]"
       ? consolidated
       : null;
   },
@@ -1221,7 +1228,7 @@ const form = {
 };
 const panel = {
   querySelector(selector) {
-    return selector === '[data-action="generation-intake-prepare-copy"]'
+    return selector.includes('[data-action="generation-intake-prepare-copy"]')
       ? compact
       : null;
   },
@@ -1368,8 +1375,11 @@ def test_copy_screen_route_renders_no_wizard_steps_at_all() -> None:
     )
     # Подготовка не переключает экран копии в «full»: движок остаётся скрытым.
     launch = between(source, "async function openNativeLaunch", "function frameAsFile")
-    assert 'copyScreen ? "copy" : "full"' in launch
-    assert "if (!copyScreen) {" in launch
+    # «Дуэт» ведёт мастер из своей панели так же, как экран копии: режим
+    # не переключается в «full» (compactFlow), шаги мастера не открываются.
+    assert 'const compactFlow = copyScreen || handoff.route === "avatar_video";' in launch
+    assert 'copyScreen' + chr(10) + '      ? "copy"' + chr(10) + '      : compactFlow' + chr(10) + '        ? "compact"' + chr(10) + '        : "full"' in launch
+    assert "if (!compactFlow) {" in launch
     set_route = between(source, "function setRoute", "function bind(")
     assert "copyViewActive()" in set_route
     # Пять блоков в один столбец.

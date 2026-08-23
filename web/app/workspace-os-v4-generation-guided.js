@@ -11,20 +11,20 @@ import {
   reduceGenerationStrategyViewState,
   selectedGenerationStrategySummary,
   validateSelectedGenerationStrategyDraft,
-} from "./generation-strategy-view.js?v=20260823.copy-engines.41";
+} from "./generation-strategy-view.js?v=20260823.copy-engines.42";
 import {
   generationStrategyAssetEligibility,
   mergeGenerationStrategyAssetPages,
   normalizeGenerationStrategyAssetCandidates,
-} from "./generation-strategy-assets.js?v=20260823.copy-engines.41";
+} from "./generation-strategy-assets.js?v=20260823.copy-engines.42";
 import {
   GENERATION_STRATEGY_SOURCE_PICKER_ACTIONS,
   createGenerationStrategySourcePicker,
   generationStrategyRequiredSourceCount,
   generationStrategySourcePickerProjection,
   reduceGenerationStrategySourcePicker,
-} from "./generation-strategy-source-picker.js?v=20260823.copy-engines.41";
-import { resolveGenerationModelVisual } from "./generation-model-visuals-v1.js?v=20260823.copy-engines.41";
+} from "./generation-strategy-source-picker.js?v=20260823.copy-engines.42";
+import { resolveGenerationModelVisual } from "./generation-model-visuals-v1.js?v=20260823.copy-engines.42";
 
 /*
  * ContentEngine Desktop v4 · guided generation.
@@ -1377,14 +1377,20 @@ function registeredSourceCandidate(value, previous = null) {
     exact_youtube_attached: false,
     direct_mp4_attached: true,
     eligible: ready,
+    // Прямой MP4 — исходник обеих одноисходниковых стратегий. До 23.08.2026
+    // оверлей объявлял его только для «Копии», и «Дуэт» не видел только что
+    // загруженный ролик в списке исходников: «Выбрано 0 из 1» сразу после
+    // успешной загрузки.
     eligible_strategy_roles: Object.freeze(ready
-      ? [Object.freeze({
-          strategy_id: "viral_product_swap",
-          role: "source_video",
-        })]
+      ? [
+        Object.freeze({ strategy_id: "viral_product_swap", role: "source_video" }),
+        Object.freeze({ strategy_id: "viral_avatar_ugc", role: "source_video" }),
+      ]
       : []),
     blocking_codes_by_strategy: Object.freeze({
-      viral_avatar_ugc: Object.freeze([]),
+      viral_avatar_ugc: Object.freeze(ready
+        ? []
+        : ["server_duration_probe_required"]),
       viral_product_swap: Object.freeze(ready
         ? []
         : ["server_duration_probe_required"]),
@@ -1583,6 +1589,12 @@ function syncStrategySourcePickerState(strategyId, { reset = false } = {}) {
   return runtime.strategySourcePicker;
 }
 
+// Разбор механики референса не нужен только «Копии»: она правит сам ролик,
+// и сцена доезжает до провайдера целиком. «Дуэту» разбор НУЖЕН (миграция
+// 202608220006): модель ведущего исходное видео не получает, и всё, что он
+// скажет о ролике, приходит текстом — разбор и есть материал для речи.
+const MECHANICS_FREE_STRATEGIES = new Set(["viral_product_swap"]);
+
 function strategyMechanicsEditor(source, strategyId, position, requiredCount) {
   const article = element("article", "generation-strategy-source-review");
   article.dataset.generationStrategySourceReview = source.source_media_id;
@@ -1596,10 +1608,12 @@ function strategyMechanicsEditor(source, strategyId, position, requiredCount) {
     "muted tiny",
     strategyId === "viral_product_swap"
       ? "Этот MP4 передаётся в recipe как исходная сцена. Движение, кадр и тайминг сохраняются в пределах возможностей сервиса; текстовый пересказ не подменяет видео."
-      : "Этот MP4 остаётся референсом механики: мы создадим новый ролик с вашими ассетами, а не копию кадр в кадр.",
+      : strategyId === "viral_avatar_ugc"
+        ? "Этот MP4 остаётся нетронутым фоном дуэта: ведущий проекта комментирует его из угла кадра."
+        : "Этот MP4 остаётся референсом механики: мы создадим новый ролик с вашими ассетами, а не копию кадр в кадр.",
   );
   details.append(copy);
-  if (strategyId !== "viral_product_swap") {
+  if (!MECHANICS_FREE_STRATEGIES.has(strategyId)) {
     const draft = strategyMechanicsDraft(source.source_media_id);
     const fields = element("div", "generation-strategy-mechanics-grid");
     STRATEGY_MECHANICS_FIELDS.forEach((field) => {
@@ -1640,6 +1654,8 @@ function renderStrategySourcePicker(form, { reset = false } = {}) {
   const header = element("div", "generation-strategy-source-picker__header");
   const sourceCopy = row.strategy_id === "viral_product_swap"
     ? "Один MP4 станет исходной сценой Product Swap."
+    : row.strategy_id === "viral_avatar_ugc"
+      ? "Один MP4 станет фоном дуэта с ведущим."
     : projection.required_count === 1
       ? "Один MP4 станет референсом нового ролика."
       : `Порядок станет порядком ${projection.required_count} независимых роликов.`;
@@ -2765,7 +2781,7 @@ function generationStrategyAttestations(form, row) {
 }
 
 function generationStrategyMechanicsSummary(sourceMediaId, strategyId) {
-  if (strategyId === "viral_product_swap") return null;
+  if (MECHANICS_FREE_STRATEGIES.has(strategyId)) return null;
   const draft = strategyMechanicsDraft(sourceMediaId);
   return Object.freeze({
     version: "generation-strategy-mechanics-summary-v1",
@@ -5368,6 +5384,50 @@ window.ContentEngineGenerationGuidedV4 = Object.freeze({
         .test(raw)
       ? raw
       : null;
+  },
+  // Ведущий и товар «Дуэта» читаются из полей формы одинаково; товар нужен
+  // подготовке ТЗ (контракт PREPARE_INPUT_KEYS_WITH_PRODUCT) явным полем.
+  getDuetProductChoice(form = runtime.form) {
+    if (!form?.isConnected) return null;
+    const strategyId = String(
+      form.elements?.generation_strategy_id?.value || "",
+    ).trim();
+    if (strategyId !== "viral_avatar_ugc") return null;
+    const raw = String(
+      form.elements?.generation_intake_duet_product_id?.value || "",
+    ).trim().toLowerCase();
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u
+        .test(raw)
+      ? raw
+      : null;
+  },
+  // Поля разбора механики — единый список для нативного редактора и для
+  // экспресс-панели «Дуэта», чтобы подписи и пределы не разошлись.
+  getStrategyMechanicsFields() {
+    return STRATEGY_MECHANICS_FIELDS;
+  },
+  // Разбор, написанный в экспресс-панели, становится черновиком выбранного
+  // исходника и значением нативных textarea: дальше его читают и ТЗ
+  // (mechanics_summary), и reportValidity() мастера.
+  setStrategyMechanicsDraft(form = runtime.form, sourceMediaId = "", draft = null) {
+    const mediaId = String(sourceMediaId || "").trim().toLowerCase();
+    if (!form?.isConnected || !STRATEGY_REPEAT_MEDIA_ID_PATTERN.test(mediaId)) return false;
+    if (!draft || typeof draft !== "object") return false;
+    const next = { ...strategyMechanicsDraft(mediaId) };
+    STRATEGY_MECHANICS_FIELDS.forEach(({ key }) => {
+      if (typeof draft[key] === "string") next[key] = draft[key];
+    });
+    runtime.strategyMechanicsDrafts.set(mediaId, next);
+    qa(
+      `textarea[data-generation-strategy-mechanics-field][data-generation-strategy-source-media-id="${mediaId}"]`,
+      form,
+    ).forEach((control) => {
+      const key = String(control.dataset.generationStrategyMechanicsField || "");
+      if (typeof next[key] === "string" && control.value !== next[key]) {
+        control.value = next[key];
+      }
+    });
+    return true;
   },
   // Товары проекта для формы «Дуэта».
   //
