@@ -275,18 +275,18 @@ def test_view_pins_all_frozen_authorities_and_has_no_side_effect_channel() -> No
     # перестраиваются лишь при смене набора). Поведение очереди не менялось.
     expected_hashes = {
         RUNTIME_MODULE: "940fe34f2ee241e1d7206443c48389aa9541b06e4c897d31801d0a79fe7e56b0",
-        QUEUE_MODULE: "a0c4e1cd717c8669b4b1995b8c915ee6422e32f18f804b0402a19354f553c078",
-        SOURCE_PICKER_MODULE: "b024077bcb0e9db769f3dcbdf18a170da6830075505e6364018c86f6ff72109d",
+        QUEUE_MODULE: "94004e6bbc12fc05de7cff39623139fde32b0465646c91cb0f3824daf716561b",
+        SOURCE_PICKER_MODULE: "4d95bc9ad43ba8b33884c1fed3028f72f9ffec04bef7bae7e409311987fe6b9f",
     }
     for path, expected in expected_hashes.items():
         canonical_bytes = path.read_bytes().replace(b"\r\n", b"\n")
         assert hashlib.sha256(canonical_bytes).hexdigest() == expected
     assert (
-        'from "./generation-strategy-source-picker.js?v=20260823.copy-engines.47";'
+        'from "./generation-strategy-source-picker.js?v=20260823.copy-engines.48";'
         in VIEW_SOURCE
     )
     assert (
-        'from "./generation-strategy-queue.js?v=20260823.copy-engines.47";'
+        'from "./generation-strategy-queue.js?v=20260823.copy-engines.48";'
         in VIEW_SOURCE
     )
     for forbidden in (

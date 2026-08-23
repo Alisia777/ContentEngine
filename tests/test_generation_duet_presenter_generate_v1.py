@@ -57,6 +57,30 @@ def test_edge_generates_a_prompt_avatar_and_polls_the_look() -> None:
     assert "duet_presenter_generate" not in free
 
 
+def test_catalog_lists_fit_their_own_byte_limit_and_russian_voices_come_first() -> None:
+    """HeyGen отдаёт все публичные аватары и голоса всех языков — сотни
+    килобайт; общий предел 64 КБ резал их молча, и каталог «был недоступен»
+    всегда. Превью личностей живут на хостах HeyGen — CSP обязана их пускать."""
+    edge = text(EDGE)
+    assert "const MAX_PROVIDER_CATALOG_JSON_BYTES = 8 * 1_048_576;" in edge
+    assert "maxBytes: number = MAX_PROVIDER_JSON_BYTES,\n): Promise<ProviderJsonResult>" in edge
+    assert edge.count("MAX_PROVIDER_CATALOG_JSON_BYTES,") >= 2
+    assert 'if (lower.includes("russian") || lower === "ru" || lower.startsWith("ru-")) return 0;' in edge
+    assert ".sort((left, right) => voiceRank(left.language) - voiceRank(right.language))" in edge
+    index = text(ROOT / "web/app/index.html")
+    assert "img-src 'self' data: blob: https://*.supabase.co https://*.heygen.ai https://*.heygen.com;" in index
+    workbench = text(ROOT / "scripts/dev_workbench.py")
+    assert "https://*.heygen.ai https://*.heygen.com {local_api_origin};" in workbench
+    # После создания персонажа голоса читаются сами, если каталога ещё нет.
+    intake = text(INTAKE)
+    flow = between(intake, "async function generateDuetPresenterFromDescription(form, state)", "async function registerDuetPresenterFromForm(")
+    assert "await loadDuetPresenterCatalog(form, state);" in flow
+    assert "каталог голосов HeyGen не прочитался" in flow
+    catalog = between(intake, "async function loadDuetPresenterCatalog(form, state)", "async function generateDuetPresenterFromDescription(")
+    assert "const previouslySelected = String(presenterSelect.value || \"\");" in catalog
+    assert "if (previouslySelected) presenterSelect.value = previouslySelected;" in catalog
+
+
 def test_browser_api_validates_both_responses_exactly() -> None:
     api = text(API)
     generate = between(api, "async duetPresenterGenerate(input)", "async duetPresenterGenerationStatus(lookId)")

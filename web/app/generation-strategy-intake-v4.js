@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260823.copy-engines.47",
+  "./generation-strategy-intake-v4.css?v=20260823.copy-engines.48",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260823.copy-engines.47"
+  "./generation-engine-advisor.js?v=20260823.copy-engines.48"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -1364,6 +1364,31 @@ function duetPresenterRegistration() {
   return details;
 }
 
+// Подпись личности до перечитывания каталога: хранится на самом select, потому
+// что его options перестраиваются целиком.
+function previousLabel(select, value) {
+  let remembered = {};
+  try {
+    remembered = select.dataset.rememberedLabels ? JSON.parse(select.dataset.rememberedLabels) : {};
+  } catch {
+    remembered = {};
+  }
+  return String(remembered[value] || "").replace(/ · (фото-аватар|видеоаватар)$/u, "");
+}
+
+function rememberPresenterLabel(select, value, label, preview = "") {
+  if (!(select instanceof HTMLSelectElement) || !value) return;
+  if (preview) select.dataset.rememberedPreview = `${value}|${preview}`;
+  let remembered = {};
+  try {
+    remembered = select.dataset.rememberedLabels ? JSON.parse(select.dataset.rememberedLabels) : {};
+  } catch {
+    remembered = {};
+  }
+  remembered[value] = label;
+  select.dataset.rememberedLabels = JSON.stringify(remembered);
+}
+
 function syncDuetLikenessConsent(block) {
   const kind = q('[data-generation-intake-duet-likeness-kind="real_person"]', block);
   const row = q("[data-generation-intake-duet-likeness-consent-row]", block);
@@ -1403,6 +1428,7 @@ async function loadDuetPresenterCatalog(form, state) {
     const catalog = await api.duetPresenterCatalog();
     block.dataset.catalogLoaded = "true";
     if (load) setNodeText(load, "Обновить каталог");
+    const previouslySelected = String(presenterSelect.value || "");
     presenterSelect.replaceChildren(new Option("Выберите личность", ""));
     catalog.presenters.forEach((item) => {
       const label = `${cleanText(item.name, 60)} · ${item.kind === "avatar" ? "видеоаватар" : "фото-аватар"}`;
@@ -1411,6 +1437,18 @@ async function loadDuetPresenterCatalog(form, state) {
       if (item.preview_image_url) option.dataset.preview = item.preview_image_url;
       presenterSelect.append(option);
     });
+    // Выбранная до перечитывания личность (в том числе только что созданный
+    // персонаж, которого каталог ещё не показывает) остаётся выбранной.
+    if (previouslySelected && ![...presenterSelect.options].some((option) => option.value === previouslySelected)) {
+      const keep = new Option(`${cleanText(previousLabel(presenterSelect, previouslySelected), 60) || "Новый персонаж"} · фото-аватар`, previouslySelected);
+      keep.dataset.kind = "talking_photo";
+      const rememberedPreview = String(presenterSelect.dataset.rememberedPreview || "");
+      if (rememberedPreview.startsWith(`${previouslySelected}|`)) {
+        keep.dataset.preview = rememberedPreview.slice(previouslySelected.length + 1);
+      }
+      presenterSelect.append(keep);
+    }
+    if (previouslySelected) presenterSelect.value = previouslySelected;
     syncDuetCatalogPreview(block);
     voiceSelect.replaceChildren(new Option("Выберите голос", ""));
     catalog.voices.forEach((item) => {
@@ -1505,18 +1543,43 @@ async function generateDuetPresenterFromDescription(form, state) {
       option.dataset.kind = result.presenter.kind;
       if (result.presenter.preview_image_url) option.dataset.preview = result.presenter.preview_image_url;
       if (!existing) presenterSelect.append(option);
+      rememberPresenterLabel(presenterSelect, result.presenter.id, option.textContent, result.presenter.preview_image_url || "");
       presenterSelect.disabled = false;
       presenterSelect.value = result.presenter.id;
       syncDuetCatalogPreview(block);
     }
     const register = q('[data-action="generation-intake-duet-register"]', block);
-    const voiceSelect = q("[data-generation-intake-duet-catalog-voice]", block);
-    if (register instanceof HTMLButtonElement && voiceSelect instanceof HTMLSelectElement && !voiceSelect.disabled) {
-      register.disabled = false;
+    let voiceSelect = q("[data-generation-intake-duet-catalog-voice]", block);
+    // Голоса берутся из каталога; если он ещё не прочитан (или не прочитался),
+    // читаем его сейчас — иначе персонаж есть, а голос выбрать негде. Каталог
+    // перестраивает список личностей, поэтому выбранный персонаж возвращается
+    // в него после чтения.
+    if (!(voiceSelect instanceof HTMLSelectElement) || voiceSelect.disabled) {
+      setNodeText(status, `Персонаж «${displayName}» готов. Читаем голоса из каталога HeyGen…`);
+      await loadDuetPresenterCatalog(form, state);
+      voiceSelect = q("[data-generation-intake-duet-catalog-voice]", block);
+      if (presenterSelect instanceof HTMLSelectElement) {
+        let option = [...presenterSelect.options].find((entry) => entry.value === result.presenter.id);
+        if (!option) {
+          option = new Option(`${cleanText(result.presenter.name || displayName, 60)} · фото-аватар`, result.presenter.id);
+          option.dataset.kind = result.presenter.kind;
+          if (result.presenter.preview_image_url) option.dataset.preview = result.presenter.preview_image_url;
+          presenterSelect.append(option);
+        }
+        rememberPresenterLabel(presenterSelect, result.presenter.id, option.textContent, result.presenter.preview_image_url || "");
+        if (result.presenter.preview_image_url) option.dataset.preview = result.presenter.preview_image_url;
+        presenterSelect.disabled = false;
+        presenterSelect.value = result.presenter.id;
+        syncDuetCatalogPreview(block);
+      }
     }
+    const voicesReady = voiceSelect instanceof HTMLSelectElement && !voiceSelect.disabled;
+    if (register instanceof HTMLButtonElement && voicesReady) register.disabled = false;
     setNodeText(
       status,
-      `Персонаж «${displayName}» готов и выбран${result.presenter.catalog_confirmed ? "" : " (каталог HeyGen ещё не показал его — это нормально)"}. Выберите голос и зарегистрируйте ведущего как выдуманного персонажа.`,
+      voicesReady
+        ? `Персонаж «${displayName}» готов и выбран${result.presenter.catalog_confirmed ? "" : " (каталог HeyGen ещё не показал его — это нормально)"}. Выберите голос ниже и зарегистрируйте ведущего как выдуманного персонажа.`
+        : `Персонаж «${displayName}» готов и выбран, но каталог голосов HeyGen не прочитался. Нажмите «Показать личности и голоса» в шаге 1 и затем выберите голос.`,
     );
     const generateDetails = block.querySelector("[data-generation-intake-duet-generate]");
     if (generateDetails instanceof HTMLDetailsElement) generateDetails.open = false;

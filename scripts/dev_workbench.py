@@ -327,8 +327,8 @@ def write_local_site() -> None:
         index_text,
     )
     index_text = index_text.replace(
-        "img-src 'self' data: blob: https://*.supabase.co;",
-        f"img-src 'self' data: blob: https://*.supabase.co {local_api_origin};",
+        "img-src 'self' data: blob: https://*.supabase.co https://*.heygen.ai https://*.heygen.com;",
+        f"img-src 'self' data: blob: https://*.supabase.co https://*.heygen.ai https://*.heygen.com {local_api_origin};",
     ).replace(
         "media-src 'self' blob: https://*.supabase.co;",
         f"media-src 'self' blob: https://*.supabase.co {local_api_origin};",

@@ -137,6 +137,10 @@ function heygenOutputHostAllowed(hostname: string): boolean {
 const STORAGE_BUCKET = "contentengine-private";
 const MAX_BODY_BYTES = 16_384;
 const MAX_PROVIDER_JSON_BYTES = 65_536;
+// Каталоги HeyGen (все публичные аватары и голоса всех языков) — сотни
+// килобайт: общий предел в 64 КБ рубил их молча, и каталог «был недоступен»
+// всегда. Список читается с собственным пределом; он всё равно конечен.
+const MAX_PROVIDER_CATALOG_JSON_BYTES = 8 * 1_048_576;
 // Google image input is embedded as base64 in the documented REST request.
 // Keep the decoded frame and final serialized request bounded separately.
 const MAX_GOOGLE_INPUT_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -6301,9 +6305,12 @@ async function readBoundedStream(
   return output;
 }
 
-async function readProviderJson(response: Response): Promise<unknown> {
+async function readProviderJson(
+  response: Response,
+  maxBytes: number = MAX_PROVIDER_JSON_BYTES,
+): Promise<unknown> {
   try {
-    const bytes = await readBoundedBytes(response, MAX_PROVIDER_JSON_BYTES);
+    const bytes = await readBoundedBytes(response, maxBytes);
     return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
   } catch {
     throw new ProviderResponseInvalidError();
@@ -6322,6 +6329,7 @@ async function fetchProviderJsonWithDeadline(
   input: string,
   init: RequestInit,
   timeoutMs: number,
+  maxBytes: number = MAX_PROVIDER_JSON_BYTES,
 ): Promise<ProviderJsonResult> {
   return await withFetchDeadline(
     input,
@@ -6346,7 +6354,7 @@ async function fetchProviderJsonWithDeadline(
       return {
         ok: true as const,
         status: response.status,
-        value: await readProviderJson(response),
+        value: await readProviderJson(response, maxBytes),
       };
     },
   );
@@ -7194,6 +7202,7 @@ async function handleCreatorGenerate(
             headers: { "x-api-key": secret, accept: "application/json" },
           },
           PROVIDER_TIMEOUT_MS,
+          MAX_PROVIDER_CATALOG_JSON_BYTES,
         );
         if (!response.ok || !isRecord(response.value)) return null;
         return isRecord(response.value.data) ? response.value.data : null;
@@ -7249,6 +7258,14 @@ async function handleCreatorGenerate(
       }))
       .filter((item) => item.id)
       .slice(0, 200);
+    // Голосов у HeyGen больше тысячи на всех языках; завод говорит по-русски,
+    // поэтому русские голоса идут первыми, а список режется уже после этого.
+    const voiceRank = (language: string): number => {
+      const lower = language.toLowerCase();
+      if (lower.includes("russian") || lower === "ru" || lower.startsWith("ru-")) return 0;
+      if (lower.includes("english") || lower.startsWith("en")) return 1;
+      return 2;
+    };
     const voiceList = (Array.isArray(voices.voices) ? voices.voices : [])
       .filter(isRecord)
       .map((item) => ({
@@ -7259,6 +7276,7 @@ async function handleCreatorGenerate(
         preview_audio: safeHttpsUrl(item.preview_audio),
       }))
       .filter((item) => item.id)
+      .sort((left, right) => voiceRank(left.language) - voiceRank(right.language))
       .slice(0, 400);
     return json(request, {
       ok: true,
@@ -7432,6 +7450,7 @@ async function handleCreatorGenerate(
             headers: { "x-api-key": secret, accept: "application/json" },
           },
           PROVIDER_TIMEOUT_MS,
+          MAX_PROVIDER_CATALOG_JSON_BYTES,
         );
         const catalogData = catalog.ok && isRecord(catalog.value) &&
             isRecord(catalog.value.data)
