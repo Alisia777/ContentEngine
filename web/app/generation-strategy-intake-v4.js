@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260823.copy-engines.39",
+  "./generation-strategy-intake-v4.css?v=20260823.copy-engines.40",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260823.copy-engines.39"
+  "./generation-engine-advisor.js?v=20260823.copy-engines.40"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -914,6 +914,26 @@ function duetProductChooser() {
  * товар в проекте появляется вместе со своей первой фотографией, и отдельного
  * списка товаров не существует.
  */
+// Список <select> перестраивается ТОЛЬКО при смене набора вариантов. Панель
+// перерисовывается на каждую мутацию формы, а рабочий стол перемонтирует
+// адаптеры на каждую мутацию дерева: безусловный replaceChildren рождал
+// мутацию → перемонтирование → replaceChildren… — вкладка зависала с
+// процессором на 100 % сразу после выбора MP4.
+function syncSelectOptions(select, options) {
+  const stamp = JSON.stringify(options);
+  if (select.dataset.optionsStamp === stamp) return false;
+  select.dataset.optionsStamp = stamp;
+  select.replaceChildren(
+    ...options.map(({ label, value }) => new Option(label, value)),
+  );
+  return true;
+}
+
+function assignSelectValue(select, value) {
+  const next = String(value ?? "");
+  if (select.value !== next) select.value = next;
+}
+
 function renderDuetProducts(form, state) {
   const panel = panelFor(state, "avatar_video");
   const section = panel ? q("[data-generation-intake-duet-product]", panel) : null;
@@ -926,10 +946,11 @@ function renderDuetProducts(form, state) {
     ?.getProjectProducts?.() || [];
   const previous = String(select.value || "");
 
-  select.replaceChildren();
   if (!products.length) {
-    select.append(new Option("В проекте ещё нет заведённых товаров", ""));
-    select.disabled = true;
+    syncSelectOptions(select, [
+      { label: "В проекте ещё нет заведённых товаров", value: "" },
+    ]);
+    if (!select.disabled) select.disabled = true;
     if (note) {
       setNodeText(
         note,
@@ -939,16 +960,18 @@ function renderDuetProducts(form, state) {
     return;
   }
 
-  select.disabled = false;
-  select.append(new Option("Выберите товар", ""));
-  products.forEach((product) => {
-    const title = product.sku
-      ? `${product.product_name} · ${product.sku}`
-      : product.product_name;
-    select.append(new Option(title, product.product_id));
-  });
+  if (select.disabled) select.disabled = false;
+  syncSelectOptions(select, [
+    { label: "Выберите товар", value: "" },
+    ...products.map((product) => ({
+      label: product.sku
+        ? `${product.product_name} · ${product.sku}`
+        : product.product_name,
+      value: product.product_id,
+    })),
+  ]);
   if (products.some((product) => product.product_id === previous)) {
-    select.value = previous;
+    assignSelectValue(select, previous);
   }
   if (note) {
     setNodeText(
@@ -1255,11 +1278,12 @@ function renderDuetPresenters(form, state) {
   const presenters = duetPresenterCache.get(projectId()) || [];
   const previous = String(select.value || "");
 
-  select.replaceChildren();
   if (!presenters.length) {
-    select.append(new Option("Ведущий проекта ещё не заведён", ""));
-    select.disabled = true;
-    if (layout instanceof HTMLElement) layout.hidden = true;
+    syncSelectOptions(select, [
+      { label: "Ведущий проекта ещё не заведён", value: "" },
+    ]);
+    if (!select.disabled) select.disabled = true;
+    if (layout instanceof HTMLElement && !layout.hidden) layout.hidden = true;
     if (note) {
       setNodeText(
         note,
@@ -1269,22 +1293,27 @@ function renderDuetPresenters(form, state) {
     return;
   }
 
-  select.disabled = false;
-  if (layout instanceof HTMLElement) layout.hidden = false;
-  presenters.forEach((presenter) => {
-    const suffix = presenter.is_default ? " · по умолчанию" : "";
-    select.append(new Option(
-      `${cleanText(presenter.display_name, 60)}${suffix}`,
-      String(presenter.id || ""),
-    ));
-  });
+  if (select.disabled) select.disabled = false;
+  if (layout instanceof HTMLElement && layout.hidden) layout.hidden = false;
+  syncSelectOptions(select, presenters.map((presenter) => ({
+    label: `${cleanText(presenter.display_name, 60)}${
+      presenter.is_default ? " · по умолчанию" : ""
+    }`,
+    value: String(presenter.id || ""),
+  })));
   const restored = presenters.some((presenter) => String(presenter.id) === previous)
     ? previous
     : String(
       (presenters.find((presenter) => presenter.is_default) || presenters[0]).id,
     );
-  select.value = restored;
-  applyDuetPresenterLayout(section, presenters, restored);
+  assignSelectValue(select, restored);
+  // Раскладка ведущего — умолчание для ЭТОГО ролика, и подставляется она при
+  // смене ведущего, а не на каждой перерисовке: иначе угол и форма, которые
+  // оператор выставил под конкретный ролик, откатывались бы сами собой.
+  if (select.dataset.layoutPresenter !== restored) {
+    select.dataset.layoutPresenter = restored;
+    applyDuetPresenterLayout(section, presenters, restored);
+  }
   if (note) {
     setNodeText(
       note,
@@ -1914,8 +1943,12 @@ function cascadeStep(kind, ordinal, title, name, extraRowClass = "") {
 }
 
 // Карточка каскада. Имя нейтральное: её рисует не только «Копия».
-function engineCascadeCard() {
+// Радиокнопки панелей живут в ОДНОЙ форме, поэтому имена у каждой панели
+// свои: иначе выбор «Дуэта» снимал бы отметку с модели «Копии» и наоборот —
+// браузер держит в одной группе одну отмеченную кнопку.
+function engineCascadeCard(route = "copy_video") {
   const section = el("section", "gi-card gi-cascade");
+  const nameSuffix = route === "copy_video" ? "" : `__${route}`;
   section.dataset.giStep = "engine";
   section.dataset.generationIntakeEngine = "";
   section.hidden = true;
@@ -1955,6 +1988,11 @@ function engineCascadeCard() {
     price,
     routeNote,
   );
+  if (nameSuffix) {
+    qa("[data-choice-name]", section).forEach((row) => {
+      row.dataset.choiceName = `${row.dataset.choiceName}${nameSuffix}`;
+    });
+  }
   return section;
 }
 
@@ -2126,7 +2164,7 @@ function avatarPanel() {
     // 21.08.2026 «Аватар» — такая же правка готового ролика и ездит теми же
     // движками. Карточка скрыта, пока реестр не отдаст маршруты этой стратегии,
     // поэтому появление формы ничего не обещает раньше времени.
-    engineCascadeCard(),
+    engineCascadeCard("avatar_video"),
     recommendationSlot("avatar_video"),
     rightsConfirmation("avatar_video"),
     el(
@@ -3101,6 +3139,36 @@ function avatarPhotoAvailable(state) {
   return Boolean(selectedAvatarFile(panel) || selectedAvatarMediaId(panel));
 }
 
+// Состояние каскада — СВОЁ у каждой стратегии. Раньше слот был один
+// (`state.copyEngine`) на все панели: «Дуэт», рисуясь последним, оставлял в нём
+// `heygen:…`, память экспресс-панели запоминала его как движок «Копии» и при
+// следующем монтировании писала в поле формы; «Копия» своего движка там не
+// находила, ставила свой — change — монтирование — и так до зависания вкладки.
+// «Копия» по-прежнему живёт в `state.copyEngine` (его читают память формы и
+// обработчики), остальные стратегии — в `state.engineCascades[strategyId]`.
+function cascadeStateFor(state, strategyId) {
+  if (strategyId === COPY_AUTHORITY_STRATEGY) return state?.copyEngine || null;
+  return state?.engineCascades?.[strategyId] || null;
+}
+
+function storeCascadeState(state, strategyId, value) {
+  if (!state) return;
+  if (strategyId === COPY_AUTHORITY_STRATEGY) {
+    state.copyEngine = value;
+    return;
+  }
+  if (!state.engineCascades) state.engineCascades = {};
+  state.engineCascades[strategyId] = value;
+}
+
+// Панель, в которой произошло событие каскада, и её стратегия. Радиокнопки
+// трёх панелей носят одно имя, поэтому различать их можно только по панели.
+function cascadeEventRoute(target) {
+  const panel = target?.closest?.("[data-generation-intake-panel]");
+  const route = panel?.dataset?.generationIntakePanel || "copy_video";
+  return ROUTE_AUTHORITY_STRATEGY[route] ? route : "copy_video";
+}
+
 function refreshEngineChoice(form, state, routeKey = "copy_video") {
   const strategyId = ROUTE_AUTHORITY_STRATEGY[routeKey];
   if (!strategyId) return;
@@ -3129,7 +3197,7 @@ function renderEngineChoice(form, state, section, strategyId) {
     void ensureEngineRoutes(strategyId);
     return;
   }
-  const cascade = state.copyEngine
+  const cascade = cascadeStateFor(state, strategyId)
     || { modelId: "", qualityCode: "", durationNotice: "" };
 
   // ИИ-центр: совет по движку под ЭТОТ запуск — по фактам об исходнике,
@@ -3397,13 +3465,13 @@ function renderEngineChoice(form, state, section, strategyId) {
     engineAdviceNote(selectedEngine, activeEngine, advice),
   );
 
-  state.copyEngine = {
+  storeCascadeState(state, strategyId, {
     modelId: selectedEngine?.id || "",
     qualityCode: selectedQuality?.code || "",
     durationNotice: notice,
     humanChoice: cascade.humanChoice === true && humanChoice !== null,
     advisedId,
-  };
+  });
   if (section.hidden) section.hidden = false;
 }
 
@@ -7306,8 +7374,14 @@ function bind(form, state) {
       // Другой ролик — другая длительность, поэтому прежнее предупреждение
       // о длительности снимается: оно относилось к предыдущему исходнику и
       // после смены читалось бы как утверждение о новом.
-      state.copyEngine = { ...(state.copyEngine || {}), durationNotice: "" };
       const route = existingVideo.dataset.generationIntakeExistingVideo;
+      const routeStrategy = ROUTE_AUTHORITY_STRATEGY[route];
+      if (routeStrategy) {
+        storeCascadeState(state, routeStrategy, {
+          ...(cascadeStateFor(state, routeStrategy) || {}),
+          durationNotice: "",
+        });
+      }
       const panel = panelFor(state, route);
       const fileInput = q('input[data-generation-intake-mp4="single"]', panel);
       if (existingVideo.value && fileInput instanceof HTMLInputElement) fileInput.value = "";
@@ -7390,28 +7464,29 @@ function bind(form, state) {
     // качества, и прежнее предупреждение о длительности: у другой модели свои
     // режимы и свои пределы, и оставлять от прошлого выбора нечего.
     const engineChoice = event.target.closest?.(
-      'input[name="generation_intake_generator"]',
+      'input[name^="generation_intake_generator"]',
     );
     if (engineChoice instanceof HTMLInputElement && engineChoice.checked) {
-      state.copyEngine = {
+      const cascadeRoute = cascadeEventRoute(event.target);
+      storeCascadeState(state, ROUTE_AUTHORITY_STRATEGY[cascadeRoute], {
         modelId: String(engineChoice.value || ""),
         qualityCode: "",
         durationNotice: "",
-      };
-      refreshEngineChoice(form, state, "copy_video");
-  refreshEngineChoice(form, state, "avatar_video");
+      });
+      refreshEngineChoice(form, state, cascadeRoute);
     }
     const qualityChoice = event.target.closest?.(
-      'input[name="generation_intake_quality"]',
+      'input[name^="generation_intake_quality"]',
     );
     if (qualityChoice instanceof HTMLInputElement && qualityChoice.checked) {
-      state.copyEngine = {
-        ...(state.copyEngine || {}),
+      const cascadeRoute = cascadeEventRoute(event.target);
+      const cascadeStrategy = ROUTE_AUTHORITY_STRATEGY[cascadeRoute];
+      storeCascadeState(state, cascadeStrategy, {
+        ...(cascadeStateFor(state, cascadeStrategy) || {}),
         qualityCode: String(qualityChoice.value || ""),
         durationNotice: "",
-      };
-      refreshEngineChoice(form, state, "copy_video");
-  refreshEngineChoice(form, state, "avatar_video");
+      });
+      refreshEngineChoice(form, state, cascadeRoute);
     }
     // Смена ведущего подтягивает ЕГО раскладку: у каждого своя привычная
     // посадка в кадре, и подставлять чужую было бы сюрпризом.
@@ -7438,13 +7513,17 @@ function bind(form, state) {
       if (section) syncDuetWidthLabel(section);
     }
     const durationChoice = event.target.closest?.(
-      'input[name="generation_intake_duration"]',
+      'input[name^="generation_intake_duration"]',
     );
     if (durationChoice instanceof HTMLInputElement && durationChoice.checked) {
-      state.copyEngine = { ...(state.copyEngine || {}), durationNotice: "" };
+      const cascadeRoute = cascadeEventRoute(event.target);
+      const cascadeStrategy = ROUTE_AUTHORITY_STRATEGY[cascadeRoute];
+      storeCascadeState(state, cascadeStrategy, {
+        ...(cascadeStateFor(state, cascadeStrategy) || {}),
+        durationNotice: "",
+      });
       applyCopyDuration(form, Number(durationChoice.value));
-      refreshEngineChoice(form, state, "copy_video");
-  refreshEngineChoice(form, state, "avatar_video");
+      refreshEngineChoice(form, state, cascadeRoute);
     }
 
     if (event.target === form.elements?.brief) {
@@ -7611,6 +7690,8 @@ function mount(form) {
     // Выбор каскада «Копии»: уровень, модель и последнее объяснение того,
     // почему длительность была приведена к допустимой.
     copyEngine: { modelId: "", qualityCode: "", durationNotice: "" },
+    // Каскады остальных стратегий («Дуэт», «Создание») — по ключу стратегии.
+    engineCascades: {},
     express: {
       phase: "idle",
       price: "",

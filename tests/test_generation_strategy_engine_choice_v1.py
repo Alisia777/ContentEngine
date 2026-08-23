@@ -291,7 +291,8 @@ def test_engine_change_revokes_cached_price_and_runtime_without_rewriting_spec()
         "generation_intake_quality",
         "generation_intake_duration",
     ):
-        assert f'[name="{control}"]' in paid_lock
+        # Префикс, а не точное имя: радиокнопки «Дуэта» носят суффикс панели.
+        assert f'[name^="{control}"]' in paid_lock
 
 
 def test_per_second_route_reserves_the_duration_it_will_actually_pay() -> None:

@@ -269,20 +269,24 @@ def test_view_pins_all_frozen_authorities_and_has_no_side_effect_channel() -> No
     # generation_strategy_source_duration_mismatch — то есть уже после резерва
     # денег. Пределы вынесены в SOURCE_DURATION_BOUNDS: 1.8–15 с у «Копии»,
     # 1.8–60 с у «Дуэта», по строкам реестра маршрутов.
+    # Запись 23.08.2026 (третья): пин очереди сдвинут только штампом сборки
+    # `.40` в строке импорта — cache-bust после починки зависания вкладки при
+    # выборе MP4 (состояние каскада стало пострaтегийным, списки «Дуэта»
+    # перестраиваются лишь при смене набора). Поведение очереди не менялось.
     expected_hashes = {
         RUNTIME_MODULE: "940fe34f2ee241e1d7206443c48389aa9541b06e4c897d31801d0a79fe7e56b0",
-        QUEUE_MODULE: "e11253d25e324511b44cccc674e7381ce7f4498d524ab2c19b8f7a403c52a936",
-        SOURCE_PICKER_MODULE: "81105b9fb7cac1269cb3b92ac0ecdff9ba6f8bd5128954f8715b7a31fd3c476d",
+        QUEUE_MODULE: "f6b6b2a566a95c3e20866fb732593894a4a31f7b12df624161d140598ab20554",
+        SOURCE_PICKER_MODULE: "5d5873239003fcfeeaf99976264324a2c3031818fbfc089566fec0523485d21c",
     }
     for path, expected in expected_hashes.items():
         canonical_bytes = path.read_bytes().replace(b"\r\n", b"\n")
         assert hashlib.sha256(canonical_bytes).hexdigest() == expected
     assert (
-        'from "./generation-strategy-source-picker.js?v=20260823.copy-engines.39";'
+        'from "./generation-strategy-source-picker.js?v=20260823.copy-engines.40";'
         in VIEW_SOURCE
     )
     assert (
-        'from "./generation-strategy-queue.js?v=20260823.copy-engines.39";'
+        'from "./generation-strategy-queue.js?v=20260823.copy-engines.40";'
         in VIEW_SOURCE
     )
     for forbidden in (

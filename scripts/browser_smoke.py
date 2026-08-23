@@ -25,6 +25,7 @@ from uuid import UUID
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL_DESKTOP_ORIGIN = "http://127.0.0.1:8767"
+UPLOAD_PROBE_MP4 = ROOT / "web" / "app" / "assets" / "training" / "ugc_bloody_peel_8s.mp4"
 LOGIN_READY_TIMEOUT_SECONDS = 30
 
 
@@ -475,6 +476,68 @@ JSON.stringify({
                     "screenshot": str(path),
                     "mode": str(evidence["mode"]),
                 })
+
+                if route == "copy_video" and UPLOAD_PROBE_MP4.is_file():
+                    # Живая загрузка MP4 в «Копию» с пульсом главного потока.
+                    # 23.08.2026 выбор файла вешал вкладку (вентиляторы на
+                    # полную): цикл перерисовок. Снимок экрана и пульс каждые
+                    # полсекунды — отказ называет секунду, на которой поток
+                    # перестал отвечать.
+                    located = cdp("Runtime.evaluate", {
+                        "expression": (
+                            "document.querySelector('[data-generation-intake-panel=\"copy_video\"] "
+                            "input[data-generation-intake-mp4=\"single\"]')"
+                        ),
+                        "returnByValue": False,
+                    })
+                    object_id = located["result"]["result"].get("objectId")
+                    if not object_id:
+                        raise AssertionError("Copy panel has no single MP4 input")
+                    websocket.send(json.dumps({
+                        "id": 900001,
+                        "method": "DOM.setFileInputFiles",
+                        "params": {"objectId": object_id, "files": [str(UPLOAD_PROBE_MP4)]},
+                    }))
+                    # Ответ на setFileInputFiles может прийти после событий страницы.
+                    set_deadline = time.monotonic() + 10
+                    while time.monotonic() < set_deadline:
+                        message = json.loads(websocket.recv())
+                        if message.get("id") == 900001:
+                            if "error" in message:
+                                raise AssertionError(f"setFileInputFiles failed: {message['error']}")
+                            break
+                    heartbeat_started = time.monotonic()
+                    stalled_at = None
+                    last_status = ""
+                    while time.monotonic() - heartbeat_started < 12:
+                        pulse_started = time.monotonic()
+                        try:
+                            pulse = cdp("Runtime.evaluate", {
+                                "expression": (
+                                    "JSON.stringify({ status: document.querySelector('[data-generation-intake-panel=\"copy_video\"] "
+                                    ".generation-intake-v4__status')?.textContent || '' })"
+                                ),
+                                "returnByValue": True,
+                                "timeout": 3000,
+                            })
+                            last_status = str(pulse["result"]["result"].get("value", ""))
+                        except Exception:
+                            stalled_at = round(time.monotonic() - heartbeat_started, 1)
+                            break
+                        if time.monotonic() - pulse_started > 3:
+                            stalled_at = round(time.monotonic() - heartbeat_started, 1)
+                            break
+                        time.sleep(0.5)
+                    if stalled_at is not None:
+                        raise AssertionError(
+                            f"Copy panel main thread stalled {stalled_at}s after selecting an MP4; "
+                            f"last status={last_status}"
+                        )
+                    results.append({
+                        "route": "copy_video_upload_probe",
+                        "status": last_status,
+                        "file": str(UPLOAD_PROBE_MP4),
+                    })
 
             if finder_project_id:
                 finder_url = (

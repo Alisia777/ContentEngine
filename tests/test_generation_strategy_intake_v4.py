@@ -1833,7 +1833,11 @@ def test_copy_engine_choice_is_a_three_step_cascade_from_the_route_registry() ->
         "function renderEngineChoice(form, state, section, strategyId)",
         "let copyChecklistBusy = false;",
     )
-    markup = between(source, "function engineCascadeCard()", "function copyChecklistRow")
+    markup = between(
+        source,
+        'function engineCascadeCard(route = "copy_video")',
+        "function copyChecklistRow",
+    )
 
     # Три ступени одна под другой: сам движок, его сложность, его тайминги.
     # Уровень цены отдельной ступенью не стоит — он подпись у модели, потому
@@ -1847,6 +1851,14 @@ def test_copy_engine_choice_is_a_three_step_cascade_from_the_route_registry() ->
     # первой ступенью.
     assert source.count('"generation_intake_generator"') == 2
     assert "Генератор ${index + 1}" not in source
+    # Панели живут в одной форме: радиокнопки «Дуэта» носят своё имя, иначе
+    # браузер держал бы одну отметку на обе панели. Обработчики ловят имя по
+    # префиксу, а не по точному совпадению.
+    assert 'const nameSuffix = route === "copy_video" ? "" : `__${route}`;' in markup
+    assert 'engineCascadeCard("avatar_video")' in source
+    assert "'input[name^=\"generation_intake_generator\"]'" in source
+    assert "'input[name^=\"generation_intake_quality\"]'" in source
+    assert "'input[name^=\"generation_intake_duration\"]'" in source
 
     # Данные — только из реестра маршрутов, без иных источников. Стратегия при
     # этом приходит параметром: каскад рисуется не только у «Копии».
@@ -2085,3 +2097,53 @@ def test_missing_presenter_disables_the_layout_instead_of_promising_a_run() -> N
         "function renderDuetPresenters(form, state)",
     )
     assert "catch {" in ensure
+
+
+def test_copy_panel_survives_mp4_selection_without_remount_ping_pong() -> None:
+    """Две причины зависания вкладки после выбора MP4 (23.08.2026).
+
+    1. Состояние каскада было одним слотом на три панели: «Дуэт», рисуясь
+       последним, оставлял в нём `heygen:…`, память экспресс-панели запоминала
+       его как движок «Копии» и писала в поле формы; «Копия» ставила свой —
+       change — перемонтирование — и так без конца.
+    2. Списки ведущего и товара «Дуэта» перестраивались безусловно на каждой
+       перерисовке: мутация → наблюдатель рабочего стола → перемонтирование →
+       мутация… Теперь <select> перестраивается только при смене набора.
+    """
+    source = text(V4)
+    render = between(
+        source,
+        "function renderEngineChoice(form, state, section, strategyId)",
+        "let copyChecklistBusy = false;",
+    )
+    assert "const cascade = cascadeStateFor(state, strategyId)" in render
+    assert "storeCascadeState(state, strategyId, {" in render
+    assert "state.copyEngine = " not in render
+    assert "engineCascades: {}," in source
+    # Обработчики радиокнопок пишут в слот ТОЙ панели, где случилось событие.
+    assert "const cascadeRoute = cascadeEventRoute(event.target);" in source
+    assert (
+        'refreshEngineChoice(form, state, "copy_video");' + chr(10)
+        + '  refreshEngineChoice(form, state, "avatar_video");' + chr(10)
+        + '    }'
+    ) not in source
+
+    presenters = between(
+        source,
+        "function renderDuetPresenters(form, state)",
+        "function applyDuetPresenterLayout",
+    )
+    products = between(
+        source,
+        "function renderDuetProducts(form, state)",
+        "function duetProductIdFromForm",
+    )
+    for block in (presenters, products):
+        assert "select.replaceChildren()" not in block
+        assert "syncSelectOptions(select, " in block
+        assert "assignSelectValue(select, " in block
+    helper = between(source, "function syncSelectOptions(select, options)", "function assignSelectValue")
+    assert "if (select.dataset.optionsStamp === stamp) return false;" in helper
+    # Раскладка ведущего подставляется при смене ведущего, а не на каждой
+    # перерисовке: иначе угол и форма, выбранные под ролик, откатывались бы.
+    assert "if (select.dataset.layoutPresenter !== restored) {" in presenters
