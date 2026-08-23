@@ -73,6 +73,7 @@ export const RPC = Object.freeze({
   inviteAttempts: "creator_invite_delivery_attempts",
   adminSnapshot: "creator_admin_snapshot",
   adminMutate: "creator_admin_mutate",
+  adminAccountOwnership: "creator_admin_account_ownership",
   managerDashboard: "creator_manager_dashboard",
   operationalHealth: "creator_operational_health",
   generationSpendOverview: "creator_generation_spend_overview",
@@ -2622,6 +2623,37 @@ export class CreatorApi {
       account_id: normalizedAccountId,
       expected_updated_at: normalizedExpectedAt,
       ...normalizeManagedAccountInput(account),
+    });
+  }
+
+  /*
+   * Поля владения аккаунтом компании (фаза 0 контура авторазмещения):
+   * вид владения, хранитель, на что заведён аккаунт, внешний ID, режим
+   * публикации. Секретов здесь нет и быть не может — их место в Vault.
+   */
+  setManagedAccountOwnership(accountId, expectedUpdatedAt, ownership = {}) {
+    const normalizedAccountId = String(accountId || "").trim().toLowerCase();
+    const normalizedExpectedAt = String(expectedUpdatedAt || "").trim();
+    if (!isUuid(normalizedAccountId) || !Number.isFinite(Date.parse(normalizedExpectedAt))) {
+      throw new CreatorApiError("Карточка аккаунта устарела. Обновите список.", {
+        code: "admin_account_version_invalid",
+      });
+    }
+    const textOrNull = (value, limit) => {
+      const normalized = String(value || "").trim().slice(0, limit);
+      return normalized ? normalized : null;
+    };
+    const custodian = String(ownership.custodianProfileId || "").trim().toLowerCase();
+    return this.mutate(RPC.adminAccountOwnership, {
+      action: "set_ownership",
+      account_id: normalizedAccountId,
+      expected_updated_at: normalizedExpectedAt,
+      ownership_kind: textOrNull(ownership.ownershipKind, 40),
+      custodian_profile_id: isUuid(custodian) ? custodian : null,
+      registration_email_alias: textOrNull(ownership.registrationEmailAlias, 120),
+      registration_phone_ref: textOrNull(ownership.registrationPhoneRef, 40),
+      external_account_id: textOrNull(ownership.externalAccountId, 120),
+      posting_mode: textOrNull(ownership.postingMode, 20),
     });
   }
 
@@ -9017,6 +9049,11 @@ function toFriendlyMessage(error) {
     generation_reconciliation_task_id_invalid: "Укажите точный task ID или Google operation из панели сервиса генерации.",
     generation_reconciliation_forbidden: "Ручную сверку платного запуска может выполнить только владелец или администратор команды.",
     generation_strategy_readiness_prompt_invalid: "Речь ведущего не уложилась в длительность ролика: около 15 знаков на секунду и не больше 1500. Сократите текст и повторите бесплатную проверку.",
+    posting_mode_requires_connection: "Режим «через API» включается подключением аккаунта к публикации, а не вручную: без живого подключения воркеру нечем публиковать.",
+    custodian_not_eligible: "Хранителем аккаунта может быть только активный владелец, администратор или продюсер.",
+    ownership_kind_invalid: "Неизвестный вид владения аккаунтом.",
+    registration_email_alias_invalid: "Почтовый алиас регистрации должен быть адресом вида имя@домен.",
+    account_changed_concurrently: "Карточку аккаунта уже изменил другой администратор. Обновите список и повторите.",
     generation_strategy_reconciliation_forbidden: "Ручную сверку запуска стратегии может выполнить только владелец или администратор команды.",
     generation_reconciliation_task_not_found: "Задача сервиса с таким ID не найдена. Проверьте точный идентификатор в панели провайдера.",
     generation_reconciliation_task_mismatch: "Задача сервиса не совпадает со временем этого запуска. Не прикрепляйте чужую задачу.",

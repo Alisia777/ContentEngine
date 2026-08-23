@@ -644,9 +644,12 @@ def test_spa_payload_and_workspace_fields_match_the_creator_rpc_migration() -> N
         for name in re.findall(r'"(creator_[a-z0-9_]+)"', rpc_contract)
         if name != "creator_api_error"
     ]
-    assert len(set(rpc_names)) == 107
+    # 108 = 107 + creator_admin_account_ownership (202608230024, поля владения
+    # аккаунтом компании из админки «Люди → Аккаунты»).
+    assert len(set(rpc_names)) == 108
     assert "creator_admin_snapshot" in rpc_names
     assert "creator_admin_mutate" in rpc_names
+    assert "creator_admin_account_ownership" in rpc_names
     assert "creator_operational_health" in rpc_names
     assert "creator_generation_learning_policy" in rpc_names
     assert "creator_generation_repair_policy" in rpc_names

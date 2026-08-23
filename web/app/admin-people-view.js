@@ -93,7 +93,71 @@ function normalizeAccount(value) {
     assignedProfileId: text(source.assigned_profile_id),
     assignmentId: text(source.assignment_id),
     assignedAt: optionalDate(source.assigned_at),
+    ownershipKind: text(source.ownership_kind, "personal_issued").toLowerCase(),
+    custodianProfileId: text(source.custodian_profile_id),
+    registrationEmailAlias: text(source.registration_email_alias),
+    registrationPhoneRef: text(source.registration_phone_ref),
+    externalAccountId: text(source.external_account_id),
+    postingMode: text(source.posting_mode, "assisted").toLowerCase(),
+    connectionStatus: text(source.connection_status, "not_connected").toLowerCase(),
   });
+}
+
+// Владение аккаунтом на площадке (фаза 0 контура авторазмещения). Вид владения
+// говорит, какой механизм площадки гарантирует «ушедший оставляет аккаунт
+// компании»; personal_issued — исключение, при уходе обязательна ротация пароля.
+export const ADMIN_OWNERSHIP_KINDS = Object.freeze([
+  Object.freeze({ value: "business_portfolio", label: "Бизнес-портфолио (Meta Business)" }),
+  Object.freeze({ value: "brand_account", label: "Brand-аккаунт (YouTube)" }),
+  Object.freeze({ value: "community", label: "Сообщество (VK)" }),
+  Object.freeze({ value: "channel_bot", label: "Канал с ботом (Telegram)" }),
+  Object.freeze({ value: "marketplace", label: "Кабинет продавца (Wildberries / Ozon)" }),
+  Object.freeze({ value: "personal_issued", label: "Личный аккаунт, выданный сотруднику" }),
+]);
+
+const POSTING_MODE_LABELS = Object.freeze({
+  api: "Через API (публикует воркер)",
+  assisted: "Вручную с подсказкой",
+  disabled: "Публикации закрыты",
+});
+
+const CONNECTION_STATUS_LABELS = Object.freeze({
+  not_connected: "не подключён",
+  connected: "подключён",
+  expired: "подключение истекло",
+  revoked: "подключение отозвано",
+  error: "ошибка подключения",
+});
+
+function custodianOptions(snapshot, custodianProfileId = "") {
+  const eligible = snapshot.members.filter((member) => (
+    member.status === "active"
+    && ["owner", "admin", "producer"].includes(member.role)
+  ));
+  return [
+    `<option value="" ${custodianProfileId ? "" : "selected"}>Хранитель не назначен</option>`,
+    ...eligible.map((member) => (
+      `<option value="${escapeHtml(member.profileId)}" ${member.profileId === custodianProfileId ? "selected" : ""}>${escapeHtml(member.displayName || member.email)}</option>`
+    )),
+  ].join("");
+}
+
+function accountOwnershipForm(account, snapshot, disabled) {
+  const apiAllowed = account.connectionStatus === "connected";
+  return `
+    <form class="admin-form admin-account-ownership-form" data-account-id="${escapeHtml(account.id)}" data-expected-updated-at="${escapeHtml(account.updatedAt)}">
+      <p class="admin-action-note">Кто владеет аккаунтом на площадке и кто отвечает за восстановление. Секреты (пароли, коды, токены) сюда не вводятся.</p>
+      <div class="admin-form-grid">
+        <label><span>Вид владения</span><select name="ownership_kind">${ADMIN_OWNERSHIP_KINDS.map((item) => `<option value="${item.value}" ${item.value === account.ownershipKind ? "selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}</select></label>
+        <label><span>Хранитель</span><select name="custodian_profile_id">${custodianOptions(snapshot, account.custodianProfileId)}</select></label>
+        <label><span>Почтовый алиас регистрации</span><input name="registration_email_alias" type="email" maxlength="120" value="${escapeHtml(account.registrationEmailAlias)}" placeholder="social+brand@company.ru" /></label>
+        <label><span>Корпоративный номер (код из пула)</span><input name="registration_phone_ref" maxlength="40" value="${escapeHtml(account.registrationPhoneRef)}" placeholder="SIM-07" /></label>
+        <label><span>ID у площадки</span><input name="external_account_id" maxlength="120" value="${escapeHtml(account.externalAccountId)}" placeholder="channelId / chat_id / ig-user-id" /></label>
+        <label><span>Режим публикации</span><select name="posting_mode">${Object.entries(POSTING_MODE_LABELS).map(([value, label]) => `<option value="${value}" ${value === account.postingMode ? "selected" : ""} ${value === "api" && !apiAllowed ? "disabled" : ""}>${escapeHtml(label)}</option>`).join("")}</select></label>
+      </div>
+      <p class="admin-action-note">Подключение к публикации: <strong>${escapeHtml(CONNECTION_STATUS_LABELS[account.connectionStatus] || account.connectionStatus)}</strong>${apiAllowed ? "" : " — режим «через API» откроется после подключения."}</p>
+      <button class="btn btn-secondary btn-small" type="submit" ${disabled}>Сохранить владение</button>
+    </form>`;
 }
 
 function normalizeMember(value) {
@@ -387,6 +451,7 @@ function accountCard(account, snapshot, busyKey) {
       <p class="admin-assignee-note">${assignee ? `Сейчас отвечает: <strong>${escapeHtml(assignee.displayName || assignee.email)}</strong>` : "Ответственный пока не назначен."}</p>
       ${protectedAssignment ? "" : `<div class="admin-account__actions">
         <details><summary>Изменить карточку</summary>${accountEditForm(account, disabled)}</details>
+        <details><summary>Владение и хранитель</summary>${accountOwnershipForm(account, snapshot, disabled)}</details>
         <details class="admin-danger-zone"><summary>Архивировать аккаунт</summary>
           <form class="admin-inline-form admin-account-archive-form" data-account-id="${escapeHtml(account.id)}" data-expected-updated-at="${escapeHtml(account.updatedAt)}">
             <p>Аккаунт исчезнет из активной работы, а текущая привязка завершится. История сохранится.</p>

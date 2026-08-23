@@ -946,6 +946,13 @@ def test_admin_view_escapes_untrusted_values_and_drops_credential_fields() -> No
         'url',
         'notes',
         'profile_id',
+        // Владение (фаза 0 авторазмещения): реквизиты без секретов.
+        'ownership_kind',
+        'custodian_profile_id',
+        'registration_email_alias',
+        'registration_phone_ref',
+        'external_account_id',
+        'posting_mode',
       ]);
       const formFields = [...html.matchAll(/\\bname="([^"]+)"/gu)]
         .map((match) => match[1]);
@@ -1051,6 +1058,14 @@ def test_admin_view_enforces_role_matrix_and_assignment_eligibility() -> None:
       function markup(data, view) {{
         return adminPeopleMarkup({{ snapshot: data, view }});
       }}
+      // Выбор хранителя (владелец/админ/продюсер) живёт в отдельной форме
+      // владения; право назначения исполнителя проверяется по форме закрепления.
+      function bindForm(card) {{
+        const start = card.indexOf('<form class="admin-account-bind-form"');
+        if (start === -1) return '';
+        const end = card.indexOf('</form>', start);
+        return card.slice(start, end);
+      }}
       function accountCard(html, id) {{
         const startMarker = `<article class="admin-account" data-account-id="${{id}}">`;
         const start = html.indexOf(startMarker);
@@ -1070,7 +1085,7 @@ def test_admin_view_enforces_role_matrix_and_assignment_eligibility() -> None:
 
       const adminSnapshot = snapshot({{ profile_id: 'actor-admin', role: 'admin' }});
       const adminAccounts = markup(adminSnapshot, 'accounts');
-      const openForAdmin = accountCard(adminAccounts, 'account-open');
+      const openForAdmin = bindForm(accountCard(adminAccounts, 'account-open'));
       assert.equal(openForAdmin.includes('value="operator-ok"'), true);
       assert.equal(openForAdmin.includes('value="operator-ok-two"'), true);
       assert.equal(openForAdmin.includes('Duplicate Name · operator-one@example.test'), true);
@@ -1122,13 +1137,15 @@ def test_admin_view_enforces_role_matrix_and_assignment_eligibility() -> None:
       assert.equal(adminAccountForOwner.includes('admin-account-bind-form'), true);
       assert.equal(adminAccountForOwner.includes('admin-account-edit-form'), true);
       assert.equal(adminAccountForOwner.includes('admin-account-archive-form'), true);
-      assert.equal(adminAccountForOwner.includes('value="admin-target"'), true);
+      assert.equal(adminAccountForOwner.includes('admin-account-ownership-form'), true);
+      const adminBindForOwner = bindForm(adminAccountForOwner);
+      assert.equal(adminBindForOwner.includes('value="admin-target"'), true);
       for (const forbidden of [
         'operator-unconfirmed',
         'operator-disabled',
         'operator-suspended',
       ]) {{
-        assert.equal(adminAccountForOwner.includes(`value="${{forbidden}}"`), false);
+        assert.equal(adminBindForOwner.includes(`value="${{forbidden}}"`), false);
       }}
       const ownerPeople = markup(ownerSnapshot, 'people');
       const adminTargetForOwner = personCard(ownerPeople, 'admin-target');

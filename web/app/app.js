@@ -23869,6 +23869,7 @@ async function handleSubmit(event) {
   else if (form.classList.contains("admin-member-action-form")) await submitAdminMemberAction(form);
   else if (form.id === "admin-account-create-form") await submitAdminAccountCreate(form);
   else if (form.classList.contains("admin-account-edit-form")) await submitAdminAccountUpdate(form);
+  else if (form.classList.contains("admin-account-ownership-form")) await submitAdminAccountOwnership(form);
   else if (form.classList.contains("admin-account-bind-form")) await submitAdminAccountBinding(form);
   else if (form.classList.contains("admin-account-archive-form")) await submitAdminAccountArchive(form);
   else if (form.id === "manager-access-form") await submitManagerAccess(form);
@@ -33445,6 +33446,25 @@ async function submitAdminAccountUpdate(form) {
       adminAccountFormPayload(form),
     ),
     "Карточка рабочего аккаунта обновлена.",
+  );
+}
+
+async function submitAdminAccountOwnership(form) {
+  if (!canManageTeam() || !isAdminRoute()) return;
+  const accountId = String(form.dataset.accountId || "").trim().toLowerCase();
+  const expectedUpdatedAt = String(form.dataset.expectedUpdatedAt || "").trim();
+  const values = new FormData(form);
+  await runAdminMutation(
+    `account:ownership:${accountId}`,
+    () => state.api.setManagedAccountOwnership(accountId, expectedUpdatedAt, {
+      ownershipKind: values.get("ownership_kind"),
+      custodianProfileId: values.get("custodian_profile_id"),
+      registrationEmailAlias: values.get("registration_email_alias"),
+      registrationPhoneRef: values.get("registration_phone_ref"),
+      externalAccountId: values.get("external_account_id"),
+      postingMode: values.get("posting_mode"),
+    }),
+    "Владение аккаунтом сохранено.",
   );
 }
 
