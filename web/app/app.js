@@ -3,7 +3,7 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260823.copy-engines.45";
+} from "./supabase-api.js?v=20260823.copy-engines.46";
 import {
   adminPeopleMarkup,
   normalizeAdminSnapshot,
@@ -34,9 +34,9 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
-} from "./generation-spec.js?v=20260823.copy-engines.45";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260823.copy-engines.45";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260823.copy-engines.45";
+} from "./generation-spec.js?v=20260823.copy-engines.46";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260823.copy-engines.46";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260823.copy-engines.46";
 import {
   normalizeWorkspaceInternalTarget,
   resolveWorkspaceCommand,
@@ -73,7 +73,7 @@ import {
   generationSpendSnapshotMarkup,
   managerGenerationSpendMarkup,
   normalizeGenerationSpendOverview,
-} from "./generation-spend-view.js?v=20260823.copy-engines.45";
+} from "./generation-spend-view.js?v=20260823.copy-engines.46";
 import {
   generationProviderReadinessPreflights,
   normalizeGenerationProviderPreflight,
@@ -109,7 +109,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260823.copy-engines.45";
+} from "./product-research-view.js?v=20260823.copy-engines.46";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -120,7 +120,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260823.copy-engines.45";
+} from "./ai-learning-control-room.js?v=20260823.copy-engines.46";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -136,7 +136,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260823.copy-engines.45";
+} from "./content-generation-handoff.js?v=20260823.copy-engines.46";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -158,7 +158,7 @@ import {
   invalidateGenerationStrategyRuntimeState,
   normalizeGenerationStrategyProbeResponse,
   reduceGenerationStrategyRuntimeState,
-} from "./generation-strategy-runtime.js?v=20260823.copy-engines.45";
+} from "./generation-strategy-runtime.js?v=20260823.copy-engines.46";
 import {
   createGenerationStrategyQueue,
   generationStrategyQueueAggregateReview,
@@ -167,17 +167,17 @@ import {
   planGenerationStrategyQueueFreeWork,
   planGenerationStrategyQueueSequentialStarts,
   updateGenerationStrategyQueueRow,
-} from "./generation-strategy-queue.js?v=20260823.copy-engines.45";
+} from "./generation-strategy-queue.js?v=20260823.copy-engines.46";
 import {
   renderGenerationStrategyQueueView,
-} from "./generation-strategy-queue-view.js?v=20260823.copy-engines.45";
+} from "./generation-strategy-queue-view.js?v=20260823.copy-engines.46";
 import {
   buildGenerationStrategySpecApprovalRequest,
   buildGenerationStrategySpecPrepareRequest,
   generationStrategySpecSafeProjection,
   normalizeGenerationStrategySpecControlResponse,
   normalizeGenerationStrategySpecPrepareResponse,
-} from "./generation-strategy-spec.js?v=20260823.copy-engines.45";
+} from "./generation-strategy-spec.js?v=20260823.copy-engines.46";
 import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
@@ -188,7 +188,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260823.copy-engines.45";
+} from "./generation-form-draft.js?v=20260823.copy-engines.46";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
@@ -227,7 +227,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260823.copy-engines.45";
+} from "./content-review-view.js?v=20260823.copy-engines.46";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -249,7 +249,7 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260823.copy-engines.45";
+} from "./portal-experience.js?v=20260823.copy-engines.46";
 import {
   isWorkspaceSmartFolderId,
   normalizeWorkspaceBoard,
@@ -286,7 +286,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260823.copy-engines.45";
+} from "./training-journey.js?v=20260823.copy-engines.46";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -335,7 +335,7 @@ const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
   ),
 );
 const MEDIA_UPLOAD_CONCURRENCY = DEFAULT_MEDIA_UPLOAD_CONCURRENCY;
-const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260823.copy-engines.45";
+const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260823.copy-engines.46";
 const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260716.2";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");

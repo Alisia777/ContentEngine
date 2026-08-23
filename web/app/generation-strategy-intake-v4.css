@@ -1523,6 +1523,24 @@
   border: 1px solid color-mix(in srgb, var(--border, #d7dde7) 80%, transparent);
 }
 
+.generation-intake-v4__presenter-generate {
+  display: grid;
+  gap: 8px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  border: 1px dashed color-mix(in srgb, var(--border, #d7dde7) 85%, transparent);
+}
+
+.generation-intake-v4__presenter-generate > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.generation-intake-v4__presenter-generate textarea {
+  width: 100%;
+  resize: vertical;
+}
+
 .generation-intake-v4__presenter-likeness {
   display: grid;
   gap: 8px;

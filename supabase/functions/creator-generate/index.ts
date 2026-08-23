@@ -837,6 +837,22 @@ type DuetPresenterCatalogPayload = {
   organization_id: string;
 };
 
+// Персонаж по описанию: HeyGen собирает фото-аватар из текста (v3, type
+// "prompt"). Живого человека за ним нет — это синтетический ведущий.
+type DuetPresenterGeneratePayload = {
+  action: "duet_presenter_generate";
+  organization_id: string;
+  name: string;
+  prompt: string;
+  aspect_ratio: "9:16" | "1:1" | "16:9";
+};
+
+type DuetPresenterGenerationStatusPayload = {
+  action: "duet_presenter_generation_status";
+  organization_id: string;
+  look_id: string;
+};
+
 type GenerationProviderPolicy = {
   provider: GenerationProvider;
   model: GenerationModel;
@@ -2081,6 +2097,53 @@ function readDuetPresenterCatalogPayload(
   return {
     action: "duet_presenter_catalog",
     organization_id: value.organization_id,
+  };
+}
+
+function readDuetPresenterGeneratePayload(
+  value: unknown,
+): DuetPresenterGeneratePayload | null {
+  if (!isRecord(value)) return null;
+  const keys = new Set(["action", "organization_id", "name", "prompt", "aspect_ratio"]);
+  if (
+    !hasOnlyKeys(value, keys) ||
+    value.action !== "duet_presenter_generate" ||
+    !isUuid(value.organization_id) ||
+    typeof value.name !== "string" ||
+    typeof value.prompt !== "string"
+  ) return null;
+  const name = value.name.replace(/[\u0000-\u001f\u007f]/gu, " ").trim();
+  const prompt = value.prompt.replace(/[\u0000-\u001f\u007f]/gu, " ").trim();
+  if (name.length < 2 || name.length > 80) return null;
+  if (prompt.length < 10 || prompt.length > 1_000) return null;
+  const ratio = value.aspect_ratio === undefined ? "9:16" : value.aspect_ratio;
+  if (ratio !== "9:16" && ratio !== "1:1" && ratio !== "16:9") return null;
+  return {
+    action: "duet_presenter_generate",
+    organization_id: value.organization_id,
+    name,
+    prompt,
+    aspect_ratio: ratio,
+  };
+}
+
+function readDuetPresenterGenerationStatusPayload(
+  value: unknown,
+): DuetPresenterGenerationStatusPayload | null {
+  if (!isRecord(value)) return null;
+  const keys = new Set(["action", "organization_id", "look_id"]);
+  if (
+    !hasOnlyKeys(value, keys) ||
+    Object.keys(value).length !== keys.size ||
+    value.action !== "duet_presenter_generation_status" ||
+    !isUuid(value.organization_id) ||
+    typeof value.look_id !== "string" ||
+    !/^[A-Za-z0-9_-]{1,128}$/u.test(value.look_id)
+  ) return null;
+  return {
+    action: "duet_presenter_generation_status",
+    organization_id: value.organization_id,
+    look_id: value.look_id,
   };
 }
 
@@ -7202,6 +7265,206 @@ async function handleCreatorGenerate(
       version: "duet-presenter-catalog-v1",
       presenters: [...talkingPhotos, ...videoAvatars],
       voices: voiceList,
+    });
+  }
+
+  // Персонаж по описанию и опрос его готовности. Оба шага — те же право роли и
+  // тот же ключ провайдера, что у каталога; ключ в браузер не уходит. Создание
+  // личности у HeyGen стоит кредитов кабинета — это его ЕДИНСТВЕННАЯ цена,
+  // денежный контур завода (резервы, квитанции) здесь не участвует.
+  const duetPresenterGeneratePayload = readDuetPresenterGeneratePayload(body);
+  const duetPresenterGenerationStatusPayload =
+    readDuetPresenterGenerationStatusPayload(body);
+  if (
+    !internalWorker &&
+    (duetPresenterGeneratePayload !== null ||
+      duetPresenterGenerationStatusPayload !== null)
+  ) {
+    const organizationId = duetPresenterGeneratePayload?.organization_id ??
+      duetPresenterGenerationStatusPayload?.organization_id ?? "";
+    try {
+      const { error } = await context.supabase.rpc(
+        "creator_generation_model_feature_flags",
+        { p_payload: { organization_id: organizationId } },
+      );
+      if (error !== null) {
+        noteGenerationRefusal(request, "duet_presenter_generate.role_proof", error);
+        return json(request, { ok: false, code: "generation_rejected" }, 403);
+      }
+    } catch {
+      noteGenerationRefusal(request, "duet_presenter_generate.role_proof_threw");
+      return json(request, { ok: false, code: "generation_unavailable" }, 503);
+    }
+    const secret = heygenSecret();
+    if (secret === null) {
+      return json(
+        request,
+        { ok: false, code: "duet_provider_key_missing" },
+        409,
+      );
+    }
+    const safeText = (value: unknown, limit: number): string => {
+      if (typeof value !== "string") return "";
+      return value.replace(/[\u0000-\u001f\u007f]/gu, " ").trim().slice(0, limit);
+    };
+    const safeHttpsUrl = (value: unknown): string | null => {
+      if (typeof value !== "string" || value.length > 2_048) return null;
+      try {
+        const url = new URL(value);
+        return url.protocol === "https:" && !url.username && !url.password
+          ? url.toString()
+          : null;
+      } catch {
+        return null;
+      }
+    };
+    const readLookStatus = (value: unknown): string => {
+      const status = safeText(value, 40);
+      return ["processing", "pending_consent", "failed", "completed"].includes(status)
+        ? status
+        : "processing";
+    };
+    // Отказ провайдера называется его же словами (без ключа — его в тексте нет):
+    // «не хватило кредитов» и «промпт отклонён» должны читаться с экрана.
+    const providerRefusal = (status: number, text: string | null) =>
+      json(request, {
+        ok: false,
+        code: status === 401 || status === 403
+          ? "duet_provider_authentication_failed"
+          : status === 402
+          ? "duet_provider_credits_unavailable"
+          : "duet_provider_generation_rejected",
+        provider_status: status,
+        provider_message: safeText(text, 300),
+        hint: safeText(text, 300),
+      }, 502);
+
+    if (duetPresenterGeneratePayload !== null) {
+      let response: ProviderJsonResult;
+      try {
+        response = await fetchProviderJsonWithDeadline(
+          `${HEYGEN_API_ORIGIN}/v3/avatars`,
+          {
+            method: "POST",
+            redirect: "manual",
+            headers: {
+              "x-api-key": secret,
+              accept: "application/json",
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              type: "prompt",
+              name: duetPresenterGeneratePayload.name,
+              prompt: duetPresenterGeneratePayload.prompt,
+              aspect_ratio: duetPresenterGeneratePayload.aspect_ratio,
+            }),
+          },
+          PROVIDER_TIMEOUT_MS,
+        );
+      } catch {
+        return json(request, { ok: false, code: "duet_provider_catalog_unavailable" }, 503);
+      }
+      if (!response.ok) return providerRefusal(response.status, response.value);
+      const data = isRecord(response.value) && isRecord(response.value.data)
+        ? response.value.data
+        : null;
+      const item = data && isRecord(data.avatar_item) ? data.avatar_item : null;
+      const group = data && isRecord(data.avatar_group) ? data.avatar_group : null;
+      const lookId = safeText(item?.id, 128);
+      if (!lookId || !/^[A-Za-z0-9_-]{1,128}$/u.test(lookId)) {
+        return json(request, { ok: false, code: "duet_provider_response_invalid" }, 502);
+      }
+      return json(request, {
+        ok: true,
+        version: "duet-presenter-generation-v1",
+        look_id: lookId,
+        group_id: safeText(group?.id, 128) || null,
+        status: readLookStatus(item?.status),
+      });
+    }
+
+    const statusPayload = duetPresenterGenerationStatusPayload;
+    if (statusPayload === null) {
+      return json(request, { ok: false, code: "generation_payload_invalid" }, 400);
+    }
+    let lookResponse: ProviderJsonResult;
+    try {
+      lookResponse = await fetchProviderJsonWithDeadline(
+        `${HEYGEN_API_ORIGIN}/v3/avatars/looks/${statusPayload.look_id}`,
+        {
+          method: "GET",
+          redirect: "manual",
+          headers: { "x-api-key": secret, accept: "application/json" },
+        },
+        PROVIDER_TIMEOUT_MS,
+      );
+    } catch {
+      return json(request, { ok: false, code: "duet_provider_catalog_unavailable" }, 503);
+    }
+    if (!lookResponse.ok) return providerRefusal(lookResponse.status, lookResponse.value);
+    const look = isRecord(lookResponse.value) && isRecord(lookResponse.value.data)
+      ? lookResponse.value.data
+      : null;
+    if (look === null) {
+      return json(request, { ok: false, code: "duet_provider_response_invalid" }, 502);
+    }
+    const status = readLookStatus(look.status);
+    const lookError = isRecord(look.error) ? safeText(look.error.message, 300) : "";
+    // Готовая личность ищется в том же каталоге v2, которым живёт «Дуэт»: там
+    // она лежит как talking_photo с тем же идентификатором. Если каталог её
+    // ещё не показывает, отдаём look_id как фото-аватар — запуск всё равно
+    // проверит личность у провайдера перед оплатой.
+    let presenter: Record<string, unknown> | null = null;
+    if (status === "completed") {
+      presenter = {
+        kind: "talking_photo",
+        id: statusPayload.look_id,
+        name: safeText(look.name, 120) || "Персонаж",
+        preview_image_url: safeHttpsUrl(look.preview_image_url),
+        catalog_confirmed: false,
+      };
+      try {
+        const catalog = await fetchProviderJsonWithDeadline(
+          `${HEYGEN_API_ORIGIN}/v2/avatars`,
+          {
+            method: "GET",
+            redirect: "manual",
+            headers: { "x-api-key": secret, accept: "application/json" },
+          },
+          PROVIDER_TIMEOUT_MS,
+        );
+        const catalogData = catalog.ok && isRecord(catalog.value) &&
+            isRecord(catalog.value.data)
+          ? catalog.value.data
+          : null;
+        const photos = catalogData && Array.isArray(catalogData.talking_photos)
+          ? catalogData.talking_photos.filter(isRecord)
+          : [];
+        const match = photos.find((entry) =>
+          safeText(entry.talking_photo_id, 128) === statusPayload.look_id
+        );
+        if (match) {
+          presenter = {
+            kind: "talking_photo",
+            id: statusPayload.look_id,
+            name: safeText(match.talking_photo_name, 120) || presenter.name,
+            preview_image_url: safeHttpsUrl(match.preview_image_url) ??
+              presenter.preview_image_url,
+            catalog_confirmed: true,
+          };
+        }
+      } catch {
+        // Каталог недоступен — личность всё равно готова; подтверждение
+        // каталогом остаётся false, и экран скажет об этом.
+      }
+    }
+    return json(request, {
+      ok: true,
+      version: "duet-presenter-generation-status-v1",
+      look_id: statusPayload.look_id,
+      status,
+      error_message: lookError || null,
+      presenter,
     });
   }
 

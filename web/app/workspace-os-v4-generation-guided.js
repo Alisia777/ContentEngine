@@ -11,20 +11,20 @@ import {
   reduceGenerationStrategyViewState,
   selectedGenerationStrategySummary,
   validateSelectedGenerationStrategyDraft,
-} from "./generation-strategy-view.js?v=20260823.copy-engines.45";
+} from "./generation-strategy-view.js?v=20260823.copy-engines.46";
 import {
   generationStrategyAssetEligibility,
   mergeGenerationStrategyAssetPages,
   normalizeGenerationStrategyAssetCandidates,
-} from "./generation-strategy-assets.js?v=20260823.copy-engines.45";
+} from "./generation-strategy-assets.js?v=20260823.copy-engines.46";
 import {
   GENERATION_STRATEGY_SOURCE_PICKER_ACTIONS,
   createGenerationStrategySourcePicker,
   generationStrategyRequiredSourceCount,
   generationStrategySourcePickerProjection,
   reduceGenerationStrategySourcePicker,
-} from "./generation-strategy-source-picker.js?v=20260823.copy-engines.45";
-import { resolveGenerationModelVisual } from "./generation-model-visuals-v1.js?v=20260823.copy-engines.45";
+} from "./generation-strategy-source-picker.js?v=20260823.copy-engines.46";
+import { resolveGenerationModelVisual } from "./generation-model-visuals-v1.js?v=20260823.copy-engines.46";
 
 /*
  * ContentEngine Desktop v4 · guided generation.
@@ -2588,7 +2588,10 @@ function syncLegacyModelVisibility(form, strategySelected) {
   }
   const advisor = q("[data-ce-v4-model-advisor]", form);
   if (advisor instanceof HTMLElement) {
-    advisor.hidden = false;
+    // При выбранной стратегии старый каталог моделей (Runway «как совет»)
+    // прячется целиком: движок выбирается в каскаде реестра маршрутов той же
+    // стратегии, и второй список моделей рядом только спорил бы с ним.
+    advisor.hidden = strategySelected;
     advisor.dataset.strategyAdvisoryOnly = strategySelected ? "true" : "false";
   }
 }
