@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260823.copy-engines.48",
+  "./generation-strategy-intake-v4.css?v=20260823.copy-engines.49",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260823.copy-engines.48"
+  "./generation-engine-advisor.js?v=20260823.copy-engines.49"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -5331,7 +5331,11 @@ function refreshRecommendationUi(form, state) {
     const over = value.length > limit;
     meta.dataset.state = over ? "error" : "neutral";
     setNodeText(meta, over
-      ? `${value.length} / ${limit} · текст не обрезан: сократите его${speech ? ` — ролик ${speech.seconds} с вмещает около ${limit} знаков речи` : " перед preflight"}`
+      ? `${value.length} / ${limit} · текст не обрезан: сократите его${speech ? ` — ролик ${speech.seconds} с вмещает около ${limit} знаков речи` : " перед preflight"}${
+        value.includes(String.fromCharCode(10)) && speech
+          ? ". В поле несколько строк — ведущий произнесёт ВСЁ подряд; оставьте одну реплику"
+          : ""
+      }`
       : speech
         ? `${value.length} / ${limit} · ролик ${speech.seconds} с вмещает около ${limit} знаков речи`
         : `${value.length} / ${BRIEF_LIMIT}`);
@@ -5735,6 +5739,45 @@ function preflightSignature(form, submitButton) {
 // точное ТЗ → одобрение версии → бесплатный preflight с серверной ценой.
 // Провайдер не вызывается, деньги не списываются; платный старт остаётся за
 // отдельным человеческим кликом.
+// Человеческие имена невалидных полей формы: когда мастер молчит из-за
+// reportValidity(), человек должен прочитать, КАКОЕ поле держит форму, а не
+// «обновите страницу». Имя берётся из label поля; для служебных полей — словарь.
+const INVALID_FIELD_LABELS = Object.freeze({
+  campaign_id: "Кампания (карточка «Кампания и бюджет»)",
+  brief: "Замысел/речь",
+  generation_strategy_audio: "Звук результата",
+  product_category: "Категория товара",
+  destination_ref: "Направление публикации",
+});
+
+function invalidControlSummary(form) {
+  try {
+    const names = [];
+    for (const control of form.elements) {
+      if (typeof control.checkValidity !== "function" || control.checkValidity()) continue;
+      const name = String(control.name || control.id || "");
+      let label = INVALID_FIELD_LABELS[name] || "";
+      if (!label && control.id) {
+        label = cleanText(
+          form.querySelector(`label[for="${CSS.escape(control.id)}"]`)?.textContent,
+          60,
+        );
+      }
+      if (!label) {
+        label = cleanText(
+          control.closest("label, .field")?.querySelector("span, strong")?.textContent,
+          60,
+        );
+      }
+      names.push(label || name || control.tagName.toLowerCase());
+      if (names.length >= 3) break;
+    }
+    return [...new Set(names)];
+  } catch {
+    return [];
+  }
+}
+
 async function driveStrategyPreflight(initialForm, panel) {
   const startedAt = Date.now();
   const deadline = startedAt + EXPRESS_PREFLIGHT_TIMEOUT_MS;
@@ -5879,6 +5922,7 @@ async function driveStrategyPreflight(initialForm, panel) {
       if (stalledPolls >= EXPRESS_STALLED_POLL_LIMIT) {
         const failure = new Error("express_preflight_stalled");
         failure.step = step;
+        failure.invalidFields = invalidControlSummary(form);
         throw failure;
       }
       probe.click();
@@ -5892,6 +5936,7 @@ async function driveStrategyPreflight(initialForm, panel) {
       if (stalledPolls >= EXPRESS_STALLED_POLL_LIMIT) {
         const failure = new Error("express_preflight_stalled");
         failure.step = step;
+        failure.invalidFields = invalidControlSummary(form);
         throw failure;
       }
       submitButton.click();
@@ -5910,6 +5955,7 @@ async function driveStrategyPreflight(initialForm, panel) {
       if (stalledPolls >= EXPRESS_STALLED_POLL_LIMIT) {
         const failure = new Error("express_preflight_stalled");
         failure.step = step;
+        failure.invalidFields = invalidControlSummary(form);
         throw failure;
       }
     }
@@ -7601,7 +7647,11 @@ async function prepareCopy(form) {
     if (error?.message === "express_preflight_stalled") {
       setStatus(
         activePanel,
-        `Мастер не отвечает на бесплатную проверку${error.step ? `: шаг «${error.step}» не сдвигается` : ""}. Ничего не запущено и не оплачено. Обновите страницу (F5) и нажмите «Подготовить ролик» ещё раз — выбранные материалы сохранены.`,
+        `Мастер не отвечает на бесплатную проверку${error.step ? `: шаг «${error.step}» не сдвигается` : ""}.${
+          error.invalidFields?.length
+            ? ` Форму держит незаполненное поле: ${error.invalidFields.join(", ")}.`
+            : ""
+        } Ничего не запущено и не оплачено. Заполните поле и нажмите «Подготовить ролик» ещё раз — материалы сохранены.`,
         "error",
       );
       return;
@@ -7794,6 +7844,10 @@ async function prepareAvatar(form) {
     const mechanicsApplied = window.ContentEngineGenerationGuidedV4
       ?.setStrategyMechanicsDraft?.(activeForm, sourceMediaId, duetMechanics);
     if (mechanicsApplied !== true) throw new Error("express_mechanics_unbound");
+    // Кампания бесплатным шагам не нужна (выключенное поле не валидируется);
+    // она подбирается и проверяется на шаге цены, как у «Копии». Здесь только
+    // подтягиваем умолчание в зеркало «Кампания и бюджет», не блокируя путь.
+    autoSelectCampaign(activeForm, activePanel, activeState);
     // Дальше — ровно путь «Копии»: бесплатные шаги мастера (проверка MP4,
     // точное ТЗ, одобрение, проверка сервиса и цены) проходят отсюда, и кнопка
     // панели становится «Запустить за $X». Провайдер не вызывается, деньги не
@@ -7854,7 +7908,11 @@ async function prepareAvatar(form) {
     const messages = {
       source_media_required: "Сначала выберите и разберите исходный MP4.",
       express_preflight_rejected: `Сервер отказал на шаге «${error?.step || "бесплатная проверка"}»: ${error?.serverMessage || ""} Ничего не запущено и не оплачено. Устраните причину и нажмите «Подготовить дуэт» ещё раз.`,
-      express_preflight_stalled: `Мастер не отвечает на бесплатную проверку${error?.step ? `: шаг «${error.step}» не сдвигается` : ""}. Ничего не запущено и не оплачено. Обновите страницу (F5) и нажмите «Подготовить дуэт» ещё раз.`,
+      express_preflight_stalled: `Мастер не отвечает на бесплатную проверку${error?.step ? `: шаг «${error.step}» не сдвигается` : ""}.${
+        error?.invalidFields?.length
+          ? ` Форму держит незаполненное поле: ${error.invalidFields.join(", ")}.`
+          : ""
+      } Ничего не запущено и не оплачено. Заполните поле и нажмите «Подготовить дуэт» ещё раз — материалы сохранены.`,
       express_preflight_blocked: `Мастер заблокирован: ${error?.blocker || "причина не названа"}. Ничего не запущено и не оплачено.`,
       express_source_duration_incompatible: "Длительность исходника не подходит выбранному движку. Выберите другой MP4 или движок.",
       express_attestations_unavailable: "Нативные подтверждения прав не подключились. Обновите страницу (F5) и повторите подготовку.",
@@ -8007,6 +8065,12 @@ function setRoute(form, state, route) {
     syncCompactCampaignControl(form, state);
     syncExpressPriceButton(state);
     syncCopyScreenChrome(state);
+  } else if (route === "avatar_video") {
+    // У «Дуэта» карточка «Кампания и бюджет» такая же, но синхронизация зеркала
+    // запускалась только на «Копии» — и select вечно говорил «Кампании
+    // загружаются…», а нативное required-поле кампании оставалось пустым.
+    syncCompactCampaignControl(form, state);
+    syncExpressPriceButton(state);
   }
   refreshVideoSelects(form, state);
   refreshAvatarSelect(form, state);
@@ -8429,6 +8493,9 @@ function mount(form) {
         // монтирование восстанавливает звук/категорию и фазу кнопки цены.
         applyExpressDefaults(form, existing);
         refreshIdentityVisibility(form, existing);
+        syncCompactCampaignControl(form, existing);
+        syncExpressPriceButton(existing);
+      } else if (existing.route === "avatar_video") {
         syncCompactCampaignControl(form, existing);
         syncExpressPriceButton(existing);
       }

@@ -11,20 +11,20 @@ import {
   reduceGenerationStrategyViewState,
   selectedGenerationStrategySummary,
   validateSelectedGenerationStrategyDraft,
-} from "./generation-strategy-view.js?v=20260823.copy-engines.48";
+} from "./generation-strategy-view.js?v=20260823.copy-engines.49";
 import {
   generationStrategyAssetEligibility,
   mergeGenerationStrategyAssetPages,
   normalizeGenerationStrategyAssetCandidates,
-} from "./generation-strategy-assets.js?v=20260823.copy-engines.48";
+} from "./generation-strategy-assets.js?v=20260823.copy-engines.49";
 import {
   GENERATION_STRATEGY_SOURCE_PICKER_ACTIONS,
   createGenerationStrategySourcePicker,
   generationStrategyRequiredSourceCount,
   generationStrategySourcePickerProjection,
   reduceGenerationStrategySourcePicker,
-} from "./generation-strategy-source-picker.js?v=20260823.copy-engines.48";
-import { resolveGenerationModelVisual } from "./generation-model-visuals-v1.js?v=20260823.copy-engines.48";
+} from "./generation-strategy-source-picker.js?v=20260823.copy-engines.49";
+import { resolveGenerationModelVisual } from "./generation-model-visuals-v1.js?v=20260823.copy-engines.49";
 
 /*
  * ContentEngine Desktop v4 · guided generation.
@@ -1314,8 +1314,8 @@ const STRATEGY_MECHANICS_FIELDS = Object.freeze([
   }),
   Object.freeze({
     key: "cta_pattern",
-    label: "Финал и CTA",
-    hint: "8–100 знаков.",
+    label: "Финал и призыв к действию",
+    hint: "8–100 знаков: чем ролик заканчивается и что зритель должен сделать. Например: «финальный кадр с тарелкой и призыв попробовать дома».",
     min: 8,
     max: 100,
   }),

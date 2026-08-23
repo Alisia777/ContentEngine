@@ -145,8 +145,8 @@ def test_generation_form_autofills_and_locks_exact_product_for_paid_runs() -> No
     assert ".generation-product-identity" in STYLES
     assert ".generation-media-option:has(input:disabled)" in STYLES
     assert './styles.css?v=20260730.4' in INDEX
-    assert './app.js?v=20260823.copy-engines.48' in INDEX
-    assert './supabase-api.js?v=20260823.copy-engines.48' in APP
+    assert './app.js?v=20260823.copy-engines.49' in INDEX
+    assert './supabase-api.js?v=20260823.copy-engines.49' in APP
 
 
 def test_primary_generation_photo_is_first_in_paid_payload() -> None:
