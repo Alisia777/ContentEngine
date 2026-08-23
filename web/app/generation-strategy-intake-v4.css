@@ -1472,6 +1472,81 @@
   opacity: 0.75;
 }
 
+/* Заведение ведущего — четыре пронумерованных шага в одной карточке. */
+.generation-intake-v4__presenter-empty {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 11px;
+  border: 1px dashed color-mix(in srgb, var(--accent, #2563eb) 45%, var(--border, #d7dde7));
+  font-weight: 600;
+}
+
+.generation-intake-v4__presenter-register {
+  display: grid;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--border, #d7dde7) 80%, transparent);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--surface, #fff) 92%, transparent);
+}
+
+.generation-intake-v4__presenter-register > summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.generation-intake-v4__presenter-step {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-left: 3px solid color-mix(in srgb, var(--accent, #2563eb) 55%, transparent);
+  background: color-mix(in srgb, var(--surface, #fff) 96%, transparent);
+  border-radius: 0 10px 10px 0;
+}
+
+.generation-intake-v4__presenter-step h5 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 720;
+}
+
+.generation-intake-v4__presenter-preview[hidden] {
+  display: none;
+}
+
+.generation-intake-v4__presenter-preview {
+  display: block;
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--border, #d7dde7) 80%, transparent);
+}
+
+.generation-intake-v4__presenter-likeness {
+  display: grid;
+  gap: 8px;
+}
+
+.generation-intake-v4__presenter-likeness-option,
+.generation-intake-v4__presenter-consent {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 9px;
+  align-items: start;
+  line-height: 1.4;
+}
+
+.generation-intake-v4__presenter-likeness-option > span {
+  grid-column: 2;
+}
+
+.generation-intake-v4__presenter-consent {
+  padding: 9px 11px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, #f59e0b 55%, var(--border, #d7dde7));
+}
+
 /* Подвал «Дуэта»: строка состояния и кнопки всегда в поле зрения, даже когда
    человек стоит в начале длинной панели. */
 .generation-intake-v4__footer {

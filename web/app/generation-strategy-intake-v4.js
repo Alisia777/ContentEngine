@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260823.copy-engines.44",
+  "./generation-strategy-intake-v4.css?v=20260823.copy-engines.45",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260823.copy-engines.44"
+  "./generation-engine-advisor.js?v=20260823.copy-engines.45"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -1177,7 +1177,17 @@ function duetPresenterChooser() {
     "Ведущий заводится один раз на проект и остаётся тем же во всех роликах — на этом и держится узнаваемость.",
   );
 
-  section.append(select, note, duetLayoutControls(), duetPresenterRegistration());
+  // Пока ведущего нет, выключенный select «ещё не заведён» только путал:
+  // вместо него — одна строка и раскрытый сценарий заведения ниже.
+  const empty = el("p", "generation-intake-v4__presenter-empty");
+  empty.dataset.generationIntakeDuetPresenterEmpty = "";
+  empty.hidden = true;
+  setNodeText(
+    empty,
+    "Ведущего в проекте ещё нет. Заведите его один раз — ниже, за четыре шага.",
+  );
+
+  section.append(select, empty, note, duetLayoutControls(), duetPresenterRegistration());
   return section;
 }
 
@@ -1187,18 +1197,39 @@ function duetPresenterChooser() {
  * выбирает фото-аватар или видеоаватар и голос, даёт имя — и ведущий
  * становится ведущим проекта. Дальше он тот же во всех роликах.
  */
+function presenterStep(number, title, hint, ...controls) {
+  const step = el("section", "generation-intake-v4__presenter-step");
+  step.dataset.generationIntakeDuetStep = String(number);
+  const head = el("h5", "", `${number}. ${title}`);
+  step.append(head);
+  if (hint) step.append(el("p", "generation-intake-v4__hint", hint));
+  step.append(...controls);
+  return step;
+}
+
+// Вид ведущего решает, нужно ли согласие. Живой человек (сотрудник, актёр,
+// блогер — и тем более известное лицо) может стать ведущим только с его
+// согласием на внешность и голос; оно записывается один раз вместе с ведущим
+// (кто подтвердил и когда), и запуск без него сервер не пропустит. Выдуманный
+// персонаж согласия не требует.
+const DUET_LIKENESS_KINDS = Object.freeze([
+  ["synthetic", "Выдуманный персонаж", "Сгенерированная личность из каталога HeyGen, живого человека за ней нет."],
+  ["real_person", "Живой человек", "Аватар снят с реального человека — нужно его согласие на внешность и голос."],
+]);
+
 function duetPresenterRegistration() {
   const details = document.createElement("details");
   details.className = "generation-intake-v4__presenter-register";
   details.dataset.generationIntakeDuetRegister = "";
   const summary = document.createElement("summary");
+  summary.dataset.generationIntakeDuetRegisterSummary = "";
   setNodeText(summary, "Завести ведущего проекта");
   details.append(summary);
 
   const hint = el("p", "generation-intake-v4__hint");
   setNodeText(
     hint,
-    "Личность и голос берутся из вашего кабинета HeyGen. Ведущий регистрируется один раз на проект; создание новой личности у провайдера стоит отдельно и здесь не происходит.",
+    "Личность и голос берутся из вашего кабинета HeyGen (Avatars → Photo Avatar или Instant Avatar; Voices). Новая личность создаётся там, а не здесь; после создания нажмите «Обновить каталог». Ведущий регистрируется один раз на проект и остаётся тем же во всех роликах.",
   );
 
   const load = document.createElement("button");
@@ -1207,12 +1238,23 @@ function duetPresenterRegistration() {
   load.dataset.action = "generation-intake-duet-catalog";
   setNodeText(load, "Показать личности и голоса");
 
+  const catalogStatus = el("p", "generation-intake-v4__hint");
+  catalogStatus.dataset.generationIntakeDuetCatalogStatus = "";
+
   const presenter = document.createElement("select");
   presenter.name = "generation_intake_duet_catalog_presenter";
   presenter.dataset.generationIntakeDuetCatalogPresenter = "";
   presenter.setAttribute("aria-label", "Личность ведущего из кабинета провайдера");
   presenter.append(new Option("Сначала загрузите каталог", ""));
   presenter.disabled = true;
+
+  // Превью выбранной личности: человек видит, КОГО заводит, а не только имя.
+  const preview = document.createElement("img");
+  preview.className = "generation-intake-v4__presenter-preview";
+  preview.dataset.generationIntakeDuetCatalogPreview = "";
+  preview.alt = "Превью выбранной личности";
+  preview.hidden = true;
+  preview.loading = "lazy";
 
   const voice = document.createElement("select");
   voice.name = "generation_intake_duet_catalog_voice";
@@ -1229,9 +1271,37 @@ function duetPresenterRegistration() {
   name.placeholder = "Как зовут ведущего в проекте";
   name.setAttribute("aria-label", "Имя ведущего в проекте");
 
+  const likeness = el("div", "generation-intake-v4__presenter-likeness");
+  DUET_LIKENESS_KINDS.forEach(([value, title, description], index) => {
+    const option = el("label", "generation-intake-v4__presenter-likeness-option");
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "generation_intake_duet_likeness_kind";
+    radio.value = value;
+    radio.checked = index === 0;
+    radio.dataset.generationIntakeDuetLikenessKind = value;
+    option.append(radio, el("strong", "", title), el("span", "generation-intake-v4__hint", description));
+    likeness.append(option);
+  });
+  const consent = el("label", "generation-intake-v4__presenter-consent");
+  consent.dataset.generationIntakeDuetLikenessConsentRow = "";
+  consent.hidden = true;
+  const consentBox = document.createElement("input");
+  consentBox.type = "checkbox";
+  consentBox.name = "generation_intake_duet_likeness_consent";
+  consentBox.dataset.generationIntakeDuetLikenessConsent = "";
+  consent.append(
+    consentBox,
+    el(
+      "span",
+      "",
+      "Подтверждаю: у компании есть письменное согласие этого человека на использование его внешности и голоса в наших роликах. Запись согласия — кто подтвердил и когда — сохраняется вместе с ведущим.",
+    ),
+  );
+
   const register = document.createElement("button");
   register.type = "button";
-  register.className = "generation-intake-v4__secondary";
+  register.className = "btn btn-primary";
   register.dataset.action = "generation-intake-duet-register";
   register.disabled = true;
   setNodeText(register, "Зарегистрировать ведущего");
@@ -1241,14 +1311,44 @@ function duetPresenterRegistration() {
 
   details.append(
     hint,
-    load,
-    labelled("Личность", presenter),
-    labelled("Голос", voice),
-    labelled("Имя", name),
+    presenterStep(1, "Каталог кабинета HeyGen", "", load, catalogStatus),
+    presenterStep(2, "Личность и голос", "", labelled("Личность", presenter), preview, labelled("Голос", voice)),
+    presenterStep(3, "Имя в проекте", "Так ведущий будет называться в списках и архиве.", labelled("Имя", name)),
+    presenterStep(4, "Кто это", "", likeness, consent),
     register,
     status,
   );
+  // Раскрытый сценарий сам читает каталог: один клик меньше, а повторная
+  // кнопка остаётся для обновления после создания личности в HeyGen.
+  details.addEventListener("toggle", () => {
+    if (!details.open || details.dataset.catalogLoaded === "true") return;
+    const form = details.closest("form");
+    const state = form ? formStates.get(form) : null;
+    if (form && state) void loadDuetPresenterCatalog(form, state);
+  });
   return details;
+}
+
+function syncDuetLikenessConsent(block) {
+  const kind = q('[data-generation-intake-duet-likeness-kind="real_person"]', block);
+  const row = q("[data-generation-intake-duet-likeness-consent-row]", block);
+  if (!(row instanceof HTMLElement)) return;
+  const real = kind instanceof HTMLInputElement && kind.checked;
+  if (row.hidden === real) row.hidden = !real;
+}
+
+function syncDuetCatalogPreview(block) {
+  const presenterSelect = q("[data-generation-intake-duet-catalog-presenter]", block);
+  const preview = q("[data-generation-intake-duet-catalog-preview]", block);
+  if (!(presenterSelect instanceof HTMLSelectElement) || !(preview instanceof HTMLImageElement)) return;
+  const url = String(presenterSelect.selectedOptions?.[0]?.dataset?.preview || "");
+  if (url) {
+    if (preview.getAttribute("src") !== url) preview.src = url;
+    if (preview.hidden) preview.hidden = false;
+  } else {
+    if (preview.getAttribute("src")) preview.removeAttribute("src");
+    if (!preview.hidden) preview.hidden = true;
+  }
 }
 
 async function loadDuetPresenterCatalog(form, state) {
@@ -1258,19 +1358,25 @@ async function loadDuetPresenterCatalog(form, state) {
   const presenterSelect = q("[data-generation-intake-duet-catalog-presenter]", block);
   const voiceSelect = q("[data-generation-intake-duet-catalog-voice]", block);
   const register = q('[data-action="generation-intake-duet-register"]', block);
-  const status = q("[data-generation-intake-duet-register-status]", block);
+  const load = q('[data-action="generation-intake-duet-catalog"]', block);
+  const status = q("[data-generation-intake-duet-catalog-status]", block)
+    || q("[data-generation-intake-duet-register-status]", block);
   if (!(presenterSelect instanceof HTMLSelectElement) || !(voiceSelect instanceof HTMLSelectElement)) return;
-  setNodeText(status, "Читаем каталог провайдера…");
+  setNodeText(status, "Читаем каталог кабинета HeyGen…");
   try {
     const api = await apiRuntime();
     const catalog = await api.duetPresenterCatalog();
+    block.dataset.catalogLoaded = "true";
+    if (load) setNodeText(load, "Обновить каталог");
     presenterSelect.replaceChildren(new Option("Выберите личность", ""));
     catalog.presenters.forEach((item) => {
       const label = `${cleanText(item.name, 60)} · ${item.kind === "avatar" ? "видеоаватар" : "фото-аватар"}`;
       const option = new Option(label, item.id);
       option.dataset.kind = item.kind;
+      if (item.preview_image_url) option.dataset.preview = item.preview_image_url;
       presenterSelect.append(option);
     });
+    syncDuetCatalogPreview(block);
     voiceSelect.replaceChildren(new Option("Выберите голос", ""));
     catalog.voices.forEach((item) => {
       const meta = [item.language, item.gender].filter(Boolean).join(", ");
@@ -1287,16 +1393,16 @@ async function loadDuetPresenterCatalog(form, state) {
     setNodeText(
       status,
       catalog.presenters.length
-        ? `Личностей: ${catalog.presenters.length}, голосов: ${catalog.voices.length}. Выберите и дайте имя.`
-        : "В кабинете провайдера нет ни одной личности: создайте фото-аватар в HeyGen и загрузите каталог снова.",
+        ? `Каталог прочитан: личностей ${catalog.presenters.length}, голосов ${catalog.voices.length}. Выберите их на шаге 2.`
+        : "В кабинете HeyGen нет ни одной личности. Создайте там фото-аватар или Instant Avatar и нажмите «Обновить каталог».",
     );
   } catch (error) {
     const code = String(error?.code || "");
     setNodeText(
       status,
       code === "duet_provider_key_missing"
-        ? "Ключ HeyGen не настроен на сервере — без него каталог не прочитать."
-        : "Каталог провайдера сейчас недоступен. Попробуйте позже.",
+        ? "Ключ HeyGen не настроен на сервере (секрет HEYGEN_API_KEY) — без него каталог не прочитать. Выбор ведущего откроется сразу после настройки ключа."
+        : `Каталог HeyGen сейчас недоступен: ${cleanText(error?.message, 120) || "ошибка сервера"}. Нажмите «Показать личности и голоса» ещё раз.`,
     );
   }
 }
@@ -1321,12 +1427,24 @@ async function registerDuetPresenterFromForm(form, state) {
   const displayName = nameInput instanceof HTMLInputElement
     ? cleanText(nameInput.value, 80)
     : "";
+  const likenessKind = q('[data-generation-intake-duet-likeness-kind="real_person"]', block)?.checked
+    ? "real_person"
+    : "synthetic";
+  const consentBox = q("[data-generation-intake-duet-likeness-consent]", block);
+  const likenessConsentConfirmed = consentBox instanceof HTMLInputElement && consentBox.checked;
   if (!presenterId || !voiceId) {
-    setNodeText(status, "Выберите личность и голос.");
+    setNodeText(status, "Шаг 2: выберите личность и голос.");
     return;
   }
   if (displayName.length < 2) {
-    setNodeText(status, "Дайте ведущему имя — хотя бы два знака.");
+    setNodeText(status, "Шаг 3: дайте ведущему имя — хотя бы два знака.");
+    return;
+  }
+  if (likenessKind === "real_person" && !likenessConsentConfirmed) {
+    setNodeText(
+      status,
+      "Шаг 4: живого человека нельзя завести без его согласия на внешность и голос — поставьте подтверждение или выберите «Выдуманный персонаж».",
+    );
     return;
   }
   setNodeText(status, "Регистрируем ведущего…");
@@ -1338,6 +1456,8 @@ async function registerDuetPresenterFromForm(form, state) {
       providerAvatarKind: kind,
       providerVoiceId: voiceId,
       isDefault: true,
+      likenessKind,
+      likenessConsentConfirmed,
     });
     duetPresenterCache.delete(projectId());
     await ensureDuetPresenters(form, state);
@@ -1347,10 +1467,15 @@ async function registerDuetPresenterFromForm(form, state) {
       select.dispatchEvent(new Event("change", { bubbles: true }));
     }
     setNodeText(status, `Ведущий «${displayName}» зарегистрирован и выбран.`);
+    const details = block.closest("details");
+    if (details instanceof HTMLDetailsElement) details.open = false;
   } catch (error) {
+    const code = String(error?.code || error?.message || "");
     setNodeText(
       status,
-      `Не удалось зарегистрировать ведущего: ${cleanText(error?.message, 160) || "ошибка сервера"}.`,
+      code === "duet_presenter_likeness_consent_required"
+        ? "Сервер отказал: для живого человека нужно записанное согласие. Поставьте подтверждение на шаге 4."
+        : `Не удалось зарегистрировать ведущего: ${cleanText(error?.message, 160) || "ошибка сервера"}.`,
     );
   }
 }
@@ -1440,22 +1565,33 @@ function renderDuetPresenters(form, state) {
   const presenters = duetPresenterCache.get(projectId()) || [];
   const previous = String(select.value || "");
 
+  const empty = q("[data-generation-intake-duet-presenter-empty]", section);
+  const register = q("[data-generation-intake-duet-register]", section);
+  const registerSummary = q("[data-generation-intake-duet-register-summary]", section);
   if (!presenters.length) {
     syncSelectOptions(select, [
       { label: "Ведущий проекта ещё не заведён", value: "" },
     ]);
     if (!select.disabled) select.disabled = true;
+    if (!select.hidden) select.hidden = true;
+    if (empty instanceof HTMLElement && empty.hidden) empty.hidden = false;
     if (layout instanceof HTMLElement && !layout.hidden) layout.hidden = true;
-    if (note) {
-      setNodeText(
-        note,
-        "Чтобы собрать дуэт, сначала заведите ведущего проекта: он останется тем же во всех роликах.",
-      );
+    if (note && !note.hidden) note.hidden = true;
+    // Сценарий заведения раскрыт сам: человеку не нужно догадываться, что
+    // под свёрнутой строкой прячется единственный путь дальше.
+    if (register instanceof HTMLDetailsElement && register.dataset.autoOpened !== "true") {
+      register.dataset.autoOpened = "true";
+      register.open = true;
     }
+    if (registerSummary) setNodeText(registerSummary, "Завести ведущего проекта");
     return;
   }
 
   if (select.disabled) select.disabled = false;
+  if (select.hidden) select.hidden = false;
+  if (empty instanceof HTMLElement && !empty.hidden) empty.hidden = true;
+  if (note && note.hidden) note.hidden = false;
+  if (registerSummary) setNodeText(registerSummary, "Сменить или добавить ведущего");
   if (layout instanceof HTMLElement && layout.hidden) layout.hidden = false;
   syncSelectOptions(select, presenters.map((presenter) => ({
     label: `${cleanText(presenter.display_name, 60)}${
@@ -7817,6 +7953,12 @@ function bind(form, state) {
           void reportSelectedSourceDuration(state, route, input);
         }
       }
+    }
+
+    const registerBlock = event.target.closest?.("[data-generation-intake-duet-register]");
+    if (registerBlock instanceof HTMLElement) {
+      syncDuetCatalogPreview(registerBlock);
+      syncDuetLikenessConsent(registerBlock);
     }
 
     const existingVideo = event.target.closest?.("[data-generation-intake-existing-video]");

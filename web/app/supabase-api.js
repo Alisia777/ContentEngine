@@ -6014,8 +6014,13 @@ export class CreatorApi {
         : "talking_photo",
       aspect_ratio: "9:16",
       is_default: input?.isDefault !== false,
-      likeness_kind: "synthetic",
+      // Живой человек заводится только с записанным согласием: сервер отвергнет
+      // real_person без него (duet_presenter_likeness_consent_required).
+      likeness_kind: input?.likenessKind === "real_person" ? "real_person" : "synthetic",
     };
+    if (payload.likeness_kind === "real_person") {
+      payload.likeness_consent_confirmed = input?.likenessConsentConfirmed === true;
+    }
     const data = await this.call("creator_register_duet_presenter", payload);
     if (
       !data
