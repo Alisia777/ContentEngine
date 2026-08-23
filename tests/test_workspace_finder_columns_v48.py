@@ -28,6 +28,9 @@ def test_finder_columns_uses_the_existing_selection_and_open_owner() -> None:
     assert 'quickLook.dataset.ceV4FinderQuicklook = "true"' in toolbar
     assert "setView: (value, control = null)" in FINDER
     assert "rememberFinderView(value)" in FINDER
+    assert "function handleFinderViewControl(event)" in FINDER
+    assert 'runtime.board.addEventListener("click", handleFinderViewControl)' in FINDER
+    assert 'runtime.board.addEventListener("change", handleFinderSortControl)' in FINDER
 
     selection = _between(FINDER, "function selectCard(", "\nfunction finderCardTitle(")
     assert "syncSelectionDom();" in selection

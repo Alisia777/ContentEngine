@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ContentEngine snap child</title>
+    <style>
+      :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #0d1723; color: #eef3f8; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100vh; background: linear-gradient(145deg, #122236, #0a121d 68%); }
+      main { display: grid; gap: 16px; min-height: 100vh; padding: 24px; align-content: start; }
+      h1 { margin: 0; font-size: clamp(22px, 4vw, 38px); }
+      p { margin: 0; color: #8fa0b3; }
+      form { display: grid; gap: 10px; padding: 18px; border: 1px solid #29415c; border-radius: 16px; background: #132131; }
+      input { min-height: 42px; padding: 0 12px; border: 1px solid #39516d; border-radius: 10px; color: #f4f7fa; background: #0a1521; font: inherit; }
+      button { min-height: 40px; border: 1px solid #e4b954; border-radius: 10px; background: #c99730; font: inherit; font-weight: 800; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Живое рабочее окно</h1>
+      <p data-fixture-window-route></p>
+      <form id="ce-window-live-form">
+        <label for="ce-window-live-input">Независимое состояние</label>
+        <input id="ce-window-live-input" autocomplete="off" />
+        <button type="submit">Сохранить в этом окне</button>
+      </form>
+    </main>
+    <script>
+      (() => {
+        const params = new URLSearchParams(window.location.search);
+        const windowId = String(params.get("ce_window_id") || "");
+        const bootId = typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `snap-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        const route = () => decodeURI(String(window.location.hash || "#/workspace/home").replace(/^#/, ""));
+
+        function send(event) {
+          if (window.parent === window) return;
+          window.parent.postMessage({
+            type: "contentengine:embedded-window",
+            version: 1,
+            event,
+            windowId,
+            route: route(),
+          }, window.location.origin);
+        }
+
+        function publish(event = "route") {
+          document.body.dataset.ceWindowRoute = route();
+          document.querySelector("[data-fixture-window-route]").textContent = route();
+          send(event);
+        }
+
+        document.documentElement.dataset.ceWindowChild = "true";
+        document.body.dataset.ceWindowChild = "true";
+        document.body.dataset.ceWindowChildReady = "true";
+        document.body.dataset.ceWindowId = windowId;
+        document.body.dataset.fixtureBootId = bootId;
+        document.querySelector("#ce-window-live-input").value = `initial:${windowId}`;
+        document.querySelector("#ce-window-live-form").addEventListener("submit", (event) => event.preventDefault());
+        document.addEventListener("pointerdown", () => send("focus"), true);
+        document.addEventListener("focusin", () => send("focus"), true);
+        window.addEventListener("hashchange", () => publish("route"));
+        publish("ready");
+      })();
+    </script>
+  </body>
+</html>

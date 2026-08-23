@@ -707,27 +707,33 @@ def test_archiving_a_project_uses_its_dedicated_path_and_clears_stale_scope() ->
 
 
 def test_v47_assets_share_one_release_key() -> None:
-    build = "20260814.os4.41"
+    build = "20260823.copy-engines.39"
     assert f'const BUILD = "{build}"' in LOADER
     assert f'const BUILD = "{build}"' in CORE
-    assert './workspace-os-v4-loader.js?v=20260816.adaptive.4' in INDEX
-    assert './app.js?v=20260816.adaptive.4' in INDEX
+    assert './workspace-os-v4-loader.js?v=20260822.live-windows.5' in INDEX
+    assert './app.js?v=20260823.copy-engines.39' in INDEX
+    assert './workspace-os-v4.css?v=20260822.live-windows.5' in INDEX
+    assert f'./training-journey.css?v={build}' in INDEX
+    assert (
+        './workspace-build-guard.js?v=20260823.copy-engines.39'
+        in INDEX
+    )
     for asset in (
-        "workspace-os-v4.css",
-        "workspace-build-guard.js",
-        "training-journey.css",
-    ):
-        assert f'./{asset}?v={build}' in INDEX
-    for asset in (
-        "supabase-api.js",
         "workspace-dom-patch.js",
         "workspace-action-key.js",
         "content-generation-handoff.js",
-        "generation-form-draft.js",
         "product-research-view.js",
         "training-journey.js",
     ):
         assert f'./{asset}?v={build}' in APP
+    assert (
+        './supabase-api.js?v=20260823.copy-engines.39'
+        in APP
+    )
+    assert (
+        './generation-form-draft.js?v=20260823.copy-engines.39'
+        in APP
+    )
 
 
 def test_academy_achievement_is_inline_status_not_a_subwindow() -> None:

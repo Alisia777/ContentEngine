@@ -367,6 +367,41 @@ function finderColumnRow(label, value, className = "") {
   return row;
 }
 
+function finderCardPreviewSource(card) {
+  const image = q(".workspace-board__item-preview img", card);
+  const candidate = String(image?.currentSrc || image?.getAttribute("src") || "").trim();
+  if (!candidate) return "";
+  try {
+    const parsed = new URL(candidate, window.location.href);
+    const localHttp = parsed.protocol === "http:" && parsed.origin === window.location.origin;
+    return parsed.protocol === "https:" || parsed.protocol === "blob:" || localHttp
+      ? parsed.href
+      : "";
+  } catch {
+    return "";
+  }
+}
+
+function finderColumnVisual(card, kind) {
+  const visual = create("figure", "ce-v4-finder-column__visual");
+  visual.dataset.kind = kind.key;
+  const source = finderCardPreviewSource(card);
+  if (source) {
+    const image = create("img", "ce-v4-finder-column__image");
+    image.src = source;
+    image.alt = "";
+    image.loading = "lazy";
+    image.decoding = "async";
+    visual.append(image);
+  } else {
+    const glyph = create("span", "ce-v4-finder-column__glyph", kind.key === "video" ? "▶" : kind.key === "research" ? "✦" : "◇");
+    glyph.dataset.kind = kind.key;
+    visual.append(glyph);
+  }
+  visual.append(create("figcaption", "ce-v4-finder-column__visual-label", kind.label));
+  return visual;
+}
+
 function ensureColumnsProjection() {
   const grid = q(".workspace-board__grid", runtime.board);
   if (!grid) return null;
@@ -448,11 +483,9 @@ function syncColumnsProjection() {
   } else {
     const kind = itemKind(card);
     const status = compact(q(".workspace-board__status", card)?.textContent || "—", 80);
-    const glyph = create("span", "ce-v4-finder-column__glyph", kind.key === "video" ? "▶" : kind.key === "research" ? "✦" : "◇");
-    glyph.dataset.kind = kind.key;
     previewPanel.append(
       finderColumnHeading("ПРЕДПРОСМОТР", finderCardTitle(card)),
-      glyph,
+      finderColumnVisual(card, kind),
       finderCardSubtitle(card)
         ? create("p", "ce-v4-finder-column__summary", finderCardSubtitle(card))
         : create("p", "ce-v4-finder-column__summary", "Метаданные объекта доступны без открытия нового маршрута."),
@@ -1181,9 +1214,32 @@ function handleBoardItemSelection(event) {
   });
 }
 
+function handleFinderViewControl(event) {
+  if (!(event.target instanceof Element)) return;
+  const control = event.target.closest(
+    ".ce-v4-finder-view[data-ce-v4-finder-view]",
+  );
+  if (!(control instanceof HTMLButtonElement) || !runtime.board?.contains(control)) return;
+  event.preventDefault();
+  // Finder owns this state transition. Do not let the application-level
+  // action bridge apply the same view a second time.
+  event.stopPropagation();
+  rememberFinderView(control.dataset.ceV4FinderView);
+  applyView();
+}
+
+function handleFinderSortControl(event) {
+  const control = event.target;
+  if (!(control instanceof HTMLSelectElement) || !control.matches(".ce-v4-finder-sort")) return;
+  event.stopPropagation();
+  sortCards(control.value);
+}
+
 function bindBoard() {
   if (runtime.board.dataset.ceV4FinderBound === "true") return;
   runtime.board.dataset.ceV4FinderBound = "true";
+  runtime.board.addEventListener("click", handleFinderViewControl);
+  runtime.board.addEventListener("change", handleFinderSortControl);
   runtime.board.addEventListener("dblclick", handleBoardDoubleClick);
   runtime.board.addEventListener("click", handleBoardSelectionClick);
   runtime.board.addEventListener("keydown", handleBoardSelectionKeydown, true);

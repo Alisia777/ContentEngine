@@ -238,11 +238,14 @@ def _dump_exact_width_dock_probe(
             wait_for_logout = (
                 shell_query is not None and "probe=logout" in shell_query
             )
+            wait_for_multiwindow = (
+                shell_query is not None and "probe=multiwindow" in shell_query
+            )
             # Activation includes the hashchange-owned mount and an explicit
             # fixture flush. It can be CPU-starved when several Chrome probes
             # run concurrently, so reserve a bounded real-time allowance for
             # that multi-event path only.
-            if wait_for_activation:
+            if wait_for_activation or wait_for_multiwindow:
                 ready_timeout = 30
             else:
                 ready_timeout = 10
@@ -251,6 +254,8 @@ def _dump_exact_width_dock_probe(
                 required_markers.append("fixtureAfterActionWindowCount=1")
             if wait_for_logout:
                 required_markers.append("fixtureLogoutLeakPassed=true")
+            if wait_for_multiwindow:
+                required_markers.append("fixtureMultiReady=true")
             deadline = time.monotonic() + ready_timeout
             attempts = 0
             last_state: dict[str, object] = {"probe": "not evaluated"}
@@ -265,7 +270,8 @@ def _dump_exact_width_dock_probe(
                             'fixtureDockMountCount || "", overflow: document.body?.dataset.'
                             'fixtureDockOverflowNavigationCount || "", afterAction: '
                             'document.body?.dataset.fixtureAfterActionWindowCount || "", logout: '
-                            'document.body?.dataset.fixtureLogoutLeakPassed || ""})'
+                            'document.body?.dataset.fixtureLogoutLeakPassed || "", multi: '
+                            'document.body?.dataset.fixtureMultiReady || ""})'
                         ),
                         "returnByValue": True,
                     },
@@ -292,6 +298,7 @@ def _dump_exact_width_dock_probe(
                         or last_state.get("afterAction") == "1"
                     )
                     and (not wait_for_logout or last_state.get("logout") == "true")
+                    and (not wait_for_multiwindow or last_state.get("multi") == "true")
                 )
                 if last_state.get("width") == width and (
                     shell_ready if shell_query is not None else dock_ready
@@ -338,24 +345,52 @@ def test_preserved_v471_dock_sprite_is_the_canonical_visual_source() -> None:
     assert "emoji" not in CORE.lower()
 
 
-def test_shell_wraps_the_original_business_dom_in_one_window_without_cloning() -> None:
+def test_window_shells_own_persistent_live_surfaces_while_parent_dom_stays_parked() -> None:
     assert 'import {\n  createWorkspaceWindowManagerState,\n  workspaceWindowManagerReducer,' in CORE
+    assert "createContentEngineEmbeddedWindowUrl" in CORE
+    assert "readContentEngineEmbeddedWindowEvent" in CORE
     assert 'shell.dataset.ceV4Window = "true"' in CORE
     assert 'body.dataset.ceV4WindowBody = "true"' in CORE
-    assert "if (body && content.parentElement !== body)" in CORE
-    assert "body.append(content);" in CORE
-    assert "const canRehomeContent = Boolean(" in CORE
-    assert "liveWorkspace === workspace" in CORE
-    assert "if (canRehomeContent) host.append(content);" in CORE
+    assert "function createWorkspaceWindowShell(windowId)" in CORE
+    assert "runtime.windowShells.set(windowId, shell);" in CORE
+    assert "windowSurfaces: new Map()" in CORE
+    assert "function ensureWorkspaceWindowSurface(body, windowRecord)" in CORE
+    assert 'frame = create("iframe", "ce-v4-window__surface")' in CORE
+    assert 'frame.dataset.ceV4WindowSurface = "true"' in CORE
+    assert "createContentEngineEmbeddedWindowUrl(routeForWorkspaceWindow(windowRecord)" in CORE
+    assert "runtime.windowSurfaces.set(windowRecord.windowId, frame);" in CORE
+    assert "body.replaceChildren(frame)" in CORE
+    assert "parkWorkspaceContent();" in CORE
+    assert "ensureWorkspaceWindowSurface(q(\"[data-ce-v4-window-body]\", shell), windowRecord);" in CORE
+    assert "function handleWorkspaceWindowSurfaceMessage(event)" in CORE
+    assert "event.origin !== window.location.origin" in CORE
+    assert "workspaceWindowSurfaceForSource(event.source)" in CORE
+    assert 'window.addEventListener("message", handleWorkspaceWindowSurfaceMessage);' in CORE
     assert "cloneNode" not in CORE
     assert ".innerHTML" not in CORE
+    assert ".outerHTML" not in CORE
+    assert "XMLSerializer" not in CORE
+    assert "FormData" not in CORE
+    assert "html2canvas" not in CORE
     assert "fetch(" not in CORE
     assert "XMLHttpRequest" not in CORE
-    for action in ("close", "minimize", "zoom", "mission"):
+    assert "container: ce-v4-window / inline-size" in CSS
+    surface_rule = re.search(
+        r"\.ce-v4-window__surface\s*\{(?P<body>.*?)\n\}",
+        CSS,
+        re.DOTALL,
+    )
+    assert surface_rule
+    for marker in ("display: block", "width: 100%", "height: 100%", "border: 0", "pointer-events: auto"):
+        assert marker in surface_rule.group("body")
+    for action in ("close", "minimize", "zoom", "desktop", "mission"):
         assert f'window-action="{action}"' in CORE or f'windowControl("{action}"' in CORE or f'action === "{action}"' in CORE
+    assert 'create("span", "ce-v4-window__desktop-label", "Рабочий стол")' in CORE
+    assert 'navigate("/workspace/home")' in CORE
+    assert ".ce-v4-window__desktop" in CSS
 
 
-def test_desktop_is_the_zero_window_home_and_apps_reuse_one_window() -> None:
+def test_desktop_parks_the_live_dom_without_destroying_the_window_manager() -> None:
     assert 'desktop.dataset.ceV4Desktop = "true"' in CORE
     assert "const snapshot = projectFlowSnapshot();" in CORE
     assert "desktop.replaceChildren(widgets, shortcuts);" in CORE
@@ -364,11 +399,19 @@ def test_desktop_is_the_zero_window_home_and_apps_reuse_one_window() -> None:
     assert "function workspaceDesktopRoute(" in CORE
     assert "if (workspaceDesktopRoute()) {" in CORE
     assert 'document.body.dataset.ceV4DesktopHome = "true"' in CORE
-    assert "removeWorkspaceWindow();\n    setWorkspaceContentParked(true);" in CORE
+    assert "parkWorkspaceContent();\n    syncWorkspaceWindowState();" in CORE
+    mount_start = CORE.index("function mount()")
+    desktop_start = CORE.index("if (workspaceDesktopRoute()) {", mount_start)
+    desktop_branch = CORE[
+        desktop_start : CORE.index("updateWorkspaceDesktop();", desktop_start)
+    ]
+    assert "removeWorkspaceWindow()" not in desktop_branch
     assert "setWorkspaceContentParked(false);\n    ensureWorkspaceWindow();" in CORE
     assert ".ce-v4-desktop {" in CSS
     assert ".ce-v4-window {" in CSS
     assert 'body.contentengine-desktop-v4 [data-ce-v4-desktop-parked="true"]' in CSS
+    assert ".ce-v4-window[hidden]" in CSS
+    assert "display: none !important" in CSS
     assert re.search(r"\.ce-v4-desktop\s*\{[^}]*z-index:\s*1", CSS, re.DOTALL)
     assert re.search(r"\.ce-v4-window\s*\{[^}]*z-index:\s*20", CSS, re.DOTALL)
 
@@ -403,7 +446,7 @@ def test_home_route_is_a_visible_desktop_with_zero_windows_at_exact_widths(
     assert 'data-ce-v4-window="true"' not in html
 
 
-def test_desktop_object_activation_opens_the_original_dom_in_one_window() -> None:
+def test_desktop_object_activation_opens_one_live_window_surface() -> None:
     html = _dump_exact_width_dock_probe(
         1280,
         800,
@@ -412,13 +455,149 @@ def test_desktop_object_activation_opens_the_original_dom_in_one_window() -> Non
 
     assert 'data-fixture-desktop-window-count="0"' in html
     assert 'data-fixture-after-action-window-count="1"' in html
-    assert 'data-fixture-after-action-content-parked="false"' in html
+    assert 'data-fixture-after-action-content-parked="true"' in html
+    assert 'data-fixture-after-action-surface-count="1"' in html
     assert (
         'data-fixture-after-action-route="#/workspace/board?project_id='
         '11111111-1111-4111-8111-111111111111&amp;folder='
         '11111111-1111-4111-8111-111111111111"'
     ) in html
     assert html.count('data-ce-v4-window="true"') == 1
+
+
+def test_multiple_visible_live_surfaces_survive_desktop_home() -> None:
+    html = _dump_exact_width_dock_probe(
+        3440,
+        1440,
+        shell_query="route=ai&probe=multiwindow",
+    )
+
+    for marker in (
+        'data-fixture-multi-ready="true"',
+        'data-fixture-multi-shell-count="2"',
+        'data-fixture-multi-visible-shell-count="2"',
+        'data-fixture-multi-surface-count="2"',
+        'data-fixture-multi-parent-coordinator-parked="true"',
+        'data-fixture-multi-both-surfaces-interactive="true"',
+        'data-fixture-multi-duplicate-business-ui-removed="true"',
+        'data-fixture-multi-desktop-obscured="true"',
+        'data-fixture-multi-windows-avoid-chrome="true"',
+        'data-fixture-multi-inactive-titlebar-exposed="true"',
+        'data-fixture-multi-initial-windows-tiled="true"',
+        'data-fixture-window-titlebar-drag-moves="true"',
+        'data-fixture-window-pointer-focus-raises="true"',
+        'data-fixture-window-focus-keeps-parent-route="true"',
+        'data-fixture-window-control-does-not-drag="true"',
+        'data-fixture-window-minimize-works="true"',
+        'data-fixture-window-restore-works="true"',
+        'data-fixture-window-desktop-control-works="true"',
+        'data-fixture-multi-manager-window-count="2"',
+        'data-fixture-multi-route-geometry="true"',
+        'data-fixture-multi-manager-survives-home="true"',
+        'data-fixture-multi-home-visible-shell-count="0"',
+        'data-fixture-multi-desktop-restored-on-home="true"',
+    ):
+        assert marker in html
+    assert html.count('id="workspace-content"') == 1
+    assert html.count('data-ce-v4-window="true"') == 2
+
+
+def test_window_controls_work_at_the_reported_desktop_viewport() -> None:
+    html = _dump_exact_width_dock_probe(
+        1720,
+        1000,
+        shell_query="route=ai&probe=multiwindow",
+    )
+
+    for marker in (
+        'data-fixture-multi-visible-shell-count="2"',
+        'data-fixture-multi-inactive-titlebar-exposed="true"',
+        'data-fixture-multi-windows-avoid-chrome="true"',
+        'data-fixture-multi-desktop-obscured="true"',
+        'data-fixture-multi-duplicate-business-ui-removed="true"',
+        'data-fixture-multi-surface-count="2"',
+        'data-fixture-multi-both-surfaces-interactive="true"',
+        'data-fixture-multi-parent-coordinator-parked="true"',
+        'data-fixture-multi-initial-windows-tiled="true"',
+        'data-fixture-window-titlebar-drag-moves="true"',
+        'data-fixture-window-pointer-focus-raises="true"',
+        'data-fixture-window-focus-keeps-parent-route="true"',
+        'data-fixture-window-control-does-not-drag="true"',
+        'data-fixture-window-minimize-works="true"',
+        'data-fixture-window-restore-works="true"',
+    ):
+        assert marker in html
+    assert html.count('id="workspace-content"') == 1
+    assert html.count('data-ce-v4-window="true"') == 2
+
+
+def test_ultrawide_geometry_is_route_aware_and_stays_inside_the_workspace() -> None:
+    geometry = CORE[
+        CORE.index("function defaultWorkspaceWindowGeometry(") : CORE.index(
+            "function reduceWorkspaceWindow(",
+        )
+    ]
+    for marker in (
+        'const wideSurface = ["/workspace/board", "/workspace/review", "/workspace/stats", "/workspace/placement"]',
+        "bounds.width >= 2400",
+        "bounds.width * (wideSurface ? 0.08 : 0.11)",
+        "bounds.width * (wideSurface ? 0.06 : 0.09)",
+        "const routeMaximum = wideSurface ? 2480 : 2140;",
+        "bounds.width - horizontalInset * 2",
+        "bounds.height - verticalInset * 2",
+        "Math.min(ordinal, 5) * (bounds.width >= 1400 ? 42 : 30)",
+        "Math.min(bounds.width - width",
+        "Math.min(bounds.height - height",
+        "function arrangeInitialWorkspaceWindows(",
+        "windows.length !== 2",
+        "runtime.windowGeometryTouched.has(item.windowId)",
+        "index * (width + gap)",
+    ):
+        assert marker in geometry
+
+
+def test_titlebar_drag_focus_and_desktop_isolation_keep_one_live_business_authority() -> None:
+    drag = CORE[
+        CORE.index("function stopWorkspaceWindowDragTracking(") : CORE.index(
+            "function observeWorkspaceWindowGeometry(",
+        )
+    ]
+    sync = CORE[
+        CORE.index("function syncWorkspaceWindowState(") : CORE.index(
+            "function beginWorkspaceWindowDrag(",
+        )
+    ]
+    authority = CORE[
+        CORE.index("function enforceSingleWorkspaceContent(") : CORE.index(
+            "function parkWorkspaceContent(",
+        )
+    ]
+    for marker in (
+        'reduceWorkspaceWindow({ type: "focus", windowId })',
+        "pendingActivation",
+        "setPointerCapture",
+        "releasePointerCapture",
+        'window.addEventListener("pointermove", moveWorkspaceWindow, true)',
+        'window.removeEventListener("pointermove", moveWorkspaceWindow, true)',
+        "runtime.windowGeometryTouched.add(drag.windowId)",
+        "activateWorkspaceWindow(drag.windowId",
+        'event.target.closest("button, a, input, select, textarea")',
+    ):
+        assert marker in drag
+    assert "syncWorkspaceDesktopExposure(desktopMode);" in sync
+    assert "enforceSingleWorkspaceContent(host)" in sync
+    assert 'const contents = qa("#workspace-content")' in authority
+    assert "activeShell?.contains(node)" in authority
+    assert 'node.setAttribute("inert", "")' in authority
+    assert "node.remove();" in authority
+    assert "FormData" not in authority
+    assert "requestSubmit" not in authority
+    assert "submit(" not in authority
+    assert ".ce-v4-desktop[hidden]" in CSS
+    assert ".ce-v4-desktop.is-obscured" in CSS
+    titlebar_rule = re.search(r"\.ce-v4-window__titlebar\s*\{(?P<body>.*?)\n\}", CSS, re.DOTALL)
+    assert titlebar_rule
+    assert "cursor: grab" in titlebar_rule.group("body")
 
 
 def test_dock_contract_is_the_only_visibility_and_overflow_owner() -> None:
@@ -564,3 +743,28 @@ def test_mission_control_renders_window_manager_spaces_not_a_second_route_grid()
     assert ".ce-v4-mission__spaces {" in CSS
     assert ".ce-v4-mission-window {" in CSS
     assert ".ce-v4-mission-window__canvas {" in CSS
+
+
+def test_restored_window_reuses_its_live_surface_and_dock_shortcuts_follow_visual_order() -> None:
+    for marker in (
+        "function ensureWorkspaceWindowSurface(body, windowRecord)",
+        "const frame = runtime.windowSurfaces.get(windowId);",
+        'reduceWorkspaceWindow({ type: "restore", windowId });',
+        "frame?.focus?.({ preventScroll: true })",
+        '(presentation?.items || [])',
+        '.filter((node) => {',
+        'activateDockKey(item.dataset.ceV4DockKey, event)',
+    ):
+        assert marker in CORE
+
+
+def test_desktop_project_and_ai_actions_obey_live_role_contract() -> None:
+    for marker in (
+        "function workspaceCanCreateProject()",
+        "if (canCreateProject) {",
+        'const aiAuthorized = routeIsAuthorized("/workspace/ai")',
+        'action.disabled = true',
+        'link.dataset.ceV4ProjectId',
+        'link.dataset.ceV4ProjectName',
+    ):
+        assert marker in CORE

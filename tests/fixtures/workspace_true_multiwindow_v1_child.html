@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ContentEngine live window child fixture</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+        background: #0d1723;
+        color: #eef3f8;
+      }
+
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100vh; background: linear-gradient(145deg, #122236, #0a121d 68%); }
+      main { display: grid; gap: 16px; min-height: 100vh; padding: 24px; align-content: start; }
+      header { display: flex; align-items: start; justify-content: space-between; gap: 20px; }
+      h1 { margin: 0; font-size: clamp(22px, 4vw, 38px); letter-spacing: -.035em; }
+      p { margin: 6px 0 0; color: #8fa0b3; line-height: 1.45; }
+      output { color: #74e6bc; font-size: 13px; }
+      form { display: grid; gap: 10px; max-width: 620px; padding: 18px; border: 1px solid #29415c; border-radius: 16px; background: #132131; }
+      label { color: #aebbc9; font-size: 13px; font-weight: 700; }
+      input { width: 100%; min-height: 42px; padding: 0 12px; border: 1px solid #39516d; border-radius: 10px; color: #f4f7fa; background: #0a1521; font: inherit; }
+      button { width: max-content; min-height: 40px; padding: 0 15px; border: 1px solid #e4b954; border-radius: 10px; color: #1d1405; background: linear-gradient(#ffe9a5, #c99730); font: inherit; font-weight: 800; cursor: pointer; }
+      .fixture-route { color: #d3b4ff; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1 data-fixture-window-title>Живое окно</h1>
+          <p>Это отдельный same-origin документ со своим маршрутом и состоянием формы.</p>
+        </div>
+        <output id="ce-window-live-heartbeat" aria-live="off">heartbeat: 0</output>
+      </header>
+
+      <span class="fixture-route" data-fixture-window-route></span>
+
+      <!-- The IDs intentionally match in every child document.  Their absence
+           from the parent document is the isolation property under test. -->
+      <form id="ce-window-live-form">
+        <label for="ce-window-live-input">Независимое состояние окна</label>
+        <input id="ce-window-live-input" name="window_state" autocomplete="off" />
+        <button id="ce-window-live-submit" type="submit">Изменить только это окно</button>
+        <output id="ce-window-live-proof" aria-live="polite">Изменений: 0</output>
+      </form>
+    </main>
+
+    <script>
+      (() => {
+        const params = new URLSearchParams(window.location.search);
+        const windowId = String(params.get("ce_window_id") || "");
+        const identity = typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `fixture-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        const input = document.querySelector("#ce-window-live-input");
+        const form = document.querySelector("#ce-window-live-form");
+        const proof = document.querySelector("#ce-window-live-proof");
+        const heartbeatOutput = document.querySelector("#ce-window-live-heartbeat");
+        let changeCount = 0;
+        let heartbeat = 0;
+
+        function route() {
+          return decodeURI(String(window.location.hash || "#/workspace/home").replace(/^#/, ""));
+        }
+
+        function send(event) {
+          if (window.parent === window) return;
+          window.parent.postMessage({
+            type: "contentengine:embedded-window",
+            version: 1,
+            event,
+            windowId,
+            route: route(),
+          }, window.location.origin);
+        }
+
+        function publishRoute(event = "route") {
+          const currentRoute = route();
+          document.documentElement.dataset.ceWindowRoute = currentRoute;
+          document.body.dataset.ceWindowRoute = currentRoute;
+          document.querySelector("[data-fixture-window-route]").textContent = currentRoute;
+          document.querySelector("[data-fixture-window-title]").textContent = currentRoute.includes("/board")
+            ? "Файлы и проекты"
+            : "ИИ-центр";
+          send(event);
+        }
+
+        document.documentElement.dataset.ceWindowChild = "true";
+        document.documentElement.dataset.ceWindowId = windowId;
+        document.documentElement.dataset.ceWindowChildReady = "true";
+        document.body.dataset.ceWindowChild = "true";
+        document.body.dataset.ceWindowId = windowId;
+        document.body.dataset.ceWindowChildReady = "true";
+        document.body.dataset.fixtureBootId = identity;
+        document.body.dataset.fixtureChangeCount = "0";
+        window.__contentEngineFixtureWindowIdentity = identity;
+        input.value = `initial:${windowId}`;
+
+        form.addEventListener("submit", (event) => {
+          event.preventDefault();
+          changeCount += 1;
+          document.body.dataset.fixtureChangeCount = String(changeCount);
+          proof.value = `Изменений: ${changeCount}`;
+        });
+        document.addEventListener("pointerdown", () => send("focus"), true);
+        document.addEventListener("focusin", () => send("focus"), true);
+        window.addEventListener("hashchange", () => publishRoute("route"));
+
+        publishRoute("ready");
+        window.setInterval(() => {
+          heartbeat += 1;
+          document.body.dataset.fixtureHeartbeat = String(heartbeat);
+          heartbeatOutput.value = `heartbeat: ${heartbeat}`;
+        }, 40);
+      })();
+    </script>
+  </body>
+</html>

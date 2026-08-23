@@ -1,12 +1,13 @@
 /*
  * ContentEngine Desktop v4.
  *
- * One web workspace, one Dock, one visible action. This module composes the
- * already permission-checked DOM. It never calls business APIs, submits forms,
- * reads secrets or clones file inputs.
+ * One web workspace and one Dock with several independently managed live
+ * application windows. Each visible window owns one same-origin child document,
+ * so its forms, scroll and route remain independent without cloning business
+ * DOM or transporting credentials. This module never calls business APIs.
  */
 
-import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260814.os4.41";
+import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260823.copy-engines.39";
 import {
   createWorkspaceWindowManagerState,
   workspaceWindowManagerReducer,
@@ -33,12 +34,20 @@ import {
   formatWorkspaceNotificationBadge,
   normalizeWorkspaceNotificationFeed,
 } from "./workspace-notification-contract.js?v=20260814.os4.41";
+import {
+  CONTENTENGINE_EMBEDDED_WINDOW_MESSAGE,
+  CONTENTENGINE_EMBEDDED_WINDOW_VERSION,
+  createContentEngineEmbeddedWindowUrl,
+  readContentEngineEmbeddedWindowEvent,
+} from "./workspace-embedded-window-contract.js?v=20260822.live-child.2";
 
-const BUILD = "20260814.os4.41";
+const BUILD = "20260823.copy-engines.39";
 const STORAGE_KEY = "contentengine.desktop-v4.v1";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
 const PROJECT_CONTEXT_KEY = "contentengine.desktop-v4.project";
 const DOCK_PREFERENCE_STORAGE_PREFIX = "contentengine.desktop-v4.dock";
+const DESKTOP_SHORTCUT_STORAGE_PREFIX = "contentengine.desktop-v4.shortcuts.v1";
+const PROJECT_COVER_STORAGE_PREFIX = "contentengine.desktop-v4.project-covers.v1";
 const CLOSE_TRANSIENTS_EVENT = "contentengine:v4-close-transients";
 const WINDOW_GEOMETRY_EVENT = "contentengine:workspace-window-geometry";
 const NOTIFICATION_FEED_SNAPSHOT_ID = "workspace-notification-feed-snapshot";
@@ -48,6 +57,9 @@ const NOTIFICATION_RUNTIME_REQUEST_EVENT =
 const NOTIFICATION_RUNTIME_RESPONSE_EVENT =
   "contentengine:notification-center-response-v491";
 const NOTIFICATION_RUNTIME_VERSION = "4.9.1";
+const WINDOW_SNAP_EDGE = 34;
+const IS_EMBEDDED_WORKSPACE_WINDOW = window.CONTENTENGINE_EMBEDDED_WINDOW === true
+  || document.documentElement.dataset.ceWindowChild === "true";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const XLINK_NS = "http://www.w3.org/1999/xlink";
 const DOCK_SPRITE = new URL("./assets/workspace_dock_icon_sprite_v4_7_1.svg?v=20260813.ui1", import.meta.url).href;
@@ -201,6 +213,13 @@ const PROJECT_STAGE_STATE_LABELS = Object.freeze({
   future: "После текущего этапа",
   unknown: "Статус уточняется",
 });
+const PROJECT_COVER_OPTIONS = Object.freeze([
+  Object.freeze({ key: "auto", label: "Автовыбор", detail: "Разные обложки по порядку проектов" }),
+  Object.freeze({ key: "campaign", label: "Кампания", detail: "Автомобиль · тёплый запуск" }),
+  Object.freeze({ key: "digital", label: "Digital", detail: "Наушники · неоновый продукт" }),
+  Object.freeze({ key: "product", label: "Продукт", detail: "Предметная премиальная съёмка" }),
+  Object.freeze({ key: "editorial", label: "История", detail: "Камера · editorial и travel" }),
+]);
 const ROLE_GATED_ROUTES = new Set(["/workspace/research", "/workspace/ai", "/workspace/team"]);
 const PROJECT_REQUIRED_ROUTES = new Set([
   "/workspace/board",
@@ -294,18 +313,32 @@ const runtime = {
   notificationActionNavigationHash: "",
   notificationInitialLoadRequested: false,
   desktop: null,
+  desktopShortcutsEditing: false,
+  desktopShortcutDrag: null,
+  desktopSuppressClickUntil: 0,
   windowShell: null,
+  windowShells: new Map(),
+  windowSurfaces: new Map(),
+  windowSnapshots: new Map(),
   windowRoute: "",
   activeWindowId: "",
   windowManagerState: createWorkspaceWindowManagerState(),
   windowRoutes: new Map(),
   windowDrag: null,
+  windowGeometryTouched: new Set(),
+  windowZoomClicks: new Map(),
+  windowSnapMemory: new Map(),
+  windowSnapPreview: null,
+  windowSnapAssist: null,
+  windowSnapResizeFrame: 0,
   windowResizeObserver: null,
+  windowResizeObservers: new Map(),
   syncingWindowGeometry: false,
   mission: null,
   spotlight: null,
   spotlightRecords: [],
   spotlightIndex: 0,
+  projectCover: null,
   modalContexts: new Map(),
   zen: null,
   videoObserver: null,
@@ -1680,6 +1713,18 @@ function projectStageLabel(project) {
   return project.status ? compact(project.status, 48) : "Открыть рабочую папку";
 }
 
+function projectMonogram(value) {
+  const words = String(value || "CE")
+    .trim()
+    .split(/\s+/u)
+    .filter((word) => /[\p{L}\p{N}]/u.test(word));
+  const firstGlyph = (word) => Array.from(word || "").find((glyph) => /[\p{L}\p{N}]/u.test(glyph)) || "";
+  const letters = words.length > 1
+    ? words.slice(0, 2).map(firstGlyph)
+    : Array.from(words[0] || "CE").filter((glyph) => /[\p{L}\p{N}]/u.test(glyph)).slice(0, 2);
+  return letters.join("").toLocaleUpperCase("ru-RU") || "CE";
+}
+
 function projectSelectionRoute(project) {
   const nextAction = normalizeProjectNextAction(project?.nextAction, project?.id);
   if (nextAction?.route) return nextAction.route;
@@ -1688,13 +1733,17 @@ function projectSelectionRoute(project) {
   return `/workspace/board?${query.toString()}`;
 }
 
-function syncProjectSwitcher(snapshot = projectFlowSnapshot()) {
-  const { trigger, menu } = projectMenuParts();
-  if (!trigger || !menu) return;
+function workspaceCanCreateProject() {
   const workspaceRole = String(
     q(".workspace-shell[data-workspace-role]")?.dataset.workspaceRole || "",
   ).trim().toLowerCase();
-  const canCreateProject = ["owner", "admin", "producer"].includes(workspaceRole);
+  return ["owner", "admin", "producer"].includes(workspaceRole);
+}
+
+function syncProjectSwitcher(snapshot = projectFlowSnapshot()) {
+  const { trigger, menu } = projectMenuParts();
+  if (!trigger || !menu) return;
+  const canCreateProject = workspaceCanCreateProject();
   const triggerName = q("[data-ce-v4-project-name]", trigger);
   const triggerMeta = q("[data-ce-v4-project-meta]", trigger);
   if (triggerName) triggerName.textContent = snapshot.id ? snapshot.name : "Выбрать проект";
@@ -2667,16 +2716,18 @@ function mutateDockApp(key, options = {}) {
 }
 
 function beginDockPointerReorder(event) {
-  if (!dockEditing() || event.button !== 0) return;
+  if (event.button !== 0) return;
   const item = event.target instanceof Element ? event.target.closest("[data-ce-v4-dock-key]") : null;
   const key = String(item?.dataset.ceV4DockKey || "");
-  if (!(item instanceof HTMLElement) || dockItemLocked(key)) return;
+  const pendingEdit = !dockEditing();
+  if (!(item instanceof HTMLElement) || (!pendingEdit && dockItemLocked(key))) return;
   runtime.dockPointerReorder = {
     pointerId: event.pointerId,
     key,
     startX: event.clientX,
     startY: event.clientY,
     movement: 0,
+    pendingEdit,
     targetKey: "",
     targetHalf: "before",
   };
@@ -2689,6 +2740,13 @@ function moveDockPointerReorder(event) {
   if (!drag || drag.pointerId !== event.pointerId) return;
   drag.movement = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
   if (drag.movement < 6) return;
+  if (drag.pendingEdit) {
+    if (!openDockEditor({ focus: false }) || dockItemLocked(drag.key)) {
+      runtime.dockPointerReorder = null;
+      return;
+    }
+    drag.pendingEdit = false;
+  }
   const candidates = qa("[data-ce-v4-dock-key]", runtime.dock)
     .filter((item) => !item.hidden && item.dataset.ceV4DockKey !== drag.key);
   let target = null;
@@ -2727,6 +2785,28 @@ function finishDockPointerReorder(event, cancelled = false) {
   updateDock();
   window.requestAnimationFrame(() => safeFocus(dockItemNode(drag.key)));
   event.preventDefault();
+}
+
+function dockContextAction(rawKey, action) {
+  const key = String(rawKey || "");
+  if (action === "customize") return openDockEditor();
+  if (!key || !openDockEditor({ focus: false })) return false;
+  if (action === "remove") return mutateDockApp(key);
+  if (!["left", "right"].includes(action) || dockItemLocked(key)) return false;
+  const order = runtime.dockState.preference.order;
+  const index = order.indexOf(key);
+  const targetIndex = index + (action === "left" ? -1 : 1);
+  const targetKey = order[targetIndex];
+  if (index < 0 || !targetKey || targetKey === "trash") return false;
+  consumeDockTransition({
+    type: "pointerReorder",
+    sourceKey: key,
+    targetKey,
+    targetHalf: action === "left" ? "before" : "after",
+    movementPx: 12,
+  });
+  updateDock();
+  return true;
 }
 
 function handleDockEditorKeydown(event) {
@@ -3412,15 +3492,20 @@ function ensureDock() {
 }
 
 function updateDock() {
-  const route = routePath();
+  const keyWindow = workspaceDesktopRoute() ? null : currentWorkspaceWindow();
+  const keyWindowRoute = keyWindow ? routeForWorkspaceWindow(keyWindow) : "";
+  const route = keyWindowRoute ? routeParts(keyWindowRoute).path : routePath();
   const snapshot = projectFlowSnapshot();
   const context = projectContext(snapshot);
-  const activeKey = activeDockKey(window.location.hash || route);
+  const activeKey = activeDockKey(keyWindowRoute || window.location.hash || route);
   refreshDockShortcutResolutions();
   const presentation = syncDockPresentation(activeKey);
   const presentationByKey = new Map((presentation?.items || []).map((item) => [item.key, item]));
   const shortcutIndexByKey = new Map(
-    DOCK_APPS.filter((item) => routeIsAuthorized(item.route)).map((item, index) => [item.key, index]),
+    (presentation?.items || [])
+      .map((item) => DOCK_APPS.find((candidate) => candidate.key === item.key))
+      .filter((item) => item && routeIsAuthorized(item.route))
+      .map((item, index) => [item.key, index]),
   );
   qa("[data-ce-v4-dock-key]", runtime.dock).forEach((item) => {
     const key = String(item.dataset.ceV4DockKey || "");
@@ -3518,13 +3603,15 @@ function updateDock() {
 
 function updateMenubar() {
   const snapshot = projectFlowSnapshot();
-  const chrome = routeRecord();
+  const keyWindow = workspaceDesktopRoute() ? null : currentWorkspaceWindow();
+  const keyRoute = keyWindow ? routeForWorkspaceWindow(keyWindow) : routePath();
+  const chrome = routeRecord(routeParts(keyRoute).path);
   syncProjectSwitcher(snapshot);
   syncToolsMenu();
   const activeApp = q("[data-ce-v4-active-app]", runtime.menubar);
   if (activeApp) activeApp.textContent = chrome.appLabel || chrome.label;
   qa("[data-ce-v4-tools-route]", runtime.menubar).forEach((link) => {
-    const active = routePath() === link.dataset.ceV4ToolsRoute;
+    const active = routeParts(keyRoute).path === link.dataset.ceV4ToolsRoute;
     link.classList.toggle("is-active", active);
     if (active) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
@@ -3583,19 +3670,71 @@ function workspaceWindowId(route = routePath(), snapshot = projectFlowSnapshot()
   return `window:${path}:${project}`;
 }
 
-function defaultWorkspaceWindowGeometry() {
+function defaultWorkspaceWindowGeometry(route = routePath()) {
   const bounds = workspaceWindowBounds();
-  const horizontalMargin = bounds.width >= 1180 ? 360 : 48;
-  const verticalMargin = bounds.height >= 720 ? 56 : 16;
-  const width = Math.max(320, Math.min(1040, bounds.width - horizontalMargin));
-  const height = Math.max(220, Math.min(700, bounds.height - verticalMargin));
+  const canonical = routeRecord(route).route;
+  const wideSurface = ["/workspace/board", "/workspace/review", "/workspace/stats", "/workspace/placement"]
+    .includes(canonical);
+  const horizontalInset = bounds.width >= 2400
+    ? Math.max(180, Math.round(bounds.width * (wideSurface ? 0.08 : 0.11)))
+    : bounds.width >= 1720
+      ? Math.max(88, Math.round(bounds.width * (wideSurface ? 0.06 : 0.09)))
+      : bounds.width >= 980
+        ? Math.max(48, Math.round(bounds.width * (wideSurface ? 0.06 : 0.09)))
+        : 16;
+  const verticalInset = bounds.height >= 1080
+    ? Math.max(54, Math.round(bounds.height * 0.05))
+    : bounds.height >= 720
+      ? Math.max(38, Math.round(bounds.height * 0.055))
+      : 16;
+  const routeMaximum = wideSurface ? 2480 : 2140;
+  const width = Math.max(320, Math.min(routeMaximum, bounds.width - horizontalInset * 2));
+  const height = Math.max(220, Math.min(1080, bounds.height - verticalInset * 2));
+  const ordinal = runtime.windowManagerState.windows
+    .filter((item) => item.spaceId === runtime.windowManagerState.activeSpaceId).length;
+  const cascade = Math.min(ordinal, 5) * (bounds.width >= 1400 ? 42 : 30);
   return {
     position: {
-      x: Math.max(0, Math.round((bounds.width - width) / 2)),
-      y: Math.max(0, Math.round((bounds.height - height) / 2)),
+      x: Math.max(0, Math.min(bounds.width - width, Math.round((bounds.width - width) / 2) + cascade)),
+      y: Math.max(0, Math.min(bounds.height - height, Math.round((bounds.height - height) / 2) + cascade)),
     },
     size: { width, height },
   };
+}
+
+/*
+ * The second app should make the desktop feel multi-window immediately. On a
+ * wide workspace, place the first two untouched windows side by side once;
+ * after the operator drags or resizes either window, its geometry is theirs
+ * and is never auto-arranged again.
+ */
+function arrangeInitialWorkspaceWindows(spaceId = runtime.windowManagerState.activeSpaceId) {
+  const windows = runtime.windowManagerState.windows
+    .filter((item) => item.spaceId === spaceId && !item.minimized)
+    .sort((left, right) => left.zIndex - right.zIndex);
+  const bounds = workspaceWindowBounds();
+  if (
+    windows.length !== 2
+    || bounds.width < 1500
+    || bounds.height < 680
+    || windows.some((item) => runtime.windowGeometryTouched.has(item.windowId))
+  ) return false;
+
+  const marginX = bounds.width >= 2400 ? 28 : 18;
+  const gap = bounds.width >= 2400 ? 24 : 18;
+  const marginY = bounds.height >= 1080 ? 42 : 24;
+  const width = Math.floor((bounds.width - marginX * 2 - gap) / 2);
+  const height = Math.min(1080, Math.max(420, bounds.height - marginY * 2));
+
+  windows.forEach((item, index) => {
+    reduceWorkspaceWindow({ type: "resize", windowId: item.windowId, size: { width, height } });
+    reduceWorkspaceWindow({
+      type: "move",
+      windowId: item.windowId,
+      position: { x: marginX + index * (width + gap), y: marginY },
+    });
+  });
+  return true;
 }
 
 function reduceWorkspaceWindow(action) {
@@ -3606,204 +3745,310 @@ function reduceWorkspaceWindow(action) {
   return runtime.windowManagerState;
 }
 
-function currentWorkspaceWindow() {
-  return runtime.windowManagerState.windows.find((item) => item.windowId === runtime.activeWindowId) || null;
+function currentWorkspaceWindow(windowId = runtime.activeWindowId) {
+  return runtime.windowManagerState.windows.find((item) => item.windowId === windowId) || null;
 }
 
-function syncWorkspaceWindowState() {
-  const shell = runtime.windowShell;
-  if (!shell?.isConnected) return;
-  const state = currentWorkspaceWindow();
-  const minimized = Boolean(state?.minimized);
-  const zoomed = Boolean(state?.zoomed);
-  shell.classList.toggle("is-minimized", minimized);
-  shell.classList.toggle("is-zoomed", zoomed);
-  if (minimized) shell.setAttribute("aria-hidden", "true");
-  else shell.removeAttribute("aria-hidden");
-  document.body.classList.toggle("ce-v4-window-minimized", minimized);
-  const control = q('[data-ce-v4-window-action="zoom"]', shell);
-  if (control) {
-    control.setAttribute("aria-pressed", String(zoomed));
-    control.setAttribute("aria-label", zoomed ? "Вернуть размер окна" : "Развернуть окно");
-    control.title = zoomed ? "Вернуть размер окна" : "Развернуть окно";
-  }
-  runtime.syncingWindowGeometry = true;
-  if (!state || zoomed) {
-    shell.style.removeProperty("left");
-    shell.style.removeProperty("top");
-    shell.style.removeProperty("width");
-    shell.style.removeProperty("height");
-  } else {
-    shell.style.left = `${state.position.x}px`;
-    shell.style.top = `${state.position.y}px`;
-    shell.style.width = `${state.size.width}px`;
-    shell.style.height = `${state.size.height}px`;
-  }
-  window.requestAnimationFrame(() => {
-    runtime.syncingWindowGeometry = false;
-    document.dispatchEvent(new CustomEvent(WINDOW_GEOMETRY_EVENT));
-  });
+function topVisibleWorkspaceWindow(spaceId = runtime.windowManagerState.activeSpaceId, exceptWindowId = "") {
+  return runtime.windowManagerState.windows
+    .filter((item) => item.spaceId === spaceId && !item.minimized && item.windowId !== exceptWindowId)
+    .sort((left, right) => right.zIndex - left.zIndex)[0] || null;
 }
 
-function beginWorkspaceWindowDrag(event) {
-  if (
-    event.button !== 0
-    || window.innerWidth <= 850
-    || currentWorkspaceWindow()?.zoomed
-    || (event.target instanceof Element && event.target.closest("button, a, input, select, textarea"))
-  ) return;
-  const state = currentWorkspaceWindow();
-  if (!state) return;
-  runtime.windowDrag = {
-    pointerId: event.pointerId,
-    startX: event.clientX,
-    startY: event.clientY,
-    originX: state.position.x,
-    originY: state.position.y,
+function visibleWorkspaceWindows(spaceId = runtime.windowManagerState.activeSpaceId) {
+  return runtime.windowManagerState.windows
+    .filter((item) => item.spaceId === spaceId && !item.minimized)
+    .sort((left, right) => right.zIndex - left.zIndex);
+}
+
+function workspaceSnapGeometry(index = 0, count = 2) {
+  const bounds = workspaceWindowBounds();
+  const margin = 8;
+  const gap = 12;
+  const columns = Math.max(1, Math.min(3, Math.round(count) || 1));
+  const slot = Math.max(0, Math.min(columns - 1, Math.round(index) || 0));
+  const width = Math.max(280, Math.floor((bounds.width - margin * 2 - gap * (columns - 1)) / columns));
+  const height = Math.max(220, bounds.height - margin * 2);
+  return {
+    position: { x: margin + slot * (width + gap), y: margin },
+    size: { width, height },
   };
-  event.currentTarget.setPointerCapture?.(event.pointerId);
-  runtime.windowShell?.classList.add("is-dragging");
-  event.preventDefault();
 }
 
-function moveWorkspaceWindow(event) {
-  const drag = runtime.windowDrag;
-  if (!drag || drag.pointerId !== event.pointerId || !runtime.activeWindowId) return;
-  reduceWorkspaceWindow({
-    type: "move",
-    windowId: runtime.activeWindowId,
-    position: {
-      x: drag.originX + event.clientX - drag.startX,
-      y: drag.originY + event.clientY - drag.startY,
-    },
-  });
-  syncWorkspaceWindowState();
+function workspaceSnapCandidate(event) {
+  const host = q("#main-content");
+  if (!host || window.innerWidth <= 850) return "";
+  const rect = host.getBoundingClientRect();
+  const withinX = event.clientX >= rect.left - WINDOW_SNAP_EDGE
+    && event.clientX <= rect.right + WINDOW_SNAP_EDGE;
+  const withinY = event.clientY >= rect.top - WINDOW_SNAP_EDGE
+    && event.clientY <= rect.bottom + WINDOW_SNAP_EDGE;
+  if (!withinX || !withinY) return "";
+  if (event.clientY <= rect.top + WINDOW_SNAP_EDGE) return "top";
+  if (event.clientX <= rect.left + WINDOW_SNAP_EDGE) return "left";
+  if (event.clientX >= rect.right - WINDOW_SNAP_EDGE) return "right";
+  return "";
 }
 
-function endWorkspaceWindowDrag(event) {
-  const drag = runtime.windowDrag;
-  if (!drag || drag.pointerId !== event.pointerId) return;
-  event.currentTarget.releasePointerCapture?.(event.pointerId);
-  runtime.windowDrag = null;
-  runtime.windowShell?.classList.remove("is-dragging");
+function workspaceSnapPreviewGeometry(target) {
+  if (target === "left") return workspaceSnapGeometry(0, 2);
+  if (target === "right") return workspaceSnapGeometry(1, 2);
+  if (target === "top") return workspaceSnapGeometry(0, 1);
+  return null;
 }
 
-function observeWorkspaceWindowGeometry(shell) {
-  if (typeof ResizeObserver !== "function") return;
-  runtime.windowResizeObserver?.disconnect();
-  runtime.windowResizeObserver = new ResizeObserver((entries) => {
-    if (
-      runtime.syncingWindowGeometry
-      || window.innerWidth <= 850
-      || shell.classList.contains("is-zoomed")
-      || shell.classList.contains("is-minimized")
-      || !runtime.activeWindowId
-    ) return;
-    const entry = entries.at(-1);
-    if (!entry) return;
-    const rect = shell.getBoundingClientRect();
-    const width = Math.round(rect.width || shell.offsetWidth);
-    const height = Math.round(rect.height || shell.offsetHeight);
-    const state = currentWorkspaceWindow();
-    if (!state || (Math.abs(state.size.width - width) < 2 && Math.abs(state.size.height - height) < 2)) return;
-    reduceWorkspaceWindow({ type: "resize", windowId: runtime.activeWindowId, size: { width, height } });
-    syncWorkspaceWindowState();
-  });
-  runtime.windowResizeObserver.observe(shell);
+function clearWorkspaceSnapPreview() {
+  runtime.windowSnapPreview?.remove();
+  runtime.windowSnapPreview = null;
 }
 
-function restoreWorkspaceWindow(options = {}) {
-  const shell = runtime.windowShell;
-  if (!shell?.isConnected) return false;
-  if (runtime.activeWindowId) {
-    reduceWorkspaceWindow({ type: "restore", windowId: runtime.activeWindowId });
+function showWorkspaceSnapPreview(target, windowId) {
+  const geometry = workspaceSnapPreviewGeometry(target);
+  const host = q("#main-content");
+  if (!geometry || !host) {
+    clearWorkspaceSnapPreview();
+    return;
   }
-  syncWorkspaceWindowState();
-  if (options.focus) safeFocus(shell);
+  let preview = runtime.windowSnapPreview;
+  if (!preview?.isConnected) {
+    preview = create("div", "ce-v4-window-snap-preview");
+    preview.setAttribute("aria-hidden", "true");
+    host.append(preview);
+    runtime.windowSnapPreview = preview;
+  }
+  const record = currentWorkspaceWindow(windowId);
+  if (!record) {
+    clearWorkspaceSnapPreview();
+    return;
+  }
+  const accent = workspaceWindowRecord(routeParts(routeForWorkspaceWindow(record)).path).accent;
+  preview.dataset.ceV4WindowSnapPreview = target;
+  preview.style.setProperty("--ce-v4-window-accent", accent);
+  preview.style.left = `${geometry.position.x}px`;
+  preview.style.top = `${geometry.position.y}px`;
+  preview.style.width = `${geometry.size.width}px`;
+  preview.style.height = `${geometry.size.height}px`;
+}
+
+function rememberWorkspaceWindowGeometry(windowRecord, details = {}) {
+  const previous = runtime.windowSnapMemory.get(windowRecord.windowId);
+  runtime.windowSnapMemory.set(windowRecord.windowId, {
+    restore: previous?.restore || {
+      position: { ...windowRecord.position },
+      size: { ...windowRecord.size },
+    },
+    count: details.count,
+    index: details.index,
+    slot: details.slot,
+  });
+}
+
+function applyWorkspaceSnap(windowId, details = {}, options = {}) {
+  const windowRecord = currentWorkspaceWindow(windowId);
+  if (!windowRecord) return false;
+  const count = Math.max(1, Math.min(3, Math.round(details.count) || 2));
+  const index = Math.max(0, Math.min(count - 1, Math.round(details.index) || 0));
+  const geometry = workspaceSnapGeometry(index, count);
+  rememberWorkspaceWindowGeometry(windowRecord, {
+    count,
+    index,
+    slot: details.slot || (count === 2 ? (index ? "right" : "left") : `column-${index + 1}`),
+  });
+  reduceWorkspaceWindow({ type: "resize", windowId, size: geometry.size });
+  reduceWorkspaceWindow({ type: "move", windowId, position: geometry.position });
+  runtime.windowGeometryTouched.add(windowId);
+  if (options.sync !== false) {
+    focusWorkspaceWindowShell(windowId);
+  }
   return true;
 }
 
-function minimizeWorkspaceWindow() {
-  const shell = runtime.windowShell;
-  if (!shell?.isConnected || shell.classList.contains("is-minimized")) return;
-  if (runtime.activeWindowId) {
-    reduceWorkspaceWindow({ type: "minimize", windowId: runtime.activeWindowId });
-  }
-  syncWorkspaceWindowState();
-  safeFocus(q(".ce-v4-dock__item.is-active", runtime.dock) || q(".ce-v4-dock__item", runtime.dock));
+function tileWorkspaceWindows(anchorWindowId, count) {
+  const anchor = currentWorkspaceWindow(anchorWindowId);
+  if (!anchor) return false;
+  const requested = Math.max(2, Math.min(3, Math.round(count) || 2));
+  const candidates = visibleWorkspaceWindows(anchor.spaceId);
+  const windows = [anchor, ...candidates.filter((item) => item.windowId !== anchorWindowId)].slice(0, requested);
+  if (windows.length < requested) return false;
+  windows.forEach((windowRecord, index) => {
+    applyWorkspaceSnap(windowRecord.windowId, {
+      count: requested,
+      index,
+      slot: requested === 2 ? (index ? "right" : "left") : `column-${index + 1}`,
+    }, { sync: false });
+  });
+  focusWorkspaceWindowShell(anchorWindowId);
+  return true;
 }
 
-function toggleWorkspaceWindowZoom(force) {
-  const shell = runtime.windowShell;
-  if (!shell?.isConnected) return false;
-  const current = currentWorkspaceWindow();
-  const requested = typeof force === "boolean" ? force : !current?.zoomed;
-  if (current && current.zoomed !== requested) {
-    reduceWorkspaceWindow({ type: "toggleZoom", windowId: runtime.activeWindowId });
+function closeWorkspaceSnapAssist(options = {}) {
+  const assist = runtime.windowSnapAssist;
+  if (!assist) return;
+  const windowId = assist.dataset.ceV4WindowSnapAssist || "";
+  assist.remove();
+  runtime.windowSnapAssist = null;
+  if (options.restoreFocus) {
+    const surface = runtime.windowSurfaces.get(windowId);
+    window.requestAnimationFrame(() => surface?.focus?.({ preventScroll: true }));
   }
-  syncWorkspaceWindowState();
-  return requested;
 }
 
-function closeWorkspaceWindow() {
-  if (routePath() === "/workspace/home") {
-    if (workspaceDesktopRoute()) minimizeWorkspaceWindow();
-    else navigate("/workspace/home", { preserveProject: false });
-    return;
-  }
-  if (runtime.activeWindowId) {
-    runtime.windowRoutes.delete(runtime.activeWindowId);
-    reduceWorkspaceWindow({ type: "close", windowId: runtime.activeWindowId });
-  }
-  navigate("/workspace/home");
+function snapLayoutGlyph(count) {
+  const glyph = create("span", "ce-v4-window-snap-assist__glyph");
+  glyph.setAttribute("aria-hidden", "true");
+  for (let index = 0; index < count; index += 1) glyph.append(create("i"));
+  return glyph;
 }
 
-function setWorkspaceContentParked(parked) {
-  const content = q("#workspace-content");
-  if (!content) return null;
-  if (parked) {
-    content.dataset.ceV4DesktopParked = "true";
-    content.setAttribute("aria-hidden", "true");
-    content.setAttribute("inert", "");
-  } else if (content.dataset.ceV4DesktopParked === "true") {
-    delete content.dataset.ceV4DesktopParked;
-    content.removeAttribute("aria-hidden");
-    content.removeAttribute("inert");
-  }
-  return content;
+function openWorkspaceSnapAssist(windowId) {
+  const anchor = currentWorkspaceWindow(windowId);
+  const host = q("#main-content");
+  if (!anchor || !host) return false;
+  closeWorkspaceSnapAssist();
+  const visible = visibleWorkspaceWindows(anchor.spaceId);
+  const canTileTwo = visible.length >= 2;
+  const canTileThree = visible.length >= 3 && workspaceWindowBounds().width >= 1020;
+  const assist = create("section", "ce-v4-window-snap-assist");
+  assist.dataset.ceV4WindowSnapAssist = windowId;
+  assist.setAttribute("role", "dialog");
+  assist.setAttribute("aria-modal", "false");
+  assist.setAttribute("aria-labelledby", "ce-v4-window-snap-assist-title");
+  const copy = create("div", "ce-v4-window-snap-assist__copy");
+  const title = create("strong", "", "Как закрепить окно?");
+  title.id = "ce-v4-window-snap-assist-title";
+  copy.append(title, create("small", "", "Выберите раскладку. Все окна останутся рабочими."));
+  const close = windowControl("snap-close", "Закрыть выбор раскладки", "ce-v4-window-snap-assist__close");
+  close.textContent = "×";
+  const choices = create("div", "ce-v4-window-snap-assist__choices");
+  [
+    { key: "full", label: "Полный экран", count: 1, enabled: true },
+    { key: "two", label: "2 окна", count: 2, enabled: canTileTwo },
+    { key: "three", label: "3 окна", count: 3, enabled: canTileThree },
+  ].forEach((option) => {
+    const button = create("button", "ce-v4-window-snap-assist__choice");
+    button.type = "button";
+    button.dataset.ceV4WindowSnapLayout = option.key;
+    button.disabled = !option.enabled;
+    button.append(snapLayoutGlyph(option.count), create("span", "", option.label));
+    if (!option.enabled) button.title = option.count === 3
+      ? "Откройте три окна и используйте экран шире 1020 px"
+      : "Сначала откройте второе окно";
+    choices.append(button);
+  });
+  assist.append(copy, close, choices);
+  assist.addEventListener("click", (event) => {
+    const button = event.target instanceof Element
+      ? event.target.closest("[data-ce-v4-window-snap-layout], [data-ce-v4-window-action='snap-close']")
+      : null;
+    if (!(button instanceof HTMLButtonElement)) return;
+    const layout = button.dataset.ceV4WindowSnapLayout || "";
+    if (layout === "full") toggleWorkspaceWindowZoom(true, windowId);
+    else if (layout === "two") tileWorkspaceWindows(windowId, 2);
+    else if (layout === "three") tileWorkspaceWindows(windowId, 3);
+    closeWorkspaceSnapAssist({ restoreFocus: layout === "" });
+  });
+  host.append(assist);
+  runtime.windowSnapAssist = assist;
+  window.requestAnimationFrame(() => safeFocus(q(".ce-v4-window-snap-assist__choice:not(:disabled)", assist)));
+  return true;
 }
 
-function updateWorkspaceWindow() {
-  const shell = runtime.windowShell;
-  if (!shell?.isConnected) return;
-  const route = routePath();
-  const record = workspaceWindowRecord(route);
-  const snapshot = projectFlowSnapshot();
-  const routeChanged = runtime.windowRoute && runtime.windowRoute !== route;
-  const windowId = workspaceWindowId(route, snapshot);
-  runtime.windowRoute = route;
-  runtime.activeWindowId = windowId;
-  runtime.windowRoutes.set(windowId, String(window.location.hash || `#${route}`).replace(/^#/, ""));
-  const existing = runtime.windowManagerState.windows.some((item) => item.windowId === windowId);
-  if (!existing) {
-    reduceWorkspaceWindow({
-      type: "open",
-      window: {
-        appId: `app:${routeRecord(route).route.replace(/^\/workspace\//u, "") || "home"}`,
-        windowId,
-        spaceId: snapshot.id ? `space:project:${snapshot.id}` : "space:main",
-        projectContext: snapshot.id ? { projectId: snapshot.id } : null,
-        ...defaultWorkspaceWindowGeometry(),
-      },
-    });
-  } else {
-    const existingWindow = runtime.windowManagerState.windows.find((item) => item.windowId === windowId);
-    if (existingWindow) {
-      reduceWorkspaceWindow({ type: "resize", windowId, size: existingWindow.size });
+function reflowWorkspaceSnappedWindows() {
+  if (!runtime.windowSnapMemory.size || workspaceDesktopRoute()) return false;
+  let changed = false;
+  runtime.windowSnapMemory.forEach((snap, windowId) => {
+    const record = currentWorkspaceWindow(windowId);
+    if (!record || record.zoomed || !Number.isInteger(snap?.count) || !Number.isInteger(snap?.index)) return;
+    const geometry = workspaceSnapGeometry(snap.index, snap.count);
+    reduceWorkspaceWindow({ type: "resize", windowId, size: geometry.size });
+    reduceWorkspaceWindow({ type: "move", windowId, position: geometry.position });
+    changed = true;
+  });
+  if (changed) syncWorkspaceWindowState();
+  return changed;
+}
+
+function moveWorkspaceContent(content, destination) {
+  if (!content || !destination || content.parentElement === destination) return;
+  const focused = document.activeElement instanceof HTMLElement && content.contains(document.activeElement)
+    ? document.activeElement
+    : null;
+  const selection = focused instanceof HTMLInputElement || focused instanceof HTMLTextAreaElement
+    ? {
+        start: focused.selectionStart,
+        end: focused.selectionEnd,
+        direction: focused.selectionDirection,
+      }
+    : null;
+  destination.append(content);
+  if (focused?.isConnected) {
+    safeFocus(focused);
+    if (selection && selection.start !== null && selection.end !== null) {
+      focused.setSelectionRange(selection.start, selection.end, selection.direction || "none");
     }
-    if (routeChanged) reduceWorkspaceWindow({ type: "focus", windowId });
   }
-  shell.dataset.ceV4WindowRoute = route;
+}
+
+/*
+ * The business renderer owns one live #workspace-content node. A stale legacy
+ * scaffold must never remain behind a window because it would also leave a
+ * second form and a second submit surface in the document. Prefer the node
+ * already owned by the active window, otherwise the direct workspace node,
+ * and remove only duplicate scaffolds without reading or replaying form data.
+ */
+function enforceSingleWorkspaceContent(host = q("#main-content")) {
+  const contents = qa("#workspace-content");
+  if (contents.length < 2) return contents[0] || null;
+  const activeShell = runtime.windowShells.get(runtime.activeWindowId);
+  const canonical = contents.find((node) => activeShell?.contains(node))
+    || contents.find((node) => node.parentElement === host)
+    || contents.find((node) => node.closest(".workspace-shell[data-workspace-section]"))
+    || contents[0];
+  contents.forEach((node) => {
+    if (node === canonical) return;
+    node.setAttribute("aria-hidden", "true");
+    node.setAttribute("inert", "");
+    node.remove();
+  });
+  return canonical;
+}
+
+function syncWorkspaceDesktopExposure(desktopMode) {
+  const desktop = runtime.desktop;
+  if (!desktop?.isConnected) return;
+  desktop.hidden = !desktopMode;
+  desktop.classList.toggle("is-obscured", !desktopMode);
+  if (desktopMode) {
+    desktop.removeAttribute("aria-hidden");
+    desktop.removeAttribute("inert");
+  } else {
+    desktop.setAttribute("aria-hidden", "true");
+    desktop.setAttribute("inert", "");
+  }
+}
+
+function parkWorkspaceContent() {
+  const host = q("#main-content");
+  const content = q("#workspace-content");
+  if (host && content && content.parentElement !== host) moveWorkspaceContent(content, host);
+  return setWorkspaceContentParked(true);
+}
+
+function workspaceWindowProjectLabel(windowRecord, snapshot = projectFlowSnapshot()) {
+  const projectId = String(windowRecord?.projectContext?.projectId || "");
+  if (!projectId) return "Все проекты";
+  return snapshot.projects.find((item) => item.id === projectId)?.name
+    || (snapshot.id === projectId ? snapshot.name : "Проект");
+}
+
+function syncWorkspaceWindowChrome(shell, windowRecord) {
+  if (!shell || !windowRecord) return;
+  const rememberedRoute = routeForWorkspaceWindow(windowRecord);
+  const path = routeParts(rememberedRoute).path;
+  const record = workspaceWindowRecord(path);
+  const projectLabel = workspaceWindowProjectLabel(windowRecord);
+  shell.dataset.ceV4WindowId = windowRecord.windowId;
+  shell.dataset.ceV4WindowRoute = path;
   shell.dataset.ceV4WindowApp = record.appLabel;
   shell.style.setProperty("--ce-v4-window-accent", record.accent);
   shell.setAttribute("aria-label", `${record.appLabel}: ${record.title}`);
@@ -3819,122 +4064,856 @@ function updateWorkspaceWindow() {
   if (app) app.textContent = record.appLabel;
   const project = q("[data-ce-v4-window-project]", shell);
   if (project) {
-    project.textContent = snapshot.id ? snapshot.name : "Все проекты";
-    project.title = snapshot.id ? `Проект: ${snapshot.name}` : "Проект не выбран";
+    project.textContent = projectLabel;
+    project.title = projectLabel === "Все проекты" ? "Проект не выбран" : `Проект: ${projectLabel}`;
   }
-  document.body.dataset.ceV4ActiveApp = record.appLabel;
+}
+
+function workspaceWindowSnapshotKind(path) {
+  if (path === "/workspace/board" || path === "/workspace/media") return "finder";
+  if (path === "/workspace/stats" || path === "/workspace/payouts") return "stats";
+  if (path === "/workspace/review") return "review";
+  if (path === "/workspace/generation") return "generation";
+  if (path === "/workspace/ai" || path === "/workspace/research") return "ai";
+  return "default";
+}
+
+function workspaceWindowSnapshotText(node, limit = 96) {
+  if (!(node instanceof Element) || !isVisible(node)) return "";
+  if (node.matches("input,textarea,select,option,button,a,video,audio,iframe,canvas")) return "";
+  if (node.closest('form,[hidden],[aria-hidden="true"],dialog,[role="dialog"]')) return "";
+  if (node.querySelector("form,input,textarea,select,video,audio,iframe,canvas")) return "";
+  return compact(node.textContent, limit);
+}
+
+function firstWorkspaceWindowSnapshotText(root, selectors, limit = 96) {
+  for (const selector of selectors) {
+    for (const node of qa(selector, root)) {
+      const text = workspaceWindowSnapshotText(node, limit);
+      if (text) return text;
+    }
+  }
+  return "";
+}
+
+function workspaceWindowSnapshotPair(node) {
+  if (!(node instanceof Element)) return null;
+  if (node.matches("form,button,a,input,textarea,select") || node.querySelector("form,input,textarea,select")) return null;
+  const primary = firstWorkspaceWindowSnapshotText(
+    node,
+    [":scope > h2", ":scope > h3", ":scope > h4", ":scope > strong", "h2", "h3", "h4", "strong", "b", "dt"],
+    88,
+  ) || workspaceWindowSnapshotText(node, 88);
+  if (!primary) return null;
+  const secondary = firstWorkspaceWindowSnapshotText(
+    node,
+    [":scope > p", ":scope > small", ":scope > span", "p", "small", "dd", ".muted"],
+    112,
+  );
+  return Object.freeze({
+    primary,
+    secondary: secondary && secondary !== primary ? secondary : "",
+  });
+}
+
+function workspaceWindowSnapshotItems(root, selectors, limit) {
+  const seen = new Set();
+  const items = [];
+  selectors.forEach((selector) => {
+    qa(selector, root).forEach((node) => {
+      const item = workspaceWindowSnapshotPair(node);
+      if (!item) return;
+      const signature = `${item.primary}\n${item.secondary}`;
+      if (seen.has(signature)) return;
+      seen.add(signature);
+      items.push(item);
+    });
+  });
+  return items.slice(0, limit);
+}
+
+function workspaceWindowSnapshotSelectors(kind) {
+  const routeSelectors = {
+    finder: {
+      metrics: [".workspace-board__collection-meta", ".workspace-board__sidebar-head"],
+      rows: [".workspace-board__item-copy", ".workspace-board__folder-row"],
+    },
+    stats: {
+      metrics: [".stats-live-card", ".metrics-grid > *", ".stats-overview-panel > article"],
+      rows: [".stats-live-table tbody tr", ".results-ledger-panel tbody tr", ".stats-live-results article"],
+    },
+    review: {
+      metrics: [".content-review-quality", ".content-review-compliance", ".content-review-breakdown"],
+      rows: [".content-review-finding", ".content-review-recommendations li", ".content-review-strengths li"],
+    },
+    generation: {
+      metrics: [".generation-launch-card", ".generation-product-identity", ".generation-cost"],
+      rows: [".ce-v4-generation-guided__step", ".generation-strategy-spec-review__row", ".generation-model-record"],
+    },
+    ai: {
+      metrics: [".ai-learning-signal-state", ".ai-learning-metric-grid > *", ".ai-learning-readiness-card"],
+      rows: [".ai-learning-gap", ".ai-learning-teaching-card", ".ai-learning-source", ".fixture-card", ".fixture-tabs > span"],
+    },
+    default: {
+      metrics: [".metrics-grid > *", ".card"],
+      rows: ["tbody tr", "article", "li"],
+    },
+  };
+  return routeSelectors[kind] || routeSelectors.default;
+}
+
+function captureWorkspaceWindowSnapshot(windowRecord, content) {
+  if (!windowRecord?.windowId || !(content instanceof HTMLElement)) return false;
+  const route = routeForWorkspaceWindow(windowRecord);
+  const path = routeParts(route).path;
+  if (windowRecord.windowId !== runtime.activeWindowId || path !== routePath() || workspaceDesktopRoute()) return false;
+  const page = q(".ce-v4-page", content) || content.firstElementChild;
+  if (!(page instanceof Element)) return false;
+  if (q('[aria-busy="true"], [data-loading="true"], .is-loading, .skeleton', page)) return false;
+  const kind = workspaceWindowSnapshotKind(path);
+  const selectors = workspaceWindowSnapshotSelectors(kind);
+  const observedTitle = firstWorkspaceWindowSnapshotText(
+    page,
+    [".workspace-board__collection-head h2", ".content-review-result__header h2", ".ai-learning-hero h1", ".generation-launch-card h2", "h1", "h2"],
+    96,
+  );
+  const title = observedTitle || workspaceWindowRecord(path).title;
+  const subtitle = firstWorkspaceWindowSnapshotText(
+    page,
+    [".workspace-board__sidebar-head p", ".content-review-result__header p", ".ai-learning-hero p", ".generation-launch-card p", "header p", ".eyebrow"],
+    116,
+  );
+  const metrics = workspaceWindowSnapshotItems(page, selectors.metrics, 4).slice(0, 4);
+  const rows = workspaceWindowSnapshotItems(page, selectors.rows, 5).slice(0, 5);
+  if (!observedTitle && !subtitle && !metrics.length && !rows.length) return false;
+  const snapshot = Object.freeze({
+    route,
+    actionKey: workspaceActionKey(route),
+    kind,
+    title,
+    subtitle,
+    metrics: Object.freeze(metrics),
+    rows: Object.freeze(rows),
+    capturedAt: Date.now(),
+  });
+  runtime.windowSnapshots.set(windowRecord.windowId, snapshot);
+  return true;
+}
+
+function workspaceWindowSnapshotBlock(item, className = "ce-v4-window__snapshot-block") {
+  const block = create("span", className);
+  block.append(
+    create("span", `${className}__label`, item?.primary || ""),
+    create("span", `${className}__value`, item?.secondary || ""),
+  );
+  return block;
+}
+
+function renderWorkspaceWindowSnapshot(snapshot, record) {
+  const preview = create("span", "ce-v4-window__snapshot");
+  preview.dataset.ceV4WindowSnapshot = "true";
+  preview.dataset.ceV4WindowSnapshotKind = snapshot?.kind || "default";
+  preview.dataset.ceV4WindowSnapshotRoute = snapshot?.route || record.route;
+  preview.dataset.ceV4WindowSnapshotState = snapshot ? "captured" : "fallback";
+  preview.setAttribute("aria-hidden", "true");
+
+  const head = create("span", "ce-v4-window__snapshot-head");
+  head.append(
+    create("span", "ce-v4-window__snapshot-kicker", snapshot?.subtitle || record.appLabel),
+    create("span", "ce-v4-window__snapshot-title", snapshot?.title || record.title),
+  );
+  const layout = create("span", "ce-v4-window__snapshot-layout");
+  const sidebar = create("span", "ce-v4-window__snapshot-sidebar");
+  const main = create("span", "ce-v4-window__snapshot-main");
+  const grid = create("span", "ce-v4-window__snapshot-grid");
+  const inspector = create("span", "ce-v4-window__snapshot-inspector");
+  const metrics = snapshot?.metrics || [];
+  const rows = snapshot?.rows || [];
+
+  (metrics.length ? metrics : [{}, {}, {}]).forEach((item) => {
+    grid.append(workspaceWindowSnapshotBlock(item));
+  });
+  (rows.length ? rows : [{}, {}, {}, {}]).forEach((item) => {
+    main.append(workspaceWindowSnapshotBlock(item, "ce-v4-window__snapshot-row"));
+  });
+  [...metrics.slice(0, 2), ...rows.slice(0, 1)].forEach((item) => {
+    sidebar.append(workspaceWindowSnapshotBlock(item));
+  });
+  if (!sidebar.childElementCount) [{}, {}, {}].forEach((item) => sidebar.append(workspaceWindowSnapshotBlock(item)));
+  [...rows.slice(0, 2), ...metrics.slice(0, 1)].forEach((item) => {
+    inspector.append(workspaceWindowSnapshotBlock(item));
+  });
+  if (!inspector.childElementCount) [{}, {}, {}].forEach((item) => inspector.append(workspaceWindowSnapshotBlock(item)));
+  main.prepend(grid);
+  layout.append(sidebar, main, inspector);
+  preview.append(head, layout);
+  return preview;
+}
+
+function workspaceWindowPlaceholder(windowRecord) {
+  const route = routeForWorkspaceWindow(windowRecord);
+  const chrome = workspaceWindowRecord(routeParts(route).path);
+  const snapshot = runtime.windowSnapshots.get(windowRecord.windowId) || null;
+  const record = { ...chrome, route };
+  const button = create(
+    "button",
+    `ce-v4-window__placeholder${snapshot ? " ce-v4-window__placeholder--snapshot" : ""}`,
+  );
+  button.type = "button";
+  button.dataset.ceV4WindowAction = "focus";
+  button.setAttribute(
+    "aria-label",
+    snapshot
+      ? `Открыть окно «${chrome.title}». Показан последний статический вид`
+      : `Открыть окно «${chrome.title}»`,
+  );
+  if (snapshot) {
+    const cue = create("span", "ce-v4-window__snapshot-cue");
+    cue.append(
+      create("span", "ce-v4-window__snapshot-cue-mark", "↗"),
+      create("span", "ce-v4-window__snapshot-cue-title", chrome.title),
+      create("span", "ce-v4-window__snapshot-cue-copy", "Последний вид · откроется для продолжения"),
+    );
+    button.append(renderWorkspaceWindowSnapshot(snapshot, record), cue);
+    return button;
+  }
+  button.append(
+    dockIcon(chrome.dockIcon, 58),
+    create("strong", "", chrome.title),
+    create("small", "", "Нажмите, чтобы сделать окно активным"),
+  );
+  return button;
+}
+
+function syncWorkspaceWindowSnapshot(body, windowRecord) {
+  if (!body || !windowRecord) return;
+  const snapshot = runtime.windowSnapshots.get(windowRecord.windowId);
+  const snapshotSignature = snapshot
+    ? `${windowRecord.windowId}:${snapshot.route}:${snapshot.capturedAt}`
+    : `${windowRecord.windowId}:${routeForWorkspaceWindow(windowRecord)}:fallback`;
+  if (body.dataset.ceV4WindowSnapshotSignature === snapshotSignature && body.firstElementChild) return;
+  body.replaceChildren(workspaceWindowPlaceholder(windowRecord));
+  body.dataset.ceV4WindowSnapshotSignature = snapshotSignature;
+}
+
+function ensureWorkspaceWindowSurface(body, windowRecord) {
+  if (!body || !windowRecord?.windowId) return null;
+  let frame = runtime.windowSurfaces.get(windowRecord.windowId) || null;
+  if (!(frame instanceof HTMLIFrameElement) || !frame.isConnected) {
+    frame = create("iframe", "ce-v4-window__surface");
+    frame.dataset.ceV4WindowSurface = "true";
+    frame.dataset.ceV4WindowId = windowRecord.windowId;
+    frame.dataset.ceV4WindowReady = "false";
+    frame.loading = "eager";
+    frame.referrerPolicy = "strict-origin";
+    frame.tabIndex = 0;
+    frame.src = createContentEngineEmbeddedWindowUrl(routeForWorkspaceWindow(windowRecord), {
+      baseUrl: import.meta.url,
+      windowId: windowRecord.windowId,
+    });
+    frame.addEventListener("load", () => {
+      frame.dataset.ceV4WindowLoaded = "true";
+    });
+    frame.addEventListener("error", () => {
+      frame.dataset.ceV4WindowReady = "false";
+      frame.dataset.ceV4WindowFailed = "true";
+    });
+    runtime.windowSurfaces.set(windowRecord.windowId, frame);
+  }
+  const chrome = workspaceWindowRecord(routeParts(routeForWorkspaceWindow(windowRecord)).path);
+  frame.title = `${chrome.appLabel}: ${chrome.title} — рабочее окно`;
+  if (frame.parentElement !== body || body.childElementCount !== 1) body.replaceChildren(frame);
+  body.classList.add("has-live-surface");
+  delete body.dataset.ceV4WindowSnapshotSignature;
+  return frame;
+}
+
+function workspaceWindowSurfaceForSource(source) {
+  let match = null;
+  runtime.windowSurfaces.forEach((frame, windowId) => {
+    if (!match && frame?.contentWindow === source) match = { frame, windowId };
+  });
+  return match;
+}
+
+function handleWorkspaceWindowSurfaceMessage(event) {
+  if (IS_EMBEDDED_WORKSPACE_WINDOW || event.origin !== window.location.origin) return;
+  const match = workspaceWindowSurfaceForSource(event.source);
+  if (!match) return;
+  const message = readContentEngineEmbeddedWindowEvent(event.data, match.windowId);
+  if (!message || message.windowId !== match.windowId) return;
+  const { frame, windowId } = match;
+  const windowRecord = currentWorkspaceWindow(windowId);
+  if (!windowRecord) return;
+  frame.dataset.ceV4WindowReady = String(message.event === "ready" || message.event === "route" || message.event === "focus");
+  frame.classList.toggle("is-ready", frame.dataset.ceV4WindowReady === "true");
+  if (message.event === "failed") frame.dataset.ceV4WindowFailed = "true";
+  else delete frame.dataset.ceV4WindowFailed;
+  if (message.event === "ready" || message.event === "route") {
+    runtime.windowRoutes.set(
+      windowId,
+      routeWithProject(message.route, windowRecord.projectContext?.projectId || ""),
+    );
+    syncWorkspaceWindowChrome(runtime.windowShells.get(windowId), windowRecord);
+  }
+  if (message.event === "focus") {
+    if (runtime.activeWindowId !== windowId) {
+      focusWorkspaceWindowShell(windowId, { focusSurface: false });
+    }
+  }
+  if (message.event === "shortcut" && message.shortcut === "search") {
+    if (runtime.activeWindowId !== windowId) {
+      focusWorkspaceWindowShell(windowId, { focusSurface: false });
+    }
+    const search = q(".ce-v4-menubar__search input", runtime.menubar);
+    safeFocus(search);
+    search?.select?.();
+  }
+}
+
+function postWorkspaceWindowSurfaceCommand(windowId, command, details = {}) {
+  const frame = runtime.windowSurfaces.get(windowId);
+  const windowRecord = currentWorkspaceWindow(windowId);
+  if (!(frame instanceof HTMLIFrameElement) || !frame.contentWindow || !windowRecord) return false;
+  if (command !== "navigate") return false;
+  frame.contentWindow.postMessage({
+    type: CONTENTENGINE_EMBEDDED_WINDOW_MESSAGE,
+    version: CONTENTENGINE_EMBEDDED_WINDOW_VERSION,
+    command,
+    windowId,
+    route: String(details.route || routeForWorkspaceWindow(windowRecord)),
+  }, window.location.origin);
+  return true;
+}
+
+function createWorkspaceWindowShell(windowId) {
+  const host = q("#main-content");
+  if (!host) return null;
+  const shell = create("section", "ce-v4-window");
+  shell.dataset.ceV4Window = "true";
+  shell.dataset.ceV4WindowId = windowId;
+  shell.tabIndex = -1;
+  const titlebar = create("header", "ce-v4-window__titlebar");
+  titlebar.dataset.ceV4WindowTitlebar = "true";
+  const traffic = create("div", "ce-v4-window__traffic");
+  traffic.setAttribute("role", "group");
+  traffic.setAttribute("aria-label", "Управление окном");
+  const close = windowControl("close", "Закрыть окно", "ce-v4-window__close");
+  const minimize = windowControl("minimize", "Свернуть окно в Dock", "ce-v4-window__minimize");
+  const zoom = windowControl("zoom", "Развернуть окно", "ce-v4-window__zoom");
+  zoom.setAttribute("aria-pressed", "false");
+  traffic.append(close, minimize, zoom);
+  const heading = create("div", "ce-v4-window__heading");
+  const glyph = dockIcon("ce-dock-finder", 24);
+  glyph.dataset.ceV4WindowGlyph = "true";
+  const headingCopy = create("span", "ce-v4-window__heading-copy");
+  const app = create("small", "", "Рабочий стол");
+  app.dataset.ceV4WindowApp = "true";
+  const title = create("strong", "", "Проекты");
+  title.dataset.ceV4WindowTitle = "true";
+  headingCopy.append(app, title);
+  heading.append(glyph, headingCopy);
+  const actions = create("div", "ce-v4-window__actions");
+  const project = create("span", "ce-v4-window__project", "Все проекты");
+  project.dataset.ceV4WindowProject = "true";
+  const desktop = iconButton("ce-v4-window__desktop", "Вернуться на рабочий стол", "home");
+  desktop.dataset.ceV4WindowAction = "desktop";
+  desktop.append(create("span", "ce-v4-window__desktop-label", "Рабочий стол"));
+  const mission = iconButton("ce-v4-window__mission", "Показать окна и рабочие столы", "grid");
+  mission.dataset.ceV4WindowAction = "mission";
+  actions.append(project, desktop, mission);
+  titlebar.append(traffic, heading, actions);
+  const body = create("div", "ce-v4-window__body");
+  body.dataset.ceV4WindowBody = "true";
+  shell.append(titlebar, body);
+  host.append(shell);
+  runtime.windowShells.set(windowId, shell);
+  shell.addEventListener("click", (event) => {
+    const actionTarget = event.target instanceof Element
+      ? event.target.closest("[data-ce-v4-window-action]")
+      : null;
+    const action = actionTarget?.dataset.ceV4WindowAction;
+    if (action === "close") closeWorkspaceWindow(windowId);
+    else if (action === "minimize") minimizeWorkspaceWindow(windowId);
+    else if (action === "zoom") handleWorkspaceWindowZoomClick(windowId);
+    else if (action === "desktop") showWorkspaceDesktop();
+    else if (action === "mission") openMission();
+    else if (action === "focus" || runtime.activeWindowId !== windowId || workspaceDesktopRoute()) {
+      activateWorkspaceWindow(windowId, { focus: true });
+    }
+  });
+  zoom.addEventListener("dblclick", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    clearWorkspaceWindowZoomClick(windowId);
+    toggleWorkspaceWindowZoom(true, windowId);
+  });
+  titlebar.addEventListener("dblclick", (event) => {
+    if (event.target instanceof Element && event.target.closest("button, a, input, select, textarea")) return;
+    if (runtime.activeWindowId !== windowId || workspaceDesktopRoute()) activateWorkspaceWindow(windowId);
+    else toggleWorkspaceWindowZoom(undefined, windowId);
+  });
+  titlebar.addEventListener("pointerdown", beginWorkspaceWindowDrag);
+  observeWorkspaceWindowGeometry(shell, windowId);
+  return shell;
+}
+
+function handleWorkspaceWindowZoomClick(windowId) {
+  const now = performance.now();
+  const pending = runtime.windowZoomClicks.get(windowId);
+  if (pending && now - pending.startedAt <= 460) {
+    window.clearTimeout(pending.timer);
+    runtime.windowZoomClicks.delete(windowId);
+    return toggleWorkspaceWindowZoom(true, windowId);
+  }
+  if (pending) window.clearTimeout(pending.timer);
+  const timer = window.setTimeout(() => {
+    const current = runtime.windowZoomClicks.get(windowId);
+    if (!current || current.timer !== timer) return;
+    runtime.windowZoomClicks.delete(windowId);
+    toggleWorkspaceWindowZoom(undefined, windowId);
+  }, 260);
+  runtime.windowZoomClicks.set(windowId, { startedAt: now, timer });
+  return false;
+}
+
+function clearWorkspaceWindowZoomClick(windowId) {
+  const pending = runtime.windowZoomClicks.get(windowId);
+  if (pending) window.clearTimeout(pending.timer);
+  runtime.windowZoomClicks.delete(windowId);
+}
+
+function syncWorkspaceWindowState() {
+  const host = q("#main-content");
+  const content = enforceSingleWorkspaceContent(host);
+  if (!host || !content) return;
+  const state = runtime.windowManagerState;
+  const desktopMode = workspaceDesktopRoute();
+  syncWorkspaceDesktopExposure(desktopMode);
+  const activeSpaceId = state.activeSpaceId;
+  const keyWindow = desktopMode ? null : currentWorkspaceWindow();
+
+  /* The parent renderer remains a parked, inert routing coordinator. Every
+     application window owns a persistent child document instead of borrowing
+     this single DOM node. */
+  parkWorkspaceContent();
+  state.windows.forEach((windowRecord) => {
+    const shell = runtime.windowShells.get(windowRecord.windowId)?.isConnected
+      ? runtime.windowShells.get(windowRecord.windowId)
+      : createWorkspaceWindowShell(windowRecord.windowId);
+    syncWorkspaceWindowChrome(shell, windowRecord);
+    ensureWorkspaceWindowSurface(q("[data-ce-v4-window-body]", shell), windowRecord);
+  });
+
+  const liveIds = new Set(state.windows.map((item) => item.windowId));
+  runtime.windowShells.forEach((shell, windowId) => {
+    if (liveIds.has(windowId)) return;
+    runtime.windowResizeObservers.get(windowId)?.disconnect();
+    runtime.windowResizeObservers.delete(windowId);
+    runtime.windowSurfaces.delete(windowId);
+    runtime.windowSnapshots.delete(windowId);
+    shell.remove();
+    runtime.windowShells.delete(windowId);
+  });
+  runtime.windowSurfaces.forEach((frame, windowId) => {
+    if (liveIds.has(windowId)) return;
+    frame.remove();
+    runtime.windowSurfaces.delete(windowId);
+  });
+
+  runtime.syncingWindowGeometry = true;
+  state.windows.forEach((windowRecord) => {
+    const shell = runtime.windowShells.get(windowRecord.windowId);
+    if (!shell) return;
+    const inActiveSpace = windowRecord.spaceId === activeSpaceId;
+    const minimized = Boolean(windowRecord.minimized);
+    const zoomed = Boolean(windowRecord.zoomed);
+    const snap = runtime.windowSnapMemory.get(windowRecord.windowId) || null;
+    const visible = !desktopMode && inActiveSpace && !minimized;
+    const active = Boolean(keyWindow && keyWindow.windowId === windowRecord.windowId);
+    shell.hidden = !visible;
+    shell.classList.toggle("is-minimized", minimized);
+    shell.classList.toggle("is-zoomed", zoomed);
+    /* Every visible application is live/active. The key-window marker only
+       describes keyboard focus and z-order; it never disables its siblings. */
+    shell.classList.toggle("is-active", visible);
+    shell.classList.toggle("is-key-window", active);
+    shell.classList.toggle("is-live", visible);
+    shell.classList.toggle("is-snapped", Boolean(snap && !zoomed));
+    shell.classList.remove("is-inactive");
+    shell.classList.toggle("is-other-space", !inActiveSpace);
+    shell.dataset.ceV4WindowActive = String(active);
+    shell.dataset.ceV4WindowLive = String(visible);
+    if (snap && !zoomed) shell.dataset.ceV4WindowSnap = snap.slot || "snapped";
+    else delete shell.dataset.ceV4WindowSnap;
+    shell.style.zIndex = String(20 + windowRecord.zIndex);
+    if (!visible) {
+      shell.setAttribute("aria-hidden", "true");
+      shell.setAttribute("inert", "");
+    } else {
+      shell.removeAttribute("aria-hidden");
+      shell.removeAttribute("inert");
+    }
+    const control = q('[data-ce-v4-window-action="zoom"]', shell);
+    if (control) {
+      control.setAttribute("aria-pressed", String(zoomed));
+      control.setAttribute("aria-label", zoomed ? "Вернуть размер окна" : "Развернуть окно");
+      control.title = zoomed ? "Вернуть размер окна" : "Развернуть окно";
+    }
+    if (zoomed) {
+      shell.style.removeProperty("left");
+      shell.style.removeProperty("top");
+      shell.style.removeProperty("width");
+      shell.style.removeProperty("height");
+    } else {
+      shell.style.left = `${windowRecord.position.x}px`;
+      shell.style.top = `${windowRecord.position.y}px`;
+      shell.style.width = `${windowRecord.size.width}px`;
+      shell.style.height = `${windowRecord.size.height}px`;
+    }
+    const surface = runtime.windowSurfaces.get(windowRecord.windowId);
+    if (surface) {
+      surface.tabIndex = visible ? 0 : -1;
+      surface.setAttribute("aria-hidden", String(!visible));
+      surface.style.pointerEvents = visible ? "auto" : "none";
+    }
+  });
+  runtime.windowShell = keyWindow ? runtime.windowShells.get(keyWindow.windowId) || null : null;
+  document.body.classList.toggle(
+    "ce-v4-window-minimized",
+    state.windows.some((item) => item.spaceId === activeSpaceId)
+      && !state.windows.some((item) => item.spaceId === activeSpaceId && !item.minimized),
+  );
+  if (keyWindow) {
+    const chrome = workspaceWindowRecord(routeParts(routeForWorkspaceWindow(keyWindow)).path);
+    document.body.dataset.ceV4ActiveApp = chrome.appLabel;
+  } else {
+    document.body.dataset.ceV4ActiveApp = "Рабочий стол";
+  }
+  window.requestAnimationFrame(() => {
+    runtime.syncingWindowGeometry = false;
+    document.dispatchEvent(new CustomEvent(WINDOW_GEOMETRY_EVENT));
+  });
+}
+
+function stopWorkspaceWindowDragTracking() {
+  window.removeEventListener("pointermove", moveWorkspaceWindow, true);
+  window.removeEventListener("pointerup", endWorkspaceWindowDrag, true);
+  window.removeEventListener("pointercancel", cancelWorkspaceWindowDrag, true);
+}
+
+function cancelWorkspaceWindowDrag(event) {
+  endWorkspaceWindowDrag(event, true);
+}
+
+function beginWorkspaceWindowDrag(event) {
+  const shell = event.currentTarget?.closest?.("[data-ce-v4-window-id]");
+  const windowId = String(shell?.dataset.ceV4WindowId || "");
+  if (
+    event.button !== 0
+    || window.innerWidth <= 850
+    || runtime.windowDrag
+    || currentWorkspaceWindow(windowId)?.zoomed
+    || (event.target instanceof Element && event.target.closest("button, a, input, select, textarea"))
+  ) return;
+  closeWorkspaceSnapAssist();
+  runtime.windowSnapMemory.delete(windowId);
+  const pendingActivation = runtime.activeWindowId !== windowId || workspaceDesktopRoute();
+  /* Raise an inactive window immediately, but keep the original business DOM
+     in its current owner until pointer-up triggers the route activation. */
+  reduceWorkspaceWindow({ type: "focus", windowId });
+  syncWorkspaceWindowState();
+  const state = currentWorkspaceWindow(windowId);
+  if (!state) return;
+  runtime.windowDrag = {
+    pointerId: event.pointerId,
+    windowId,
+    pendingActivation,
+    previousActiveWindowId: runtime.activeWindowId,
+    moved: false,
+    snapTarget: "",
+    startX: event.clientX,
+    startY: event.clientY,
+    originX: state.position.x,
+    originY: state.position.y,
+    captureTarget: event.currentTarget,
+  };
+  try { event.currentTarget.setPointerCapture?.(event.pointerId); }
+  catch { /* Synthetic or cancelled pointers may not be capturable. */ }
+  window.addEventListener("pointermove", moveWorkspaceWindow, true);
+  window.addEventListener("pointerup", endWorkspaceWindowDrag, true);
+  window.addEventListener("pointercancel", cancelWorkspaceWindowDrag, true);
+  shell?.classList.add("is-dragging");
+  event.preventDefault();
+}
+
+function moveWorkspaceWindow(event) {
+  const drag = runtime.windowDrag;
+  if (!drag || drag.pointerId !== event.pointerId || !drag.windowId) return;
+  if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) >= 2) {
+    drag.moved = true;
+    runtime.windowGeometryTouched.add(drag.windowId);
+  }
+  drag.snapTarget = workspaceSnapCandidate(event);
+  if (drag.snapTarget) showWorkspaceSnapPreview(drag.snapTarget, drag.windowId);
+  else clearWorkspaceSnapPreview();
+  reduceWorkspaceWindow({
+    type: "move",
+    windowId: drag.windowId,
+    position: {
+      x: drag.originX + event.clientX - drag.startX,
+      y: drag.originY + event.clientY - drag.startY,
+    },
+  });
+  syncWorkspaceWindowState();
+}
+
+function endWorkspaceWindowDrag(event, cancelled = false) {
+  const drag = runtime.windowDrag;
+  if (!drag || drag.pointerId !== event.pointerId) return;
+  stopWorkspaceWindowDragTracking();
+  try { drag.captureTarget?.releasePointerCapture?.(event.pointerId); }
+  catch { /* The pointer may already have been released by the browser. */ }
+  runtime.windowShells.get(drag.windowId)?.classList.remove("is-dragging");
+  const snapTarget = drag.snapTarget;
+  clearWorkspaceSnapPreview();
+  runtime.windowDrag = null;
+  if (cancelled && drag.pendingActivation && currentWorkspaceWindow(drag.previousActiveWindowId)) {
+    reduceWorkspaceWindow({ type: "focus", windowId: drag.previousActiveWindowId });
+    syncWorkspaceWindowState();
+  } else if (!cancelled && snapTarget === "left") {
+    applyWorkspaceSnap(drag.windowId, { count: 2, index: 0, slot: "left" });
+  } else if (!cancelled && snapTarget === "right") {
+    applyWorkspaceSnap(drag.windowId, { count: 2, index: 1, slot: "right" });
+  } else if (!cancelled && snapTarget === "top") {
+    focusWorkspaceWindowShell(drag.windowId);
+    openWorkspaceSnapAssist(drag.windowId);
+  } else if (!cancelled && drag.pendingActivation) {
+    activateWorkspaceWindow(drag.windowId, { focus: !drag.moved });
+  }
+}
+
+function observeWorkspaceWindowGeometry(shell, windowId) {
+  if (typeof ResizeObserver !== "function") return;
+  runtime.windowResizeObservers.get(windowId)?.disconnect();
+  const observer = new ResizeObserver((entries) => {
+    if (
+      runtime.syncingWindowGeometry
+      || window.innerWidth <= 850
+      || shell.classList.contains("is-zoomed")
+      || shell.classList.contains("is-minimized")
+      || !windowId
+    ) return;
+    const entry = entries.at(-1);
+    if (!entry) return;
+    const rect = shell.getBoundingClientRect();
+    const width = Math.round(rect.width || shell.offsetWidth);
+    const height = Math.round(rect.height || shell.offsetHeight);
+    const state = currentWorkspaceWindow(windowId);
+    if (!state || (Math.abs(state.size.width - width) < 2 && Math.abs(state.size.height - height) < 2)) return;
+    runtime.windowSnapMemory.delete(windowId);
+    runtime.windowGeometryTouched.add(windowId);
+    reduceWorkspaceWindow({ type: "resize", windowId, size: { width, height } });
+    syncWorkspaceWindowState();
+  });
+  observer.observe(shell);
+  runtime.windowResizeObservers.set(windowId, observer);
+  runtime.windowResizeObserver = observer;
+}
+
+function focusWorkspaceWindowShell(windowId, options = {}) {
+  const windowRecord = currentWorkspaceWindow(windowId);
+  if (!windowRecord) return false;
+  reduceWorkspaceWindow({ type: "switchSpace", spaceId: windowRecord.spaceId });
+  reduceWorkspaceWindow({ type: "restore", windowId });
+  reduceWorkspaceWindow({ type: "focus", windowId });
+  runtime.activeWindowId = windowId;
+  syncWorkspaceWindowState();
+  updateDock();
+  updateMenubar();
+  if (options.focusSurface) {
+    const frame = runtime.windowSurfaces.get(windowId);
+    window.requestAnimationFrame(() => frame?.focus?.({ preventScroll: true }));
+  }
+  return true;
+}
+
+function restoreWorkspaceWindow(options = {}) {
+  const windowId = String(options.windowId || runtime.activeWindowId || "");
+  const shell = runtime.windowShells.get(windowId) || runtime.windowShell;
+  if (!shell?.isConnected) return false;
+  const record = currentWorkspaceWindow(windowId);
+  if (workspaceDesktopRoute() && record) {
+    navigate(routeForWorkspaceWindow(record));
+    return true;
+  }
+  return focusWorkspaceWindowShell(windowId, { focusSurface: Boolean(options.focus) });
+}
+
+function minimizeWorkspaceWindow(windowId = runtime.activeWindowId) {
+  const shell = runtime.windowShells.get(windowId) || runtime.windowShell;
+  if (!shell?.isConnected || shell.classList.contains("is-minimized")) return;
+  if (shell.dataset.ceV4Minimizing === "true") return;
+  if (runtime.windowSnapAssist?.dataset.ceV4WindowSnapAssist === windowId) closeWorkspaceSnapAssist();
+  shell.dataset.ceV4Minimizing = "true";
+  shell.classList.add("is-minimizing");
+  const finish = () => {
+    delete shell.dataset.ceV4Minimizing;
+    shell.classList.remove("is-minimizing");
+    reduceWorkspaceWindow({ type: "minimize", windowId });
+    if (runtime.activeWindowId === windowId) {
+      const next = topVisibleWorkspaceWindow(currentWorkspaceWindow(windowId)?.spaceId, windowId);
+      if (next) {
+        focusWorkspaceWindowShell(next.windowId);
+      } else {
+        navigate("/workspace/home");
+      }
+    } else syncWorkspaceWindowState();
+    safeFocus(q(".ce-v4-dock__item.is-active", runtime.dock) || q(".ce-v4-dock__item", runtime.dock));
+  };
+  if (REDUCED_MOTION.matches) finish();
+  else window.setTimeout(finish, 220);
+}
+
+function toggleWorkspaceWindowZoom(force, windowId = runtime.activeWindowId) {
+  const shell = runtime.windowShells.get(windowId) || runtime.windowShell;
+  if (!shell?.isConnected) return false;
+  const current = currentWorkspaceWindow(windowId);
+  const requested = typeof force === "boolean" ? force : !current?.zoomed;
+  if (current && current.zoomed !== requested) {
+    reduceWorkspaceWindow({ type: "toggleZoom", windowId });
+  }
+  runtime.activeWindowId = windowId;
+  syncWorkspaceWindowState();
+  return requested;
+}
+
+function activateWorkspaceWindow(windowId, options = {}) {
+  const windowRecord = currentWorkspaceWindow(windowId);
+  if (!windowRecord) return false;
+  const destination = routeForWorkspaceWindow(windowRecord);
+  if (workspaceDesktopRoute()) {
+    navigate(destination);
+    return true;
+  }
+  return focusWorkspaceWindowShell(windowId, { focusSurface: Boolean(options.focus) });
+}
+
+function showWorkspaceDesktop() {
+  navigate("/workspace/home", { preserveProject: false });
+}
+
+function closeWorkspaceWindow(windowId = runtime.activeWindowId) {
+  if (!windowId) return;
+  const closing = currentWorkspaceWindow(windowId);
+  const wasActive = runtime.activeWindowId === windowId;
+  runtime.windowRoutes.delete(windowId);
+  runtime.windowSurfaces.delete(windowId);
+  runtime.windowSnapshots.delete(windowId);
+  clearWorkspaceWindowZoomClick(windowId);
+  runtime.windowSnapMemory.delete(windowId);
+  runtime.windowGeometryTouched.delete(windowId);
+  if (runtime.windowSnapAssist?.dataset.ceV4WindowSnapAssist === windowId) closeWorkspaceSnapAssist();
+  reduceWorkspaceWindow({ type: "close", windowId });
+  if (!wasActive) {
+    syncWorkspaceWindowState();
+    return;
+  }
+  const next = topVisibleWorkspaceWindow(closing?.spaceId);
+  if (next) {
+    runtime.activeWindowId = next.windowId;
+    const destination = routeForWorkspaceWindow(next);
+    if (workspaceActionKey(destination) === workspaceActionKey() && !workspaceDesktopRoute()) {
+      syncWorkspaceWindowState();
+    } else navigate(destination);
+    return;
+  }
+  runtime.activeWindowId = "";
+  navigate("/workspace/home");
+}
+
+function setWorkspaceContentParked(parked) {
+  const content = enforceSingleWorkspaceContent();
+  if (!content) return null;
+  if (parked) {
+    content.dataset.ceV4DesktopParked = "true";
+    content.setAttribute("aria-hidden", "true");
+    content.setAttribute("inert", "");
+  } else if (content.dataset.ceV4DesktopParked === "true") {
+    delete content.dataset.ceV4DesktopParked;
+    content.removeAttribute("aria-hidden");
+    content.removeAttribute("inert");
+  }
+  return content;
+}
+
+function updateWorkspaceWindow() {
+  const route = routePath();
+  const snapshot = projectFlowSnapshot();
+  const routeChanged = runtime.windowRoute && runtime.windowRoute !== route;
+  const windowId = workspaceWindowId(route, snapshot);
+  const previousActiveWindowId = runtime.activeWindowId;
+  runtime.windowRoute = route;
+  if (routeChanged || !runtime.windowRoutes.has(windowId)) {
+    runtime.windowRoutes.set(windowId, String(window.location.hash || `#${route}`).replace(/^#/, ""));
+  }
+  const existing = runtime.windowManagerState.windows.some((item) => item.windowId === windowId);
+  let shouldActivateRouteWindow = !currentWorkspaceWindow(previousActiveWindowId) || routeChanged;
+  if (!existing) {
+    const spaceId = snapshot.id ? `space:project:${snapshot.id}` : "space:main";
+    reduceWorkspaceWindow({
+      type: "open",
+      window: {
+        appId: `app:${routeRecord(route).route.replace(/^\/workspace\//u, "") || "home"}`,
+        windowId,
+        spaceId,
+        projectContext: snapshot.id ? { projectId: snapshot.id } : null,
+        ...defaultWorkspaceWindowGeometry(route),
+      },
+    });
+    arrangeInitialWorkspaceWindows(spaceId);
+    shouldActivateRouteWindow = true;
+  } else {
+    const existingWindow = runtime.windowManagerState.windows.find((item) => item.windowId === windowId);
+    if (routeChanged || existingWindow?.minimized) {
+      reduceWorkspaceWindow({ type: "focus", windowId });
+      shouldActivateRouteWindow = true;
+    }
+  }
+  runtime.activeWindowId = shouldActivateRouteWindow ? windowId : previousActiveWindowId;
   syncWorkspaceWindowState();
 }
 
 function ensureWorkspaceWindow() {
   const host = q("#main-content");
-  const content = q("#workspace-content");
+  const content = enforceSingleWorkspaceContent(host);
   if (!host || !content) return null;
-  setWorkspaceContentParked(false);
-  let shell = runtime.windowShell?.isConnected
-    ? runtime.windowShell
-    : q(":scope > [data-ce-v4-window]", host);
-  if (!shell) {
-    shell = create("section", "ce-v4-window");
-    shell.dataset.ceV4Window = "true";
-    shell.tabIndex = -1;
-    const titlebar = create("header", "ce-v4-window__titlebar");
-    titlebar.dataset.ceV4WindowTitlebar = "true";
-    const traffic = create("div", "ce-v4-window__traffic");
-    traffic.setAttribute("role", "group");
-    traffic.setAttribute("aria-label", "Управление окном");
-    const close = windowControl("close", "Закрыть окно", "ce-v4-window__close");
-    const minimize = windowControl("minimize", "Свернуть окно", "ce-v4-window__minimize");
-    const zoom = windowControl("zoom", "Развернуть окно", "ce-v4-window__zoom");
-    zoom.setAttribute("aria-pressed", "false");
-    traffic.append(close, minimize, zoom);
-    const heading = create("div", "ce-v4-window__heading");
-    const glyph = dockIcon("ce-dock-finder", 24);
-    glyph.dataset.ceV4WindowGlyph = "true";
-    const headingCopy = create("span", "ce-v4-window__heading-copy");
-    const app = create("small", "", "Рабочий стол");
-    app.dataset.ceV4WindowApp = "true";
-    const title = create("strong", "", "Проекты");
-    title.dataset.ceV4WindowTitle = "true";
-    headingCopy.append(app, title);
-    heading.append(glyph, headingCopy);
-    const actions = create("div", "ce-v4-window__actions");
-    const project = create("span", "ce-v4-window__project", "Все проекты");
-    project.dataset.ceV4WindowProject = "true";
-    const mission = iconButton("ce-v4-window__mission", "Показать окна и рабочие столы", "grid");
-    mission.dataset.ceV4WindowAction = "mission";
-    actions.append(project, mission);
-    titlebar.append(traffic, heading, actions);
-    const body = create("div", "ce-v4-window__body");
-    body.dataset.ceV4WindowBody = "true";
-    shell.append(titlebar, body);
-    host.append(shell);
-    shell.addEventListener("click", (event) => {
-      const target = event.target instanceof Element
-        ? event.target.closest("[data-ce-v4-window-action]")
-        : null;
-      const action = target?.dataset.ceV4WindowAction;
-      if (action === "close") closeWorkspaceWindow();
-      if (action === "minimize") minimizeWorkspaceWindow();
-      if (action === "zoom") toggleWorkspaceWindowZoom();
-      if (action === "mission") openMission();
-    });
-    titlebar.addEventListener("dblclick", (event) => {
-      if (event.target instanceof Element && event.target.closest("button, a, input, select, textarea")) return;
-      toggleWorkspaceWindowZoom();
-    });
-    titlebar.addEventListener("pointerdown", beginWorkspaceWindowDrag);
-    titlebar.addEventListener("pointermove", moveWorkspaceWindow);
-    titlebar.addEventListener("pointerup", endWorkspaceWindowDrag);
-    titlebar.addEventListener("pointercancel", endWorkspaceWindowDrag);
-  }
-  const body = q("[data-ce-v4-window-body]", shell);
-  if (body && content.parentElement !== body) {
-    const focused = document.activeElement instanceof HTMLElement
-      && content.contains(document.activeElement)
-      ? document.activeElement
-      : null;
-    const selection = focused instanceof HTMLInputElement || focused instanceof HTMLTextAreaElement
-      ? {
-          start: focused.selectionStart,
-          end: focused.selectionEnd,
-          direction: focused.selectionDirection,
-        }
-      : null;
-    body.append(content);
-    if (focused?.isConnected) {
-      safeFocus(focused);
-      if (selection && selection.start !== null && selection.end !== null) {
-        focused.setSelectionRange(selection.start, selection.end, selection.direction || "none");
-      }
-    }
-  }
-  runtime.windowShell = shell;
-  observeWorkspaceWindowGeometry(shell);
   updateWorkspaceWindow();
-  return shell;
+  return runtime.windowShell;
 }
 
 function removeWorkspaceWindow() {
-  const shell = runtime.windowShell;
-  if (!shell) return;
-  const workspace = shell.closest(".workspace-shell[data-workspace-section]");
-  const host = workspace?.querySelector("#main-content");
-  const content = q("#workspace-content", shell);
-  const liveWorkspace = q(".workspace-shell[data-workspace-section]");
-  const canRehomeContent = Boolean(
-    shell.isConnected
-    && workspace?.isConnected
-    && liveWorkspace === workspace
-    && host?.isConnected
-    && host.contains(shell)
-    && content?.isConnected,
-  );
-  if (canRehomeContent) host.append(content);
-  shell.remove();
+  const host = q("#main-content");
+  const content = enforceSingleWorkspaceContent(host);
+  if (host && content && content.parentElement !== host) moveWorkspaceContent(content, host);
+  runtime.windowShells.forEach((shell) => shell.remove());
+  runtime.windowShells.clear();
+  runtime.windowSurfaces.forEach((frame) => frame.remove());
+  runtime.windowSurfaces.clear();
+  runtime.windowSnapshots.clear();
+  runtime.windowResizeObservers.forEach((observer) => observer.disconnect());
+  runtime.windowResizeObservers.clear();
   runtime.windowResizeObserver?.disconnect();
   runtime.windowResizeObserver = null;
+  stopWorkspaceWindowDragTracking();
+  clearWorkspaceSnapPreview();
+  closeWorkspaceSnapAssist();
+  window.cancelAnimationFrame(runtime.windowSnapResizeFrame);
+  runtime.windowSnapResizeFrame = 0;
   runtime.windowDrag = null;
+  runtime.windowGeometryTouched.clear();
+  runtime.windowZoomClicks.forEach((_, windowId) => clearWorkspaceWindowZoomClick(windowId));
+  runtime.windowSnapMemory.clear();
   runtime.windowShell = null;
   runtime.windowRoute = "";
   runtime.activeWindowId = "";
@@ -3954,9 +4933,297 @@ function desktopMetric(title, value, detail) {
   return card;
 }
 
-function desktopShortcut({ label, detail, route, icon: iconName, count = null, accent = "#98A9BD", stageCode = "" }) {
+function projectCoverPreferenceKey() {
+  const scope = currentDockScope();
+  const identity = scope
+    ? `${encodeURIComponent(scope.organizationId)}:${encodeURIComponent(scope.userId)}`
+    : "authenticated-workspace";
+  return `${PROJECT_COVER_STORAGE_PREFIX}:${identity}`;
+}
+
+function readProjectCoverPreferences() {
+  const fallback = {};
+  const raw = readJson(storage("local"), projectCoverPreferenceKey(), fallback);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return fallback;
+  const allowed = new Set(PROJECT_COVER_OPTIONS.map((option) => option.key).filter((key) => key !== "auto"));
+  return Object.fromEntries(Object.entries(raw)
+    .map(([projectId, cover]) => [String(projectId || "").trim(), String(cover || "").trim()])
+    .filter(([projectId, cover]) => projectId && projectId.length <= 180 && allowed.has(cover))
+    .slice(0, 120));
+}
+
+function projectCoverFor(projectId) {
+  return readProjectCoverPreferences()[String(projectId || "").trim()] || "auto";
+}
+
+function writeProjectCoverPreference(projectId, cover) {
+  const id = String(projectId || "").trim();
+  const nextCover = String(cover || "auto").trim();
+  if (!id || !PROJECT_COVER_OPTIONS.some((option) => option.key === nextCover)) return false;
+  const preferences = readProjectCoverPreferences();
+  if (nextCover === "auto") delete preferences[id];
+  else preferences[id] = nextCover;
+  writeJson(storage("local"), projectCoverPreferenceKey(), preferences);
+  applyProjectCoverPreferences();
+  return true;
+}
+
+function applyProjectCoverPreferences(root = document) {
+  qa(".home-project-card[data-ce-v4-project-id], .ce-v4-desktop-project[data-ce-v4-project-id]", root).forEach((card) => {
+    const cover = projectCoverFor(card.dataset.ceV4ProjectId);
+    if (cover === "auto") card.removeAttribute("data-ce-v4-project-cover");
+    else card.dataset.ceV4ProjectCover = cover;
+    const name = card.dataset.ceV4ProjectName || q(".home-project-card__copy strong, .ce-v4-desktop-project__copy strong", card)?.textContent || "Проект";
+    card.title = `${compact(name, 80)} · открыть проект; правой кнопкой — выбрать обложку`;
+  });
+}
+
+function openProjectCoverPicker(rawProjectId, rawTitle = "Проект", trigger = null) {
+  const projectId = String(rawProjectId || "").trim();
+  if (!projectId) return false;
+  if (runtime.projectCover) closeElementOverlay("projectCover", true);
+  document.dispatchEvent(new CustomEvent(CLOSE_TRANSIENTS_EVENT, { detail: { source: "core" } }));
+  const title = compact(rawTitle || "Проект", 100);
+  const { backdrop, dialog } = overlayBase("ce-v4-project-cover-picker", `Обложка проекта ${title}`);
+  const header = create("header", "ce-v4-project-cover-picker__header");
+  const copy = create("div", "ce-v4-project-cover-picker__heading");
+  copy.append(
+    create("small", "ce-v4-eyebrow", "ВИЗУАЛ ПРОЕКТА"),
+    create("h1", "", `Обложка · ${title}`),
+    create("p", "", "Выберите сцену, по которой проект будет узнаваем на рабочем столе. Это меняет только оформление, не файлы проекта."),
+  );
+  const close = iconButton("", "Закрыть", "close");
+  close.dataset.ceV4Close = "true";
+  header.append(copy, close);
+
+  const current = projectCoverFor(projectId);
+  const grid = create("div", "ce-v4-project-cover-picker__grid");
+  grid.setAttribute("role", "radiogroup");
+  grid.setAttribute("aria-label", "Доступные обложки");
+  PROJECT_COVER_OPTIONS.forEach((option) => {
+    const button = create("button", "ce-v4-project-cover-choice");
+    button.type = "button";
+    button.dataset.ceV4ProjectCoverChoice = option.key;
+    button.dataset.cover = option.key;
+    button.setAttribute("role", "radio");
+    button.setAttribute("aria-checked", String(option.key === current));
+    button.classList.toggle("is-selected", option.key === current);
+    const preview = create("span", "ce-v4-project-cover-choice__preview");
+    preview.dataset.cover = option.key;
+    preview.setAttribute("aria-hidden", "true");
+    const choiceCopy = create("span", "ce-v4-project-cover-choice__copy");
+    choiceCopy.append(create("strong", "", option.label), create("small", "", option.detail));
+    const check = create("span", "ce-v4-project-cover-choice__check", option.key === current ? "✓" : "");
+    check.setAttribute("aria-hidden", "true");
+    button.append(preview, choiceCopy, check);
+    grid.append(button);
+  });
+
+  const footer = create("footer", "ce-v4-project-cover-picker__footer");
+  footer.append(
+    create("p", "", "Выбор сохраняется отдельно для текущего пользователя и проекта."),
+    (() => {
+      const done = create("button", "ce-v4-project-cover-picker__done", "Готово");
+      done.type = "button";
+      done.dataset.ceV4Close = "true";
+      return done;
+    })(),
+  );
+  dialog.append(header, grid, footer);
+  document.body.append(backdrop);
+  runtime.projectCover = backdrop;
+  document.body.classList.add("ce-v4-projectCover-open");
+  activateElementOverlay("projectCover", backdrop);
+  const modalContext = runtime.modalContexts.get("projectCover");
+  if (modalContext && trigger instanceof HTMLElement) modalContext.opener = trigger;
+
+  const syncChoice = (cover) => {
+    qa("[data-ce-v4-project-cover-choice]", grid).forEach((button) => {
+      const selected = button.dataset.ceV4ProjectCoverChoice === cover;
+      button.classList.toggle("is-selected", selected);
+      button.setAttribute("aria-checked", String(selected));
+      const check = q(".ce-v4-project-cover-choice__check", button);
+      if (check) check.textContent = selected ? "✓" : "";
+    });
+  };
+  backdrop.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (event.target === backdrop || target?.closest("[data-ce-v4-close]")) {
+      closeElementOverlay("projectCover");
+      return;
+    }
+    const choice = target?.closest("[data-ce-v4-project-cover-choice]");
+    if (!choice) return;
+    const cover = String(choice.dataset.ceV4ProjectCoverChoice || "auto");
+    if (!writeProjectCoverPreference(projectId, cover)) return;
+    syncChoice(cover);
+    showSystemToast(`Обложка проекта «${title}» обновлена.`, "success");
+  });
+  backdrop.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeElementOverlay("projectCover");
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+    const choices = qa("[data-ce-v4-project-cover-choice]", grid);
+    const active = choices.indexOf(document.activeElement);
+    const delta = ["ArrowRight", "ArrowDown"].includes(event.key) ? 1 : -1;
+    const next = event.key === "Home" ? 0 : event.key === "End" ? choices.length - 1 : (Math.max(0, active) + delta + choices.length) % choices.length;
+    event.preventDefault();
+    safeFocus(choices[next]);
+  });
+  safeFocus(q('[data-ce-v4-project-cover-choice][aria-checked="true"]', grid) || q("button", grid));
+  animate(dialog, [{ opacity: 0, transform: "translateY(12px) scale(.985)" }, { opacity: 1, transform: "translateY(0) scale(1)" }], 190);
+  return true;
+}
+
+function desktopShortcutPreferenceKey(snapshot = projectFlowSnapshot()) {
+  const scope = currentDockScope();
+  const identity = scope
+    ? `${encodeURIComponent(scope.organizationId)}:${encodeURIComponent(scope.userId)}`
+    : "authenticated-workspace";
+  const projectId = String(snapshot.id || "all-projects").replace(/[^A-Za-z0-9_.:@-]/gu, "-");
+  return `${DESKTOP_SHORTCUT_STORAGE_PREFIX}:${identity}:${projectId}`;
+}
+
+function readDesktopShortcutPreference(snapshot = projectFlowSnapshot()) {
+  const fallback = { order: [], hidden: [] };
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(desktopShortcutPreferenceKey(snapshot)) || "null");
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return fallback;
+    const clean = (values) => [...new Set((Array.isArray(values) ? values : [])
+      .map((value) => String(value || "").trim())
+      .filter((value) => /^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,159}$/u.test(value)))]
+      .slice(0, 48);
+    return { order: clean(raw.order), hidden: clean(raw.hidden) };
+  } catch {
+    return fallback;
+  }
+}
+
+function writeDesktopShortcutPreference(preference, snapshot = projectFlowSnapshot()) {
+  try {
+    window.localStorage.setItem(desktopShortcutPreferenceKey(snapshot), JSON.stringify({
+      order: [...new Set(preference.order || [])].slice(0, 48),
+      hidden: [...new Set(preference.hidden || [])].slice(0, 48),
+    }));
+    if (runtime.desktop) runtime.desktop.dataset.ceV4DesktopSignature = "";
+    return true;
+  } catch {
+    showSystemToast("Браузер не разрешил сохранить расположение ярлыков.", "warning");
+    return false;
+  }
+}
+
+function desktopShortcutRecordsInPreferenceOrder(records, snapshot = projectFlowSnapshot()) {
+  const preference = readDesktopShortcutPreference(snapshot);
+  const byKey = new Map(records.map((record) => [record.key, record]));
+  const ordered = [];
+  preference.order.forEach((key) => {
+    const record = byKey.get(key);
+    if (record && !preference.hidden.includes(key)) {
+      ordered.push(record);
+      byKey.delete(key);
+    }
+  });
+  records.forEach((record) => {
+    if (byKey.has(record.key) && !preference.hidden.includes(record.key)) {
+      ordered.push(record);
+      byKey.delete(record.key);
+    }
+  });
+  return ordered;
+}
+
+function desktopShortcutAction(rawKey, action) {
+  const key = String(rawKey || "");
+  const snapshot = projectFlowSnapshot();
+  const preference = readDesktopShortcutPreference(snapshot);
+  const order = [...preference.order];
+  const hidden = [...preference.hidden];
+  const currentNodes = qa("[data-ce-v4-desktop-key]", runtime.desktop);
+  const visibleKeys = currentNodes.map((item) => String(item.dataset.ceV4DesktopKey || "")).filter(Boolean);
+  if (!order.length) order.push(...visibleKeys);
+  const index = order.indexOf(key);
+  if (action === "hide" && key) {
+    if (!hidden.includes(key)) hidden.push(key);
+    showSystemToast("Ярлык убран с рабочего стола. Данные не удалены.", "success");
+  } else if (["left", "right"].includes(action) && index >= 0) {
+    const targetIndex = Math.max(0, Math.min(order.length - 1, index + (action === "left" ? -1 : 1)));
+    order.splice(index, 1);
+    order.splice(targetIndex, 0, key);
+  } else if (action === "reset") {
+    order.splice(0);
+    hidden.splice(0);
+    showSystemToast("Стандартный набор ярлыков восстановлен.", "success");
+  } else if (action === "edit") {
+    runtime.desktopShortcutsEditing = true;
+    runtime.desktop?.classList.add("is-shortcut-editing");
+    if (runtime.desktop) runtime.desktop.dataset.ceV4DesktopSignature = "";
+    updateWorkspaceDesktop();
+    return true;
+  } else return false;
+  writeDesktopShortcutPreference({ order, hidden }, snapshot);
+  updateWorkspaceDesktop();
+  return true;
+}
+
+function beginDesktopShortcutDrag(event) {
+  if (event.button !== 0) return;
+  const item = event.target instanceof Element ? event.target.closest("[data-ce-v4-desktop-key]") : null;
+  if (!(item instanceof HTMLElement)) return;
+  runtime.desktopShortcutDrag = {
+    pointerId: event.pointerId,
+    item,
+    startX: event.clientX,
+    startY: event.clientY,
+    moved: false,
+  };
+  try { item.setPointerCapture?.(event.pointerId); }
+  catch { /* A cancelled synthetic pointer may not be capturable. */ }
+}
+
+function moveDesktopShortcutDrag(event) {
+  const drag = runtime.desktopShortcutDrag;
+  if (!drag || drag.pointerId !== event.pointerId) return;
+  if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 7) return;
+  drag.moved = true;
+  drag.item.classList.add("is-dragging");
+  const nav = drag.item.closest(".ce-v4-desktop-shortcuts");
+  const candidates = qa("[data-ce-v4-desktop-key]", nav).filter((item) => item !== drag.item);
+  const target = candidates
+    .map((item) => {
+      const rect = item.getBoundingClientRect();
+      return { item, distance: Math.hypot(event.clientX - (rect.left + rect.width / 2), event.clientY - (rect.top + rect.height / 2)) };
+    })
+    .sort((left, right) => left.distance - right.distance)[0]?.item;
+  if (target) {
+    const rect = target.getBoundingClientRect();
+    const after = event.clientY > rect.top + rect.height / 2
+      || (Math.abs(event.clientY - (rect.top + rect.height / 2)) < rect.height * .35 && event.clientX > rect.left + rect.width / 2);
+    nav.insertBefore(drag.item, after ? target.nextSibling : target);
+  }
+  event.preventDefault();
+}
+
+function finishDesktopShortcutDrag(event, cancelled = false) {
+  const drag = runtime.desktopShortcutDrag;
+  if (!drag || drag.pointerId !== event.pointerId) return;
+  runtime.desktopShortcutDrag = null;
+  drag.item.classList.remove("is-dragging");
+  if (cancelled || !drag.moved) return;
+  const snapshot = projectFlowSnapshot();
+  const preference = readDesktopShortcutPreference(snapshot);
+  const order = qa("[data-ce-v4-desktop-key]", drag.item.closest(".ce-v4-desktop-shortcuts"))
+    .map((item) => String(item.dataset.ceV4DesktopKey || ""))
+    .filter(Boolean);
+  writeDesktopShortcutPreference({ order, hidden: preference.hidden }, snapshot);
+  runtime.desktopSuppressClickUntil = performance.now() + 260;
+  event.preventDefault();
+}
+
+function desktopShortcut({ key, label, detail, route, icon: iconName, count = null, accent = "#98A9BD", stageCode = "" }) {
   const link = create("a", "ce-v4-desktop-shortcut");
   link.href = `#${route}`;
+  link.dataset.ceV4DesktopKey = key;
+  link.draggable = false;
   if (stageCode) link.dataset.ceV4DesktopStage = stageCode;
   link.style.setProperty("--ce-v4-shortcut-accent", accent);
   link.setAttribute("aria-label", detail ? `${label}. ${detail}` : label);
@@ -3978,6 +5245,122 @@ function desktopShortcut({ label, detail, route, icon: iconName, count = null, a
   return link;
 }
 
+function desktopProjectPreview(project, index = 0) {
+  const progress = Math.max(0, Math.min(100, Number(project?.progress || 0)));
+  const link = create("a", "ce-v4-desktop-project");
+  link.href = `#${projectSelectionRoute(project)}`;
+  link.dataset.ceV4ProjectId = String(project?.id || "");
+  link.dataset.ceV4ProjectName = String(project?.name || "Проект");
+  link.style.setProperty("--ce-v4-project-order", String(index));
+  link.setAttribute("aria-label", `${project?.name || "Проект"}. ${projectStageLabel(project)}. Готовность ${progress}%`);
+  const visual = create("span", "ce-v4-desktop-project__visual");
+  visual.setAttribute("aria-hidden", "true");
+  visual.append(create("span", "ce-v4-desktop-project__monogram", projectMonogram(project?.name || "CE")));
+  const copy = create("span", "ce-v4-desktop-project__copy");
+  copy.append(
+    create("small", "", projectStageLabel(project)),
+    create("strong", "", compact(project?.name || "Проект", 70)),
+  );
+  const meter = create("span", "ce-v4-desktop-project__meter");
+  const fill = create("i");
+  fill.style.width = `${progress}%`;
+  meter.append(fill);
+  const meta = create("span", "ce-v4-desktop-project__meta");
+  meta.append(create("small", "", progress > 0 ? `${progress}% готово` : "Готов к старту"), create("b", "", "Открыть →"));
+  copy.append(meter, meta);
+  link.append(visual, copy);
+  return link;
+}
+
+function desktopCommandCenter(snapshot) {
+  const section = create("section", "ce-v4-desktop-command");
+  section.setAttribute("aria-labelledby", "ce-v4-desktop-command-title");
+  const head = create("header", "ce-v4-desktop-command__head");
+  const copy = create("div");
+  copy.append(
+    create("small", "ce-v4-eyebrow", snapshot.id ? `ПРОЕКТ · ${compact(snapshot.name, 58)}` : "ЛИЧНОЕ РАБОЧЕЕ ПРОСТРАНСТВО"),
+    create("h1", "", snapshot.id ? "Продолжите производственную цепочку" : "Добро пожаловать в Контент‑завод"),
+    create("p", "", snapshot.id
+      ? "Файлы, создание, проверка, публикация и результаты остаются в одном контексте проекта."
+      : "Выберите проект — система покажет точный следующий шаг и сохранит контекст всей истории."),
+  );
+  copy.querySelector("h1").id = "ce-v4-desktop-command-title";
+  const allProjects = create("a", "ce-v4-desktop-command__all", "Все проекты");
+  allProjects.href = "#/workspace/home?view=projects";
+  head.append(copy, allProjects);
+
+  const search = create("button", "ce-v4-desktop-command__search");
+  search.type = "button";
+  search.setAttribute("aria-label", "Найти проект, файл, SKU или задачу");
+  search.append(icon("search", 20), create("span", "", "Найти проект, файл, SKU или задачу"), create("kbd", "", "Ctrl K"));
+  search.addEventListener("click", () => openSpotlight());
+
+  const projectGrid = create("div", "ce-v4-desktop-command__projects");
+  const canCreateProject = workspaceCanCreateProject();
+  if (snapshot.projects.length) {
+    snapshot.projects.slice(0, 3).forEach((project, index) => projectGrid.append(desktopProjectPreview(project, index)));
+  } else {
+    const empty = create(canCreateProject ? "a" : "div", "ce-v4-desktop-project ce-v4-desktop-project--empty");
+    if (canCreateProject) empty.href = "#/workspace/home?view=new";
+    else empty.setAttribute("aria-label", "Доступных проектов пока нет. Создание проекта доступно руководителю.");
+    empty.append(
+      create("span", "ce-v4-desktop-project__empty-mark", canCreateProject ? "+" : "◇"),
+      create("strong", "", canCreateProject ? "Создать первый проект" : "Проектов пока нет"),
+      create("small", "", canCreateProject ? "Начать с файлов и цели" : "Запросите доступ у руководителя"),
+    );
+    projectGrid.append(empty);
+  }
+
+  if (canCreateProject) {
+    const createProject = create("a", "ce-v4-desktop-command__create");
+    createProject.href = "#/workspace/home?view=new";
+    createProject.append(create("span", "", "+"), create("strong", "", "Новый проект"), create("small", "", "Отдельная история и производственный путь"));
+    projectGrid.append(createProject);
+  }
+  section.append(head, search, projectGrid);
+  return section;
+}
+
+function desktopAssistant(snapshot) {
+  const aside = create("aside", "ce-v4-desktop-assistant");
+  aside.setAttribute("aria-labelledby", "ce-v4-desktop-assistant-title");
+  const head = create("header", "ce-v4-desktop-assistant__head");
+  const mark = create("span", "ce-v4-desktop-assistant__mark");
+  mark.append(icon("spark", 20));
+  const title = create("div");
+  title.append(create("small", "", "ИИ‑ЦЕНТР · РЕКОМЕНДАЦИЯ"), create("h2", "", "ИИ предлагает. Человек решает."));
+  title.querySelector("h2").id = "ce-v4-desktop-assistant-title";
+  head.append(mark, title);
+  const description = create("p", "", "Рекомендация приходит из ИИ‑центра как редактируемый черновик. Ваши правки сохраняются и применяются только после явного подтверждения.");
+  const rules = create("ol", "ce-v4-desktop-assistant__rules");
+  [
+    ["1", "Получить рекомендацию", "Источник, аргументы и ограничения видимы"],
+    ["2", "Поправить вручную", "ИИ не перезаписывает решение человека"],
+    ["3", "Подтвердить применение", "Без подтверждения рабочая версия не меняется"],
+  ].forEach(([number, label, detail]) => {
+    const item = create("li");
+    const itemCopy = create("span");
+    itemCopy.append(create("strong", "", label), create("small", "", detail));
+    item.append(create("b", "", number), itemCopy);
+    rules.append(item);
+  });
+  const aiAuthorized = routeIsAuthorized("/workspace/ai");
+  const action = create(
+    snapshot.id && !aiAuthorized ? "button" : "a",
+    "ce-v4-desktop-assistant__action",
+    snapshot.id ? (aiAuthorized ? "Открыть ИИ‑центр" : "ИИ‑центр недоступен для роли") : "Сначала выбрать проект",
+  );
+  if (action instanceof HTMLAnchorElement) {
+    action.href = `#${snapshot.id ? routeWithProject("/workspace/ai", snapshot.id) : "/workspace/home?view=projects"}`;
+  } else {
+    action.type = "button";
+    action.disabled = true;
+    action.title = "Обратитесь к владельцу рабочего пространства";
+  }
+  aside.append(head, description, rules, action);
+  return aside;
+}
+
 function updateWorkspaceDesktop() {
   const desktop = runtime.desktop;
   if (!desktop?.isConnected) return;
@@ -3991,12 +5374,15 @@ function updateWorkspaceDesktop() {
   const doneCount = snapshot.stages.filter((stage) => stage.state === "done").length;
   const attentionCount = snapshot.stages.filter((stage) => stage.state === "blocked").length;
   const reviewStage = snapshot.stages.find((stage) => stage.code === "review");
+  const shortcutPreference = readDesktopShortcutPreference(snapshot);
   const signature = JSON.stringify({
     id: snapshot.id,
     name: snapshot.name,
     unread: snapshot.unread,
     projects: snapshot.projects.map((item) => [item.id, item.name, item.progress, item.currentStage]),
     stages: snapshot.stages.map((item) => [item.code, item.state, item.count]),
+    shortcutPreference,
+    shortcutEditing: runtime.desktopShortcutsEditing,
   });
   if (desktop.dataset.ceV4DesktopSignature === signature) return;
   desktop.dataset.ceV4DesktopSignature = signature;
@@ -4028,16 +5414,19 @@ function updateWorkspaceDesktop() {
 
   const shortcuts = create("nav", "ce-v4-desktop-shortcuts");
   shortcuts.setAttribute("aria-label", "Объекты рабочего стола");
+  const shortcutRecords = [];
   if (snapshot.id) {
-    shortcuts.append(
-      desktopShortcut({
+    shortcutRecords.push(
+      {
+        key: "project-root",
         label: snapshot.name,
         detail: selected ? projectStageLabel(selected) : "Рабочая папка проекта",
         route: routeWithProject("/workspace/board", snapshot.id),
         icon: "ce-dock-finder",
         accent: "#39D99E",
-      }),
-      desktopShortcut({
+      },
+      {
+        key: "review",
         label: "Нужны решения",
         detail: "Проверка материалов человеком",
         route: routeWithProject("/workspace/review?view=current", snapshot.id),
@@ -4045,8 +5434,9 @@ function updateWorkspaceDesktop() {
         count: reviewStage?.count,
         accent: "#C84C65",
         stageCode: "review",
-      }),
-      desktopShortcut({
+      },
+      {
+        key: "materials",
         label: "Материалы",
         detail: "Файлы и исходники проекта",
         route: routeWithProject("/workspace/board", snapshot.id),
@@ -4054,35 +5444,54 @@ function updateWorkspaceDesktop() {
         count: snapshot.stages.find((stage) => stage.code === "files")?.count,
         accent: "#4A8FFF",
         stageCode: "files",
-      }),
-      desktopShortcut({
+      },
+      {
+        key: "inbox",
         label: "Входящие",
         detail: "Личная очередь сотрудника",
         route: routeWithProject("/workspace/work?view=queue", snapshot.id),
         icon: "ce-dock-processes",
         accent: "#98A9BD",
-      }),
+      },
     );
   } else {
     snapshot.projects.slice(0, 4).forEach((project) => {
-      shortcuts.append(desktopShortcut({
+      shortcutRecords.push({
+        key: `project-${project.id}`,
         label: project.name,
         detail: projectStageLabel(project),
         route: projectSelectionRoute(project),
         icon: "ce-dock-finder",
         accent: "#39D99E",
-      }));
+      });
     });
-    shortcuts.append(desktopShortcut({
+    shortcutRecords.push({
+      key: "notifications",
       label: "Уведомления",
       detail: "События рабочего пространства",
       route: "/workspace/work?view=notifications",
       icon: "ce-dock-processes",
       count: snapshot.unread,
       accent: "#D7AD59",
-    }));
+    });
   }
+  desktopShortcutRecordsInPreferenceOrder(shortcutRecords, snapshot)
+    .forEach((record) => shortcuts.append(desktopShortcut(record)));
+  const shortcutSettings = create(
+    "button",
+    "ce-v4-desktop-shortcuts__settings",
+    runtime.desktopShortcutsEditing ? "Готово" : "Настроить ярлыки",
+  );
+  shortcutSettings.type = "button";
+  shortcutSettings.dataset.ceV4DesktopShortcutSettings = "true";
+  shortcutSettings.setAttribute("aria-pressed", String(runtime.desktopShortcutsEditing));
+  shortcutSettings.title = runtime.desktopShortcutsEditing
+    ? "Сохранить расположение ярлыков"
+    : "Перетащите ярлыки или настройте их состав";
+  shortcuts.append(shortcutSettings);
   desktop.replaceChildren(widgets, shortcuts);
+  desktop.classList.toggle("is-shortcut-editing", runtime.desktopShortcutsEditing);
+  desktop.append(desktopCommandCenter(snapshot), desktopAssistant(snapshot));
 }
 
 function ensureWorkspaceDesktop() {
@@ -4096,6 +5505,40 @@ function ensureWorkspaceDesktop() {
     desktop.dataset.ceV4Desktop = "true";
     desktop.setAttribute("aria-label", "Рабочий стол ContentEngine");
     desktop.addEventListener("click", (event) => {
+      const settings = event.target instanceof Element
+        ? event.target.closest("[data-ce-v4-desktop-shortcut-settings]")
+        : null;
+      if (settings) {
+        runtime.desktopShortcutsEditing = !runtime.desktopShortcutsEditing;
+        desktop.dataset.ceV4DesktopSignature = "";
+        updateWorkspaceDesktop();
+        showSystemToast(
+          runtime.desktopShortcutsEditing
+            ? "Перетаскивайте ярлыки. Нажмите ×, чтобы убрать ярлык без удаления данных."
+            : "Расположение ярлыков сохранено.",
+          "success",
+        );
+        return;
+      }
+      const shortcut = event.target instanceof Element
+        ? event.target.closest("[data-ce-v4-desktop-key]")
+        : null;
+      if (shortcut && performance.now() < runtime.desktopSuppressClickUntil) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      if (
+        shortcut
+        && runtime.desktopShortcutsEditing
+        && event.target instanceof Element
+        && event.target.closest(".ce-v4-desktop-shortcut__marker")
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        desktopShortcutAction(shortcut.dataset.ceV4DesktopKey, "hide");
+        return;
+      }
       const target = event.target instanceof Element
         ? event.target.closest("[data-ce-v4-desktop-stage]")
         : null;
@@ -4108,6 +5551,10 @@ function ensureWorkspaceDesktop() {
       event.preventDefault();
       openRequiredStage(stage, snapshot);
     });
+    desktop.addEventListener("pointerdown", beginDesktopShortcutDrag);
+    desktop.addEventListener("pointermove", moveDesktopShortcutDrag);
+    desktop.addEventListener("pointerup", (event) => finishDesktopShortcutDrag(event));
+    desktop.addEventListener("pointercancel", (event) => finishDesktopShortcutDrag(event, true));
     host.prepend(desktop);
   }
   runtime.desktop = desktop;
@@ -4545,6 +5992,8 @@ function closeElementOverlay(name, immediate = false) {
 }
 
 function closeTransientOverlays(immediate = false) {
+  clearWorkspaceSnapPreview();
+  closeWorkspaceSnapAssist();
   closeProjectMenu();
   closeToolsMenu();
   closeDockMore();
@@ -4552,6 +6001,7 @@ function closeTransientOverlays(immediate = false) {
   closeNotificationCenter(false);
   if (runtime.mission) closeElementOverlay("mission", immediate);
   if (runtime.spotlight) closeElementOverlay("spotlight", immediate);
+  if (runtime.projectCover) closeElementOverlay("projectCover", immediate);
   if (runtime.zen) closeZen(immediate);
 }
 
@@ -4705,13 +6155,8 @@ function openMission() {
       const windowId = windowButton.dataset.ceV4MissionWindow;
       const windowRecord = runtime.windowManagerState.windows.find((item) => item.windowId === windowId);
       if (!windowRecord) return;
-      const destination = routeForWorkspaceWindow(windowRecord);
-      reduceWorkspaceWindow({ type: "switchSpace", spaceId: windowRecord.spaceId });
-      reduceWorkspaceWindow({ type: "restore", windowId });
-      runtime.activeWindowId = windowId;
       closeElementOverlay("mission", true);
-      if (workspaceActionKey(destination) === workspaceActionKey()) restoreWorkspaceWindow({ focus: true });
-      else navigate(destination);
+      activateWorkspaceWindow(windowId, { focus: true });
       return;
     }
     const openSpace = target?.closest("[data-ce-v4-mission-open-space]")?.dataset.ceV4MissionOpenSpace;
@@ -4963,6 +6408,7 @@ function captureCurrentAction(expectedActionKey = runtime.actionKey) {
   const expected = String(expectedActionKey || "");
   if (!expected || expected !== runtime.actionKey) return false;
   window.clearTimeout(runtime.scrollTimer);
+  captureWorkspaceWindowSnapshot(currentWorkspaceWindow(), q("#workspace-content"));
   captureScroll(runtime.route, runtime.actionKey);
   runtime.preNavigationActionKey = runtime.actionKey;
   return true;
@@ -5062,6 +6508,24 @@ function markSurface() {
   if (surface) surface.dataset.ceV4Surface = "true";
 }
 
+function mountEmbeddedWorkspaceWindow() {
+  document.documentElement.dataset.contentengineOs = "v4";
+  document.documentElement.dataset.ceWindowChild = "true";
+  document.body.classList.add("contentengine-desktop-v4", "contentengine-window-child");
+  document.body.dataset.ceV4Stable = "true";
+  document.body.removeAttribute("data-ce-v4-desktop-home");
+  cleanLegacyChrome();
+  qa(".ce-v4-menubar, .ce-v4-dock, [data-ce-v4-desktop], [data-ce-v4-window]")
+    .forEach((node) => node.remove());
+  runtime.menubar = null;
+  runtime.dock = null;
+  runtime.desktop = null;
+  runtime.windowShell = null;
+  runtime.windowShells.clear();
+  runtime.windowSurfaces.clear();
+  setWorkspaceContentParked(false);
+}
+
 function mount() {
   const route = routePath();
   if (!isWorkspaceRoute(route) || !hasAuthenticatedWorkspace()) {
@@ -5101,6 +6565,10 @@ function mount() {
     document.documentElement.removeAttribute("data-contentengine-os");
     return;
   }
+  if (IS_EMBEDDED_WORKSPACE_WINDOW) {
+    mountEmbeddedWorkspaceWindow();
+    return;
+  }
   document.documentElement.dataset.contentengineOs = "v4";
   document.body.classList.add("contentengine-desktop-v4");
   document.body.dataset.ceV4Stable = "true";
@@ -5111,8 +6579,8 @@ function mount() {
   ensureWorkspaceDesktop();
   if (workspaceDesktopRoute()) {
     document.body.dataset.ceV4DesktopHome = "true";
-    removeWorkspaceWindow();
-    setWorkspaceContentParked(true);
+    parkWorkspaceContent();
+    syncWorkspaceWindowState();
   } else {
     document.body.removeAttribute("data-ce-v4-desktop-home");
     setWorkspaceContentParked(false);
@@ -5130,6 +6598,7 @@ function mount() {
   }
   updateDock();
   mountHome();
+  applyProjectCoverPreferences();
   syncProjectProgress();
 }
 
@@ -5251,6 +6720,12 @@ function handleKeydown(event) {
   const target = event.target instanceof Element ? event.target : null;
   const editing = Boolean(target?.closest("input, textarea, select, [contenteditable='true']"));
   if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLocaleLowerCase() === "k") {
+    if (IS_EMBEDDED_WORKSPACE_WINDOW) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      window.ContentEngineEmbeddedWindow?.requestShortcut?.("search");
+      return;
+    }
     event.preventDefault();
     event.stopImmediatePropagation();
     const search = q(".ce-v4-menubar__search input", runtime.menubar);
@@ -5260,6 +6735,11 @@ function handleKeydown(event) {
   }
   if (event.key === "Escape") {
     if (q(".ce-v4-context-menu")) return;
+    if (runtime.windowSnapAssist) {
+      event.preventDefault();
+      closeWorkspaceSnapAssist({ restoreFocus: true });
+      return;
+    }
     if (runtime.dockState.keyboardMove) {
       event.preventDefault();
       const key = runtime.dockState.keyboardMove.key;
@@ -5278,6 +6758,7 @@ function handleKeydown(event) {
       event.preventDefault();
       closeDockMore(true);
     }
+    else if (runtime.projectCover) closeElementOverlay("projectCover");
     else if (runtime.spotlight) closeElementOverlay("spotlight");
     else if (runtime.mission) closeElementOverlay("mission");
     else if (runtime.zen) closeZen();
@@ -5289,9 +6770,12 @@ function handleKeydown(event) {
     return;
   }
   if (!editing && hasAuthenticatedWorkspace() && event.altKey && !event.shiftKey && /^Digit[1-9]$/.test(event.code)) {
-    const item = DOCK_APPS
-      .filter((candidate) => routeIsAuthorized(candidate.route))[Number(event.code.slice(-1)) - 1];
-    if (item) activateDockKey(item.key, event);
+    const item = qa(".ce-v4-dock__item[data-ce-v4-dock-key]", runtime.dock)
+      .filter((node) => {
+        const record = DOCK_APPS.find((candidate) => candidate.key === node.dataset.ceV4DockKey);
+        return Boolean(record && routeIsAuthorized(record.route) && isVisible(node));
+      })[Number(event.code.slice(-1)) - 1];
+    if (item) activateDockKey(item.dataset.ceV4DockKey, event);
   }
 }
 
@@ -5300,10 +6784,20 @@ function handleScroll() {
   runtime.scrollTimer = window.setTimeout(() => captureScroll(routePath(), workspaceActionKey()), 180);
 }
 
+function handleWorkspaceResize() {
+  window.cancelAnimationFrame(runtime.windowSnapResizeFrame);
+  runtime.windowSnapResizeFrame = window.requestAnimationFrame(() => {
+    runtime.windowSnapResizeFrame = 0;
+    reflowWorkspaceSnappedWindows();
+    scheduleMount();
+  });
+}
+
 function handlePointerDown(event) {
   const target = event.target instanceof Element ? event.target : null;
   const path = typeof event.composedPath === "function" ? event.composedPath() : [];
   const notificationTrigger = q("[data-ce-v4-notifications]", runtime.menubar);
+  if (runtime.windowSnapAssist && !path.includes(runtime.windowSnapAssist)) closeWorkspaceSnapAssist();
   if (
     notificationCenterOpen()
     && !path.includes(runtime.notificationPanel)
@@ -5328,8 +6822,17 @@ function handleNotificationRouteLink(event) {
   openNotificationCenter(link);
 }
 
+function handleWorkspaceSnapshotRouteLink(event) {
+  if (!isWorkspaceRoute() || !hasAuthenticatedWorkspace()) return;
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  const target = event.target instanceof Element ? event.target : null;
+  const link = target?.closest('a[href^="#/workspace/"]');
+  if (!(link instanceof HTMLAnchorElement)) return;
+  captureWorkspaceWindowSnapshot(currentWorkspaceWindow(), q("#workspace-content"));
+}
+
 function bindScrollOwner() {
-  [q("#main-content"), q("[data-ce-v4-window-body]")].filter(Boolean).forEach((owner) => {
+  [q("#main-content"), ...qa("[data-ce-v4-window-body]")].filter(Boolean).forEach((owner) => {
     if (owner.dataset.ceV4ScrollBound === "true") return;
     owner.dataset.ceV4ScrollBound = "true";
     owner.addEventListener("scroll", handleScroll, { passive: true });
@@ -5338,12 +6841,13 @@ function bindScrollOwner() {
 
 window.addEventListener("hashchange", handleHashChange, { capture: true, passive: true });
 window.addEventListener("scroll", handleScroll, { passive: true });
-window.addEventListener("resize", scheduleMount, { passive: true });
+window.addEventListener("resize", handleWorkspaceResize, { passive: true });
 document.addEventListener(CLOSE_TRANSIENTS_EVENT, (event) => {
   if (event.detail?.source !== "core") closeTransientOverlays(true);
 });
 document.addEventListener("keydown", handleKeydown, true);
 document.addEventListener("pointerdown", handlePointerDown, true);
+document.addEventListener("click", handleWorkspaceSnapshotRouteLink, true);
 document.addEventListener("click", handleNotificationRouteLink, true);
 document.addEventListener("dragstart", handleDockFileDragStart, true);
 document.addEventListener("dragend", resetDockPinZone, true);
@@ -5355,6 +6859,7 @@ document.addEventListener("contentengine:v4-handoff", (event) => {
 });
 document.addEventListener("contentengine:workspace-shell-updated", scheduleMount);
 window.addEventListener("contentengine:workspace-runtime-ready", scheduleMount);
+window.addEventListener("message", handleWorkspaceWindowSurfaceMessage);
 document.addEventListener("contentengine:notifications-updated", scheduleMount);
 document.addEventListener(
   NOTIFICATION_RUNTIME_RESPONSE_EVENT,
@@ -5380,6 +6885,20 @@ window.ContentEngineDesktopV4 = Object.freeze({
   requestMount: scheduleMount,
   flush,
   scheduleMount,
+  openDockEditor,
+  finishDockEditor,
+  dockContextAction,
+  desktopShortcutAction,
+  openProjectCoverPicker,
+  windowContextAction: (windowId, action) => {
+    if (action === "focus" || action === "restore") return activateWorkspaceWindow(windowId, { focus: true });
+    if (action === "minimize") return minimizeWorkspaceWindow(windowId);
+    if (action === "zoom") return toggleWorkspaceWindowZoom(undefined, windowId);
+    if (action === "close") return closeWorkspaceWindow(windowId);
+    return false;
+  },
+  openMission,
+  windowState: () => runtime.windowManagerState,
   refreshDockPreferences: () => {
     loadDockPreferenceForAuthenticatedScope({ force: true });
     updateDock();

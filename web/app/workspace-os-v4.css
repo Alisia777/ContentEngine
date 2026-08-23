@@ -315,6 +315,16 @@ body.contentengine-desktop-v4 #main-content {
     radial-gradient(34rem 26rem at 66% 5%, rgba(71, 122, 190, .07), transparent 70%);
 }
 
+/* Application windows own the work area while open. Hiding the desktop layer
+   prevents its project cards and legacy-looking widgets from reading as a
+   second live application behind a translucent window. */
+.ce-v4-desktop[hidden],
+.ce-v4-desktop.is-obscured {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
 body.contentengine-desktop-v4 [data-ce-v4-desktop-parked="true"] {
   display: none !important;
 }
@@ -477,13 +487,14 @@ body.contentengine-desktop-v4 [data-ce-v4-desktop-parked="true"] {
 .ce-v4-desktop-shortcut__copy strong { font-size: var(--ce-v4-font-helper); font-weight: 720; }
 .ce-v4-desktop-shortcut__copy small { color: #6f7b89; font-size: var(--ce-v4-font-helper); }
 
-/* One application window. Business renderers keep their original nodes and
-   event ownership inside this body; the shell only owns geometry and chrome. */
+/* Several application shells stay live at once. Each shell owns a persistent
+   same-origin child document; only z-order/focus is singular. */
 .ce-v4-window {
   --ce-v4-window-accent: #98a9bd;
   position: absolute;
   z-index: 20;
   display: grid;
+  container: ce-v4-window / inline-size;
   min-width: min(620px, 100%);
   min-height: min(420px, 100%);
   box-sizing: border-box;
@@ -501,6 +512,12 @@ body.contentengine-desktop-v4 [data-ce-v4-desktop-parked="true"] {
     0 12px 36px rgba(0,0,0,.32),
     inset 0 1px 0 rgba(255,255,255,.065);
   animation: ce-v4-window-enter 240ms var(--ce-v4-spring) both;
+}
+
+.ce-v4-window[hidden] {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
 
 .ce-v4-window::before {
@@ -535,6 +552,140 @@ body.contentengine-desktop-v4 [data-ce-v4-desktop-parked="true"] {
   box-shadow: 0 48px 140px rgba(0,0,0,.65), 0 16px 44px rgba(0,0,0,.36);
 }
 
+.ce-v4-window.is-snapped {
+  min-width: 0;
+  min-height: 0;
+  animation: none;
+}
+
+.ce-v4-window-snap-preview {
+  position: absolute;
+  z-index: 430;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, var(--ce-v4-window-accent) 72%, white);
+  border-radius: 18px;
+  opacity: .9;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--ce-v4-window-accent) 16%, transparent), rgba(12,22,34,.58));
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,.09),
+    0 24px 70px rgba(0,0,0,.3),
+    0 0 34px color-mix(in srgb, var(--ce-v4-window-accent) 18%, transparent);
+  backdrop-filter: blur(16px);
+  pointer-events: none;
+  animation: ce-v4-window-snap-preview-in 140ms var(--ce-v4-spring) both;
+}
+
+.ce-v4-window-snap-assist {
+  position: absolute;
+  z-index: 510;
+  top: 14px;
+  left: 50%;
+  width: min(620px, calc(100% - 28px));
+  display: grid;
+  padding: 14px;
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 18px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px 14px;
+  color: var(--ce-v4-text);
+  background:
+    radial-gradient(28rem 10rem at 50% 0, rgba(151,107,255,.13), transparent 70%),
+    rgba(11,18,28,.94);
+  box-shadow: 0 26px 90px rgba(0,0,0,.58), inset 0 1px 0 rgba(255,255,255,.08);
+  backdrop-filter: blur(24px) saturate(1.2);
+  transform: translateX(-50%);
+  animation: ce-v4-window-snap-assist-in 170ms var(--ce-v4-spring) both;
+}
+
+.ce-v4-window-snap-assist__copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.ce-v4-window-snap-assist__copy strong { font-size: 15px; }
+.ce-v4-window-snap-assist__copy small { color: #8190a2; font-size: var(--ce-v4-font-helper); }
+
+.ce-v4-window-snap-assist__close {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 9px;
+  color: #aeb8c4;
+  background: rgba(255,255,255,.035);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ce-v4-window-snap-assist__choices {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.ce-v4-window-snap-assist__choice {
+  min-width: 0;
+  min-height: 82px;
+  display: grid;
+  padding: 10px;
+  border: 1px solid rgba(255,255,255,.09);
+  border-radius: 13px;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  color: #dce5ef;
+  background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.018));
+  font: inherit;
+  font-size: 12px;
+  font-weight: 780;
+  cursor: pointer;
+}
+
+.ce-v4-window-snap-assist__choice:is(:hover, :focus-visible) {
+  border-color: rgba(225,184,91,.46);
+  outline: none;
+  color: #fff;
+  background: linear-gradient(180deg, rgba(225,184,91,.14), rgba(255,255,255,.025));
+}
+
+.ce-v4-window-snap-assist__choice:disabled {
+  opacity: .38;
+  cursor: not-allowed;
+}
+
+.ce-v4-window-snap-assist__glyph {
+  width: 54px;
+  height: 30px;
+  display: grid;
+  padding: 3px;
+  border: 1px solid rgba(151,107,255,.34);
+  border-radius: 7px;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 3px;
+  background: rgba(151,107,255,.08);
+}
+
+.ce-v4-window-snap-assist__glyph i {
+  display: block;
+  border-radius: 3px;
+  background: linear-gradient(180deg, rgba(115,193,255,.82), rgba(151,107,255,.58));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.28);
+}
+
+@keyframes ce-v4-window-snap-preview-in {
+  from { opacity: 0; transform: scale(.985); }
+}
+
+@keyframes ce-v4-window-snap-assist-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(-8px) scale(.98); }
+}
+
 .ce-v4-window__titlebar {
   position: relative;
   z-index: 3;
@@ -549,9 +700,17 @@ body.contentengine-desktop-v4 [data-ce-v4-desktop-parked="true"] {
     linear-gradient(90deg, color-mix(in srgb, var(--ce-v4-window-accent) 7%, transparent), transparent 26%),
     linear-gradient(180deg, rgba(255,255,255,.045), transparent 46%),
     #101923;
-  cursor: default;
+  cursor: grab;
   touch-action: none;
   user-select: none;
+}
+
+.ce-v4-window.is-dragging .ce-v4-window__titlebar {
+  cursor: grabbing;
+}
+
+.ce-v4-window__titlebar :is(button, a, input, select, textarea) {
+  touch-action: manipulation;
 }
 
 .ce-v4-window__traffic {
@@ -654,23 +813,55 @@ body.contentengine-desktop-v4 [data-ce-v4-desktop-parked="true"] {
   white-space: nowrap;
 }
 
+.ce-v4-window__desktop,
 .ce-v4-window__mission {
-  width: 35px;
-  min-width: 35px;
   height: 35px;
   padding: 0;
-  display: grid;
+  display: inline-flex;
   border: 1px solid rgba(255,255,255,.075);
   border-radius: 10px;
-  place-items: center;
+  align-items: center;
+  justify-content: center;
   color: #aeb7c3;
   background: linear-gradient(180deg, rgba(255,255,255,.055), transparent), #182432;
   box-shadow: inset 0 1px 0 rgba(255,255,255,.06), inset 0 -2px 0 rgba(0,0,0,.2);
 }
 
+.ce-v4-window__desktop {
+  min-width: 35px;
+  padding-inline: 10px;
+  gap: 7px;
+  color: color-mix(in srgb, var(--ce-v4-window-accent) 48%, #dce5f0);
+  font-size: var(--ce-v4-font-helper);
+  font-weight: 780;
+  white-space: nowrap;
+}
+
+.ce-v4-window__desktop > svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ce-v4-window__mission {
+  width: 35px;
+  min-width: 35px;
+}
+
+.ce-v4-window__desktop:is(:hover, :focus-visible),
 .ce-v4-window__mission:is(:hover, :focus-visible) {
   color: #fff;
   border-color: color-mix(in srgb, var(--ce-v4-window-accent) 34%, rgba(255,255,255,.08));
+}
+
+@container ce-v4-window (max-width: 1050px) {
+  .ce-v4-window__desktop {
+    width: 35px;
+    padding-inline: 0;
+  }
+
+  .ce-v4-window__desktop-label {
+    display: none;
+  }
 }
 
 .ce-v4-window__body {
@@ -685,6 +876,28 @@ body.contentengine-desktop-v4 [data-ce-v4-desktop-parked="true"] {
   background:
     radial-gradient(40rem 22rem at 100% 0, color-mix(in srgb, var(--ce-v4-window-accent) 7%, transparent), transparent 65%),
     #0e1621;
+}
+
+.ce-v4-window__body.has-live-surface {
+  overflow: hidden;
+  scrollbar-gutter: auto;
+}
+
+.ce-v4-window__surface {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  color-scheme: dark;
+  background: #0e1621;
+  pointer-events: auto;
+}
+
+.ce-v4-window.is-live .ce-v4-window__surface {
+  visibility: visible;
+  opacity: 1;
 }
 
 .ce-v4-window__body > #workspace-content {
@@ -3029,6 +3242,8 @@ body.contentengine-desktop-v4 :is(button,a,input,select,textarea):focus-visible 
 
 @media (prefers-reduced-motion: reduce) {
   .ce-v4-notification-panel { animation: none !important; transform: none !important; }
+  .ce-v4-window-snap-preview { animation: none !important; }
+  .ce-v4-window-snap-assist { animation: none !important; transform: translateX(-50%) !important; }
   .ce-v4-menubar__tools-menu {
     animation: none !important;
     transform: none !important;

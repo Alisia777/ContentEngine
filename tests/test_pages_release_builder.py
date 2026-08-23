@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import shutil
 import sys
 
 import pytest
@@ -35,7 +36,7 @@ def test_pages_release_is_complete_version_bound_and_deterministic(
     output, manifest = _build(tmp_path)
 
     assert manifest["app_script"] == (
-        "./app.js?v=20260816.adaptive.4"
+        "./app.js?v=20260823.copy-engines.39"
     )
     assert manifest["learning_gate_version"] == "2026-07-29.v8"
     assert manifest["artifact_file_count"] == len(manifest["sha256"])
@@ -47,6 +48,13 @@ def test_pages_release_is_complete_version_bound_and_deterministic(
     assert "generation-model-acceptance-view.js" in manifest["sha256"]
     assert "generation-provider-readiness.js" in manifest["sha256"]
     assert "generation-quality-training.js" in manifest["sha256"]
+    for vendor_asset in (
+        "vendor/supabase-js-2.57.4.js",
+        "vendor/supabase-js-2.57.4.umd.js",
+        "vendor/supabase-js-2.57.4.LICENSE.txt",
+        "vendor/supabase-js-2.57.4.NOTICE.json",
+    ):
+        assert vendor_asset in manifest["sha256"]
     for workspace_asset in (
         "workspace-action-key.js",
         "workspace-os-v4-loader.js",
@@ -59,6 +67,7 @@ def test_pages_release_is_complete_version_bound_and_deterministic(
         "workspace-os-v4-context-trash.js",
         "workspace-os-v4-context-trash.css",
         "generation-model-recommendation.js",
+        "generation-model-visuals-v1.js",
         "workspace-generation-research-recommendations.js",
         "workspace-generation-research-recommendations.css",
         "workspace-research-training-bootstrap.js",
@@ -70,6 +79,15 @@ def test_pages_release_is_complete_version_bound_and_deterministic(
         "content-review.css",
     ):
         assert workspace_asset in manifest["sha256"]
+    for model_visual_asset in (
+        "assets/content-factory-model-family-seedream-v1.png",
+        "assets/content-factory-model-family-gen4-v1.png",
+        "assets/content-factory-model-family-seedance-v1.png",
+        "assets/content-factory-model-family-veo-v1.png",
+        "assets/content-factory-model-family-omni-v1.png",
+        "assets/content-factory-ai-center-human-review-v1.png",
+    ):
+        assert model_visual_asset in manifest["sha256"]
     assert "config.example.js" not in manifest["sha256"]
     assert (output / ".nojekyll").is_file()
 
@@ -82,6 +100,25 @@ def test_pages_release_is_complete_version_bound_and_deterministic(
     assert PUBLISHABLE_KEY in config
     assert "RUNWAYML_API_SECRET" not in config
     assert "127.0.0.1" not in config
+
+
+def test_pages_release_rejects_tampered_vendored_supabase_runtime(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    shutil.copytree(ROOT / "web/app", source)
+    umd = source / "vendor/supabase-js-2.57.4.umd.js"
+    umd.write_bytes(umd.read_bytes() + b"\n// tampered\n")
+
+    with pytest.raises(ValueError, match="Supabase runtime integrity mismatch"):
+        build_release(
+            source_dir=source,
+            output_dir=tmp_path / "_site",
+            edge_function=ROOT / "supabase/functions/creator-generate/index.ts",
+            project_ref=PROJECT_REF,
+            expected_project_ref=PROJECT_REF,
+            publishable_key=PUBLISHABLE_KEY,
+        )
 
 
 def test_pages_release_rejects_client_edge_gate_mismatch(tmp_path: Path) -> None:

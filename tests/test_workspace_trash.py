@@ -164,6 +164,60 @@ def test_context_actions_cover_files_tasks_folders_and_empty_surfaces() -> None:
         assert marker in SCRIPT
 
 
+def test_context_menu_targets_desktop_dock_projects_and_window_shells() -> None:
+    shell_descriptor = SCRIPT[
+        SCRIPT.index("function shellDescriptor(") : SCRIPT.index("function shellActions(")
+    ]
+    shell_actions = SCRIPT[
+        SCRIPT.index("function shellActions(") : SCRIPT.index("function emptySurfaceActions(")
+    ]
+    context_target = SCRIPT[
+        SCRIPT.index("function contextTarget(") : SCRIPT.index("function prefersNativeContextMenu(")
+    ]
+
+    for marker in (
+        '.ce-v4-desktop-shortcut[data-ce-v4-desktop-key]',
+        '.ce-v4-dock__item[data-ce-v4-dock-key]',
+        '.home-project-card[data-ce-v4-project-id], .ce-v4-desktop-project',
+        '.ce-v4-window[data-ce-v4-window-id]',
+        'kind: "desktop"',
+    ):
+        assert marker in shell_descriptor
+
+    for marker in (
+        'desktopShortcutAction?.(shell.key, "left")',
+        'desktopShortcutAction?.(shell.key, "right")',
+        'desktopShortcutAction?.(shell.key, "edit")',
+        'desktopShortcutAction?.(shell.key, "hide")',
+        'dockContextAction?.(shell.key, "left")',
+        'dockContextAction?.(shell.key, "right")',
+        'dockContextAction?.(shell.key, "customize")',
+        'dockContextAction?.(shell.key, "remove")',
+        'windowContextAction?.(shell.key, "focus")',
+        'windowContextAction?.(shell.key, "minimize")',
+        'windowContextAction?.(shell.key, "zoom")',
+        'windowContextAction?.(shell.key, "close")',
+        'desktopShortcutAction?.("", "reset")',
+    ):
+        assert marker in shell_actions
+
+    for selector in (
+        ".ce-v4-desktop-shortcut",
+        ".ce-v4-desktop-project",
+        ".home-project-card",
+        ".ce-v4-dock__item",
+        ".ce-v4-window",
+        ".ce-v4-desktop",
+    ):
+        assert selector in context_target
+    assert 'document.addEventListener("contextmenu", handleContextMenu, true)' in SCRIPT
+    assert "event.preventDefault();" in SCRIPT[
+        SCRIPT.index("function handleContextMenu(") : SCRIPT.index(
+            "function openContextMenuForTrashDock(",
+        )
+    ]
+
+
 def test_inline_trash_surface_supports_restore_purge_empty_and_safe_previews() -> None:
     for marker in (
         "createTrashSurface",
@@ -226,19 +280,19 @@ def test_context_trash_loads_in_the_current_core_and_static_stability_order() ->
         "workspace-os-v4-flow.css?v=${BUILD}",
         "workspace-os-v4-stability.css?v=${BUILD}",
         "workspace-os-v4-motion.css?v=${BUILD}",
-        "workspace-os-v4.js?v=${BUILD}",
+        "workspace-os-v4.js?v=${DESKTOP_CORE_BUILD}",
         "workspace-os-v4-trash-rpc-alias.js?v=${BUILD}",
-        "workspace-os-v4-context-trash.js?v=${BUILD}",
+        "workspace-os-v4-context-trash.js?v=${GENERATION_HOTFIX_BUILD}",
     ):
         assert marker in LOADER
 
     assert LOADER.index("workspace-os-v4-context-trash.css?v=${BUILD}") < LOADER.index(
         "workspace-os-v4-stability.css?v=${BUILD}"
     )
-    assert LOADER.index("workspace-os-v4.js?v=${BUILD}") < LOADER.index(
+    assert LOADER.index("workspace-os-v4.js?v=${DESKTOP_CORE_BUILD}") < LOADER.index(
         "workspace-os-v4-trash-rpc-alias.js?v=${BUILD}"
     ) < LOADER.index(
-        "workspace-os-v4-context-trash.js?v=${BUILD}"
+        "workspace-os-v4-context-trash.js?v=${GENERATION_HOTFIX_BUILD}"
     )
     for retired_controller in (
         "workspace-os-v4-stability.js",
@@ -290,3 +344,15 @@ def test_context_trash_javascript_parses_when_node_is_available() -> None:
             capture_output=True,
             text=True,
         )
+
+
+def test_context_menu_covers_finder_collections_and_keyboard_menu_key() -> None:
+    for marker in (
+        '.workspace-board__overview-card, .workspace-board__workflow-folders button',
+        'kind: "finder-collection"',
+        'menuAction("Открыть коллекцию"',
+        'event.key === "ContextMenu"',
+        'event.shiftKey && event.key === "F10"',
+        'openContextMenu(',
+    ):
+        assert marker in SCRIPT

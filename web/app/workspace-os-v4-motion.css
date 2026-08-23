@@ -58,6 +58,19 @@ body.contentengine-desktop-v4 .ce-v4-dock__glass {
   animation: ce-v4-dock-enter var(--ce-motion-overlay) var(--ce-motion-spring) both !important;
 }
 
+/* Window focus and drag feedback is paint-only: geometry remains under the
+   deterministic window manager while the active shell gains visual depth. */
+body.contentengine-desktop-v4 .ce-v4-window:not(.is-dragging, .is-minimizing) {
+  transition:
+    opacity var(--ce-motion-fast) ease,
+    filter var(--ce-motion-fast) ease,
+    box-shadow var(--ce-motion-base) var(--ce-motion-ease) !important;
+}
+
+body.contentengine-desktop-v4 .ce-v4-window.is-dragging {
+  transition: none !important;
+}
+
 /* Dock feedback changes paint and transforms only the tile, never its layout. */
 body.contentengine-desktop-v4 .ce-v4-dock__tile {
   transition:

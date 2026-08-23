@@ -28,10 +28,10 @@ BUG_CHECKIN_CSS = (APP / "workspace-ui-bug-checkin.css").read_text(encoding="utf
 def test_desktop_v4_6_is_the_only_eager_workspace_shell() -> None:
     assert "v4." + "28" not in INDEX
     assert "os4." + "28" not in INDEX
-    assert '<link rel="stylesheet" href="./workspace-os-v4.css?v=20260814.os4.41" />' in INDEX
+    assert '<link rel="stylesheet" href="./workspace-os-v4.css?v=20260822.live-windows.5" />' in INDEX
     assert (
         '<script type="module" '
-        'src="./workspace-os-v4-loader.js?v=20260816.adaptive.4">'
+        'src="./workspace-os-v4-loader.js?v=20260822.live-windows.5">'
         '</script>' in INDEX
     )
     assert INDEX.index('./workspace-os-v4-loader.js') < INDEX.index('./app.js')
@@ -43,15 +43,15 @@ def test_desktop_v4_6_is_the_only_eager_workspace_shell() -> None:
         flags=re.MULTILINE,
     )
     assert active_modules == [
-        './workspace-os-v4-loader.js?v=20260816.adaptive.4',
-        './app.js?v=20260816.adaptive.4',
-        './workspace-build-guard.js?v=20260814.os4.41',
+        './workspace-os-v4-loader.js?v=20260822.live-windows.5',
+        './app.js?v=20260823.copy-engines.39',
+        './workspace-build-guard.js?v=20260823.copy-engines.39',
     ]
 
 
 def test_route_loader_uses_current_v4_6_guided_assets_and_the_dom_patch() -> None:
     for marker in (
-        'const BUILD = "20260814.os4.41"',
+        'const BUILD = "20260823.copy-engines.39"',
         'new URL(relative, import.meta.url).href',
         'import(href)',
         'return route.startsWith("/workspace/");',
@@ -60,9 +60,9 @@ def test_route_loader_uses_current_v4_6_guided_assets_and_the_dom_patch() -> Non
         'workspace-os-v4-flow.css?v=${BUILD}',
         'workspace-os-v4-stability.css?v=${BUILD}',
         'workspace-os-v4-motion.css?v=${BUILD}',
-        'workspace-os-v4.js?v=${BUILD}',
+        'workspace-os-v4.js?v=${DESKTOP_CORE_BUILD}',
         'workspace-os-v4-trash-rpc-alias.js?v=${BUILD}',
-        'workspace-os-v4-context-trash.js?v=${BUILD}',
+        'workspace-os-v4-context-trash.js?v=${GENERATION_HOTFIX_BUILD}',
         'workspace-os-v4-finder.css?v=${BUILD}',
         'workspace-os-v4-finder.js?v=${BUILD}',
         'workspace-os-v4-generation-guided.css?v=${BUILD}',
@@ -77,9 +77,9 @@ def test_route_loader_uses_current_v4_6_guided_assets_and_the_dom_patch() -> Non
     ):
         assert marker in LOADER
 
-    assert LOADER.index('workspace-os-v4.js?v=${BUILD}') < LOADER.index(
+    assert LOADER.index('workspace-os-v4.js?v=${DESKTOP_CORE_BUILD}') < LOADER.index(
         'workspace-os-v4-trash-rpc-alias.js?v=${BUILD}'
-    ) < LOADER.index('workspace-os-v4-context-trash.js?v=${BUILD}')
+    ) < LOADER.index('workspace-os-v4-context-trash.js?v=${GENERATION_HOTFIX_BUILD}')
     for retired in (
         'workspace-os-v4-stability.js',
         'workspace-os-v4-polish.js',
@@ -94,7 +94,7 @@ def test_route_loader_uses_current_v4_6_guided_assets_and_the_dom_patch() -> Non
     assert 'fetch(' not in LOADER
     assert 'XMLHttpRequest' not in LOADER
 
-    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260814.os4.41";' in APP_SCRIPT
+    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260823.copy-engines.39";' in APP_SCRIPT
     assert 'patchWorkspaceContent(existingContent, content);' in APP_SCRIPT
     for marker in (
         'export function patchWorkspaceContent(container, markup)',

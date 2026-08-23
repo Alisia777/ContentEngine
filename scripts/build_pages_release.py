@@ -30,6 +30,17 @@ SECRET_SHAPE_PATTERNS = (
     re.compile(r"postgres(?:ql)?://[^\s\"']+@", re.IGNORECASE),
 )
 LOCAL_ONLY_PATTERN = re.compile(r"__SET_SUPABASE_|127\.0\.0\.1|localhost")
+VENDORED_RUNTIME_INTEGRITY = {
+    "vendor/supabase-js-2.57.4.umd.js": (
+        "7e94b62086deecef8c0ba3b38f514e2a1944ff6c81d92fb3ff967828c406c38f"
+    ),
+    "vendor/supabase-js-2.57.4.LICENSE.txt": (
+        "334dd6820e2eaeab2064e7c59001b810566728a28a41a7c1dbf69bbee17d0936"
+    ),
+}
+VENDORED_LOCAL_LITERAL_EXEMPTIONS = {
+    "vendor/supabase-js-2.57.4.umd.js",
+}
 
 
 def _read_text(path: Path) -> str:
@@ -98,6 +109,68 @@ def _validate_asset_graph(site_root: Path) -> str:
     return app_script
 
 
+def _validate_vendored_runtime(site_root: Path) -> None:
+    notice_path = site_root / "vendor/supabase-js-2.57.4.NOTICE.json"
+    adapter_path = site_root / "vendor/supabase-js-2.57.4.js"
+    if not notice_path.is_file() or not adapter_path.is_file():
+        raise ValueError("vendored Supabase runtime metadata or adapter is missing")
+
+    try:
+        notice = json.loads(_read_text(notice_path))
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+        raise ValueError("vendored Supabase runtime notice is invalid") from error
+    expected_notice = {
+        "package": "@supabase/supabase-js",
+        "version": "2.57.4",
+        "license": "MIT",
+        "npm_tarball_integrity": (
+            "sha512-LcbTzFhHYdwfQ7TRPfol0z04rLEyHabpGYANME6wkQ/kLtKNmI+Vy+WEM8HxeOZAtByUFxoUTTLwhXmrh+CcVw=="
+        ),
+        "vendored_file_sha256": VENDORED_RUNTIME_INTEGRITY[
+            "vendor/supabase-js-2.57.4.umd.js"
+        ],
+        "license_file_sha256": VENDORED_RUNTIME_INTEGRITY[
+            "vendor/supabase-js-2.57.4.LICENSE.txt"
+        ],
+    }
+    if any(notice.get(key) != value for key, value in expected_notice.items()):
+        raise ValueError("vendored Supabase runtime provenance is invalid")
+
+    for relative, expected_hash in VENDORED_RUNTIME_INTEGRITY.items():
+        path = site_root / relative
+        if not path.is_file():
+            raise ValueError(f"vendored Supabase runtime asset is missing: {relative}")
+        actual_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual_hash != expected_hash:
+            raise ValueError(f"vendored Supabase runtime integrity mismatch: {relative}")
+
+    adapter = _read_text(adapter_path)
+    required_adapter_contract = (
+        'import "./supabase-js-2.57.4.umd.js";',
+        'typeof sdk.createClient !== "function"',
+        'typeof sdk.processLock !== "function"',
+        "export const createClient",
+        "export const processLock",
+    )
+    if any(marker not in adapter for marker in required_adapter_contract):
+        raise ValueError("vendored Supabase runtime adapter is incomplete")
+
+    expected_runtime_url = (
+        'const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?'
+        'v=20260823.copy-engines.39";'
+    )
+    for runtime_name in ("app.js", "workspace-os-v4-context-trash.js"):
+        runtime = _read_text(site_root / runtime_name)
+        if (
+            expected_runtime_url not in runtime
+            or "@supabase/supabase-js@2.57.4/+esm" in runtime
+            or "lock: processLock" not in runtime
+        ):
+            raise ValueError(
+                f"{runtime_name} must load the same-origin vendored Supabase runtime"
+            )
+
+
 def _validate_public_artifact(site_root: Path) -> None:
     for path in site_root.rglob("*"):
         if not path.is_file() or path.name == "release-manifest.json":
@@ -109,7 +182,11 @@ def _validate_public_artifact(site_root: Path) -> None:
         for pattern in SECRET_SHAPE_PATTERNS:
             if pattern.search(text):
                 raise ValueError(f"server credential shape entered artifact: {path}")
-        if LOCAL_ONLY_PATTERN.search(text):
+        relative = path.relative_to(site_root).as_posix()
+        if (
+            relative not in VENDORED_LOCAL_LITERAL_EXEMPTIONS
+            and LOCAL_ONLY_PATTERN.search(text)
+        ):
             raise ValueError(f"local-only coordinate entered artifact: {path}")
 
 
@@ -188,6 +265,7 @@ def build_release(
     )
 
     app_script = _validate_asset_graph(output_dir)
+    _validate_vendored_runtime(output_dir)
     client_gate = _extract_learning_gate(output_dir / "app.js")
     edge_gate = _extract_learning_gate(edge_function)
     if client_gate != edge_gate:

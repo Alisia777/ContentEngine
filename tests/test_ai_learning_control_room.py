@@ -777,6 +777,123 @@ return {
     }
 
 
+def test_recommendation_journey_is_visual_read_only_and_human_authoritative() -> None:
+    result = _run_module(
+        VIEW_PATH,
+        AI_CONTROL_ROOM_FIXTURE
+        + r"""
+const pendingEnvelope = structuredClone(envelope);
+pendingEnvelope.categories[0].readiness.confidence = 0.82;
+pendingEnvelope.categories[0].knowledge_sources[0].provenance = "Категорийный гайд · редакция команды";
+const pending = subject.aiLearningControlRoomMarkup(
+  subject.normalizeAiLearningControlRoom(pendingEnvelope, { category: "cosmetics" }),
+  { category: "cosmetics", view: "overview" },
+);
+const journeyStart = pending.indexOf('<section class="ai-learning-decision-journey"');
+const journey = pending.slice(journeyStart, pending.indexOf("</section>", journeyStart) + 10);
+
+const approvedEnvelope = structuredClone(pendingEnvelope);
+approvedEnvelope.categories[0].teaching_cards[0] = {
+  ...approvedEnvelope.categories[0].teaching_cards[0],
+  status: "approved",
+  decision: "approve",
+  decided_by: "Мария Соколова",
+  decided_at: "2026-08-04T11:30:00.000Z",
+};
+const approved = subject.aiLearningControlRoomMarkup(
+  subject.normalizeAiLearningControlRoom(approvedEnvelope, { category: "cosmetics" }),
+  { category: "cosmetics", view: "overview" },
+);
+
+const legacy = subject.aiLearningControlRoomMarkup(
+  subject.normalizeAiLearningControlRoom(pendingEnvelope, { category: "cosmetics" }),
+  { category: "cosmetics", view: "overview", legacyReadOnly: true },
+);
+
+return {
+  hasJourney: journeyStart >= 0
+    && journey.includes('data-ai-recommendation-journey')
+    && journey.includes('data-authority="human-final"')
+    && journey.includes('data-snapshot-mode="read-only"'),
+  exactFlow: [
+    "ИИ-центр рекомендует",
+    "Человек правит",
+    "Человек подтверждает",
+  ].every((label) => journey.includes(label)),
+  visualDiagram: journey.includes("ai-learning-journey-network")
+    && journey.includes("ai-learning-journey-pencil")
+    && journey.includes("ai-learning-confirm-shield"),
+  snapshotEvidence: journey.includes("Confidence")
+    && journey.includes("82%")
+    && journey.includes("Provenance")
+    && journey.includes("Проверяемый источник категории")
+    && journey.includes("Категорийный гайд · редакция команды")
+    && journey.includes("Evidence bbbbbbbbbbbb…"),
+  parameters: [
+    "Категория",
+    "Творческий приём",
+    "Режим",
+    "Контур",
+    "Косметика и уход",
+    "Предпочесть приём",
+    "Policy policy-7",
+  ].every((label) => journey.includes(label)),
+  pendingHumanDecision: journey.includes("Ожидает подтверждения")
+    && journey.includes("Решает человек")
+    && journey.includes("Автоприменение")
+    && journey.includes("Выключено"),
+  noMutatingControls: !/<(?:button|form|input|select|textarea)\b/iu.test(journey)
+    && !journey.includes("data-action=")
+    && !journey.includes("data-primary-action=")
+    && !journey.includes("href="),
+  explicitBoundary: journey.includes("Граница полномочий")
+    && journey.includes("ничего не запускает")
+    && journey.includes("не записывает финальные параметры")
+    && journey.includes("отдельное явное действие человека"),
+  approvedState: approved.includes("Подтверждено человеком")
+    && approved.includes("Мария Соколова")
+    && approved.includes("только в выпущенной сервером версии policy"),
+  legacyState: legacy.includes("Архивный снимок")
+    && legacy.includes("Audit-only")
+    && legacy.includes("не меняют финальные параметры"),
+};
+""",
+    )
+
+    assert result == {
+        "hasJourney": True,
+        "exactFlow": True,
+        "visualDiagram": True,
+        "snapshotEvidence": True,
+        "parameters": True,
+        "pendingHumanDecision": True,
+        "noMutatingControls": True,
+        "explicitBoundary": True,
+        "approvedState": True,
+        "legacyState": True,
+    }
+
+
+def test_recommendation_journey_css_has_motion_and_reduced_motion_boundary() -> None:
+    css = _read(CSS_PATH)
+
+    assert ".ai-learning-decision-journey__flow" in css
+    assert ".ai-learning-journey-card.is-ai" in css
+    assert ".ai-learning-journey-card.is-edit" in css
+    assert ".ai-learning-journey-card.is-confirm" in css
+    assert ".ai-learning-provenance" in css
+    assert ".ai-learning-confidence" in css
+    assert ".ai-learning-journey-parameters" in css
+    assert "@keyframes ai-learning-journey-flow" in css
+    assert "@keyframes ai-learning-confirm-orbit" in css
+
+    reduced_motion = css.rsplit("@media (prefers-reduced-motion: reduce)", maxsplit=1)[1]
+    assert ".ai-learning-journey-card" in reduced_motion
+    assert ".ai-learning-journey-network" in reduced_motion
+    assert ".ai-learning-confirm-orbit" in reduced_motion
+    assert "animation: none !important" in reduced_motion
+
+
 def test_legacy_archive_keeps_only_historical_case_decisions_actionable() -> None:
     result = _run_module(
         VIEW_PATH,

@@ -1584,6 +1584,489 @@ export function normalizeLearnedResearch(item) {
   };
 }
 
+function normalizeJourneyConfidence(value) {
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) {
+    const percent = Math.max(
+      0,
+      Math.min(100, Math.round(numeric >= 0 && numeric <= 1 ? numeric * 100 : numeric)),
+    );
+    return {
+      percent,
+      label: `${percent}%`,
+      note: "уверенность по доказательствам, не accuracy модели",
+    };
+  }
+  const candidate = clean(value, 30).toLowerCase();
+  const mapped = { low: 30, medium: 60, high: 85 }[candidate];
+  if (mapped) {
+    return {
+      percent: mapped,
+      label: ({ low: "Низкая", medium: "Средняя", high: "Высокая" })[candidate],
+      note: "качественная оценка из project snapshot",
+    };
+  }
+  return {
+    percent: 0,
+    label: "Не рассчитана",
+    note: "сервер не прислал confidence",
+  };
+}
+
+function compactJourneyIdentity(value) {
+  const candidate = clean(value, 160);
+  if (!candidate) return "Snapshot без hash";
+  return candidate.length > 18
+    ? `${candidate.slice(0, 10)}…${candidate.slice(-5)}`
+    : candidate;
+}
+
+/**
+ * Produces a bounded read-only presentation model from the already
+ * project-scoped research snapshot.  It does not infer a generation choice,
+ * persist edits or grant an authority that the shell/server did not provide.
+ */
+export function normalizeProjectResearchJourney(value, options = {}) {
+  const source = unwrap(value);
+  const queueItems = Array.isArray(options.queue)
+    ? options.queue
+    : Array.isArray(source.queue) ? source.queue : [];
+  const learnedItems = Array.isArray(options.learned)
+    ? options.learned
+    : Array.isArray(source.learned) ? source.learned : [];
+  const pending = object(queueItems[0]);
+  const learned = learnedItems.length ? normalizeLearnedResearch(learnedItems[0]) : null;
+  const pendingScenarios = Array.isArray(pending.scenarios)
+    ? pending.scenarios.slice(0, 3)
+    : [];
+  const pendingRecommendation = object(pendingScenarios[0]);
+  const learnedRecommendation = learned?.recommendations?.[0] || null;
+  const recommendation = Object.keys(pendingRecommendation).length
+    ? pendingRecommendation
+    : object(learnedRecommendation);
+  const pendingAnalysis = object(pending.analysis);
+  const pendingForecast = normalizeResearchForecast(
+    pending.research_forecast
+      ?? pending.forecast
+      ?? pendingAnalysis.research_forecast
+      ?? pendingAnalysis.forecast,
+  );
+  const forecast = pendingForecast || learned?.forecast || null;
+  const confidence = normalizeJourneyConfidence(
+    forecast?.confidence
+      ?? recommendation.confidence
+      ?? source.confidence,
+  );
+  const pendingSources = Array.isArray(pending.sources) ? pending.sources : [];
+  const provenanceSource = object(pendingSources[0] || learned?.sources?.[0]);
+  const selectedCategory = normalizedCategory(
+    options.selectedCategory
+      || source.product_category
+      || pending.product_category
+      || learned?.category,
+  ) || "other";
+  const hasPending = queueItems.length > 0;
+  const hasLearned = Boolean(learned);
+  const canEdit = options.canEdit === true && hasPending;
+  const canDecide = options.canDecide === true && hasPending;
+  const loading = options.loading === true;
+  const projectRequired = options.projectRequired === true;
+
+  let state = "empty";
+  let decisionTitle = "Ожидаем исследование";
+  let decisionCopy = "Рекомендация появится после завершённого разбора и не будет применена автоматически.";
+  let decisionBadge = "Нет кандидата";
+  if (loading) {
+    state = "loading";
+    decisionTitle = "Загружаем project snapshot";
+    decisionCopy = "До ответа сервера никакие параметры не считаются выбранными или подтверждёнными.";
+    decisionBadge = "Только чтение";
+  } else if (projectRequired) {
+    state = "locked";
+    decisionTitle = "Сначала выберите проект";
+    decisionCopy = "ИИ-центр не смешивает исследования и решения разных проектов.";
+    decisionBadge = "Project scope";
+  } else if (hasPending) {
+    state = "pending";
+    decisionTitle = canDecide
+      ? "Ожидает подтверждения"
+      : "Ожидает уполномоченного человека";
+    decisionCopy = canDecide
+      ? "Выбор и правки ещё не сохранены. Только явное подтверждение в карточке исследования создаст серверную версию рекомендации."
+      : "Текущая роль видит рекомендацию, но не может подтвердить её или изменить серверный отбор.";
+    decisionBadge = canDecide ? "Решает человек" : "Только чтение";
+  } else if (hasLearned && learned.decision === "approve") {
+    state = "confirmed";
+    decisionTitle = "Подтверждено человеком";
+    decisionCopy = "Показана сохранённая серверная версия. Дальнейшие параметры результата всё равно выбираются человеком в отдельной форме стратегии.";
+    decisionBadge = learned.selectedAt || "Решение записано";
+  } else if (hasLearned) {
+    state = "rejected";
+    decisionTitle = "Отклонено человеком";
+    decisionCopy = "Исследование осталось в истории, но не используется как рекомендация и не меняет параметры генерации.";
+    decisionBadge = "Не применять";
+  }
+
+  const generationMode = firstText(
+    recommendation.recommended_generation_mode,
+    recommendation.generationMode,
+    recommendation.generation_mode,
+  );
+  const platform = firstText(recommendation.platform, pending.platform);
+  const durationRaw = firstText(
+    recommendation.duration,
+    recommendation.duration_seconds,
+    recommendation.target_duration,
+    pending.duration,
+  );
+  const duration = durationRaw
+    ? /^\d+(?:[.,]\d+)?$/u.test(durationRaw) ? `${durationRaw} сек` : durationRaw
+    : "Определяет человек";
+  const format = firstText(
+    recommendation.aspect_ratio,
+    recommendation.format,
+    recommendation.output_format,
+    pending.aspect_ratio,
+  );
+  const proofPoints = list(
+    recommendation.proof_points || recommendation.proofPoints,
+    8,
+  );
+  const sourceCount = Number(pending.source_count)
+    || pendingSources.length
+    || learned?.sources?.length
+    || 0;
+  const snapshotIdentity = firstText(
+    pending.receipt_hash,
+    pending.receipt_id,
+    learned?.selectionId,
+    learned?.receiptId,
+  );
+
+  return {
+    state,
+    category: selectedCategory,
+    categoryLabel: categoryLabel(selectedCategory),
+    projectId: normalizedProjectId(source.project_id || pending.project_id || learned?.projectId),
+    recommendationTitle: firstText(
+      recommendation.title,
+      recommendation.hook,
+      "Рекомендация появится после разбора",
+    ),
+    recommendationSummary: firstText(
+      recommendation.hook,
+      recommendation.key_message,
+      recommendation.keyMessage,
+      recommendation.spoken_script,
+      recommendation.spokenScript,
+      forecast?.summary,
+      object(pendingAnalysis.guidance).reason,
+      "ИИ показывает только подтверждаемую гипотезу из project snapshot.",
+    ),
+    confidence,
+    proofCount: proofPoints.length,
+    sourceCount,
+    provenanceTitle: firstText(
+      provenanceSource.title,
+      object(provenanceSource.media).filename,
+      provenanceSource.filename,
+      pending.research_title,
+      "Project research snapshot",
+    ),
+    provenanceDetail: firstText(
+      provenanceSource.provenance,
+      provenanceSource.lineage,
+      provenanceSource.trust_level,
+      provenanceSource.source_type,
+      provenanceSource.mime_type,
+      "Источник зарегистрирован в выбранном проекте",
+    ),
+    provenanceIdentity: compactJourneyIdentity(snapshotIdentity),
+    parameters: [
+      ["Категория", categoryLabel(selectedCategory)],
+      ["Площадка", platform || "Не задана"],
+      ["ИИ / режим", generationMode || "Выбирает человек"],
+      ["Длительность", duration],
+      ["Формат", format || "Определяет человек"],
+      ["Доказательства", `Сигналов: ${proofPoints.length || sourceCount}`],
+    ],
+    editTitle: canEdit ? "Параметры можно поправить ниже" : "Параметры доступны только для чтения",
+    editCopy: canEdit
+      ? "Форма исследования хранит ручные правки отдельно от исходной рекомендации ИИ."
+      : "Ни один показанный параметр нельзя изменить от имени ИИ или текущей роли.",
+    decisionTitle,
+    decisionCopy,
+    decisionBadge,
+    stateVersion: clean(source.state_version || source.stateVersion, 80) || "—",
+    eventCursor: clean(source.event_cursor || source.eventCursor, 80) || "—",
+    actorName: firstText(
+      object(source.actor).display_name,
+      object(source.actor).name,
+      "Уполномоченный сотрудник",
+    ),
+  };
+}
+
+function journeySvgNode(tag, attributes = {}) {
+  const node = typeof document.createElementNS === "function"
+    ? document.createElementNS("http://www.w3.org/2000/svg", tag)
+    : document.createElement(tag);
+  Object.entries(attributes).forEach(([key, value]) => {
+    node.setAttribute(key, String(value));
+  });
+  return node;
+}
+
+function projectJourneyVisual(kind) {
+  const visual = el("div", `ai-research-training__journey-visual is-${kind}`);
+  visual.setAttribute("aria-hidden", "true");
+  const svg = journeySvgNode("svg", {
+    viewBox: "0 0 220 110",
+    focusable: "false",
+  });
+  if (kind === "ai") {
+    svg.append(
+      journeySvgNode("path", {
+        class: "ai-research-training__journey-network",
+        d: "M18 72 58 31l45 31 47-39 52 36",
+      }),
+      journeySvgNode("path", {
+        class: "ai-research-training__journey-network is-soft",
+        d: "M18 72 70 89l33-27 47 18 52-21",
+      }),
+    );
+    [[18, 72, 5], [58, 31, 7], [103, 62, 9], [150, 23, 6], [202, 59, 8]]
+      .forEach(([cx, cy, radius], index) => svg.append(journeySvgNode("circle", {
+        class: `ai-research-training__journey-node is-${index + 1}`,
+        cx,
+        cy,
+        r: radius,
+      })));
+    svg.append(
+      journeySvgNode("circle", {
+        class: "ai-research-training__journey-core",
+        cx: 103,
+        cy: 62,
+        r: 18,
+      }),
+      journeySvgNode("path", {
+        class: "ai-research-training__journey-spark",
+        d: "m103 49 4 9 9 4-9 4-4 9-4-9-9-4 9-4Z",
+      }),
+    );
+  } else if (kind === "edit") {
+    svg.append(
+      journeySvgNode("rect", { x: 22, y: 17, width: 176, height: 74, rx: 14 }),
+      journeySvgNode("path", { d: "M45 38h90M45 55h113M45 72h72" }),
+      journeySvgNode("circle", { cx: 153, cy: 38, r: 8 }),
+      journeySvgNode("circle", { cx: 94, cy: 55, r: 8 }),
+      journeySvgNode("circle", { cx: 141, cy: 72, r: 8 }),
+      journeySvgNode("path", {
+        class: "ai-research-training__journey-pencil",
+        d: "m168 72 26-26 9 9-26 26-13 4Z",
+      }),
+    );
+  } else {
+    svg.append(
+      journeySvgNode("circle", {
+        class: "ai-research-training__journey-orbit is-one",
+        cx: 110,
+        cy: 55,
+        r: 41,
+      }),
+      journeySvgNode("circle", {
+        class: "ai-research-training__journey-orbit is-two",
+        cx: 110,
+        cy: 55,
+        r: 29,
+      }),
+      journeySvgNode("path", {
+        class: "ai-research-training__journey-shield",
+        d: "M110 27c13 8 24 8 24 8v18c0 15-10 25-24 31-14-6-24-16-24-31V35s11 0 24-8Z",
+      }),
+      journeySvgNode("path", {
+        class: "ai-research-training__journey-check",
+        d: "m99 55 8 8 15-18",
+      }),
+    );
+  }
+  visual.append(svg);
+  return visual;
+}
+
+function projectJourneyTopline(step, label) {
+  const topline = el("div", "ai-research-training__journey-topline");
+  topline.append(el("span", "", step), el("small", "", label));
+  return topline;
+}
+
+function projectJourneyCopy(title, description) {
+  const copy = el("div", "ai-research-training__journey-copy");
+  copy.append(el("h4", "", title), el("p", "", description));
+  return copy;
+}
+
+function projectJourneyConnector(label) {
+  const connector = el("div", "ai-research-training__journey-connector");
+  connector.setAttribute("aria-hidden", "true");
+  connector.append(el("i"), el("span", "", label));
+  return connector;
+}
+
+function renderProjectResearchJourney(host, snapshot, options = {}) {
+  if (!(host instanceof HTMLElement)) return;
+  const model = normalizeProjectResearchJourney(snapshot, options);
+  host.dataset.aiProjectRecommendationJourney = "true";
+  host.dataset.authority = "human-final";
+  host.dataset.snapshotMode = "read-only";
+  host.dataset.journeyState = model.state;
+  host.setAttribute("aria-labelledby", "ai-project-recommendation-journey-title");
+  host.replaceChildren();
+
+  const header = el("header", "ai-research-training__journey-header");
+  const heading = el("div");
+  const headingTitle = el("h3", "", "Как гипотеза становится рабочим решением");
+  headingTitle.id = "ai-project-recommendation-journey-title";
+  heading.append(
+    el("p", "eyebrow", "РЕКОМЕНДАЦИЯ ПОД КОНТРОЛЕМ ЧЕЛОВЕКА"),
+    headingTitle,
+    el("p", "", "ИИ показывает проектную рекомендацию и её основания. Человек правит рабочую форму и отдельно подтверждает итоговую серверную версию."),
+  );
+  const readOnly = el("span", "ai-research-training__journey-readonly");
+  readOnly.append(el("i"), el("span", "", "Project snapshot · read-only"));
+  header.append(heading, readOnly);
+
+  const flow = el("div", "ai-research-training__journey-flow");
+  flow.setAttribute("role", "list");
+  flow.setAttribute("aria-label", "ИИ рекомендует, человек правит, человек подтверждает");
+
+  const aiCard = el("article", "ai-research-training__journey-card is-ai");
+  aiCard.dataset.aiProjectJourneyStage = "recommend";
+  aiCard.setAttribute("role", "listitem");
+  const aiVisual = projectJourneyVisual("ai");
+  aiVisual.append(el("span", "ai-research-training__journey-visual-badge", "Project recommendation"));
+  const confidence = el("div", "ai-research-training__journey-confidence");
+  confidence.setAttribute("style", `--airt-confidence:${model.confidence.percent}`);
+  confidence.setAttribute("aria-label", `Confidence: ${model.confidence.label}`);
+  const confidenceHead = el("span");
+  confidenceHead.append(el("b", "", "Confidence"), el("strong", "", model.confidence.label));
+  const confidenceTrack = el("i");
+  confidenceTrack.append(el("i"));
+  confidence.append(confidenceHead, confidenceTrack, el("small", "", model.confidence.note));
+  const provenance = el("div", "ai-research-training__journey-provenance");
+  const provenanceIcon = el("span", "", "⌁");
+  provenanceIcon.setAttribute("aria-hidden", "true");
+  const provenanceCopy = el("div");
+  provenanceCopy.append(
+    el("small", "", `Provenance · ${model.sourceCount} источн.`),
+    el("strong", "", model.provenanceTitle),
+    el("span", "", model.provenanceDetail),
+  );
+  provenance.append(
+    provenanceIcon,
+    provenanceCopy,
+    el("em", "", model.provenanceIdentity),
+  );
+  aiCard.append(
+    projectJourneyTopline("01", "ИИ-центр рекомендует"),
+    aiVisual,
+    projectJourneyCopy(model.recommendationTitle, model.recommendationSummary),
+    confidence,
+    provenance,
+  );
+
+  const editCard = el("article", "ai-research-training__journey-card is-edit");
+  editCard.dataset.aiProjectJourneyStage = "edit";
+  editCard.setAttribute("role", "listitem");
+  const editVisual = projectJourneyVisual("edit");
+  editVisual.append(el("span", "ai-research-training__journey-visual-badge", "Черновик · не применён"));
+  const parameters = el("dl", "ai-research-training__journey-parameters");
+  model.parameters.forEach(([label, value]) => {
+    const row = el("div");
+    row.append(el("dt", "", label), el("dd", "", value));
+    parameters.append(row);
+  });
+  const humanNote = el("div", "ai-research-training__journey-human-note");
+  const humanIcon = el("span", "", "✎");
+  humanIcon.setAttribute("aria-hidden", "true");
+  const humanCopy = el("p");
+  humanCopy.append(
+    el("strong", "", "Правки принадлежат человеку"),
+    el("small", "", "Обновление ИИ не перезаписывает уже введённые значения формы."),
+  );
+  humanNote.append(humanIcon, humanCopy);
+  editCard.append(
+    projectJourneyTopline("02", "Человек правит"),
+    editVisual,
+    projectJourneyCopy(model.editTitle, model.editCopy),
+    parameters,
+    humanNote,
+  );
+
+  const confirmCard = el(
+    "article",
+    `ai-research-training__journey-card is-confirm is-${model.state}`,
+  );
+  confirmCard.dataset.aiProjectJourneyStage = "confirm";
+  confirmCard.setAttribute("role", "listitem");
+  const confirmVisual = projectJourneyVisual("confirm");
+  confirmVisual.append(el(
+    "span",
+    `ai-research-training__journey-visual-badge is-${model.state}`,
+    model.decisionBadge,
+  ));
+  const ledger = el("div", "ai-research-training__journey-ledger");
+  [
+    ["◇", "Источник решения", model.actorName],
+    ["#", "Версия project snapshot", `State ${model.stateVersion} · cursor ${model.eventCursor}`],
+    ["⌁", "Автоприменение", "Выключено"],
+  ].forEach(([icon, label, value]) => {
+    const row = el("div");
+    const glyph = el("span", "", icon);
+    glyph.setAttribute("aria-hidden", "true");
+    const copy = el("p");
+    copy.append(el("strong", "", label), el("small", "", value));
+    row.append(glyph, copy);
+    ledger.append(row);
+  });
+  confirmCard.append(
+    projectJourneyTopline("03", "Человек подтверждает"),
+    confirmVisual,
+    projectJourneyCopy(model.decisionTitle, model.decisionCopy),
+    ledger,
+  );
+
+  flow.append(
+    aiCard,
+    projectJourneyConnector("человек"),
+    editCard,
+    projectJourneyConnector("явное решение"),
+    confirmCard,
+  );
+
+  const boundary = el("footer", "ai-research-training__journey-boundary");
+  boundary.setAttribute("role", "note");
+  const boundaryIcon = el("span", "", "⌾");
+  boundaryIcon.setAttribute("aria-hidden", "true");
+  const boundaryCopy = el("p");
+  boundaryCopy.append(
+    el("strong", "", "Граница полномочий"),
+    el("small", "", "Этот визуальный snapshot не запускает генерацию, не отправляет решение, не изменяет effective policy и не записывает финальные параметры. Любое изменение состояния остаётся отдельным явным действием человека в существующей форме ниже."),
+  );
+  boundary.append(boundaryIcon, boundaryCopy);
+  host.append(header, flow, boundary);
+}
+
+function createProjectResearchJourneyHost(options = {}) {
+  const host = el("section", "ai-research-training__journey");
+  renderProjectResearchJourney(host, {}, {
+    selectedCategory: options.selectedCategory || runtime.category,
+    loading: options.loading !== false,
+    projectRequired: options.projectRequired === true,
+  });
+  return host;
+}
+
 function learnedSection(title, className = "") {
   const section = el(
     "section",
@@ -2039,9 +2522,19 @@ function renderSnapshot(root, snapshot, expectedProjectId = runtime.projectId) {
     || normalizedCategory(runtime.category)
     || "other";
   const selectedCategoryLabel = categoryLabel(selectedCategory);
+  const journeyHost = root.querySelector("[data-ai-project-recommendation-journey]");
   const queueHost = root.querySelector("[data-ai-research-training-queue]");
   const historyHost = root.querySelector("[data-ai-research-training-history]");
-  if (!queueHost || !historyHost) return;
+  if (!journeyHost || !queueHost || !historyHost) return;
+  renderProjectResearchJourney(journeyHost, {
+    ...source,
+    queue,
+    learned,
+  }, {
+    selectedCategory,
+    canEdit,
+    canDecide,
+  });
   queueHost.replaceChildren();
   historyHost.replaceChildren();
 
@@ -2133,6 +2626,15 @@ function guardRenderedTrainingScopeClick(event) {
 function prepareTrainingRoot(root) {
   root.dataset.ceV4Owned = "ai-research-training";
   root.setAttribute(ROOT_ATTRIBUTE, "true");
+  const queue = root.querySelector("[data-ai-research-training-queue]");
+  if (
+    queue
+    && !root.querySelector("[data-ai-project-recommendation-journey]")
+  ) {
+    queue.parentNode?.insertBefore(createProjectResearchJourneyHost({
+      selectedCategory: runtime.category,
+    }), queue);
+  }
   if (root.dataset.renderedScopeGuardBound !== "true") {
     root.addEventListener("click", guardRenderedTrainingScopeClick, true);
     root.dataset.renderedScopeGuardBound = "true";
@@ -2167,6 +2669,9 @@ function buildRoot() {
   status.setAttribute("role", "status");
   status.setAttribute("aria-live", "polite");
 
+  const journey = createProjectResearchJourneyHost({
+    selectedCategory: runtime.category,
+  });
   const queue = el("div", "ai-research-training__queue");
   queue.dataset.aiResearchTrainingQueue = "true";
   const historyWrap = el("details", "ai-research-training__history");
@@ -2175,7 +2680,7 @@ function buildRoot() {
   history.dataset.aiResearchTrainingHistory = "true";
   historyWrap.append(historySummary, history);
 
-  root.append(header, status, queue, historyWrap);
+  root.append(header, status, journey, queue, historyWrap);
   root.addEventListener("change", handleChange);
   root.addEventListener("click", handleClick);
   return root;
@@ -2217,8 +2722,16 @@ function suspendProjectTraining(root) {
     root.hidden = false;
     root.dataset.loading = "false";
     root.dataset.projectRequired = "true";
+    const journey = root.querySelector("[data-ai-project-recommendation-journey]");
     const queue = root.querySelector("[data-ai-research-training-queue]");
     const history = root.querySelector("[data-ai-research-training-history]");
+    if (journey) {
+      renderProjectResearchJourney(journey, {}, {
+        selectedCategory: runtime.category,
+        loading: false,
+        projectRequired: true,
+      });
+    }
     queue?.replaceChildren();
     history?.replaceChildren();
     if (queue) {

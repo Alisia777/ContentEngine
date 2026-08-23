@@ -1,4 +1,8 @@
 const AI_LEARNING_CONTROL_ROOM_VERSION = "ai-learning-control-room-v1";
+const AI_LEARNING_HUMAN_REVIEW_VISUAL_URL = new URL(
+  "./assets/content-factory-ai-center-human-review-v1.png",
+  import.meta.url,
+).href;
 const AI_MARKET_SCOPE_INDEX_VERSION = "ai-learning-market-scope-index-v2";
 const AI_MARKET_READINESS_KIND = "category_evidence_readiness_not_model_iq";
 const AI_MARKET_READINESS_VERSION = "category-evidence-readiness-v3";
@@ -945,6 +949,212 @@ function effectivePolicyRule(policy, id) {
   return policy.rules.find((rule) => rule.id === id) || null;
 }
 
+/**
+ * Read-only explanation of the recommendation boundary.  Every value shown
+ * here already belongs to the normalized authoritative snapshot; this view
+ * deliberately exposes no form, data-action or generation control.
+ */
+function recommendationJourneyMarkup(category, control, legacyReadOnly = false) {
+  const pendingCard = category.teachingCards.find((card) => card.status === "pending") || null;
+  const approvedCard = category.teachingCards.find((card) => card.status === "approved") || null;
+  const rejectedCard = category.teachingCards.find((card) => card.status === "rejected") || null;
+  const candidate = pendingCard || approvedCard || rejectedCard;
+  const preferred = effectivePolicyRule(category.effectivePolicy, "preferred_angle");
+  const avoided = effectivePolicyRule(category.effectivePolicy, "avoid_angle");
+  const policyFallback = preferred || avoided;
+  const candidateAngle = candidate
+    ? creativeAngleLabel(candidate.signalKey)
+    : policyFallback
+      ? creativeAngleLabel(policyFallback.effect)
+      : "Нужно больше доказательств";
+  const candidateTitle = candidate?.title && candidate.title !== candidateAngle
+    ? candidate.title
+    : candidateAngle;
+  const candidateMode = candidate?.aiJudgement === "bad" || (!candidate && avoided && !preferred)
+    ? "Предложение: избегать"
+    : candidate?.aiJudgement === "unknown" || (!candidate && !policyFallback)
+      ? "Нужна ручная оценка"
+      : "Предложение: использовать";
+  const candidateTone = candidate?.aiJudgement === "bad" || (!candidate && avoided && !preferred)
+    ? "avoid"
+    : candidate?.aiJudgement === "unknown" || (!candidate && !policyFallback)
+      ? "unknown"
+      : "use";
+  const rationale = candidate?.rationale
+    || control.guidance?.summary
+    || (policyFallback
+      ? "Показано правило из последней выпущенной сервером политики категории."
+      : "Серверный снимок пока не содержит кандидата правила для этой категории.");
+  const confidence = confidenceText(category);
+  const confidencePercent = typeof category.confidencePercent === "number"
+    ? category.confidencePercent
+    : 0;
+  const source = category.sources.find((item) => item.status === "verified")
+    || category.sources.find((item) => item.status === "active")
+    || category.sources[0]
+    || null;
+  const sourceTitle = source?.title || source?.originalFilename
+    || "Серверный снимок категории";
+  const sourceDetail = source
+    ? source.provenance || source.host || sourceKindLabel(source.kind)
+    : category.evidenceHash
+      ? `Evidence ${shortHash(category.evidenceHash)}`
+      : "Происхождение появится вместе с первым проверяемым источником";
+  const sourceStamp = formatDateTime(source?.verifiedAt || source?.addedAt || control.asOf)
+    || "время не указано";
+  const evidenceIdentity = category.evidenceHash
+    ? `Evidence ${shortHash(category.evidenceHash)}`
+    : `State ${control.stateVersion}`;
+  const modeValue = candidateTone === "avoid"
+    ? "Исключить приём"
+    : candidateTone === "use" ? "Предпочесть приём" : "Не применять";
+  const policyVersion = cleanText(category.effectivePolicy.version, 120);
+  const policyValue = policyVersion
+    ? `Policy ${/^v\d/iu.test(policyVersion)
+      ? policyVersion
+      : /^\d/iu.test(policyVersion) ? `v${policyVersion}` : policyVersion}`
+    : "Вне active policy";
+
+  let decisionTone = "locked";
+  let decisionTitle = "Подтверждение недоступно";
+  let decisionCopy = "Сначала нужен проверяемый кандидат. ИИ ничего не применит сам.";
+  let decisionBadge = "Нет кандидата";
+  if (legacyReadOnly) {
+    decisionTone = "archive";
+    decisionTitle = "Архивный снимок";
+    decisionCopy = "Legacy-данные доступны только для чтения и не меняют финальные параметры.";
+    decisionBadge = "Audit-only";
+  } else if (pendingCard) {
+    decisionTone = "pending";
+    decisionTitle = "Ожидает подтверждения";
+    decisionCopy = "До явного решения человека кандидат не входит в effective policy и не влияет на генерацию.";
+    decisionBadge = "Решает человек";
+  } else if (approvedCard) {
+    decisionTone = "confirmed";
+    decisionTitle = "Подтверждено человеком";
+    decisionCopy = "Решение сохранено в журнале. Применяемым оно становится только в выпущенной сервером версии policy.";
+    decisionBadge = approvedCard.decidedBy || "Решение записано";
+  } else if (rejectedCard) {
+    decisionTone = "rejected";
+    decisionTitle = "Отклонено человеком";
+    decisionCopy = "Кандидат сохранён в истории, но не используется как правило и не меняет параметры результата.";
+    decisionBadge = rejectedCard.decidedBy || "Не применять";
+  } else if (category.effectivePolicy.status === "active" && category.effectivePolicy.rules.length) {
+    decisionTone = "confirmed";
+    decisionTitle = "Выпущено после проверки";
+    decisionCopy = "На экране только чтение: active policy пришла из authoritative-снимка после человеческого решения.";
+    decisionBadge = policyValue;
+  }
+
+  return `<section class="ai-learning-decision-journey" data-ai-recommendation-journey data-authority="human-final" data-snapshot-mode="read-only" aria-labelledby="ai-learning-decision-journey-title">
+    <header class="ai-learning-decision-journey__header">
+      <div>
+        <p class="ai-learning-eyebrow">Рекомендация под контролем человека</p>
+        <h2 id="ai-learning-decision-journey-title">Как предложение становится решением</h2>
+        <p>ИИ показывает аргументы и параметры. Человек может поправить рабочий черновик и только потом отдельно подтвердить его.</p>
+      </div>
+      <span class="ai-learning-decision-journey__readonly"><i aria-hidden="true"></i> Read-only snapshot</span>
+    </header>
+
+    <div class="ai-learning-decision-journey__scene" data-ai-recommendation-art aria-hidden="true">
+      <img src="${escapeHtml(AI_LEARNING_HUMAN_REVIEW_VISUAL_URL)}" alt="" width="1672" height="941" loading="lazy" decoding="async" />
+      <div class="ai-learning-decision-journey__scene-flow">
+        <span><i>01</i>ИИ предлагает</span>
+        <b></b>
+        <span><i>02</i>Человек проверяет</span>
+        <b></b>
+        <span><i>03</i>Решение фиксируется</span>
+      </div>
+    </div>
+
+    <div class="ai-learning-decision-journey__flow" role="list" aria-label="ИИ рекомендует, человек правит, человек подтверждает">
+      <article class="ai-learning-journey-card is-ai is-${candidateTone}" role="listitem">
+        <div class="ai-learning-journey-card__topline"><span>01</span><small>ИИ-центр рекомендует</small></div>
+        <div class="ai-learning-journey-visual is-ai" aria-hidden="true">
+          <svg viewBox="0 0 220 108" focusable="false">
+            <defs><linearGradient id="ai-journey-pulse" x1="0" x2="1"><stop stop-color="#52dce6"/><stop offset="1" stop-color="#ae83ff"/></linearGradient></defs>
+            <path class="ai-learning-journey-network" d="M18 70 58 33l44 28 48-38 52 34"/>
+            <path class="ai-learning-journey-network is-soft" d="M18 70 70 88l32-27 48 18 52-22"/>
+            <g class="ai-learning-journey-nodes"><circle cx="18" cy="70" r="5"/><circle cx="58" cy="33" r="7"/><circle cx="102" cy="61" r="9"/><circle cx="150" cy="23" r="6"/><circle cx="202" cy="57" r="8"/></g>
+            <circle class="ai-learning-journey-core" cx="102" cy="61" r="18"/>
+            <path class="ai-learning-journey-spark" d="m102 48 4 9 9 4-9 4-4 9-4-9-9-4 9-4Z"/>
+          </svg>
+          <span class="ai-learning-journey-mode is-${candidateTone}">${escapeHtml(candidateMode)}</span>
+        </div>
+        <div class="ai-learning-journey-card__copy">
+          <h3>${escapeHtml(candidateTitle)}</h3>
+          <p>${escapeHtml(rationale)}</p>
+        </div>
+        <div class="ai-learning-confidence" style="--ai-confidence:${confidencePercent}" aria-label="Уверенность по доказательствам: ${escapeHtml(confidence.value)}">
+          <span><b>Confidence</b><strong>${escapeHtml(confidence.value)}</strong></span>
+          <i aria-hidden="true"><i></i></i>
+          <small>${escapeHtml(confidence.note)}</small>
+        </div>
+        <div class="ai-learning-provenance" aria-label="Контекст происхождения доказательств категории">
+          <span class="ai-learning-provenance__glyph" aria-hidden="true">⌁</span>
+          <div><small>Provenance контекста · ${escapeHtml(sourceStamp)}</small><strong>${escapeHtml(sourceTitle)}</strong><span>${escapeHtml(sourceDetail)}</span></div>
+          <em>${escapeHtml(evidenceIdentity)}</em>
+        </div>
+      </article>
+
+      <div class="ai-learning-journey-connector" aria-hidden="true"><i></i><span>человек</span></div>
+
+      <article class="ai-learning-journey-card is-edit" role="listitem">
+        <div class="ai-learning-journey-card__topline"><span>02</span><small>Человек правит</small></div>
+        <div class="ai-learning-journey-visual is-edit" aria-hidden="true">
+          <svg viewBox="0 0 220 108" focusable="false">
+            <rect x="23" y="18" width="174" height="72" rx="14"/>
+            <path d="M46 39h84M46 55h112M46 71h66"/>
+            <circle cx="151" cy="39" r="8"/><circle cx="93" cy="55" r="8"/><circle cx="139" cy="71" r="8"/>
+            <path class="ai-learning-journey-pencil" d="m169 70 25-25 9 9-25 25-13 4Z"/>
+          </svg>
+          <span>Рабочий черновик · не применён</span>
+        </div>
+        <div class="ai-learning-journey-card__copy">
+          <h3>Параметры видны до решения</h3>
+          <p>Это визуальная копия snapshot. Правки выполняются человеком в отдельной форме стратегии и не переписываются рекомендацией.</p>
+        </div>
+        <dl class="ai-learning-journey-parameters">
+          <div><dt>Категория</dt><dd>${escapeHtml(category.label)}</dd></div>
+          <div><dt>Творческий приём</dt><dd>${escapeHtml(candidateAngle)}</dd></div>
+          <div><dt>Режим</dt><dd>${escapeHtml(modeValue)}</dd></div>
+          <div><dt>Контур</dt><dd>${escapeHtml(policyValue)}</dd></div>
+        </dl>
+        <div class="ai-learning-human-note"><span aria-hidden="true">✎</span><p><strong>Правки принадлежат человеку</strong><small>ИИ может обновить рекомендацию, но не финальные значения формы.</small></p></div>
+      </article>
+
+      <div class="ai-learning-journey-connector" aria-hidden="true"><i></i><span>явное решение</span></div>
+
+      <article class="ai-learning-journey-card is-confirm is-${decisionTone}" role="listitem">
+        <div class="ai-learning-journey-card__topline"><span>03</span><small>Человек подтверждает</small></div>
+        <div class="ai-learning-journey-visual is-confirm" aria-hidden="true">
+          <svg viewBox="0 0 220 108" focusable="false">
+            <circle class="ai-learning-confirm-orbit is-one" cx="110" cy="54" r="40"/>
+            <circle class="ai-learning-confirm-orbit is-two" cx="110" cy="54" r="28"/>
+            <path class="ai-learning-confirm-shield" d="M110 27c13 8 24 8 24 8v17c0 15-10 25-24 31-14-6-24-16-24-31V35s11 0 24-8Z"/>
+            <path class="ai-learning-confirm-check" d="m99 54 8 8 15-18"/>
+          </svg>
+          <span class="ai-learning-confirm-badge is-${decisionTone}">${escapeHtml(decisionBadge)}</span>
+        </div>
+        <div class="ai-learning-journey-card__copy">
+          <h3>${escapeHtml(decisionTitle)}</h3>
+          <p>${escapeHtml(decisionCopy)}</p>
+        </div>
+        <div class="ai-learning-confirm-ledger">
+          <div><span aria-hidden="true">◇</span><p><strong>Источник решения</strong><small>${escapeHtml(control.actor.name || "Уполномоченный сотрудник")}</small></p></div>
+          <div><span aria-hidden="true">#</span><p><strong>Версия snapshot</strong><small>State ${control.stateVersion} · cursor ${control.eventCursor}</small></p></div>
+          <div><span aria-hidden="true">⌁</span><p><strong>Автоприменение</strong><small>Выключено</small></p></div>
+        </div>
+      </article>
+    </div>
+
+    <footer class="ai-learning-decision-journey__boundary" role="note">
+      <span aria-hidden="true">⌾</span>
+      <p><strong>Граница полномочий</strong><small>Этот блок ничего не запускает, не меняет effective policy и не записывает финальные параметры. Для изменения состояния требуется отдельное явное действие человека в соответствующем рабочем контуре.</small></p>
+    </footer>
+  </section>`;
+}
+
 function signalSummaryMarkup(category, control, status) {
   const preferred = effectivePolicyRule(category.effectivePolicy, "preferred_angle");
   const avoided = effectivePolicyRule(category.effectivePolicy, "avoid_angle");
@@ -984,7 +1194,8 @@ function signalSummaryMarkup(category, control, status) {
 
 function overviewMarkup(category, control, status, legacyReadOnly = false) {
   const confidence = confidenceText(category);
-  return `${signalSummaryMarkup(category, control, status)}
+  return `${recommendationJourneyMarkup(category, control, legacyReadOnly)}
+  ${signalSummaryMarkup(category, control, status)}
   <div class="ai-learning-overview-grid">
     <article class="ai-learning-readiness-card is-${status.tone}" data-ce-patch-key="ai-readiness-${category.key}">
       <div class="ai-learning-score-ring" style="--ai-learning-score:${category.score}" role="img" aria-label="${legacyReadOnly ? "Архивный legacy-показатель" : "Готовность доказательной базы категории"}: ${category.score} процентов">

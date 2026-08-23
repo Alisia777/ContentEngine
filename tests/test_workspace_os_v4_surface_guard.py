@@ -19,11 +19,11 @@ def test_static_stability_layer_replaces_legacy_observer_controllers() -> None:
         'workspace-os-v4-flow.css?v=${BUILD}',
         'workspace-os-v4-stability.css?v=${BUILD}',
         'workspace-os-v4-motion.css?v=${BUILD}',
-        'workspace-os-v4.js?v=${BUILD}',
+        'workspace-os-v4.js?v=${DESKTOP_CORE_BUILD}',
     ):
         assert marker in LOADER
     assert LOADER.index('workspace-os-v4-stability.css?v=${BUILD}') < LOADER.index(
-        'workspace-os-v4.js?v=${BUILD}'
+        'workspace-os-v4.js?v=${DESKTOP_CORE_BUILD}'
     )
     for retired_controller in (
         'workspace-os-v4-stability.js',

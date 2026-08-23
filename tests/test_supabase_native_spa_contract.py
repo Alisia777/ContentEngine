@@ -1,5 +1,6 @@
-from pathlib import Path
+import hashlib
 import json
+from pathlib import Path
 import re
 import shutil
 import subprocess
@@ -34,11 +35,334 @@ def test_static_spa_assets_are_complete_and_cloud_only() -> None:
     assert "http://localhost" not in bundle
     assert "http://127.0.0.1" not in bundle
     assert "render.com" not in bundle.casefold()
-    assert "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm" in bundle
+    assert (
+        'const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?'
+        'v=20260823.copy-engines.39";'
+    ) in bundle
+    assert "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm" not in bundle
     assert "@supabase/supabase-js@latest" not in bundle
     assert 'import { createClient } from "https://cdn.jsdelivr.net' not in _text("app.js")
     assert "import(SUPABASE_SDK_URL)" in _text("app.js")
     assert '<script src="./boot-watchdog.js?' in _text("index.html")
+
+
+def test_supabase_browser_runtime_is_same_origin_versioned_and_integrity_pinned() -> None:
+    vendor = APP / "vendor"
+    umd = vendor / "supabase-js-2.57.4.umd.js"
+    adapter = vendor / "supabase-js-2.57.4.js"
+    license_file = vendor / "supabase-js-2.57.4.LICENSE.txt"
+    notice = json.loads(
+        (vendor / "supabase-js-2.57.4.NOTICE.json").read_text(encoding="utf-8")
+    )
+
+    assert umd.is_file()
+    assert adapter.is_file()
+    assert license_file.is_file()
+    assert notice["package"] == "@supabase/supabase-js"
+    assert notice["version"] == "2.57.4"
+    assert notice["license"] == "MIT"
+    assert notice["npm_tarball_integrity"] == (
+        "sha512-LcbTzFhHYdwfQ7TRPfol0z04rLEyHabpGYANME6wkQ/kLtKNmI+Vy+WEM8HxeOZAtByUFxoUTTLwhXmrh+CcVw=="
+    )
+    assert hashlib.sha256(umd.read_bytes()).hexdigest() == (
+        notice["vendored_file_sha256"]
+    )
+    assert hashlib.sha256(license_file.read_bytes()).hexdigest() == (
+        notice["license_file_sha256"]
+    )
+    adapter_source = adapter.read_text(encoding="utf-8")
+    assert 'import "./supabase-js-2.57.4.umd.js";' in adapter_source
+    assert "export const createClient" in adapter_source
+    assert "export const processLock" in adapter_source
+    for runtime_name in ("app.js", "workspace-os-v4-context-trash.js"):
+        runtime = _text(runtime_name)
+        assert (
+            'const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?'
+            'v=20260823.copy-engines.39";'
+        ) in runtime
+        assert "cdn.jsdelivr.net/npm/@supabase/supabase-js" not in runtime
+        assert "lock: processLock" in runtime
+
+
+def test_process_lock_bypasses_cross_tab_navigator_lock_and_serializes_clients(
+    tmp_path: Path,
+) -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is required for executable vendored-runtime checks")
+
+    source = APP / "vendor"
+    runtime = tmp_path / "vendor"
+    runtime.mkdir()
+    for name in (
+        "supabase-js-2.57.4.js",
+        "supabase-js-2.57.4.umd.js",
+    ):
+        shutil.copy2(source / name, runtime / name)
+    (runtime / "package.json").write_text(
+        '{"type":"module"}\n',
+        encoding="utf-8",
+    )
+
+    adapter_url = (runtime / "supabase-js-2.57.4.js").as_uri()
+    script = f"""
+globalThis.self = globalThis;
+globalThis.window = globalThis;
+globalThis.document = {{
+  visibilityState: "visible",
+  addEventListener() {{}},
+  removeEventListener() {{}},
+}};
+Object.defineProperty(globalThis, "BroadcastChannel", {{
+  value: undefined,
+  configurable: true,
+}});
+let navigatorLockCalls = 0;
+Object.defineProperty(globalThis, "navigator", {{
+  value: {{
+    locks: {{
+      request() {{
+        navigatorLockCalls += 1;
+        return new Promise(() => {{}});
+      }},
+    }},
+  }},
+  configurable: true,
+}});
+const sdk = await import({json.dumps(adapter_url)});
+if (typeof sdk.createClient !== "function") throw new Error("createClient missing");
+if (typeof sdk.processLock !== "function") throw new Error("processLock missing");
+
+const memoryStorage = () => {{
+  const values = new Map();
+  return {{
+    getItem(key) {{ return values.has(key) ? values.get(key) : null; }},
+    setItem(key, value) {{ values.set(key, String(value)); }},
+    removeItem(key) {{ values.delete(key); }},
+  }};
+}};
+const baseAuth = (storageKey, storage, lock) => ({{
+  persistSession: true,
+  autoRefreshToken: false,
+  detectSessionInUrl: false,
+  flowType: "pkce",
+  storageKey,
+  storage,
+  ...(lock ? {{ lock }} : {{}}),
+}});
+
+// Reproduce a lock held by another same-origin tab: the SDK's browser default
+// invokes Navigator LockManager and getSession cannot complete.
+const defaultClient = sdk.createClient(
+  "https://example.supabase.co",
+  "sb_publishable_offline_runtime_contract_1234567890",
+  {{ auth: baseAuth("default-browser-lock", memoryStorage(), null) }},
+);
+const defaultOutcome = await Promise.race([
+  defaultClient.auth.getSession().then(() => "resolved"),
+  new Promise((resolve) => setTimeout(() => resolve("blocked"), 50)),
+]);
+if (defaultOutcome !== "blocked" || navigatorLockCalls !== 1) {{
+  throw new Error("Navigator Lock contention was not reproduced");
+}}
+
+// The explicit official processLock is scoped to this JavaScript realm. Two
+// clients in the same tab still serialize, while the held Navigator Lock from
+// another tab is never consulted.
+const sharedStorage = memoryStorage();
+const processClients = [0, 1].map(() => sdk.createClient(
+  "https://example.supabase.co",
+  "sb_publishable_offline_runtime_contract_1234567890",
+  {{ auth: baseAuth("contentengine-tab-session", sharedStorage, sdk.processLock) }},
+));
+const sessions = await Promise.race([
+  Promise.all(processClients.map((client) => client.auth.getSession())),
+  new Promise((_, reject) => setTimeout(
+    () => reject(new Error("processLock clients timed out")),
+    1_000,
+  )),
+]);
+if (
+  sessions.some((result) => result.error || result.data.session !== null)
+  || navigatorLockCalls !== 1
+) {{
+  throw new Error("processLock did not isolate the tab from Navigator LockManager");
+}}
+process.stdout.write(JSON.stringify({{
+  defaultOutcome,
+  navigatorLockCalls,
+  processSessions: sessions.map((result) => result.data.session),
+}}));
+"""
+    result = subprocess.run(
+        [node, "--input-type=module", "-"],
+        input=script,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert json.loads(result.stdout) == {
+        "defaultOutcome": "blocked",
+        "navigatorLockCalls": 1,
+        "processSessions": [None, None],
+    }
+
+
+def test_hybrid_auth_storage_restores_password_session_after_reconstruction(
+    tmp_path: Path,
+) -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is required for executable auth reload checks")
+
+    source = APP / "vendor"
+    runtime = tmp_path / "vendor"
+    runtime.mkdir()
+    for name in (
+        "supabase-js-2.57.4.js",
+        "supabase-js-2.57.4.umd.js",
+    ):
+        shutil.copy2(source / name, runtime / name)
+    (runtime / "package.json").write_text(
+        '{"type":"module"}\n',
+        encoding="utf-8",
+    )
+
+    app = _text("app.js")
+    storage_helpers = app[
+        app.index("function createHybridAuthStorage()") :
+        app.index("function normalizeWorkspaceAccessRequestResult(")
+    ]
+    adapter_url = (runtime / "supabase-js-2.57.4.js").as_uri()
+    script = f"""
+globalThis.self = globalThis;
+globalThis.window = globalThis;
+globalThis.document = {{
+  visibilityState: "visible",
+  addEventListener() {{}},
+  removeEventListener() {{}},
+}};
+Object.defineProperty(globalThis, "BroadcastChannel", {{
+  value: undefined,
+  configurable: true,
+}});
+Object.defineProperty(globalThis, "navigator", {{
+  value: {{}},
+  configurable: true,
+}});
+
+const memoryStorage = () => {{
+  const values = new Map();
+  return {{
+    get length() {{ return values.size; }},
+    key(index) {{ return [...values.keys()][index] ?? null; }},
+    getItem(key) {{ return values.has(key) ? values.get(key) : null; }},
+    setItem(key, value) {{ values.set(key, String(value)); }},
+    removeItem(key) {{ values.delete(key); }},
+  }};
+}};
+window.localStorage = memoryStorage();
+window.sessionStorage = memoryStorage();
+
+{storage_helpers}
+
+const sdk = await import({json.dumps(adapter_url)});
+const encode = (value) => Buffer.from(JSON.stringify(value)).toString("base64url");
+const user = {{
+  id: "11111111-1111-4111-8111-111111111111",
+  aud: "authenticated",
+  role: "authenticated",
+  email: "operator@example.com",
+  user_metadata: {{}},
+}};
+const accessToken = [
+  encode({{ alg: "HS256", typ: "JWT" }}),
+  encode({{
+    sub: user.id,
+    aud: "authenticated",
+    role: "authenticated",
+    exp: Math.floor(Date.now() / 1_000) + 3_600,
+  }}),
+  "signature",
+].join(".");
+const mockFetch = async (input) => {{
+  const url = String(input);
+  if (!url.includes("/auth/v1/token?grant_type=password")) {{
+    throw new Error(`unexpected auth request: ${{url}}`);
+  }}
+  return new Response(JSON.stringify({{
+    access_token: accessToken,
+    refresh_token: "refresh-token",
+    expires_in: 3_600,
+    token_type: "bearer",
+    user,
+  }}), {{
+    status: 200,
+    headers: {{ "content-type": "application/json" }},
+  }});
+}};
+const storageKey = "contentengine.creator-workspace.example.supabase.co.auth-session.v1";
+const options = () => ({{
+  auth: {{
+    persistSession: true,
+    autoRefreshToken: false,
+    detectSessionInUrl: false,
+    flowType: "pkce",
+    lock: sdk.processLock,
+    storage: createHybridAuthStorage(),
+    storageKey,
+  }},
+  global: {{ fetch: mockFetch }},
+}});
+
+const firstClient = sdk.createClient(
+  "https://example.supabase.co",
+  "sb_publishable_reload_contract_1234567890",
+  options(),
+);
+const signedIn = await firstClient.auth.signInWithPassword({{
+  email: "operator@example.com",
+  password: "correct-password",
+}});
+if (signedIn.error || signedIn.data.user?.id !== user.id) {{
+  throw signedIn.error || new Error("mock password login failed");
+}}
+const storedBeforeReconstruction = Boolean(window.sessionStorage.getItem(storageKey));
+
+// A new client with a new hybrid adapter models a same-origin page reload.
+const reconstructedClient = sdk.createClient(
+  "https://example.supabase.co",
+  "sb_publishable_reload_contract_1234567890",
+  options(),
+);
+const restored = await reconstructedClient.auth.getSession();
+if (restored.error || restored.data.session?.user?.id !== user.id) {{
+  throw restored.error || new Error("session was not restored after reconstruction");
+}}
+process.stdout.write(JSON.stringify({{
+  storedBeforeReconstruction,
+  restoredUserId: restored.data.session.user.id,
+  localSessionValue: window.localStorage.getItem(storageKey),
+}}));
+"""
+    result = subprocess.run(
+        [node, "--input-type=module", "-"],
+        input=script,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert json.loads(result.stdout) == {
+        "storedBeforeReconstruction": True,
+        "restoredUserId": "11111111-1111-4111-8111-111111111111",
+        "localSessionValue": None,
+    }
 
 
 def test_pages_config_contains_only_browser_safe_coordinates_and_generation_flags() -> None:
@@ -498,7 +822,7 @@ def test_password_reset_has_a_bounded_wait_and_always_unlocks_the_form() -> None
     assert "finally" in reset
     assert "if (form.isConnected) setFormBusy(form, false)" in reset
     assert "Promise.race([operation, timeout])" in app
-    assert './app.js?v=20260816.adaptive.4' in index
+    assert './app.js?v=20260823.copy-engines.39' in index
 
 
 def test_novice_workspace_has_required_tabs_and_last_mile_forms() -> None:
