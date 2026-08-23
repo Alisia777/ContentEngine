@@ -1369,6 +1369,56 @@ function workspaceBoardOverviewMarkup(board, busy) {
     </section>`;
 }
 
+// Снятый кадр живёт в кэше по id материала: перерисовки списка (поллинг,
+// обновления) больше не пересоздают <video> и не мигают чёрным — карточка
+// рисует лёгкий <img> из кэша. Снимаем кадр один раз, когда видео его отдало.
+const previewFrameCache = new Map();
+
+function capturePreviewFrame(video) {
+  const mediaId = String(video?.dataset?.previewCapture || "");
+  if (!mediaId || previewFrameCache.has(mediaId)) return;
+  try {
+    const width = Math.max(1, Math.min(480, video.videoWidth || 0));
+    const height = Math.max(
+      1,
+      Math.round(width * ((video.videoHeight || 1) / (video.videoWidth || 1))),
+    );
+    if (!video.videoWidth || !video.videoHeight) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext("2d").drawImage(video, 0, 0, width, height);
+    const frame = canvas.toDataURL("image/jpeg", 0.72);
+    if (!frame.startsWith("data:image/")) return;
+    previewFrameCache.set(mediaId, frame);
+    // Живой узел меняем на месте: до следующей перерисовки карточка уже не
+    // держит видеоэлемент и не перезапросит файл.
+    const img = document.createElement("img");
+    img.className = "workspace-board__preview-frame";
+    img.src = frame;
+    img.alt = "";
+    img.decoding = "async";
+    video.replaceWith(img);
+  } catch {
+    // Кадр не снялся (например, хранилище без CORS): видео остаётся видимым
+    // кадром само по себе, просто без кэша.
+  }
+}
+
+if (typeof document !== "undefined" && !globalThis.__ceBoardPreviewCaptureBound) {
+  globalThis.__ceBoardPreviewCaptureBound = true;
+  document.addEventListener(
+    "loadeddata",
+    (event) => {
+      const video = event.target;
+      if (video instanceof HTMLVideoElement && video.dataset.previewCapture) {
+        capturePreviewFrame(video);
+      }
+    },
+    true,
+  );
+}
+
 function itemPreviewMarkup(item, detailed = false) {
   const previewUrl = safePreviewUrl(item.previewUrl);
   const imagePreviewUrl = safePreviewUrl(item.imagePreviewUrl);
@@ -1382,11 +1432,15 @@ function itemPreviewMarkup(item, detailed = false) {
     return `<img src="${escapeHtml(imagePreviewUrl)}" alt="" loading="lazy" decoding="async" />`;
   }
   if (previewUrl && item.mimeType.startsWith("video/")) {
+    const cachedFrame = previewFrameCache.get(String(item.id));
+    if (cachedFrame) {
+      return `<img class="workspace-board__preview-frame" src="${cachedFrame}" alt="" decoding="async" /><span class="workspace-board__preview-play" aria-hidden="true">▶</span>`;
+    }
     // Первый кадр вместо фиолетовой заглушки: фрагмент #t= заставляет браузер
     // отрисовать кадр, не проигрывая и не скачивая ролик целиком (metadata +
     // один кадр). Элемент немой и не интерактивный — карточкой остаётся сама
-    // плитка.
-    return `<video class="workspace-board__preview-frame" src="${escapeHtml(previewUrl)}#t=0.4" preload="metadata" muted playsinline disablepictureinpicture disableremoteplayback tabindex="-1" aria-hidden="true"></video><span class="workspace-board__preview-play" aria-hidden="true">▶</span>`;
+    // плитка; после загрузки кадр уходит в кэш и карточка живёт лёгким <img>.
+    return `<video class="workspace-board__preview-frame" src="${escapeHtml(previewUrl)}#t=0.4" preload="metadata" muted playsinline disablepictureinpicture disableremoteplayback tabindex="-1" aria-hidden="true" crossorigin="anonymous" data-preview-capture="${escapeHtml(item.id)}"></video><span class="workspace-board__preview-play" aria-hidden="true">▶</span>`;
   }
   return `<span class="workspace-board__preview-symbol" aria-hidden="true">${escapeHtml(ENTITY_ICONS[item.entityType] || "◇")}</span>`;
 }

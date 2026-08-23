@@ -34,6 +34,20 @@ def test_video_cards_paint_the_first_frame() -> None:
     assert ".workspace-board__item-preview {\n  position: relative;" in css.replace("\r\n", "\n")
 
 
+def test_captured_frames_live_in_a_cache_so_rerenders_do_not_blink() -> None:
+    """Перерисовки списка (поллинг, обновления) пересоздавали <video> — карточки
+    мигали чёрным и заново тянули файл. Снятый кадр кэшируется по id материала,
+    живой узел заменяется на <img> сразу после захвата."""
+    board = text(BOARD)
+    assert "const previewFrameCache = new Map();" in board
+    assert "function capturePreviewFrame(video)" in board
+    assert 'canvas.toDataURL("image/jpeg", 0.72)' in board
+    assert "video.replaceWith(img);" in board
+    assert '"loadeddata"' in board
+    assert 'crossorigin="anonymous" data-preview-capture="${escapeHtml(item.id)}"' in board
+    assert "const cachedFrame = previewFrameCache.get(String(item.id));" in board
+
+
 def test_loopback_signed_urls_are_previews_too() -> None:
     """Без адресных литералов (их запрещает сборка Pages): http-превью проходит
     только когда сама страница на http и хост совпадает — то есть на стенде."""
