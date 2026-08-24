@@ -88,6 +88,16 @@ def test_paid_launch_status_follows_the_job_to_its_end() -> None:
     assert 'succeeded: "succeeded",\n  failed: "failed",\n  cancelled: "cancelled",' in intake
 
 
+def test_queue_rerender_is_scroll_neutral() -> None:
+    """Поллинг статуса перерисовывал очередь запусков каждые ~5 с; замена
+    innerHTML утягивала прокрутку к списку — «скидывает в середину списка», к
+    «Замыслу результата» было не спуститься, пока шёл платный запуск."""
+    app = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
+    assert "mount.__ceQueueMarkup === nextMarkup" in app
+    assert "const keepScrollTop = scroller ? scroller.scrollTop : 0;" in app
+    assert "scroller.scrollTop = keepScrollTop;" in app
+
+
 def test_flow_probes_can_run_inside_the_live_window() -> None:
     for probe in (DUET_PROBE, COPY_PROBE):
         source = text(probe)
