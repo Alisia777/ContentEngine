@@ -3,7 +3,7 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260823.copy-engines.55";
+} from "./supabase-api.js?v=20260823.copy-engines.56";
 import {
   adminPeopleMarkup,
   normalizeAdminSnapshot,
@@ -34,9 +34,9 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
-} from "./generation-spec.js?v=20260823.copy-engines.55";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260823.copy-engines.55";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260823.copy-engines.55";
+} from "./generation-spec.js?v=20260823.copy-engines.56";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260823.copy-engines.56";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260823.copy-engines.56";
 import {
   normalizeWorkspaceInternalTarget,
   resolveWorkspaceCommand,
@@ -73,7 +73,7 @@ import {
   generationSpendSnapshotMarkup,
   managerGenerationSpendMarkup,
   normalizeGenerationSpendOverview,
-} from "./generation-spend-view.js?v=20260823.copy-engines.55";
+} from "./generation-spend-view.js?v=20260823.copy-engines.56";
 import {
   generationProviderReadinessPreflights,
   normalizeGenerationProviderPreflight,
@@ -109,7 +109,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260823.copy-engines.55";
+} from "./product-research-view.js?v=20260823.copy-engines.56";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -120,7 +120,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260823.copy-engines.55";
+} from "./ai-learning-control-room.js?v=20260823.copy-engines.56";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -136,7 +136,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260823.copy-engines.55";
+} from "./content-generation-handoff.js?v=20260823.copy-engines.56";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -158,7 +158,7 @@ import {
   invalidateGenerationStrategyRuntimeState,
   normalizeGenerationStrategyProbeResponse,
   reduceGenerationStrategyRuntimeState,
-} from "./generation-strategy-runtime.js?v=20260823.copy-engines.55";
+} from "./generation-strategy-runtime.js?v=20260823.copy-engines.56";
 import {
   createGenerationStrategyQueue,
   generationStrategyQueueAggregateReview,
@@ -167,17 +167,17 @@ import {
   planGenerationStrategyQueueFreeWork,
   planGenerationStrategyQueueSequentialStarts,
   updateGenerationStrategyQueueRow,
-} from "./generation-strategy-queue.js?v=20260823.copy-engines.55";
+} from "./generation-strategy-queue.js?v=20260823.copy-engines.56";
 import {
   renderGenerationStrategyQueueView,
-} from "./generation-strategy-queue-view.js?v=20260823.copy-engines.55";
+} from "./generation-strategy-queue-view.js?v=20260823.copy-engines.56";
 import {
   buildGenerationStrategySpecApprovalRequest,
   buildGenerationStrategySpecPrepareRequest,
   generationStrategySpecSafeProjection,
   normalizeGenerationStrategySpecControlResponse,
   normalizeGenerationStrategySpecPrepareResponse,
-} from "./generation-strategy-spec.js?v=20260823.copy-engines.55";
+} from "./generation-strategy-spec.js?v=20260823.copy-engines.56";
 import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
@@ -188,7 +188,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260823.copy-engines.55";
+} from "./generation-form-draft.js?v=20260823.copy-engines.56";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
@@ -227,7 +227,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260823.copy-engines.55";
+} from "./content-review-view.js?v=20260823.copy-engines.56";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -249,7 +249,7 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260823.copy-engines.55";
+} from "./portal-experience.js?v=20260823.copy-engines.56";
 import {
   isWorkspaceSmartFolderId,
   normalizeWorkspaceBoard,
@@ -286,7 +286,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260823.copy-engines.55";
+} from "./training-journey.js?v=20260823.copy-engines.56";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -335,7 +335,7 @@ const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
   ),
 );
 const MEDIA_UPLOAD_CONCURRENCY = DEFAULT_MEDIA_UPLOAD_CONCURRENCY;
-const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260823.copy-engines.55";
+const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260823.copy-engines.56";
 const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260716.2";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
@@ -9009,6 +9009,101 @@ async function archiveWorkspaceBoardFolder(folderId, expectedVersion, { confirme
     state.workspaceBoard.pendingArchiveFolderId = "";
     if (state.route.path === "/workspace/board") renderWorkspace("board");
   }
+}
+
+// «Одобрить и разместить»: оператор подтверждает полный просмотр, выбирает
+// ВЫДАННЫЙ аккаунт компании (реестр владения, фаза 0) и вписывает ERID.
+// Диалог императивный (<dialog> вне цикла render), чтобы перерисовки доски не
+// стирали недописанную форму. Успех = задача 'placement' в «Моих работах» +
+// строка размещения; финальную ссылку подтверждает существующая форма задачи.
+async function openPublishResultDialog({ projectId, mediaId, mediaTitle = "" }) {
+  document.querySelector("dialog[data-workspace-publish-dialog]")?.remove();
+  let accounts = [];
+  try {
+    accounts = await state.api.publishingAccounts({ projectId });
+  } catch (error) {
+    toast(`Не удалось загрузить аккаунты для размещения: ${actionErrorMessage(error)}`, "error");
+    return;
+  }
+  const dialog = document.createElement("dialog");
+  dialog.dataset.workspacePublishDialog = "";
+  dialog.className = "workspace-publish-dialog";
+  const options = accounts.map((account) => {
+    const mode = account.posting_mode === "api" ? "через API" : "вручную";
+    const label = `${account.platform} · ${account.label || account.handle || account.url || account.id} · ${mode}`;
+    return `<option value="${escapeHtml(String(account.id))}">${escapeHtml(label)}</option>`;
+  }).join("");
+  dialog.innerHTML = `
+    <form method="dialog" class="workspace-publish-dialog__form" data-publish-result-form>
+      <h3>Одобрить и разместить</h3>
+      <p class="muted">${escapeHtml(mediaTitle || "Готовый ролик")} — после подтверждения появится задача размещения в «Моих работах»; финальную ссылку вы добавите там же.</p>
+      ${accounts.length ? `
+        <label class="field">
+          <span>Аккаунт компании *</span>
+          <select name="managed_account_id" required>${options}</select>
+          <small class="field-hint">Только выданные активные аккаунты из реестра «Люди → Аккаунты».</small>
+        </label>
+        <label class="field">
+          <span>ERID маркировки *</span>
+          <input name="erid" required minlength="4" maxlength="64" pattern="[A-Za-z0-9-]{4,64}" placeholder="Например: 2VTZQXXXXXX" autocomplete="off" />
+          <small class="field-hint">Токен маркировки рекламы. Для немаркируемой органики напишите ORGANIC.</small>
+        </label>
+        <label class="field">
+          <span>Комментарий исполнителю</span>
+          <input name="note" maxlength="500" placeholder="Необязательно: время выхода, хэштеги, куда прикрепить ссылку" autocomplete="off" />
+        </label>
+        <label class="option">
+          <input type="checkbox" name="watch_confirmed" required />
+          <span>Я посмотрел(а) ролик целиком и одобряю его к публикации.</span>
+        </label>
+        <div class="inline-actions">
+          <button class="btn btn-primary" type="submit" value="publish">Создать задачу размещения</button>
+          <button class="btn btn-secondary" type="submit" value="cancel" formnovalidate>Отмена</button>
+        </div>` : `
+        <div class="alert alert-warning" role="status"><strong aria-hidden="true">!</strong>
+          <span>В реестре нет активных аккаунтов с включённым размещением. Владелец заводит их в «Люди → Аккаунты» (владение, хранитель, режим размещения) — после этого форма заработает.</span>
+        </div>
+        <div class="inline-actions">
+          <button class="btn btn-secondary" type="submit" value="cancel">Понятно</button>
+        </div>`}
+    </form>`;
+  document.body.append(dialog);
+  const form = dialog.querySelector("[data-publish-result-form]");
+  form.addEventListener("submit", async (event) => {
+    const submitter = event.submitter;
+    if (!submitter || submitter.value !== "publish") return;
+    event.preventDefault();
+    const accountId = String(form.elements.managed_account_id?.value || "").trim();
+    const erid = String(form.elements.erid?.value || "").trim();
+    if (!accountId || !erid || form.elements.watch_confirmed?.checked !== true) {
+      form.reportValidity();
+      return;
+    }
+    submitter.disabled = true;
+    try {
+      const result = await state.api.publishGenerationResult({
+        project_id: projectId,
+        media_id: mediaId,
+        managed_account_id: accountId,
+        erid,
+        note: String(form.elements.note?.value || ""),
+        watch_confirmed: true,
+      });
+      dialog.close();
+      dialog.remove();
+      const destination = String(result?.placement?.destination_ref || "");
+      toast(
+        `Задача размещения создана${destination ? ` (${destination})` : ""}. Она в «Моих работах»: опубликуйте и подтвердите финальную ссылку.`,
+        "success",
+      );
+      await loadSection("board", { silent: true });
+    } catch (error) {
+      submitter.disabled = false;
+      toast(`Размещение не создано: ${actionErrorMessage(error)}`, "error");
+    }
+  });
+  dialog.addEventListener("close", () => dialog.remove());
+  dialog.showModal();
 }
 
 async function moveWorkspaceBoardItem({
@@ -22282,6 +22377,22 @@ async function handleClick(event) {
     state.sections.generation.status = "idle";
     state.sections.generation.error = null;
     navigate(`/workspace/generation?view=create&project_id=${encodeURIComponent(projectId)}`);
+    return;
+  }
+
+  if (action === "publish-workspace-result") {
+    const projectId = requireWorkspaceProjectId();
+    if (!projectId) return;
+    const mediaId = String(control.dataset.entityId || "").trim();
+    if (!mediaId) {
+      toast("Файл больше не найден. Обновите раздел «Файлы».", "error");
+      return;
+    }
+    await openPublishResultDialog({
+      projectId,
+      mediaId,
+      mediaTitle: String(control.dataset.entityTitle || ""),
+    });
     return;
   }
 

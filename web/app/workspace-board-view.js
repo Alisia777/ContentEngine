@@ -1819,6 +1819,22 @@ function itemDrawerMarkup(board, selectedItem, busy, options) {
                   data-entity-id="${escapeHtml(selectedItem.id)}"
                   ${busy ? "disabled" : ""}>Создать из этого файла</button>
         </div>` : ""}
+      ${selectedItem.entityType === "media" && selectedItem.kind === "generated_video" && selectedItem.status === "ready" ? `
+        <div class="workspace-board__drawer-actions" aria-label="Доступные действия">
+          <button class="btn btn-primary" type="button"
+                  data-action="publish-workspace-result"
+                  data-entity-id="${escapeHtml(selectedItem.id)}"
+                  data-entity-title="${escapeHtml(selectedItem.title)}"
+                  ${busy ? "disabled" : ""}>Одобрить и разместить</button>
+        </div>` : ""}
+      ${selectedItem.entityType === "media" && selectedItem.kind === "generated_video" && selectedItem.status === "ready" ? `
+        <div class="workspace-board__drawer-actions" aria-label="Доступные действия">
+          <button class="btn btn-primary" type="button"
+                  data-action="publish-workspace-result"
+                  data-entity-id="${escapeHtml(selectedItem.id)}"
+                  data-entity-title="${escapeHtml(selectedItem.title)}"
+                  ${busy ? "disabled" : ""}>Одобрить и разместить</button>
+        </div>` : ""}
       ${researchLinks.length ? `
         <div class="workspace-board__research-links" aria-label="Доступные действия">
           ${researchLinks.map((link) => `<a class="btn btn-secondary" href="${escapeHtml(link.href)}">${escapeHtml(link.label)}</a>`).join("")}

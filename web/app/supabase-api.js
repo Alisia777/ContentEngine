@@ -74,6 +74,8 @@ export const RPC = Object.freeze({
   adminSnapshot: "creator_admin_snapshot",
   adminMutate: "creator_admin_mutate",
   adminAccountOwnership: "creator_admin_account_ownership",
+  publishingAccounts: "creator_publishing_accounts",
+  publishGenerationResult: "creator_publish_generation_result",
   managerDashboard: "creator_manager_dashboard",
   operationalHealth: "creator_operational_health",
   generationSpendOverview: "creator_generation_spend_overview",
@@ -6669,6 +6671,54 @@ export class CreatorApi {
       decision,
       ...payload,
       project_id: projectId,
+    });
+  }
+
+  // Аккаунты компании, на которые физически можно публиковать: активные и с
+  // включённым режимом размещения. Источник — реестр владения (фаза 0).
+  async publishingAccounts({ projectId = "", project_id: projectIdSnake = "" } = {}) {
+    const payload = { organization_id: String(this.organizationId || "") };
+    const normalizedProjectId = String(projectIdSnake || projectId || "").trim();
+    if (normalizedProjectId) payload.project_id = normalizedProjectId;
+    const data = await this.call(RPC.publishingAccounts, payload);
+    if (
+      !data || data.ok !== true
+      || data.version !== "publishing-accounts-v1"
+      || !Array.isArray(data.accounts)
+    ) {
+      throw new CreatorApiError("Список аккаунтов для размещения пришёл в неизвестной форме.");
+    }
+    return data.accounts;
+  }
+
+  // «Одобрить и разместить» готовый результат: явное подтверждение полного
+  // просмотра + выданный аккаунт + ERID. Создаёт задачу размещения и строку
+  // placements; финальную ссылку подтверждает confirmPlacement.
+  publishGenerationResult(input) {
+    const projectId = requiredProjectId(input?.project_id ?? input?.projectId);
+    const erid = String(input?.erid || "").trim().toUpperCase();
+    if (!/^[A-Z0-9-]{4,64}$/.test(erid)) {
+      throw new CreatorApiError(
+        "Укажите ERID маркировки (4–64 знака: латиница, цифры, дефис). Для немаркируемой органики напишите ORGANIC.",
+        { code: "publish_result_erid_invalid" },
+      );
+    }
+    if (input?.watch_confirmed !== true) {
+      throw new CreatorApiError(
+        "Подтвердите, что просмотрели ролик целиком — без этого размещение не создаётся.",
+        { code: "publish_result_watch_confirmation_required" },
+      );
+    }
+    return this.mutate(RPC.publishGenerationResult, {
+      project_id: projectId,
+      generation_job_id: String(input?.generation_job_id || "").trim(),
+      media_id: String(input?.media_id || "").trim(),
+      managed_account_id: String(input?.managed_account_id || "").trim(),
+      erid,
+      watch_confirmed: true,
+      ...(String(input?.note || "").trim()
+        ? { note: String(input.note).trim().slice(0, 500) }
+        : {}),
     });
   }
 

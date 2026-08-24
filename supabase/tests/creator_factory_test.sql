@@ -165,7 +165,10 @@ select is(
   -- ревью. Поэтому его правят вместе с осознанным добавлением, а не подгоняют.
   -- 121 = 120 + creator_admin_account_ownership (202608230024): поля владения
   -- аккаунтом компании ставит владелец/админ из админки «Люди → Аккаунты».
-  121,
+  -- 123 = 121 + пара 202608240001: creator_publishing_accounts (аккаунты для
+  -- формы «Разместить») и creator_publish_generation_result («Одобрить и
+  -- разместить» готовый результат — задача 'placement' + строка placements).
+  123,
   'authenticated can execute all creator RPCs'
 );
 

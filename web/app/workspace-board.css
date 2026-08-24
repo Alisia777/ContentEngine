@@ -1667,3 +1667,34 @@
   font-size: 1rem;
   pointer-events: none;
 }
+
+/* Диалог «Одобрить и разместить»: живёт вне цикла render, поверх окна. */
+.workspace-publish-dialog {
+  width: min(480px, calc(100vw - 40px));
+  padding: 0;
+  border: 1px solid var(--workspace-board-line, rgba(255, 255, 255, 0.14));
+  border-radius: 16px;
+  color: inherit;
+  background: var(--workspace-board-surface, #0d1524);
+}
+
+.workspace-publish-dialog::backdrop {
+  background: rgba(4, 9, 18, 0.66);
+  backdrop-filter: blur(4px);
+}
+
+.workspace-publish-dialog__form {
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+}
+
+.workspace-publish-dialog__form h3 {
+  margin: 0;
+}
+
+.workspace-publish-dialog__form .inline-actions {
+  display: flex;
+  gap: 9px;
+  justify-content: flex-end;
+}
