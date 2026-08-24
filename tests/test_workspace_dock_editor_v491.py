@@ -195,7 +195,7 @@ def test_pure_reducer_can_restore_a_standard_app_without_breaking_edit_transacti
     assert result["baseline"] == result["reentryBaseline"]
     assert "results" in result["cancelled"]["preference"]["order"]
     assert result["cancelled"]["effects"] == []
-    assert result["restored"]["preference"]["order"][:3] == ["finder", "results", "research"]
+    assert result["restored"]["preference"]["order"][:3] == ["finder", "research", "ai"]
     assert result["restored"]["effects"] == []
     assert result["done"]["effects"] == [
         {

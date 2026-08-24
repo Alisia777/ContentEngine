@@ -153,14 +153,16 @@ def test_contract_is_pure_scoped_and_migrates_catalog_before_order_normalization
 
     assert result["foreign"]["issues"] == ["scope_mismatch"]
     assert result["foreign"]["preference"]["shortcuts"] == {}
+    # 25.08: канонический док читается как конвейер — «Результаты» сразу
+    # после «Опубликовать».
     full_default_order = [
         "finder",
-        "results",
         "research",
         "ai",
         "create",
         "review",
         "publish",
+        "results",
         "processes",
         "settings",
         "trash",
@@ -723,3 +725,38 @@ def test_file_resolution_is_live_and_serialization_excludes_transient_or_sensiti
         "drop-me",
     ):
         assert forbidden not in result["encoded"]
+
+
+def test_saved_legacy_default_order_upgrades_to_the_conveyor_but_custom_stays() -> None:
+    """25.08: «Результаты» переехали после «Опубликовать». Сохранённый порядок,
+    в точности равный старому дефолту, — снимок прежнего канона, а не выбор
+    человека: он апгрейдится сам. Действительно свой порядок неприкосновенен."""
+    result = _run_node(
+        """
+        const scope = { organizationId: "org-1", userId: "user-1" };
+        const legacy = subject.createWorkspaceDockState(JSON.stringify({
+          version: 3,
+          scope,
+          order: [
+            "finder", "results", "research", "ai", "create",
+            "review", "publish", "processes", "settings", "trash",
+          ],
+          shortcuts: {},
+        }), { scope });
+        const custom = subject.createWorkspaceDockState(JSON.stringify({
+          version: 3,
+          scope,
+          order: ["finder", "results", "ai", "review", "trash"],
+          shortcuts: {},
+        }), { scope });
+        process.stdout.write(JSON.stringify({
+          legacyOrder: legacy.preference.order,
+          customOrder: custom.preference.order,
+        }));
+        """
+    )
+    assert result["legacyOrder"] == [
+        "finder", "research", "ai", "create", "review",
+        "publish", "results", "processes", "settings", "trash",
+    ]
+    assert result["customOrder"] == ["finder", "results", "ai", "review", "trash"]

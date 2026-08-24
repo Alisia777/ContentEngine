@@ -39,20 +39,43 @@ export const WORKSPACE_DOCK_ACTIONS = Object.freeze([
   "pinZoneDrop",
 ]);
 
+// Док читается как конвейер владельца (24.08): Создать → Проверить →
+// Опубликовать → Результаты. «Результаты» стоят сразу после «Опубликовать» —
+// «так их хоть найти можно».
 export const WORKSPACE_DOCK_DEFAULT_CATALOG = Object.freeze([
   Object.freeze({ key: "finder", kind: "app", appId: "finder", protected: true }),
-  Object.freeze({ key: "results", kind: "app", appId: "results", removable: true }),
   Object.freeze({ key: "research", kind: "app", appId: "research", removable: true }),
   Object.freeze({ key: "ai", kind: "app", appId: "ai", removable: true }),
   Object.freeze({ key: "create", kind: "app", appId: "create", removable: true }),
   Object.freeze({ key: "review", kind: "app", appId: "review", protected: true }),
   Object.freeze({ key: "publish", kind: "app", appId: "publish", removable: true }),
+  Object.freeze({ key: "results", kind: "app", appId: "results", removable: true }),
   Object.freeze({ key: "processes", kind: "app", appId: "processes", removable: true }),
   Object.freeze({ key: "settings", kind: "app", appId: "settings", removable: true }),
   Object.freeze({ key: "trash", kind: "trash", appId: "trash", protected: true }),
 ]);
 
 const DEFAULT_ORDER = Object.freeze(WORKSPACE_DOCK_DEFAULT_CATALOG.map((item) => item.key));
+
+// Порядок эпохи до 24.08 («Результаты» вторыми). Сохранённое предпочтение,
+// в точности равное старому дефолту, — это не осознанная перестановка
+// человека, а снимок прежней канона: такое апгрейдим на новый конвейер.
+// Любой действительно свой порядок остаётся неприкосновенным.
+const LEGACY_DEFAULT_ORDERS = Object.freeze([
+  Object.freeze([
+    "finder", "results", "research", "ai", "create",
+    "review", "publish", "processes", "settings", "trash",
+  ]),
+]);
+
+function upgradeLegacyDefaultOrder(order) {
+  const plain = Array.isArray(order) ? order.map((key) => String(key)) : [];
+  const isLegacyDefault = LEGACY_DEFAULT_ORDERS.some((legacy) => (
+    legacy.length === plain.length
+    && legacy.every((key, index) => key === plain[index])
+  ));
+  return isLegacyDefault ? [...DEFAULT_ORDER] : order;
+}
 
 const REQUIRED_KEYS = Object.freeze(["finder", "review", "trash"]);
 const APP_DROP_TARGETS = Object.freeze(["research", "create", "review", "trash"]);
@@ -579,7 +602,9 @@ export function normalizeWorkspaceDockPreference(rawPreference, rawOptions = {})
 
   // Dynamic descriptors are deliberately rehydrated before the order is normalized.
   const catalog = rehydrateWorkspaceDockCatalog(options.catalog, shortcuts);
-  const migratedOrder = root.order.map((key) => keyAliases.get(String(key)) || key);
+  const migratedOrder = upgradeLegacyDefaultOrder(
+    root.order.map((key) => keyAliases.get(String(key)) || key),
+  );
   const order = normalizeOrder(root.hasExplicitOrder ? migratedOrder : DEFAULT_ORDER, shortcuts, catalog);
   const preference = {
     version: WORKSPACE_DOCK_PREFERENCE_VERSION,

@@ -136,6 +136,31 @@ def test_supabase_api_is_imported_as_exactly_one_module_instance() -> None:
     assert len(stamps) == 1, f"supabase-api.js imported with mixed stamps: {sorted(stamps)}"
 
 
+def test_every_live_asset_pin_carries_the_current_build_stamp() -> None:
+    """Владелица жала F5 двадцать раз и не получала новый док: активные ссылки
+    index.html и импорты модулей были приколоты к штампам старых эпох, браузер
+    эвристически держал их в кэше, и bump_stamp их никогда не переписывал.
+    Закон: каждый живой ?v= — ровно текущий штамп сборки (или content-addressed
+    sha256-ключ); закомментированные rollback-маркеры не считаются живыми."""
+    current = re.search(
+        r'"id":\s*"([^"]+)"',
+        (ROOT / "web/app/build.json").read_text(encoding="utf-8"),
+    ).group(1)
+    offenders = []
+    token = re.compile(r"\?v=([A-Za-z0-9._${}-]+)")
+    for path in sorted((ROOT / "web" / "app").glob("*.js")):
+        for stamp in token.findall(path.read_text(encoding="utf-8")):
+            if stamp != current and not stamp.startswith("sha256") and "${" not in stamp:
+                offenders.append(f"{path.name}: {stamp}")
+    for line in (ROOT / "web/app/index.html").read_text(encoding="utf-8").split("\n"):
+        if line.lstrip().startswith("<!--"):
+            continue
+        for stamp in token.findall(line):
+            if stamp != current and not stamp.startswith("sha256") and "${" not in stamp:
+                offenders.append(f"index.html: {stamp}")
+    assert not offenders, f"stale ?v= pins: {offenders[:10]}"
+
+
 def test_the_team_section_gains_the_accounts_tab_with_connections() -> None:
     app = text(APP)
     assert '{ view: "accounts", href: "#/workspace/team?view=accounts", label: "Аккаунты" },' in app
@@ -144,3 +169,12 @@ def test_the_team_section_gains_the_accounts_tab_with_connections() -> None:
     assert "TEAM_ACCOUNT_CONNECTION_LABELS" in app
     # Пустой реестр честно ведёт в админку, а не молчит.
     assert "Реестр аккаунтов пуст" in app
+
+
+def test_results_screen_opens_even_before_the_first_publication() -> None:
+    """«Не откроешь, пока публикаций нет — сделай, чтобы форма результатов
+    открывалась» (25.08). Этап stats — наблюдение, а не производственный шаг:
+    замок этапов обязан пропускать его всегда."""
+    core = text(ROOT / "web/app/workspace-os-v4.js")
+    lock = core[core.index("function stageLocked(") : core.index("function explainLockedStage(")]
+    assert 'if (stage.code === "stats") return false;' in lock

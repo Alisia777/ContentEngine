@@ -157,7 +157,7 @@ def _validate_vendored_runtime(site_root: Path) -> None:
 
     expected_runtime_url = (
         'const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?'
-        'v=20260823.copy-engines.63";'
+        'v=20260823.copy-engines.64";'
     )
     for runtime_name in ("app.js", "workspace-os-v4-context-trash.js"):
         runtime = _read_text(site_root / runtime_name)

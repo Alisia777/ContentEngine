@@ -537,7 +537,7 @@ def test_theme_archive_motion_and_interface_hooks_are_wired_into_the_spa() -> No
         r'from "\./portal-experience\.js\?v=([^"]+)";',
         APP,
     )
-    assert portal_experience_imports == ["20260823.copy-engines.63"]
+    assert portal_experience_imports == ["20260823.copy-engines.64"]
     for hook in (
         "PORTAL_THEMES",
         "themePickerMarkup",
@@ -571,7 +571,7 @@ def test_theme_archive_motion_and_interface_hooks_are_wired_into_the_spa() -> No
     assert 'data-portal-theme="obsidian"' in INDEX
     assert re.search(r'<script src="\./theme-bootstrap\.js\?v=\d+\.\d+"></script>', INDEX)
     assert (
-        '<link rel="stylesheet" href="./portal-experience.css?v=20260814.os4.41"'
+        '<link rel="stylesheet" href="./portal-experience.css?v=20260823.copy-engines.64"'
         in INDEX
     )
     assert "try" in THEME_BOOTSTRAP and "catch" in THEME_BOOTSTRAP

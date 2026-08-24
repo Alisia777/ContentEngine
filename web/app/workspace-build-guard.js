@@ -4,7 +4,7 @@
  * credentials, forms or application state.
  */
 
-const CURRENT_BUILD = "20260823.copy-engines.63";
+const CURRENT_BUILD = "20260823.copy-engines.64";
 const BUILD_BADGE = "Desktop · 21.08.17";
 const MANIFEST_URL = new URL("./build.json", import.meta.url);
 const CHECK_INTERVAL_MS = 10 * 60 * 1000;
