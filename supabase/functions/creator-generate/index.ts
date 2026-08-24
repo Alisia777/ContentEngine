@@ -55,6 +55,7 @@ import {
   falStrategyProviderStatus,
   fetchFalQueueResult,
   heygenStrategyProviderStatus,
+  isHeygenVideoId as isStrategyHeygenVideoId,
   isRunwayTaskId as isStrategyRunwayTaskId,
   parseCreatedFalRequest,
   parseCreatedHeygenVideo,
@@ -991,7 +992,12 @@ type GenerationStrategyReconcilePayload = {
     | "RUNWAY_TASK_ID_VERIFIED"
     | "RUNWAY_NO_TASK_VERIFIED"
     | "FAL_REQUEST_ID_VERIFIED"
-    | "FAL_NO_REQUEST_VERIFIED";
+    | "FAL_NO_REQUEST_VERIFIED"
+    // «Дуэт» на HeyGen. Задача там опознаётся идентификатором РОЛИКА, а не
+    // задачи, поэтому и свидетельство называется так же: строка подтверждения
+    // обязана называть то, на что человек смотрел.
+    | "HEYGEN_VIDEO_ID_VERIFIED"
+    | "HEYGEN_NO_VIDEO_VERIFIED";
   evidence_reference: string;
   reason: string;
   idempotency_key: string;
@@ -2767,7 +2773,9 @@ function readGenerationStrategyReconcilePayload(
     (confirmation === "RUNWAY_TASK_ID_VERIFIED" &&
       isValidTaskId(value.provider_task_id)) ||
     (confirmation === "FAL_REQUEST_ID_VERIFIED" &&
-      isFalRequestId(value.provider_task_id))
+      isFalRequestId(value.provider_task_id)) ||
+    (confirmation === "HEYGEN_VIDEO_ID_VERIFIED" &&
+      isStrategyHeygenVideoId(value.provider_task_id))
   );
   if (
     !hasExactKeys(value, keys) || value.action !== "strategy_reconcile" ||
@@ -2784,6 +2792,7 @@ function readGenerationStrategyReconcilePayload(
       !new Set([
         "RUNWAY_NO_TASK_VERIFIED",
         "FAL_NO_REQUEST_VERIFIED",
+        "HEYGEN_NO_VIDEO_VERIFIED",
       ]).has(String(value.confirmation || ""))
     ))
   ) return null;

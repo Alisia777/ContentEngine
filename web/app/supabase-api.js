@@ -423,6 +423,11 @@ const GENERATION_STRATEGY_RUNWAY_TASK_ID_PATTERN =
   /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
 const GENERATION_STRATEGY_FAL_REQUEST_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+// Идентификатор готового ролика HeyGen: у «Дуэта» задача опознаётся роликом, а
+// не задачей. Форма повторяет HEYGEN_VIDEO_ID из контракта edge — расходиться
+// им нельзя, иначе одна сторона примет то, что другая отвергнет.
+const GENERATION_STRATEGY_HEYGEN_VIDEO_ID_PATTERN =
+  /^[A-Za-z0-9_-]{8,128}$/u;
 const GENERATION_STRATEGY_RESPONSE_CONTRACTS = Object.freeze({
   strategy_catalog: Object.freeze({
     keys: Object.freeze([
@@ -6417,7 +6422,11 @@ export class CreatorApi {
         code: "generation_reconciliation_resolution_invalid",
       });
     }
-    if (!new Set(["runway", "fal"]).has(provider)) {
+    // «Дуэт» исполняет heygen, и до 24.08.2026 его разбор отвергался здесь —
+    // раньше, чем запрос вообще уходил. Это был первый из трёх замков на одной
+    // двери: браузер, edge и база отвергали heygen каждый по своему списку, и
+    // повисшая бронь дуэта не расшивалась ничем.
+    if (!new Set(["runway", "fal", "heygen"]).has(provider)) {
       throw new CreatorApiError("Не удалось подтвердить сервис этого запуска. Обновите карточку.", {
         code: "generation_reconciliation_provider_invalid",
       });
@@ -6451,7 +6460,11 @@ export class CreatorApi {
       dispatch_result_id: dispatchResultId,
       incident_id: incidentId,
       resolution,
-      confirmation: provider === "fal"
+      confirmation: provider === "heygen"
+        ? attachExistingTask
+          ? "HEYGEN_VIDEO_ID_VERIFIED"
+          : "HEYGEN_NO_VIDEO_VERIFIED"
+        : provider === "fal"
         ? attachExistingTask
           ? "FAL_REQUEST_ID_VERIFIED"
           : "FAL_NO_REQUEST_VERIFIED"
@@ -6709,9 +6722,12 @@ export class CreatorApi {
         { code: "publish_result_watch_confirmation_required" },
       );
     }
+    // Задача выводится сервером из самого файла; ключ generation_job_id —
+    // только когда он реально известен, пустая строка ломает require_uuid.
+    const generationJobId = String(input?.generation_job_id || "").trim();
     return this.mutate(RPC.publishGenerationResult, {
       project_id: projectId,
-      generation_job_id: String(input?.generation_job_id || "").trim(),
+      ...(generationJobId ? { generation_job_id: generationJobId } : {}),
       media_id: String(input?.media_id || "").trim(),
       managed_account_id: String(input?.managed_account_id || "").trim(),
       erid,
@@ -7739,14 +7755,19 @@ function assertGenerationStrategyRuntimeRequest(action, request, organizationId)
       ? new Set([
         "RUNWAY_TASK_ID_VERIFIED",
         "FAL_REQUEST_ID_VERIFIED",
+        "HEYGEN_VIDEO_ID_VERIFIED",
       ]).has(strategyReconcileConfirmation)
       : request?.resolution === "confirm_no_submission" && new Set([
         "RUNWAY_NO_TASK_VERIFIED",
         "FAL_NO_REQUEST_VERIFIED",
+        "HEYGEN_NO_VIDEO_VERIFIED",
       ]).has(strategyReconcileConfirmation));
   const strategyReconcileTaskIdValid = !strategyReconcileAttach
     || (strategyReconcileConfirmation === "FAL_REQUEST_ID_VERIFIED"
       ? GENERATION_STRATEGY_FAL_REQUEST_ID_PATTERN
+        .test(String(request?.provider_task_id || ""))
+      : strategyReconcileConfirmation === "HEYGEN_VIDEO_ID_VERIFIED"
+      ? GENERATION_STRATEGY_HEYGEN_VIDEO_ID_PATTERN
         .test(String(request?.provider_task_id || ""))
       : strategyReconcileConfirmation === "RUNWAY_TASK_ID_VERIFIED"
       && GENERATION_STRATEGY_RUNWAY_TASK_ID_PATTERN
