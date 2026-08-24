@@ -87,6 +87,10 @@ const STRATEGY_RULES = deepFreeze({
     recipe: "product_ugc",
     dimension: "resolution",
     dimensions: ["720p", "1080p"],
+    // Длина дуэта задана комментируемым роликом, а не вкусом оператора:
+    // типичная реклама длиннее пятнадцати секунд. Числа те же, что в строке
+    // реестра маршрута heygen.
+    duration: { minimum: 3, maximum: 60 },
     attestations: [
       ...COMMON_ATTESTATION_KEYS,
       "avatar_likeness_consent_confirmed",
@@ -820,8 +824,8 @@ function normalizeGenerationStrategySelection(value) {
   const durationSeconds = safeInteger(
     source.duration_seconds,
     "context.generation_strategy.duration_seconds",
-    4,
-    15,
+    rules.duration?.minimum ?? 4,
+    rules.duration?.maximum ?? 15,
   );
   if (source.version !== CATALOG_VERSION) {
     throw new RuntimeContractError(

@@ -280,7 +280,14 @@ def test_duration_dimension_audio_rules_match_official_recipe_contracts() -> Non
         """
     )
     avatar = result["viral_avatar_ugc"]
-    assert avatar["duration"] == {"min_seconds": 4, "max_seconds": 15, "default_seconds": 10}
+    # «Дуэт» комментирует чужой ролик ЦЕЛИКОМ, поэтому его длина задана
+    # исходником, а не общей формой: 3–60 секунд, ровно как в строке реестра
+    # маршрута heygen и как разрешён сам исходник ролью выше ([True, 1.8, 60]).
+    # Прежние 4–15 были жёстче любого его маршрута и делали заявленный отрезок
+    # 16–60 секунд недостижимым: окно мастера пересекалось с реестровым и
+    # давало 4–15, то есть для ролика на 24 секунды выбрать длительность было
+    # нельзя ни одну — список оказывался пустым.
+    assert avatar["duration"] == {"min_seconds": 3, "max_seconds": 60, "default_seconds": 10}
     # Правка видео не меняет соотношение сторон — кадр задаёт исходник. Поэтому
     # измерение идёт разрешением и список соотношений пуст, ровно как у «Копии».
     assert avatar["dimension_field"] == "resolution"
@@ -455,7 +462,11 @@ def test_selection_validation_fails_closed_on_output_assets_and_rights() -> None
           const avatar = {json.dumps(avatar, ensure_ascii=False)};
           const swap = {json.dumps(swap, ensure_ascii=False)};
           const clone = (value) => JSON.parse(JSON.stringify(value));
-          const duration = clone(avatar); duration.duration_seconds = 3;
+          // Две секунды — ниже нижней границы «Дуэта» (3-60). Прежде здесь
+          // стояла тройка, потому что окно было 4-15; после расширения окна до
+          // реестрового тройка стала ЗАКОННОЙ, и случай перестал быть отказом.
+          // Замысел проверки прежний: длительность вне окна отвергается.
+          const duration = clone(avatar); duration.duration_seconds = 2;
           const audio = clone(avatar); audio.audio = "true";
           // «Аватар» измеряется разрешением, поэтому чужое поле теперь ratio,
           // а негодное значение — у resolution.

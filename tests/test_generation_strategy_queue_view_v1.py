@@ -274,19 +274,19 @@ def test_view_pins_all_frozen_authorities_and_has_no_side_effect_channel() -> No
     # выборе MP4 (состояние каскада стало пострaтегийным, списки «Дуэта»
     # перестраиваются лишь при смене набора). Поведение очереди не менялось.
     expected_hashes = {
-        RUNTIME_MODULE: "940fe34f2ee241e1d7206443c48389aa9541b06e4c897d31801d0a79fe7e56b0",
-        QUEUE_MODULE: "22dc0f8ad51618331b2e40dcc29e79f1261acdcf3602a271598f95364243a8c8",
-        SOURCE_PICKER_MODULE: "6e042bfaee898f0cb9583e3ee63e3d117b957127e1cbf1303989917f7b216ef0",
+        RUNTIME_MODULE: "b1a7f6a96ee575dc632d737a1f9436877f473a7c38861c27154fc26040a5393b",
+        QUEUE_MODULE: "189da7ed97e482c8273cf5492e85edec0fc9e46da7455c587dffb79692ffc16a",
+        SOURCE_PICKER_MODULE: "6e28f1b782943278c5525e11a0fc2df73c2fa406486e03500d418edb41905fd1",
     }
     for path, expected in expected_hashes.items():
         canonical_bytes = path.read_bytes().replace(b"\r\n", b"\n")
         assert hashlib.sha256(canonical_bytes).hexdigest() == expected
     assert (
-        'from "./generation-strategy-source-picker.js?v=20260823.copy-engines.56";'
+        'from "./generation-strategy-source-picker.js?v=20260823.copy-engines.57";'
         in VIEW_SOURCE
     )
     assert (
-        'from "./generation-strategy-queue.js?v=20260823.copy-engines.56";'
+        'from "./generation-strategy-queue.js?v=20260823.copy-engines.57";'
         in VIEW_SOURCE
     )
     for forbidden in (

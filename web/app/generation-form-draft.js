@@ -146,10 +146,13 @@ export function buildGenerationFormDraft(value = {}, {
       generation_strategy_source_basis: GENERATION_STRATEGY_SOURCE_BASES.has(
         String(value.generation_strategy_source_basis || ""),
       ) ? String(value.generation_strategy_source_basis) : "",
+      // Предел по стратегии черновика: сохранённые 20 секунд "Дуэта" -
+      // законное значение по строке реестра heygen, и обнулять его при
+      // восстановлении нельзя. Раньше поле молча пустело без объяснения.
       generation_strategy_duration_seconds: boundedInteger(
         value.generation_strategy_duration_seconds,
-        4,
-        15,
+        String(value.generation_strategy_id || "") === "viral_avatar_ugc" ? 3 : 4,
+        String(value.generation_strategy_id || "") === "viral_avatar_ugc" ? 60 : 15,
         0,
       ),
       generation_strategy_ratio: /^\d{3,4}:\d{3,4}$/u.test(

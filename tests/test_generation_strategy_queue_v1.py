@@ -393,10 +393,10 @@ def _evaluate(expression: str) -> object:
 def test_queue_imports_frozen_runtime_and_is_pure_planning_only() -> None:
     canonical_runtime = RUNTIME_MODULE.read_bytes().replace(b"\r\n", b"\n")
     assert hashlib.sha256(canonical_runtime).hexdigest() == (
-        "940fe34f2ee241e1d7206443c48389aa9541b06e4c897d31801d0a79fe7e56b0"
+        "b1a7f6a96ee575dc632d737a1f9436877f473a7c38861c27154fc26040a5393b"
     )
     assert (
-        'from "./generation-strategy-runtime.js?v=20260823.copy-engines.56";'
+        'from "./generation-strategy-runtime.js?v=20260823.copy-engines.57";'
         in QUEUE_SOURCE
     )
     for forbidden in (

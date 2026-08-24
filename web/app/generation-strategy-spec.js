@@ -336,6 +336,9 @@ const STRATEGY_RULES = deepFreeze({
       "720p": "source",
       "1080p": "source",
     },
+    // Длина дуэта задана комментируемым роликом, а не вкусом оператора.
+    // Числа те же, что в строке реестра маршрута heygen.
+    duration: { minimum: 3, maximum: 60 },
     // Ровно один ассет: ведущего задаёт запись в библиотеке, а не фотография.
     // В теле запроса к HeyGen медиа нет вовсе — личность приходит avatar_id.
     roles: {
@@ -718,11 +721,13 @@ function normalizeSelection(value, field = "selection") {
   if (value.version !== CATALOG_VERSION || value.recipe_version !== RECIPE_VERSION) {
     throw new StrategySpecContractError("selection_version_invalid", field);
   }
+  // Предел — свойство стратегии: у «Дуэта» он 3–60 по строке реестра, у
+  // остальных прежние 4–15.
   const durationSeconds = safeInteger(
     value.duration_seconds,
     `${field}.duration_seconds`,
-    4,
-    15,
+    rules.duration?.minimum ?? 4,
+    rules.duration?.maximum ?? 15,
   );
   const dimension = exactText(value[dimensionKey], `${field}.${dimensionKey}`, 1, 32);
   if (!hasOwn(rules.dimensions, dimension)) {
