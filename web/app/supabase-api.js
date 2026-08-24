@@ -76,6 +76,8 @@ export const RPC = Object.freeze({
   adminAccountOwnership: "creator_admin_account_ownership",
   publishingAccounts: "creator_publishing_accounts",
   publishGenerationResult: "creator_publish_generation_result",
+  rejectGenerationResult: "creator_reject_generation_result",
+  teamAccounts: "creator_team_accounts",
   managerDashboard: "creator_manager_dashboard",
   operationalHealth: "creator_operational_health",
   generationSpendOverview: "creator_generation_spend_overview",
@@ -6736,6 +6738,47 @@ export class CreatorApi {
         ? { note: String(input.note).trim().slice(0, 500) }
         : {}),
     });
+  }
+
+  // «Отвергнуть» просмотренный результат: причина обязательна, файл честно
+  // уезжает в «Корзину» (восстановим), решение остаётся в metadata и событии.
+  rejectGenerationResult(input) {
+    const projectId = requiredProjectId(input?.project_id ?? input?.projectId);
+    const reason = String(input?.reason || "").trim();
+    if (reason.length < 5 || reason.length > 500) {
+      throw new CreatorApiError(
+        "Коротко объясните, почему ролик отвергнут (от 5 до 500 знаков) — причина сохранится на файле.",
+        { code: "reject_result_reason_invalid" },
+      );
+    }
+    if (input?.watch_confirmed !== true) {
+      throw new CreatorApiError(
+        "Подтвердите, что просмотрели ролик целиком — отказ без просмотра не принимается.",
+        { code: "reject_result_watch_confirmation_required" },
+      );
+    }
+    return this.mutate(RPC.rejectGenerationResult, {
+      project_id: projectId,
+      media_id: String(input?.media_id || "").trim(),
+      reason,
+      watch_confirmed: true,
+    });
+  }
+
+  // Вкладка «Команда → Аккаунты»: реестр владения с выдачами, подключениями
+  // и счётчиками размещений. Без регистрационных реквизитов.
+  async teamAccounts() {
+    const data = await this.call(RPC.teamAccounts, {
+      organization_id: String(this.organizationId || ""),
+    });
+    if (
+      !data || data.ok !== true
+      || data.version !== "team-accounts-v1"
+      || !Array.isArray(data.accounts)
+    ) {
+      throw new CreatorApiError("Реестр аккаунтов пришёл в неизвестной форме.");
+    }
+    return data.accounts;
   }
 
   confirmPlacement(taskId, finalUrl, complianceAck) {

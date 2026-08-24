@@ -2026,3 +2026,53 @@
     animation: none;
   }
 }
+
+/* Очередь «Ролики на проверке»: черновики стратегий падают сюда сами. */
+.strategy-review-inbox {
+  max-width: 1180px;
+  margin: 0 auto 18px;
+}
+
+.strategy-review-inbox__list {
+  display: grid;
+  gap: 16px;
+}
+
+.strategy-review-inbox__empty {
+  margin: 0;
+}
+
+.strategy-review-card {
+  display: grid;
+  grid-template-columns: minmax(200px, 300px) 1fr;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid var(--portal-line);
+  border-radius: 16px;
+  background: var(--portal-surface);
+}
+
+.strategy-review-card__player video {
+  width: 100%;
+  max-height: 340px;
+  border-radius: 12px;
+  background: #000;
+}
+
+.strategy-review-card__facts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.strategy-review-card__facts p {
+  margin: 0;
+}
+
+@media (max-width: 720px) {
+  .strategy-review-card {
+    grid-template-columns: 1fr;
+  }
+}

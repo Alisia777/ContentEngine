@@ -115,8 +115,11 @@ def test_trash_uses_a_dedicated_system_rpc_namespace() -> None:
     assert "CreatorApi.prototype.call" in ALIAS
     assert "CreatorApi.prototype.mutate" in ALIAS
     assert "Symbol.for" in ALIAS
+    # Импорт тем же штампом, что и app.js: иначе браузер раздваивает модуль и
+    # патч прототипа CreatorApi не долетает до живого клиента (404-шторм 24.08).
     for source in (ALIAS, SCRIPT):
-        assert '"./supabase-api.js?v=20260814.os4.41"' in source
+        assert '"./supabase-api.js?v=20260823.copy-engines.58"' in source
+        assert "supabase-api.js?v=20260814.os4.41" not in source
         assert "supabase-api.js?v=20260729.2" not in source
 
 

@@ -168,7 +168,10 @@ select is(
   -- 123 = 121 + пара 202608240001: creator_publishing_accounts (аккаунты для
   -- формы «Разместить») и creator_publish_generation_result («Одобрить и
   -- разместить» готовый результат — задача 'placement' + строка placements).
-  123,
+  -- 125 = 123 + пара 202608240003: creator_reject_generation_result
+  -- («Отвергнуть» из очереди проверки — причина + «Корзина») и
+  -- creator_team_accounts (вкладка «Команда → Аккаунты»).
+  125,
   'authenticated can execute all creator RPCs'
 );
 

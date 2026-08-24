@@ -3,7 +3,7 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260823.copy-engines.57";
+} from "./supabase-api.js?v=20260823.copy-engines.58";
 import {
   adminPeopleMarkup,
   normalizeAdminSnapshot,
@@ -34,9 +34,9 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
-} from "./generation-spec.js?v=20260823.copy-engines.57";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260823.copy-engines.57";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260823.copy-engines.57";
+} from "./generation-spec.js?v=20260823.copy-engines.58";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260823.copy-engines.58";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260823.copy-engines.58";
 import {
   normalizeWorkspaceInternalTarget,
   resolveWorkspaceCommand,
@@ -73,7 +73,7 @@ import {
   generationSpendSnapshotMarkup,
   managerGenerationSpendMarkup,
   normalizeGenerationSpendOverview,
-} from "./generation-spend-view.js?v=20260823.copy-engines.57";
+} from "./generation-spend-view.js?v=20260823.copy-engines.58";
 import {
   generationProviderReadinessPreflights,
   normalizeGenerationProviderPreflight,
@@ -109,7 +109,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260823.copy-engines.57";
+} from "./product-research-view.js?v=20260823.copy-engines.58";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -120,7 +120,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260823.copy-engines.57";
+} from "./ai-learning-control-room.js?v=20260823.copy-engines.58";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -136,7 +136,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260823.copy-engines.57";
+} from "./content-generation-handoff.js?v=20260823.copy-engines.58";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -158,7 +158,7 @@ import {
   invalidateGenerationStrategyRuntimeState,
   normalizeGenerationStrategyProbeResponse,
   reduceGenerationStrategyRuntimeState,
-} from "./generation-strategy-runtime.js?v=20260823.copy-engines.57";
+} from "./generation-strategy-runtime.js?v=20260823.copy-engines.58";
 import {
   createGenerationStrategyQueue,
   generationStrategyQueueAggregateReview,
@@ -167,17 +167,17 @@ import {
   planGenerationStrategyQueueFreeWork,
   planGenerationStrategyQueueSequentialStarts,
   updateGenerationStrategyQueueRow,
-} from "./generation-strategy-queue.js?v=20260823.copy-engines.57";
+} from "./generation-strategy-queue.js?v=20260823.copy-engines.58";
 import {
   renderGenerationStrategyQueueView,
-} from "./generation-strategy-queue-view.js?v=20260823.copy-engines.57";
+} from "./generation-strategy-queue-view.js?v=20260823.copy-engines.58";
 import {
   buildGenerationStrategySpecApprovalRequest,
   buildGenerationStrategySpecPrepareRequest,
   generationStrategySpecSafeProjection,
   normalizeGenerationStrategySpecControlResponse,
   normalizeGenerationStrategySpecPrepareResponse,
-} from "./generation-strategy-spec.js?v=20260823.copy-engines.57";
+} from "./generation-strategy-spec.js?v=20260823.copy-engines.58";
 import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
@@ -188,7 +188,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260823.copy-engines.57";
+} from "./generation-form-draft.js?v=20260823.copy-engines.58";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
@@ -227,7 +227,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260823.copy-engines.57";
+} from "./content-review-view.js?v=20260823.copy-engines.58";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -249,7 +249,7 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260823.copy-engines.57";
+} from "./portal-experience.js?v=20260823.copy-engines.58";
 import {
   isWorkspaceSmartFolderId,
   normalizeWorkspaceBoard,
@@ -286,7 +286,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260823.copy-engines.57";
+} from "./training-journey.js?v=20260823.copy-engines.58";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -335,7 +335,7 @@ const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
   ),
 );
 const MEDIA_UPLOAD_CONCURRENCY = DEFAULT_MEDIA_UPLOAD_CONCURRENCY;
-const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260823.copy-engines.57";
+const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260823.copy-engines.58";
 const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260716.2";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
@@ -1222,6 +1222,7 @@ const state = {
     busyKey: "",
   },
   managerDashboard: { status: "idle", data: null, error: null, requestId: 0, updatedAt: 0 },
+  teamAccounts: { status: "idle", data: null, error: null, requestId: 0 },
   operationalHealth: { status: "idle", data: null, error: null, requestId: 0, updatedAt: 0 },
   generationSpend: {
     status: "idle",
@@ -9096,10 +9097,72 @@ async function openPublishResultDialog({ projectId, mediaId, mediaTitle = "" }) 
         `Задача размещения создана${destination ? ` (${destination})` : ""}. Она в «Моих работах»: опубликуйте и подтвердите финальную ссылку.`,
         "success",
       );
-      await loadSection("board", { silent: true });
+      await loadSection(
+        state.route.path === "/workspace/review" ? "review" : "board",
+        { silent: true },
+      );
     } catch (error) {
       submitter.disabled = false;
       toast(`Размещение не создано: ${actionErrorMessage(error)}`, "error");
+    }
+  });
+  dialog.addEventListener("close", () => dialog.remove());
+  dialog.showModal();
+}
+
+// «Отвергнуть» просмотренный результат: причина обязательна и сохраняется на
+// файле; сам ролик уезжает в «Корзину» (восстановим оттуда, ничего не стёрто).
+function openRejectResultDialog({ projectId, mediaId, mediaTitle = "" }) {
+  document.querySelector("dialog[data-workspace-reject-dialog]")?.remove();
+  const dialog = document.createElement("dialog");
+  dialog.dataset.workspaceRejectDialog = "";
+  dialog.className = "workspace-publish-dialog";
+  dialog.innerHTML = `
+    <form method="dialog" class="workspace-publish-dialog__form" data-reject-result-form>
+      <h3>Отвергнуть ролик</h3>
+      <p class="muted">${escapeHtml(mediaTitle || "Ролик")} отправится в «Корзину» с причиной отказа. Оттуда его можно восстановить; деньги за генерацию уже потрачены.</p>
+      <label class="field">
+        <span>Почему отвергнут *</span>
+        <textarea name="reason" required minlength="5" maxlength="500" rows="3" placeholder="Например: смазан продукт на 3-й секунде, реплика не совпадает с текстом"></textarea>
+      </label>
+      <label class="option">
+        <input type="checkbox" name="watch_confirmed" required />
+        <span>Я посмотрел(а) ролик целиком.</span>
+      </label>
+      <div class="inline-actions">
+        <button class="btn btn-danger" type="submit" value="reject">Отвергнуть и убрать в корзину</button>
+        <button class="btn btn-secondary" type="submit" value="cancel" formnovalidate>Отмена</button>
+      </div>
+    </form>`;
+  document.body.append(dialog);
+  const form = dialog.querySelector("[data-reject-result-form]");
+  form.addEventListener("submit", async (event) => {
+    const submitter = event.submitter;
+    if (!submitter || submitter.value !== "reject") return;
+    event.preventDefault();
+    const reason = String(form.elements.reason?.value || "").trim();
+    if (reason.length < 5 || form.elements.watch_confirmed?.checked !== true) {
+      form.reportValidity();
+      return;
+    }
+    submitter.disabled = true;
+    try {
+      await state.api.rejectGenerationResult({
+        project_id: projectId,
+        media_id: mediaId,
+        reason,
+        watch_confirmed: true,
+      });
+      dialog.close();
+      dialog.remove();
+      toast("Ролик отвергнут и убран в «Корзину». Причина сохранена на файле.", "success");
+      await loadSection(
+        state.route.path === "/workspace/review" ? "review" : "board",
+        { silent: true },
+      );
+    } catch (error) {
+      submitter.disabled = false;
+      toast(`Отказ не записан: ${actionErrorMessage(error)}`, "error");
     }
   });
   dialog.addEventListener("close", () => dialog.remove());
@@ -11964,6 +12027,102 @@ async function reloadSavedWorkViews() {
   );
   state.myWork.savedViews = normalizeSavedWorkViews(raw);
   state.myWork.viewsLoaded = true;
+}
+
+// Вкладка «Команда → Аккаунты»: реестр владения глазами руководства.
+async function loadTeamAccounts({ silent = false } = {}) {
+  const target = state.teamAccounts;
+  if (!canManageTeam() || ["loading", "refreshing"].includes(target.status)) return;
+  const requestId = target.requestId + 1;
+  target.requestId = requestId;
+  target.status = target.data ? "refreshing" : "loading";
+  target.error = null;
+  if (!silent && state.route.path === "/workspace/team") render();
+  try {
+    const accounts = await state.api.teamAccounts();
+    if (target.requestId !== requestId) return;
+    target.data = accounts;
+    target.status = "ready";
+  } catch (error) {
+    if (target.requestId !== requestId) return;
+    target.error = actionErrorMessage(error);
+    target.status = target.data ? "ready" : "error";
+  }
+  if (state.route.path === "/workspace/team") render();
+}
+
+const TEAM_ACCOUNT_CONNECTION_LABELS = Object.freeze({
+  not_connected: "Не подключён",
+  connected: "Подключён",
+  expired: "Подключение истекло",
+  revoked: "Подключение отозвано",
+  error: "Ошибка подключения",
+});
+
+const TEAM_ACCOUNT_POSTING_LABELS = Object.freeze({
+  api: "Через API",
+  assisted: "Вручную",
+  disabled: "Размещение выключено",
+});
+
+const TEAM_ACCOUNT_OWNERSHIP_LABELS = Object.freeze({
+  business_portfolio: "Бизнес-портфель",
+  brand_account: "Бренд-аккаунт",
+  community: "Сообщество",
+  channel_bot: "Канал / бот",
+  marketplace: "Маркетплейс",
+  personal_issued: "Личный выданный",
+});
+
+function teamAccountsPanelMarkup() {
+  const target = state.teamAccounts;
+  const accounts = Array.isArray(target.data) ? target.data : [];
+  const rows = accounts.map((account) => {
+    const assignees = Array.isArray(account.assignees) ? account.assignees : [];
+    const handleOrUrl = account.handle || account.url || "—";
+    const published = Number(account.placements_published) || 0;
+    const total = Number(account.placements_total) || 0;
+    return `
+      <tr>
+        <td><strong>${escapeHtml(String(account.platform || ""))}</strong><br /><small class="muted">${escapeHtml(TEAM_ACCOUNT_OWNERSHIP_LABELS[account.ownership_kind] || String(account.ownership_kind || ""))}</small></td>
+        <td>${escapeHtml(String(account.label || ""))}<br /><small class="muted">${escapeHtml(String(handleOrUrl))}</small></td>
+        <td>${escapeHtml(String(account.custodian_name || "—"))}</td>
+        <td>${assignees.length ? escapeHtml(assignees.join(", ")) : '<span class="muted">Никому</span>'}</td>
+        <td>${escapeHtml(TEAM_ACCOUNT_POSTING_LABELS[account.posting_mode] || String(account.posting_mode || ""))}</td>
+        <td><span class="badge ${account.connection_status === "connected" ? "badge-success" : account.connection_status === "not_connected" ? "badge-info" : "badge-danger"}">${escapeHtml(TEAM_ACCOUNT_CONNECTION_LABELS[account.connection_status] || String(account.connection_status || ""))}</span></td>
+        <td>${published} / ${total}${account.last_published_at ? `<br /><small class="muted">${escapeHtml(formatDate(account.last_published_at, true))}</small>` : ""}</td>
+      </tr>`;
+  }).join("");
+  const body = target.status === "loading"
+    ? `<p class="muted tiny">Загружаем реестр…</p>`
+    : target.status === "error"
+      ? alertMarkup(target.error || "Не удалось загрузить реестр аккаунтов.", "danger")
+      : accounts.length
+        ? `
+          <div class="table-wrap">
+            <table class="data-table team-accounts-table">
+              <thead><tr><th>Площадка</th><th>Аккаунт</th><th>Хранитель</th><th>Выдан</th><th>Размещение</th><th>Подключение</th><th>Опубл. / всего</th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+          <p class="muted tiny">«Подключение» станет активным на фазе автоматического постинга (первыми — Telegram-бот и YouTube). Пока все публикации идут вручную задачами размещения.</p>`
+        : emptyState(
+          "◎",
+          "Реестр аккаунтов пуст",
+          "Владелец заводит аккаунты компании в админке: площадка, владение, хранитель и режим размещения. После этого форма «Разместить» и эта вкладка оживут.",
+          { href: `#${ADMIN_PEOPLE_PATH}`, label: "Открыть админку аккаунтов" },
+        );
+  return `
+    <section class="card team-accounts-panel__card">
+      <div class="card-header">
+        <div><p class="eyebrow">Реестр владения</p><h2>Аккаунты компании</h2></div>
+        <div class="inline-actions">
+          <a class="btn btn-secondary btn-small" href="#${ADMIN_PEOPLE_PATH}">Изменить в админке</a>
+          <button class="btn btn-secondary btn-small" type="button" data-action="refresh-team-accounts">Обновить</button>
+        </div>
+      </div>
+      ${body}
+    </section>`;
 }
 
 async function loadManagerDashboard({ silent = false } = {}) {
@@ -17715,6 +17874,62 @@ function exactYoutubeResearchEvidenceMarkup(context, catalog) {
     </div>`;
 }
 
+// Очередь «Ролики на проверке»: черновики стратегий падают сюда сами.
+// Оператор видит свои (каталог отдаёт по роли), руководство — все; решение —
+// «Принять и разместить» (диалог размещения) или «Отвергнуть…» (в корзину).
+function strategyReviewInboxMarkup(catalog) {
+  const queue = (catalog.media || []).filter((item) => (
+    item.kind === "generated_video"
+    && item.artifactClass === "generated_output"
+    && item.lifecycleStage === "drafts"
+  ));
+  const cards = queue.map((item) => {
+    const displayName = item.name && item.name !== "Материал"
+      ? item.name
+      : `Ролик ${String(item.id).slice(0, 8)}`;
+    const facts = [
+      item.ownerName ? `Автор: ${item.ownerName}` : "",
+      item.createdAt ? formatDate(item.createdAt, true) : "",
+    ].filter(Boolean).join(" · ");
+    return `
+      <article class="strategy-review-card" data-strategy-review-media="${escapeHtml(String(item.id))}">
+        <div class="strategy-review-card__player">
+          ${item.url
+            ? `<video controls preload="none" playsinline src="${escapeHtml(item.url)}"></video>`
+            : `<p class="muted tiny">Доступ к видео ещё подписывается. Нажмите «Обновить» выше.</p>`}
+        </div>
+        <div class="strategy-review-card__facts">
+          <strong>${escapeHtml(displayName)}</strong>
+          ${facts ? `<small class="muted">${escapeHtml(facts)}</small>` : ""}
+          <p class="muted tiny">Посмотрите ролик целиком, затем примите решение: размещение создаст задачу в «Моих работах», отказ отправит файл в «Корзину» с причиной.</p>
+          <div class="inline-actions">
+            <button class="btn btn-primary btn-small" type="button"
+                    data-action="publish-workspace-result"
+                    data-entity-id="${escapeHtml(String(item.id))}"
+                    data-entity-title="${escapeHtml(displayName)}">Принять и разместить</button>
+            <button class="btn btn-secondary btn-small" type="button"
+                    data-action="reject-workspace-result"
+                    data-entity-id="${escapeHtml(String(item.id))}"
+                    data-entity-title="${escapeHtml(displayName)}">Отвергнуть…</button>
+          </div>
+        </div>
+      </article>`;
+  }).join("");
+  return `
+    <section class="card strategy-review-inbox" aria-label="Ролики на проверке">
+      <div class="card-header">
+        <div>
+          <p class="eyebrow">Результаты стратегий</p>
+          <h2>Ролики на проверке · ${queue.length}</h2>
+        </div>
+        <button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="review">Обновить</button>
+      </div>
+      ${queue.length
+        ? `<div class="strategy-review-inbox__list">${cards}</div>`
+        : `<p class="muted tiny strategy-review-inbox__empty">Новых роликов нет. Готовый результат генерации появится здесь сам — из папки «Результаты · Черновики».</p>`}
+    </section>`;
+}
+
 function renderContentReviewSection(sectionState) {
   const catalog = normalizeContentReviewCatalog(sectionState.data || {});
   const exactYoutubeContext = exactYoutubeResearchEvidenceRouteContext();
@@ -17793,6 +18008,7 @@ function renderContentReviewSection(sectionState) {
         "Проверьте готовый файл до публикации: отдельно качество фото или видео, отдельно риски и обязательные реквизиты.",
         `<span class="badge badge-info">Решение принимает человек</span>`,
       )}
+      ${strategyReviewInboxMarkup(catalog)}
       <nav class="focus-queue__bar" aria-label="Фокус-очередь проверок">
         <span><strong>${reviewView === "current" ? "Одна проверка" : reviewView === "history" ? "Очередь проверок" : "Новая проверка"}</strong><small>${reviewView === "current" ? "Сохраните одно решение — портал откроет точный следующий объект" : reviewView === "history" ? "Выберите один объект для решения" : "Создайте одну проверку для выбранного файла"}</small></span>
         <a class="btn btn-secondary btn-small" href="${reviewView === "current" ? reviewQueueHref : currentReviewHref}">${reviewView === "current" ? `Очередь · ${reviewQueueCount}` : reviewQueueCount ? "Вернуться к одной проверке" : "Текущих проверок нет"}</a>
@@ -21393,11 +21609,14 @@ function renderTeamSection(sectionState) {
     return `<div class="page-wrap">${alertMarkup("Управление командой доступно только руководителю.", "danger")}</div>`;
   }
   const requestedView = String(state.route.query.get("view") || "members");
-  const teamView = ["invite", "access", "members", "reviews", "review", "budget", "campaigns", "campaign", "new-campaign", "health"].includes(requestedView)
+  const teamView = ["invite", "access", "members", "reviews", "review", "budget", "campaigns", "campaign", "new-campaign", "health", "accounts"].includes(requestedView)
     ? requestedView
     : "members";
   if (teamView === "health" && state.managerDashboard.status === "idle") {
     window.queueMicrotask(() => loadManagerDashboard({ silent: true }));
+  }
+  if (teamView === "accounts" && state.teamAccounts.status === "idle") {
+    window.queueMicrotask(() => loadTeamAccounts({ silent: true }));
   }
   if (["budget", "campaigns", "campaign", "new-campaign"].includes(teamView) && state.generationSpend.status === "idle") {
     window.queueMicrotask(() => loadGenerationSpendOverview({ silent: true }));
@@ -21411,7 +21630,9 @@ function renderTeamSection(sectionState) {
       ? "reviews"
       : ["budget", "campaigns", "campaign", "new-campaign"].includes(teamView)
         ? "spend"
-        : "health";
+        : teamView === "accounts"
+          ? "accounts"
+          : "health";
   const teamContextActions = teamGroup === "people"
     ? [
         { view: "members", href: "#/workspace/team?view=members", label: "Участники" },
@@ -21470,7 +21691,9 @@ function renderTeamSection(sectionState) {
               { interactive: true, reviewId: requestedPracticalReviewId },
             )
             : emptyState("?", "Не указана пробная работа", "Откройте очередь и выберите одну запись для решения.", { href: "#/workspace/team?view=reviews", label: "Открыть очередь" })}</section>`
-          : teamView === "health"
+          : teamView === "accounts"
+            ? `<section class="team-accounts-panel">${teamAccountsPanelMarkup()}</section>`
+            : teamView === "health"
             ? `<section class="team-health-panel">${managerDashboardSectionMarkup()}</section>`
             : ["budget", "campaigns", "campaign", "new-campaign"].includes(teamView)
               ? `<section class="team-spend-panel">${managerGenerationSpendMarkup(state.generationSpend, {
@@ -21485,6 +21708,7 @@ function renderTeamSection(sectionState) {
       ${alertMarkup("Каждый новый участник входит как trainee. Рабочие разделы откроются только после четырёх курсов, принятой руководителем пробной работы и успешного экзамена из 12 сценариев.", "info")}
       ${workspaceActionSwitch("team-action-switch team-action-switch--groups", "Область управления командой", teamGroup, [
         { view: "people", href: "#/workspace/team?view=members", label: "Люди" },
+        { view: "accounts", href: "#/workspace/team?view=accounts", label: "Аккаунты" },
         { view: "reviews", href: "#/workspace/team?view=reviews", label: "Проверки" },
         { view: "spend", href: "#/workspace/team?view=campaigns", label: "Расходы" },
         { view: "health", href: "#/workspace/team?view=health", label: "Состояние" },
@@ -22397,6 +22621,22 @@ async function handleClick(event) {
       return;
     }
     await openPublishResultDialog({
+      projectId,
+      mediaId,
+      mediaTitle: String(control.dataset.entityTitle || ""),
+    });
+    return;
+  }
+
+  if (action === "reject-workspace-result") {
+    const projectId = requireWorkspaceProjectId();
+    if (!projectId) return;
+    const mediaId = String(control.dataset.entityId || "").trim();
+    if (!mediaId) {
+      toast("Файл больше не найден. Обновите раздел.", "error");
+      return;
+    }
+    openRejectResultDialog({
       projectId,
       mediaId,
       mediaTitle: String(control.dataset.entityTitle || ""),
@@ -23638,6 +23878,11 @@ async function handleClick(event) {
   if (action === "refresh-project-members") {
     if (["loading", "refreshing"].includes(state.projectAccess.status)) return;
     await loadProjectMembers({ force: true });
+    return;
+  }
+
+  if (action === "refresh-team-accounts") {
+    await loadTeamAccounts({ silent: false });
     return;
   }
 
