@@ -142,6 +142,7 @@ export function myWorkWorkspaceMarkup({
   loadingMore = false,
   mode = "",
   actionSwitch = "",
+  processesStrip = "",
   notificationsLoading = false,
   notificationsError = "",
 } = {}) {
@@ -199,6 +200,7 @@ export function myWorkWorkspaceMarkup({
         loading: notificationsLoading,
         error: notificationsError,
       }) : `
+      ${processesStrip}
       <div class="my-work-summary" aria-label="Сводка очереди">
         ${summaryCards.map(([label, value, hint, tone]) => `
           <article class="my-work-summary-card my-work-summary-card--${tone}">

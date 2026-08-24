@@ -168,10 +168,16 @@ def test_app_routes_my_work_modes_explicitly_and_defaults_to_one_action() -> Non
             notificationsStatus: "ready",
             notificationsError: "",
           }},
+          workGenerations: {{ status: "ready", projectId: "" }},
         }};
         const myWorkWorkspaceMarkup = (options) => {{ rendered = options; return options.mode; }};
         const workspaceActionSwitch = (_className, _label, activeView, items) =>
           items.map((item) => `${{item.view}}:${{item.href}}:${{item.view === activeView}}`).join("|");
+        // Полоса «Генерации» (24.08) — отдельный контракт; здесь только маршруты.
+        const currentWorkspaceProjectId = () => "";
+        const loadWorkGenerations = () => {{}};
+        const workGenerationsStripMarkup = () => "";
+        globalThis.window = {{ queueMicrotask: () => {{}} }};
         {renderer}
         const modes = {{}};
         for (const query of ["", "view=next", "view=notifications", "view=unsupported"]) {{

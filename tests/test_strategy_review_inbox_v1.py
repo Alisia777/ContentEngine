@@ -107,6 +107,22 @@ def test_the_results_screen_opens_with_the_funnel_head() -> None:
     assert '{ key: "awaiting_review", label: "Ждут проверки", hint: "черновики", href: "#/workspace/review" }' in app
 
 
+def test_processes_screen_lists_generations_like_a_provider_cabinet() -> None:
+    """«В процессах главное — видеть задачи, которые обрабатываются: как в
+    HeyGen — генерируется, готово и т.д.» (24.08). «Моя работа» открывается
+    живым списком запусков недели из серверного архива; пока есть активные,
+    список сам перечитывается каждые 20 секунд."""
+    app = text(APP)
+    assert "async function loadWorkGenerations({ silent = false } = {})" in app
+    assert "function workGenerationsStripMarkup()" in app
+    assert 'processesStrip: workGenerationsStripMarkup(),' in app
+    assert 'processing: ["Генерируется", "badge-info"],' in app
+    assert 'succeeded: ["Готово", "badge-success"],' in app
+    assert "WORK_GENERATION_ACTIVE_STATUSES.has(workGenerationStatus(item))" in app
+    view = text(ROOT / "web/app/my-work-view.js")
+    assert "${processesStrip}" in view
+
+
 def test_supabase_api_is_imported_as_exactly_one_module_instance() -> None:
     """Разные ?v= на supabase-api.js создают два экземпляра модуля: патч
     алиасов «Корзины» ложился на чужой прототип, и заявки уходили старым

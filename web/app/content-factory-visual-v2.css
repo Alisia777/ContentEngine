@@ -993,3 +993,18 @@ body.contentengine-desktop-v4 .ai-exact-youtube-source__actions .btn-secondary {
 .results-funnel__aside {
   margin: 10px 0 0;
 }
+
+/* «Процессы»: живой список генераций — в очереди / генерируется / готово. */
+.work-generations {
+  margin: 0 0 18px;
+}
+
+.work-generations-table td,
+.work-generations-table th {
+  white-space: nowrap;
+}
+
+.work-generations-table td:first-child {
+  white-space: normal;
+  min-width: 180px;
+}

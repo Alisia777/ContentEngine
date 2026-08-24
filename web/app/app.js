@@ -3,7 +3,7 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260823.copy-engines.61";
+} from "./supabase-api.js?v=20260823.copy-engines.62";
 import {
   adminPeopleMarkup,
   normalizeAdminSnapshot,
@@ -34,9 +34,9 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
-} from "./generation-spec.js?v=20260823.copy-engines.61";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260823.copy-engines.61";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260823.copy-engines.61";
+} from "./generation-spec.js?v=20260823.copy-engines.62";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260823.copy-engines.62";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260823.copy-engines.62";
 import {
   normalizeWorkspaceInternalTarget,
   resolveWorkspaceCommand,
@@ -73,7 +73,7 @@ import {
   generationSpendSnapshotMarkup,
   managerGenerationSpendMarkup,
   normalizeGenerationSpendOverview,
-} from "./generation-spend-view.js?v=20260823.copy-engines.61";
+} from "./generation-spend-view.js?v=20260823.copy-engines.62";
 import {
   generationProviderReadinessPreflights,
   normalizeGenerationProviderPreflight,
@@ -109,7 +109,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260823.copy-engines.61";
+} from "./product-research-view.js?v=20260823.copy-engines.62";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -120,7 +120,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260823.copy-engines.61";
+} from "./ai-learning-control-room.js?v=20260823.copy-engines.62";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -136,7 +136,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260823.copy-engines.61";
+} from "./content-generation-handoff.js?v=20260823.copy-engines.62";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -158,7 +158,7 @@ import {
   invalidateGenerationStrategyRuntimeState,
   normalizeGenerationStrategyProbeResponse,
   reduceGenerationStrategyRuntimeState,
-} from "./generation-strategy-runtime.js?v=20260823.copy-engines.61";
+} from "./generation-strategy-runtime.js?v=20260823.copy-engines.62";
 import {
   createGenerationStrategyQueue,
   generationStrategyQueueAggregateReview,
@@ -167,17 +167,17 @@ import {
   planGenerationStrategyQueueFreeWork,
   planGenerationStrategyQueueSequentialStarts,
   updateGenerationStrategyQueueRow,
-} from "./generation-strategy-queue.js?v=20260823.copy-engines.61";
+} from "./generation-strategy-queue.js?v=20260823.copy-engines.62";
 import {
   renderGenerationStrategyQueueView,
-} from "./generation-strategy-queue-view.js?v=20260823.copy-engines.61";
+} from "./generation-strategy-queue-view.js?v=20260823.copy-engines.62";
 import {
   buildGenerationStrategySpecApprovalRequest,
   buildGenerationStrategySpecPrepareRequest,
   generationStrategySpecSafeProjection,
   normalizeGenerationStrategySpecControlResponse,
   normalizeGenerationStrategySpecPrepareResponse,
-} from "./generation-strategy-spec.js?v=20260823.copy-engines.61";
+} from "./generation-strategy-spec.js?v=20260823.copy-engines.62";
 import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
@@ -188,7 +188,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260823.copy-engines.61";
+} from "./generation-form-draft.js?v=20260823.copy-engines.62";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
@@ -227,7 +227,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260823.copy-engines.61";
+} from "./content-review-view.js?v=20260823.copy-engines.62";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -249,7 +249,7 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260823.copy-engines.61";
+} from "./portal-experience.js?v=20260823.copy-engines.62";
 import {
   isWorkspaceSmartFolderId,
   normalizeWorkspaceBoard,
@@ -286,7 +286,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260823.copy-engines.61";
+} from "./training-journey.js?v=20260823.copy-engines.62";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -335,7 +335,7 @@ const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
   ),
 );
 const MEDIA_UPLOAD_CONCURRENCY = DEFAULT_MEDIA_UPLOAD_CONCURRENCY;
-const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260823.copy-engines.61";
+const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260823.copy-engines.62";
 const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260716.2";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
@@ -1224,6 +1224,7 @@ const state = {
   managerDashboard: { status: "idle", data: null, error: null, requestId: 0, updatedAt: 0 },
   teamAccounts: { status: "idle", data: null, error: null, requestId: 0 },
   resultsFunnel: { status: "idle", data: null, error: null, requestId: 0, projectId: "" },
+  workGenerations: { status: "idle", data: null, error: null, requestId: 0, projectId: "" },
   operationalHealth: { status: "idle", data: null, error: null, requestId: 0, updatedAt: 0 },
   generationSpend: {
     status: "idle",
@@ -18481,12 +18482,141 @@ function upsertContentReviewRun(run) {
   }
 }
 
+// «Процессы»: живой список генераций как в кабинете провайдера — в очереди /
+// генерируется / готово / ошибка. Источник — серверный архив запусков этой
+// недели; пока есть активные наряды, список сам обновляется каждые 20 секунд.
+const WORK_GENERATION_STATUS_LABELS = Object.freeze({
+  queued: ["В очереди", "badge-info"],
+  starting: ["Стартует", "badge-info"],
+  submitted: ["Отправлен провайдеру", "badge-info"],
+  processing: ["Генерируется", "badge-info"],
+  running: ["Генерируется", "badge-info"],
+  saving: ["Сохраняем результат", "badge-info"],
+  uploading: ["Сохраняем результат", "badge-info"],
+  mock_ready: ["Готово (dry-run)", "badge-success"],
+  ready: ["Готово", "badge-success"],
+  succeeded: ["Готово", "badge-success"],
+  completed: ["Готово", "badge-success"],
+  done: ["Готово", "badge-success"],
+  failed: ["Ошибка", "badge-danger"],
+  cancelled: ["Отменён", "badge-danger"],
+  canceled: ["Отменён", "badge-danger"],
+});
+
+const WORK_GENERATION_ACTIVE_STATUSES = new Set([
+  "queued", "starting", "submitted", "processing", "running", "saving", "uploading",
+]);
+
+function workGenerationStatus(item) {
+  const parameters = item?.parameters && typeof item.parameters === "object" ? item.parameters : {};
+  return String(item?.status || parameters.job_status || parameters.status || "queued").toLowerCase();
+}
+
+async function loadWorkGenerations({ silent = false } = {}) {
+  const target = state.workGenerations;
+  const projectId = currentWorkspaceProjectId();
+  if (!projectId || ["loading", "refreshing"].includes(target.status)) return;
+  const requestId = target.requestId + 1;
+  target.requestId = requestId;
+  target.status = target.data && target.projectId === projectId ? "refreshing" : "loading";
+  target.error = null;
+  if (!silent && state.route.path === "/workspace/work") renderWorkspace("work");
+  try {
+    const raw = await state.api.generationArchive({
+      period: "week",
+      status: "all",
+      page_size: 20,
+      projectId,
+    });
+    if (target.requestId !== requestId) return;
+    const result = raw?.data ?? raw ?? {};
+    target.data = listFrom(result, "batches");
+    target.projectId = projectId;
+    target.status = "ready";
+  } catch (error) {
+    if (target.requestId !== requestId) return;
+    target.error = actionErrorMessage(error);
+    target.status = target.data ? "ready" : "error";
+  }
+  if (state.route.path === "/workspace/work") {
+    renderWorkspace("work");
+    const hasActive = (target.data || []).some((item) => (
+      WORK_GENERATION_ACTIVE_STATUSES.has(workGenerationStatus(item))
+    ));
+    if (hasActive) {
+      window.setTimeout(() => {
+        if (
+          state.route.path === "/workspace/work"
+          && state.workGenerations.requestId === requestId
+        ) loadWorkGenerations({ silent: true });
+      }, 20_000);
+    }
+  }
+}
+
+function workGenerationsStripMarkup() {
+  const target = state.workGenerations;
+  const rows = (target.data || []).slice(0, 12);
+  const activeCount = rows.filter((item) => (
+    WORK_GENERATION_ACTIVE_STATUSES.has(workGenerationStatus(item))
+  )).length;
+  const body = target.status === "error"
+    ? `<p class="muted tiny">Список генераций не загрузился: ${escapeHtml(target.error || "")}</p>`
+    : !target.data && ["idle", "loading"].includes(target.status)
+      ? `<p class="muted tiny">Загружаем запуски…</p>`
+      : rows.length
+        ? `
+          <div class="table-wrap">
+            <table class="data-table work-generations-table">
+              <thead><tr><th>Запуск</th><th>Модель</th><th>Статус</th><th>Создан</th></tr></thead>
+              <tbody>${rows.map((item) => {
+                const status = workGenerationStatus(item);
+                const [label, badge] = WORK_GENERATION_STATUS_LABELS[status] || [status, "badge"];
+                const title = String(
+                  item?.name || item?.product_name || item?.sku || "Запуск",
+                );
+                const model = String(
+                  item?.model_public_label || item?.model
+                  || item?.parameters?.model || "—",
+                );
+                return `
+                  <tr>
+                    <td><strong>${escapeHtml(title)}</strong>${item?.sku && item.sku !== title ? `<br /><small class="muted">SKU ${escapeHtml(String(item.sku))}</small>` : ""}</td>
+                    <td>${escapeHtml(model)}</td>
+                    <td><span class="badge ${badge}">${escapeHtml(label)}</span></td>
+                    <td>${item?.created_at ? `<time>${formatDate(item.created_at, true)}</time>` : "—"}</td>
+                  </tr>`;
+              }).join("")}</tbody>
+            </table>
+          </div>`
+        : `<p class="muted tiny">На этой неделе запусков ещё не было. Новый ролик появится здесь сразу после платного подтверждения.</p>`;
+  return `
+    <section class="card card-pad work-generations" aria-label="Генерации в работе">
+      <div class="card-header" style="padding:0 0 10px">
+        <div><p class="eyebrow">Генерации</p><h2>Сейчас обрабатывается${activeCount ? ` · ${activeCount}` : ""}</h2></div>
+        <div class="inline-actions">
+          <a class="btn btn-secondary btn-small" href="${workspaceProjectHref("#/workspace/generation")}">Открыть «Создать»</a>
+          <button class="btn btn-secondary btn-small" type="button" data-action="refresh-work-generations" ${["loading", "refreshing"].includes(target.status) ? "disabled" : ""}>${target.status === "refreshing" ? "Обновляем…" : "Обновить"}</button>
+        </div>
+      </div>
+      ${body}
+    </section>`;
+}
+
 function renderMyWorkSection(sectionState) {
+  if (
+    state.workGenerations.status === "idle"
+    || (state.workGenerations.projectId
+      && state.workGenerations.projectId !== currentWorkspaceProjectId())
+  ) {
+    window.queueMicrotask(() => loadWorkGenerations({ silent: true }));
+  }
   const requestedView = String(state.route.query.get("view") || "next");
   const workView = new Set(["next", "queue", "views", "notifications"]).has(requestedView)
     ? requestedView
     : "next";
   return myWorkWorkspaceMarkup({
+    processesStrip: workGenerationsStripMarkup(),
     work: sectionState.data || {},
     notifications: state.myWork.notifications,
     savedViews: state.myWork.savedViews,
@@ -22513,6 +22643,7 @@ async function handleClick(event) {
   if (action === "refresh-my-work") {
     state.myWork.notice = "";
     state.myWork.error = "";
+    window.queueMicrotask(() => loadWorkGenerations({ silent: true }));
     await loadSection("work");
     return;
   }
@@ -23993,6 +24124,11 @@ async function handleClick(event) {
 
   if (action === "refresh-results-funnel") {
     await loadResultsFunnel({ silent: false });
+    return;
+  }
+
+  if (action === "refresh-work-generations") {
+    await loadWorkGenerations({ silent: false });
     return;
   }
 
