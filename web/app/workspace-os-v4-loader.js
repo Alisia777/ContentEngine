@@ -7,17 +7,17 @@
  * in favour of one deterministic stability coordinator.
  */
 
-import { workspaceActionKey } from "./workspace-action-key.js?v=20260823.copy-engines.58";
+import { workspaceActionKey } from "./workspace-action-key.js?v=20260823.copy-engines.59";
 import {
   contentEngineEmbeddedWindowRequest,
   installContentEngineEmbeddedWindowRuntime,
 } from "./workspace-embedded-window-runtime.js?v=20260822.live-child.2";
 
-const BUILD = "20260823.copy-engines.58";
+const BUILD = "20260823.copy-engines.59";
 const DESKTOP_CORE_BUILD = "20260822.live-windows.5";
 const EMBEDDED_WINDOW_BUILD = "20260822.live-child.2";
-const GENERATION_HOTFIX_BUILD = "20260823.copy-engines.58";
-const GENERATION_INTAKE_BUILD = "20260823.copy-engines.58";
+const GENERATION_HOTFIX_BUILD = "20260823.copy-engines.59";
+const GENERATION_INTAKE_BUILD = "20260823.copy-engines.59";
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;

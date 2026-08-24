@@ -7,7 +7,7 @@
  * DOM or transporting credentials. This module never calls business APIs.
  */
 
-import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260823.copy-engines.58";
+import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260823.copy-engines.59";
 import {
   createWorkspaceWindowManagerState,
   workspaceWindowManagerReducer,
@@ -41,7 +41,7 @@ import {
   readContentEngineEmbeddedWindowEvent,
 } from "./workspace-embedded-window-contract.js?v=20260822.live-child.2";
 
-const BUILD = "20260823.copy-engines.58";
+const BUILD = "20260823.copy-engines.59";
 const STORAGE_KEY = "contentengine.desktop-v4.v1";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
 const PROJECT_CONTEXT_KEY = "contentengine.desktop-v4.project";

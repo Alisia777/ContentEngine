@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions, pg_temp, pg_catalog;
 
-select plan(13);
+select plan(15);
 
 -- Очередь проверки (202608240003): «Отвергнуть» просмотренный результат —
 -- причина обязательна, файл уезжает в «Корзину» существующим контуром; вкладка
@@ -283,6 +283,37 @@ select is(
      and trash.entity_type = 'media'),
   1,
   'replay does not create a second trash row'
+);
+
+-- 12. Воронка «Результатов» видит отвергнутый ролик и пустые этапы честно.
+select is(
+  (public.creator_results_funnel(jsonb_build_object(
+     'organization_id', 'ae100000-0000-4000-8000-000000000001',
+     'project_id', 'ae500000-0000-4000-8000-000000000001'
+   )) -> 'funnel'),
+  jsonb_build_object(
+    'generated_total', 0,
+    'awaiting_review', 0,
+    'in_review', 0,
+    'approved_ready', 0,
+    'lifecycle_published', 0,
+    'rejected', 1,
+    'placement_in_progress', 0,
+    'published', 0
+  ),
+  'the funnel counts the rejected result and empty stages honestly'
+);
+
+-- 13. Воронка требует членства и проекта — лишний ключ отвергается.
+select throws_ok(
+  $$ select public.creator_results_funnel(jsonb_build_object(
+       'organization_id', 'ae100000-0000-4000-8000-000000000001',
+       'project_id', 'ae500000-0000-4000-8000-000000000001',
+       'surprise', 1
+     )) $$,
+  '22023',
+  'results_funnel_payload_invalid',
+  'unknown funnel payload keys are rejected'
 );
 
 -- Аккаунт для витрины «Команда → Аккаунты» + выдача оператору.

@@ -645,7 +645,7 @@ def test_creator_rpc_inventory_counts_the_two_new_authenticated_admin_rpcs() -> 
     assert "91, 'all browser rpcs expose exactly p_payload jsonb'" in flat
     # 125 = 123 + отказ из очереди проверки + витрина «Команда → Аккаунты»
     # (202608240003); число и подпись разделены пояснением в фикстуре.
-    assert "125, 'authenticated can execute all creator rpcs'" in flat
+    assert "126, 'authenticated can execute all creator rpcs'" in flat
 
 
 def test_admin_snapshot_exposes_audited_waiver_state_without_secret_material() -> None:

@@ -171,7 +171,9 @@ select is(
   -- 125 = 123 + пара 202608240003: creator_reject_generation_result
   -- («Отвергнуть» из очереди проверки — причина + «Корзина») и
   -- creator_team_accounts (вкладка «Команда → Аккаунты»).
-  125,
+  -- 126 = 125 + creator_results_funnel (202608240004): голова воронки
+  -- «Результатов» — счётчики роликов по этапам.
+  126,
   'authenticated can execute all creator RPCs'
 );
 

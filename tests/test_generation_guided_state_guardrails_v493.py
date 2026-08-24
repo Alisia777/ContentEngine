@@ -233,3 +233,16 @@ def test_generation_guided_module_is_valid_javascript() -> None:
         encoding="utf-8",
         errors="replace",
     )
+
+
+def test_hidden_attribute_wins_over_field_display_rules_in_the_generation_form() -> None:
+    """syncLegacyModelVisibility прячет легаси-поля атрибутом hidden, но
+    .field { display:grid } возвращал их на экран мёртвыми: задизейбленный
+    «Режим генерации *» («не открывается», 24.08) и вся «каша» наслоения форм
+    в «Сценарии с нуля». UA-правило [hidden] слабее любого display —
+    визуальный слой обязан закреплять победу hidden явно."""
+    css = (MODULE.parent / "content-factory-visual-v2.css").read_text(encoding="utf-8")
+    start = css.index("#mock-batch-form [hidden]")
+    block = css[start : css.index("}", start)]
+    assert ".ce-v4-generation-guided [hidden]" in block
+    assert "display: none !important;" in block

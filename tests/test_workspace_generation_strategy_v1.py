@@ -423,10 +423,10 @@ def _run_fixture(width: int, height: int = 960) -> dict[str, object]:
 
 def test_strategy_harness_is_server_catalog_driven_and_uses_the_portal_form() -> None:
     assert (
-        'from "./generation-strategy-view.js?v=20260823.copy-engines.58"' in SUBJECT
+        'from "./generation-strategy-view.js?v=20260823.copy-engines.59"' in SUBJECT
     )
     assert (
-        'from "./generation-strategy-assets.js?v=20260823.copy-engines.58"' in SUBJECT
+        'from "./generation-strategy-assets.js?v=20260823.copy-engines.59"' in SUBJECT
     )
     assert "createGenerationStrategyViewState" in SUBJECT
     assert "reduceGenerationStrategyViewState" in SUBJECT

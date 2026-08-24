@@ -928,3 +928,68 @@ body.contentengine-desktop-v4 .ai-exact-youtube-source__actions .btn-secondary {
     transition-duration: .01ms !important;
   }
 }
+
+/* [hidden] обязан побеждать любые display-правила формы. syncLegacyModelVisibility
+   прячет легаси-поля нативной формы в стратегийных маршрутах, но .field с
+   display:grid возвращал их на экран мёртвыми: задизейбленный «Режим генерации *»
+   («не открывается»), длительность, spec-карта — вся «каша» из наслоения форм. */
+#mock-batch-form [hidden],
+.ce-v4-generation-guided [hidden] {
+  display: none !important;
+}
+
+/* Воронка «Результатов»: создали → проверили → разместили → собрали. */
+.results-funnel__stages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: none;
+}
+
+.results-funnel__stage {
+  flex: 1 1 150px;
+  min-width: 138px;
+  position: relative;
+}
+
+.results-funnel__stage + .results-funnel__stage::before {
+  content: "→";
+  position: absolute;
+  left: -11px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--portal-muted, #8a8578);
+  font-size: 13px;
+}
+
+.results-funnel__stage a {
+  display: grid;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 1px solid var(--portal-line);
+  border-radius: 14px;
+  background: var(--portal-surface);
+  text-decoration: none;
+  color: inherit;
+}
+
+.results-funnel__stage a:hover {
+  border-color: var(--portal-accent, #b3a06a);
+}
+
+.results-funnel__stage strong {
+  font-size: 1.35rem;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.results-funnel__stage small {
+  color: var(--portal-muted, #8a8578);
+}
+
+.results-funnel__aside {
+  margin: 10px 0 0;
+}

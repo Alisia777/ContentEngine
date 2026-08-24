@@ -54,7 +54,7 @@ def test_the_catalog_carries_lifecycle_facts_and_reject_reuses_the_trash_contour
     assert "'custodian_name', coalesce(custodian.display_name, custodian.email)" in sql
     assert "'placements_published'" in sql
     pgtap = text(PGTAP)
-    assert "select plan(13);" in pgtap
+    assert "select plan(15);" in pgtap
 
 
 def test_browser_api_guards_reason_and_watch_before_the_server_call() -> None:
@@ -85,6 +85,26 @@ def test_drafts_fall_into_the_review_inbox_with_both_decisions() -> None:
     assert "ownerName: text(raw.owner_name || raw.ownerName, 200)," in view
     css = text(REVIEW_CSS)
     assert ".strategy-review-card" in css
+
+
+def test_the_results_screen_opens_with_the_funnel_head() -> None:
+    """«Не хватает главного экрана: создали → смотрим → размещаем → собираем
+    статистику». Хвост воронки (публикации и метрики) в «Результатах» уже жил;
+    голова — серверные счётчики этапов из тех же таблиц, что и сами разделы."""
+    funnel_sql = text(ROOT / "supabase/migrations/202608240004_results_funnel_v1.sql")
+    assert "create or replace function public.creator_results_funnel(" in funnel_sql
+    assert "'awaiting_review', media_counts.awaiting_review," in funnel_sql
+    assert "'placement_in_progress', placement_counts.placement_in_progress," in funnel_sql
+    assert "media.metadata ->> 'kind' = 'generated_video'" in funnel_sql
+    api = text(API)
+    assert 'resultsFunnel: "creator_results_funnel",' in api
+    assert 'data.version !== "results-funnel-v1"' in api
+    app = text(APP)
+    assert "function resultsFunnelMarkup()" in app
+    assert "${resultsFunnelMarkup()}" in app
+    assert "async function loadResultsFunnel({ silent = false } = {})" in app
+    # Каждый этап ведёт в свой раздел — воронка кликабельна, а не декоративна.
+    assert '{ key: "awaiting_review", label: "Ждут проверки", hint: "черновики", href: "#/workspace/review" }' in app
 
 
 def test_supabase_api_is_imported_as_exactly_one_module_instance() -> None:

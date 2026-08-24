@@ -3,7 +3,7 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260823.copy-engines.58";
+} from "./supabase-api.js?v=20260823.copy-engines.59";
 import {
   adminPeopleMarkup,
   normalizeAdminSnapshot,
@@ -34,9 +34,9 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
-} from "./generation-spec.js?v=20260823.copy-engines.58";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260823.copy-engines.58";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260823.copy-engines.58";
+} from "./generation-spec.js?v=20260823.copy-engines.59";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260823.copy-engines.59";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260823.copy-engines.59";
 import {
   normalizeWorkspaceInternalTarget,
   resolveWorkspaceCommand,
@@ -73,7 +73,7 @@ import {
   generationSpendSnapshotMarkup,
   managerGenerationSpendMarkup,
   normalizeGenerationSpendOverview,
-} from "./generation-spend-view.js?v=20260823.copy-engines.58";
+} from "./generation-spend-view.js?v=20260823.copy-engines.59";
 import {
   generationProviderReadinessPreflights,
   normalizeGenerationProviderPreflight,
@@ -109,7 +109,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260823.copy-engines.58";
+} from "./product-research-view.js?v=20260823.copy-engines.59";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -120,7 +120,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260823.copy-engines.58";
+} from "./ai-learning-control-room.js?v=20260823.copy-engines.59";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -136,7 +136,7 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260823.copy-engines.58";
+} from "./content-generation-handoff.js?v=20260823.copy-engines.59";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
@@ -158,7 +158,7 @@ import {
   invalidateGenerationStrategyRuntimeState,
   normalizeGenerationStrategyProbeResponse,
   reduceGenerationStrategyRuntimeState,
-} from "./generation-strategy-runtime.js?v=20260823.copy-engines.58";
+} from "./generation-strategy-runtime.js?v=20260823.copy-engines.59";
 import {
   createGenerationStrategyQueue,
   generationStrategyQueueAggregateReview,
@@ -167,17 +167,17 @@ import {
   planGenerationStrategyQueueFreeWork,
   planGenerationStrategyQueueSequentialStarts,
   updateGenerationStrategyQueueRow,
-} from "./generation-strategy-queue.js?v=20260823.copy-engines.58";
+} from "./generation-strategy-queue.js?v=20260823.copy-engines.59";
 import {
   renderGenerationStrategyQueueView,
-} from "./generation-strategy-queue-view.js?v=20260823.copy-engines.58";
+} from "./generation-strategy-queue-view.js?v=20260823.copy-engines.59";
 import {
   buildGenerationStrategySpecApprovalRequest,
   buildGenerationStrategySpecPrepareRequest,
   generationStrategySpecSafeProjection,
   normalizeGenerationStrategySpecControlResponse,
   normalizeGenerationStrategySpecPrepareResponse,
-} from "./generation-strategy-spec.js?v=20260823.copy-engines.58";
+} from "./generation-strategy-spec.js?v=20260823.copy-engines.59";
 import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
@@ -188,7 +188,7 @@ import {
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260823.copy-engines.58";
+} from "./generation-form-draft.js?v=20260823.copy-engines.59";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
@@ -227,7 +227,7 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260823.copy-engines.58";
+} from "./content-review-view.js?v=20260823.copy-engines.59";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
@@ -249,7 +249,7 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260823.copy-engines.58";
+} from "./portal-experience.js?v=20260823.copy-engines.59";
 import {
   isWorkspaceSmartFolderId,
   normalizeWorkspaceBoard,
@@ -286,7 +286,7 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260823.copy-engines.58";
+} from "./training-journey.js?v=20260823.copy-engines.59";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
@@ -335,7 +335,7 @@ const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
   ),
 );
 const MEDIA_UPLOAD_CONCURRENCY = DEFAULT_MEDIA_UPLOAD_CONCURRENCY;
-const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260823.copy-engines.58";
+const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260823.copy-engines.59";
 const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260716.2";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
@@ -1223,6 +1223,7 @@ const state = {
   },
   managerDashboard: { status: "idle", data: null, error: null, requestId: 0, updatedAt: 0 },
   teamAccounts: { status: "idle", data: null, error: null, requestId: 0 },
+  resultsFunnel: { status: "idle", data: null, error: null, requestId: 0, projectId: "" },
   operationalHealth: { status: "idle", data: null, error: null, requestId: 0, updatedAt: 0 },
   generationSpend: {
     status: "idle",
@@ -18856,7 +18857,77 @@ function statsCards(items) {
   }).join("")}</div>`;
 }
 
+// Голова воронки «Результатов»: создали → смотрим → размещаем → собираем
+// статистику. Счётчики серверные (creator_results_funnel), каждый этап ведёт
+// в свой раздел; хвост воронки — публикации и метрики этого же экрана.
+async function loadResultsFunnel({ silent = false } = {}) {
+  const target = state.resultsFunnel;
+  const projectId = currentWorkspaceProjectId();
+  if (!projectId || ["loading", "refreshing"].includes(target.status)) return;
+  const requestId = target.requestId + 1;
+  target.requestId = requestId;
+  target.status = target.data && target.projectId === projectId ? "refreshing" : "loading";
+  target.error = null;
+  if (!silent && state.route.path === "/workspace/stats") render();
+  try {
+    const funnel = await state.api.resultsFunnel({ projectId });
+    if (target.requestId !== requestId) return;
+    target.data = funnel;
+    target.projectId = projectId;
+    target.status = "ready";
+  } catch (error) {
+    if (target.requestId !== requestId) return;
+    target.error = actionErrorMessage(error);
+    target.status = target.data ? "ready" : "error";
+  }
+  if (state.route.path === "/workspace/stats") render();
+}
+
+function resultsFunnelMarkup() {
+  const target = state.resultsFunnel;
+  const funnel = target.data || {};
+  const number = (key) => formatNumber(Number(funnel[key]) || 0);
+  const stages = [
+    { key: "generated_total", label: "Создано", hint: "роликов всего", href: "#/workspace/board" },
+    { key: "awaiting_review", label: "Ждут проверки", hint: "черновики", href: "#/workspace/review" },
+    { key: "approved_ready", label: "Одобрено", hint: "готовы к размещению", href: "#/workspace/board" },
+    { key: "placement_in_progress", label: "В размещении", hint: "задачи исполнителям", href: "#/workspace/placement" },
+    { key: "published", label: "Опубликовано", hint: "со ссылкой на пост", href: "#/workspace/stats" },
+  ];
+  const body = target.status === "error"
+    ? `<p class="muted tiny">Воронка не загрузилась: ${escapeHtml(target.error || "")} <button class="btn btn-secondary btn-small" type="button" data-action="refresh-results-funnel">Повторить</button></p>`
+    : !target.data && ["idle", "loading"].includes(target.status)
+      ? `<p class="muted tiny">Считаем этапы…</p>`
+      : `
+        <ol class="results-funnel__stages">
+          ${stages.map((stage) => `
+            <li class="results-funnel__stage">
+              <a href="${workspaceProjectHref(stage.href)}">
+                <strong>${number(stage.key)}</strong>
+                <span>${stage.label}</span>
+                <small>${stage.hint}</small>
+              </a>
+            </li>`).join("")}
+        </ol>
+        <p class="muted tiny results-funnel__aside">Отвергнуто: ${number("rejected")} (в «Корзине» с причиной)${Number(funnel.in_review) ? ` · на детальной проверке: ${number("in_review")}` : ""}</p>`;
+  return `
+    <section class="card card-pad results-funnel" aria-label="Воронка результатов">
+      <div class="card-header" style="padding:0 0 10px">
+        <div><p class="eyebrow">Воронка</p><h2>Создали → проверили → разместили → собрали</h2></div>
+        <button class="btn btn-secondary btn-small" type="button" data-action="refresh-results-funnel" ${["loading", "refreshing"].includes(target.status) ? "disabled" : ""}>${target.status === "refreshing" ? "Обновляем…" : "Обновить"}</button>
+      </div>
+      ${body}
+    </section>`;
+}
+
 function renderStatsSection(sectionState) {
+  if (
+    state.resultsFunnel.status === "idle"
+    || (state.resultsFunnel.projectId
+      && state.resultsFunnel.projectId !== currentWorkspaceProjectId())
+  ) {
+    window.queueMicrotask(() => loadResultsFunnel({ silent: true }));
+  }
   const requestedView = String(state.route.query.get("view") || "overview");
   const statsView = requestedView === "new" ? "new" : "overview";
   const isBusyWithoutData = ["idle", "loading"].includes(sectionState.status) && !sectionState.data;
@@ -18912,6 +18983,7 @@ function renderStatsSection(sectionState) {
       { view: "overview", href: "#/workspace/stats?view=overview", label: "Посмотреть результат" },
       { view: "new", href: "#/workspace/stats?view=new", label: "Добавить снимок" },
     ])}
+    ${resultsFunnelMarkup()}
     <div class="metrics-grid stats-overview-panel">${cards.map(([label, value, hint]) => `
       <article class="card metric-card"><span class="metric-label">${label}</span><strong>${typeof value === "number" ? formatNumber(value) : value}</strong><small>${hint}</small></article>
     `).join("")}</div>
@@ -23886,12 +23958,21 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "refresh-results-funnel") {
+    await loadResultsFunnel({ silent: false });
+    return;
+  }
+
   if (action === "refresh-section") {
     const section = control.dataset.section;
     if (state.sections[section]) {
       if (section === "team" && state.projectAccess.busyProfileId) {
         toast("Сначала дождитесь подтверждения изменения доступа.", "info");
         return;
+      }
+      if (section === "stats") {
+        // Обновление «Результатов» пересчитывает и голову воронки.
+        window.queueMicrotask(() => loadResultsFunnel({ silent: true }));
       }
       if (section === "generation") {
         state.generationArchive.requestId += 1;

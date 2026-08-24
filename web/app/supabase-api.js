@@ -78,6 +78,7 @@ export const RPC = Object.freeze({
   publishGenerationResult: "creator_publish_generation_result",
   rejectGenerationResult: "creator_reject_generation_result",
   teamAccounts: "creator_team_accounts",
+  resultsFunnel: "creator_results_funnel",
   managerDashboard: "creator_manager_dashboard",
   operationalHealth: "creator_operational_health",
   generationSpendOverview: "creator_generation_spend_overview",
@@ -6763,6 +6764,24 @@ export class CreatorApi {
       reason,
       watch_confirmed: true,
     });
+  }
+
+  // Голова воронки «Результатов»: сколько роликов на каждом этапе прямо
+  // сейчас — из тех же таблиц, которыми живут разделы.
+  async resultsFunnel({ projectId = "", project_id: projectIdSnake = "" } = {}) {
+    const normalizedProjectId = requiredProjectId(projectIdSnake || projectId);
+    const data = await this.call(RPC.resultsFunnel, {
+      organization_id: String(this.organizationId || ""),
+      project_id: normalizedProjectId,
+    });
+    if (
+      !data || data.ok !== true
+      || data.version !== "results-funnel-v1"
+      || !data.funnel || typeof data.funnel !== "object"
+    ) {
+      throw new CreatorApiError("Воронка результатов пришла в неизвестной форме.");
+    }
+    return data.funnel;
   }
 
   // Вкладка «Команда → Аккаунты»: реестр владения с выдачами, подключениями
