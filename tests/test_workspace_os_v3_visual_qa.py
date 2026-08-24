@@ -30,7 +30,7 @@ def test_os_v3_visual_qa_assets_are_retired_from_the_active_graph() -> None:
     assert active_assets.index(
         "./workspace-os-v4-loader.js?v=20260822.live-windows.5"
     ) < active_assets.index(
-        "./workspace-build-guard.js?v=20260823.copy-engines.59"
+        "./workspace-build-guard.js?v=20260823.copy-engines.60"
     )
 
 

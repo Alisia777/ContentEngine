@@ -7,7 +7,7 @@
  * DOM or transporting credentials. This module never calls business APIs.
  */
 
-import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260823.copy-engines.59";
+import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260823.copy-engines.60";
 import {
   createWorkspaceWindowManagerState,
   workspaceWindowManagerReducer,
@@ -41,7 +41,7 @@ import {
   readContentEngineEmbeddedWindowEvent,
 } from "./workspace-embedded-window-contract.js?v=20260822.live-child.2";
 
-const BUILD = "20260823.copy-engines.59";
+const BUILD = "20260823.copy-engines.60";
 const STORAGE_KEY = "contentengine.desktop-v4.v1";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
 const PROJECT_CONTEXT_KEY = "contentengine.desktop-v4.project";
@@ -154,23 +154,23 @@ const CONTEXT_ROUTES = Object.freeze([
 const ALL_ROUTES = Object.freeze([...ROUTES, ...SECONDARY_ROUTES, ...CONTEXT_ROUTES]);
 const DOCK_APPS = Object.freeze([
   Object.freeze({ key: "finder", route: "/workspace/board", label: "Finder", dockIcon: "ce-dock-finder", description: "Проекты, папки, файлы и источники" }),
-  Object.freeze({ key: "results", route: "/workspace/stats", label: "Результаты", dockIcon: "ce-dock-results", description: "Метрики и следующая гипотеза" }),
   Object.freeze({ key: "research", route: "/workspace/research", label: "Исследования", dockIcon: "ce-dock-research", description: "Факты, источники и сценарии" }),
   Object.freeze({ key: "ai", route: "/workspace/ai", label: "ИИ-центр", dockIcon: "ce-dock-ai", description: "Знания категорий и обратная связь" }),
   Object.freeze({ key: "create", route: "/workspace/generation", label: "Создать", dockIcon: "ce-dock-create", description: "Один ролик или фото за запуск" }),
   Object.freeze({ key: "review", route: "/workspace/review", label: "Проверить", dockIcon: "ce-dock-review", description: "Качество, риски и одно решение" }),
   Object.freeze({ key: "publish", route: "/workspace/placement", label: "Опубликовать", dockIcon: "ce-dock-publish", description: "Один пост — один маршрут" }),
+  Object.freeze({ key: "results", route: "/workspace/stats", label: "Результаты", dockIcon: "ce-dock-results", description: "Метрики и следующая гипотеза" }),
   Object.freeze({ key: "processes", route: "/workspace/work", label: "Процессы", dockIcon: "ce-dock-processes", description: "Личная очередь и рабочие действия" }),
   Object.freeze({ key: "settings", route: "/workspace/team", label: "Команда", dockIcon: "ce-dock-settings", description: "Доступы и участники" }),
 ]);
 const DOCK_CANONICAL_ORDER = Object.freeze([
   "finder",
-  "results",
   "research",
   "ai",
   "create",
   "review",
   "publish",
+  "results",
   "processes",
   "settings",
   "trash",

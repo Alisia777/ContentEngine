@@ -622,12 +622,12 @@ def test_dock_contract_is_the_only_visibility_and_overflow_owner() -> None:
     assert canonical is not None
     assert re.findall(r'"([a-z]+)"', canonical.group(1)) == [
         "finder",
-        "results",
         "research",
         "ai",
         "create",
         "review",
         "publish",
+        "results",
         "processes",
         "settings",
         "trash",

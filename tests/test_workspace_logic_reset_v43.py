@@ -393,12 +393,12 @@ def test_secondary_and_context_routes_stay_outside_the_primary_dock() -> None:
     )
     assert re.findall(r'key:\s*"([^"]+)"', dock_apps) == [
         "finder",
-        "results",
         "research",
         "ai",
         "create",
         "review",
         "publish",
+        "results",
         "processes",
         "settings",
     ]
@@ -532,7 +532,9 @@ def test_default_task_and_placement_views_render_one_actionable_record() -> None
     assert "visibleItems.map(taskQueueCard)" in tasks
     assert 'requestedView === "history" ? "history" : "next"' in placements
     assert 'nextPlacement ? [nextPlacement] : []' in placements
-    assert "visibleItems.map(placementHistoryCard)" in placements
+    # Фаза 1 контура размещения (24.08): история — один список со статусами
+    # и датами, а не стопка карточек; фокус-режим остаётся карточным.
+    assert "placementHistoryTable(visibleItems)" in placements
     assert 'action("review", "Взять на проверку")' in APP
     assert 'action("review", "Взять на проверку") +' not in APP
 
