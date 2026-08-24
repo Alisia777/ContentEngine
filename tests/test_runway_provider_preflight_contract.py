@@ -30,10 +30,10 @@ def test_preflight_checks_runway_organization_without_creating_a_task() -> None:
 def test_local_qa_origin_is_exactly_allowlisted_without_wildcard_cors() -> None:
     assert 'const LOCAL_QA_APP_ORIGIN = "http://127.0.0.1:8767"' in EDGE
     assert (
-        'const LOCAL_PRODUCTION_QA_APP_ORIGIN = "http://127.0.0.1:8769"'
+        'const LOCAL_SANDBOX_APP_ORIGIN = "http://127.0.0.1:8768"'
         in EDGE
     )
-    assert "LOCAL_PRODUCTION_QA_APP_ORIGIN," in EDGE
+    assert "LOCAL_SANDBOX_APP_ORIGIN," in EDGE
     assert "USER_APP_ORIGINS.has(origin)" in EDGE
     assert '"access-control-allow-origin", origin' in EDGE
     assert '"access-control-allow-origin", "*"' not in EDGE

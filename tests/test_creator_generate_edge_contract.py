@@ -52,10 +52,10 @@ def test_real_generation_edge_function_is_authenticated_and_origin_bound() -> No
     assert 'const PUBLIC_APP_ORIGIN = "https://alisia777.github.io"' in source
     assert 'const LOCAL_QA_APP_ORIGIN = "http://127.0.0.1:8767"' in source
     assert (
-        'const LOCAL_PRODUCTION_QA_APP_ORIGIN = "http://127.0.0.1:8769"'
+        'const LOCAL_SANDBOX_APP_ORIGIN = "http://127.0.0.1:8768"'
         in source
     )
-    assert "LOCAL_PRODUCTION_QA_APP_ORIGIN," in source
+    assert "LOCAL_SANDBOX_APP_ORIGIN," in source
     assert 'USER_APP_ORIGINS.has(request.headers.get("origin") ?? "")' in source
     assert '"access-control-allow-origin", origin' in source
     assert '"access-control-allow-origin", "*"' not in source

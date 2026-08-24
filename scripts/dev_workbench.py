@@ -30,6 +30,7 @@ LOCAL_DOCKER = LOCAL / "docker"
 LOCAL_DOCKER_MEDIA = LOCAL_DOCKER / "media"
 LOCAL_DOCKER_DATA = LOCAL_DOCKER / "data"
 LOCAL_OWNER_CREDENTIALS = LOCAL / "owner.local.json"
+DEFAULT_LOCAL_OWNER_EMAIL = "owner@contentengine.test"
 LOCAL_PROJECT = LOCAL / "project.local.json"
 SUPABASE_CLI_VERSION = "2.109.1"
 SUPABASE_CLI_CACHE_TIMEOUT_SECONDS = 20
@@ -353,7 +354,7 @@ def local_owner_credentials() -> dict[str, str]:
             return {"email": payload["email"], "password": payload["password"]}
         raise SystemExit(f"Invalid local credential file: {LOCAL_OWNER_CREDENTIALS}")
     credentials = {
-        "email": "owner@contentengine.test",
+        "email": DEFAULT_LOCAL_OWNER_EMAIL,
         "password": f"Ce-{secrets.token_urlsafe(18)}-Aa1",
     }
     LOCAL.mkdir(exist_ok=True)
@@ -362,6 +363,30 @@ def local_owner_credentials() -> dict[str, str]:
         encoding="utf-8",
     )
     return credentials
+
+
+def local_owner_email() -> str:
+    """Report the sign-in address `dev-up` actually provisions.
+
+    `dev-status` must show the credential file's own address, because a person
+    who renamed the local owner still signs in with the renamed one. Reading is
+    side-effect free on purpose: a status command must never mint credentials,
+    and an unreadable file downgrades to the first-run default instead of
+    hiding the rest of the status behind an exception.
+    """
+
+    if not LOCAL_OWNER_CREDENTIALS.is_file():
+        return DEFAULT_LOCAL_OWNER_EMAIL
+    try:
+        payload = json.loads(LOCAL_OWNER_CREDENTIALS.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return DEFAULT_LOCAL_OWNER_EMAIL
+    if not isinstance(payload, dict):
+        return DEFAULT_LOCAL_OWNER_EMAIL
+    email = payload.get("email")
+    if not isinstance(email, str) or not email.strip():
+        return DEFAULT_LOCAL_OWNER_EMAIL
+    return email.strip()
 
 
 def local_auth_request(
@@ -998,15 +1023,18 @@ def dev_status() -> None:
         "provider_mode": "mock",
         "character_performance_enabled": False,
         "app": "http://127.0.0.1:8014",
-        "desktop": "http://127.0.0.1:8767/",
-        "desktop_generation": "http://127.0.0.1:8767/#/workspace/generation?project_id=<project_id>",
-        "diagnostic_workbench": "http://127.0.0.1:8767/workbench/#/copy",
+        # 8767 — рабочий портал оператора (прод), его раздаёт контейнер
+        # local-web и write_local_site его НЕ трогает. Песочница — 8768.
+        "operator_portal_prod": "http://127.0.0.1:8767/",
+        "desktop": "http://127.0.0.1:8768/",
+        "desktop_generation": "http://127.0.0.1:8768/#/workspace/generation?project_id=<project_id>",
+        "diagnostic_workbench": "http://127.0.0.1:8768/workbench/#/copy",
         "supabase_api": "http://127.0.0.1:54321",
         "supabase_studio": "http://127.0.0.1:54323",
         "mail": "http://127.0.0.1:54324",
         "creator_generate": "http://127.0.0.1:54321/functions/v1/creator-generate",
         "local_site_generated": LOCAL_SITE.is_dir(),
-        "local_owner_email": "owner@contentengine.test",
+        "local_owner_email": local_owner_email(),
         "local_owner_credentials_file": str(LOCAL_OWNER_CREDENTIALS),
         "local_project_file": str(LOCAL_PROJECT),
         "local_docker_media": str(LOCAL_DOCKER_MEDIA),

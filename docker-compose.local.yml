@@ -37,10 +37,29 @@ services:
       - ./.local/docker/media:/app/media
       - ./.local/docker/data:/app/.local-data
 
+  # 8767 — РАБОЧИЙ портал оператора. Раздаётся сборка .local/prod-portal-site,
+  # которая смотрит в боевой Supabase. Её НЕ переписывает write_local_site(),
+  # и это главное: раньше здесь лежала .local/site, а dev-up затирал её
+  # песочницей — оператор открывал знакомый адрес и видел пустой портал с
+  # тестовой учёткой. Адрес 8767 при этом остаётся тем же, потому что он
+  # прописан как разрешённый redirect в настройках авторизации.
   local-web:
     image: nginx:1.27-alpine
     ports:
       - "127.0.0.1:8767:80"
+    restart: unless-stopped
+    volumes:
+      - ./.local/prod-portal-site:/usr/share/nginx/html:ro
+      - ./dev/nginx.local.conf:/etc/nginx/conf.d/default.conf:ro
+
+  # 8768 — ПЕСОЧНИЦА для разработки: сборка .local/site смотрит в локальный
+  # Supabase, платная генерация в ней выключена флагом mock-only. Её
+  # пересобирает write_local_site() на каждом dev-up — и теперь это никому не
+  # мешает, потому что рабочий портал живёт отдельно.
+  sandbox-web:
+    image: nginx:1.27-alpine
+    ports:
+      - "127.0.0.1:8768:80"
     restart: unless-stopped
     volumes:
       - ./.local/site:/usr/share/nginx/html:ro

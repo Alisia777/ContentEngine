@@ -24,7 +24,10 @@ from uuid import UUID
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LOCAL_DESKTOP_ORIGIN = "http://127.0.0.1:8767"
+# 8767 — РАБОЧИЙ портал оператора (прод-Supabase, контейнер local-web).
+# Зонды обязаны ездить только по песочнице: 8768, контейнер sandbox-web,
+# раздаёт .local/site с локальным Supabase.
+LOCAL_DESKTOP_ORIGIN = "http://127.0.0.1:8768"
 UPLOAD_PROBE_MP4 = ROOT / "web" / "app" / "assets" / "training" / "ugc_bloody_peel_8s.mp4"
 LOGIN_READY_TIMEOUT_SECONDS = 30
 

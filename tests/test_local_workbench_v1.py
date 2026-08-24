@@ -34,7 +34,8 @@ def test_local_profile_is_fail_closed_and_production_config_is_not_edited() -> N
     assert '.replace("; upgrade-insecure-requests", "")' in script
     assert 'LOCAL_OWNER_CREDENTIALS = LOCAL / "owner.local.json"' in script
     assert 'LOCAL_PROJECT = LOCAL / "project.local.json"' in script
-    assert '"email": "owner@contentengine.test"' in script
+    assert 'DEFAULT_LOCAL_OWNER_EMAIL = "owner@contentengine.test"' in script
+    assert '"local_owner_email": local_owner_email()' in script
     assert "secrets.token_urlsafe" in script
     assert '"password": "' not in script
     assert "def provision_local_owner() -> str" in script
@@ -179,8 +180,10 @@ process.stdout.write(JSON.stringify(results));
 
 def test_local_supabase_overlay_has_auth_storage_migrations_and_edge() -> None:
     overlay = (ROOT / "supabase" / "config.local.toml").read_text(encoding="utf-8")
-    assert 'site_url = "http://127.0.0.1:8767/"' in overlay
-    assert '"http://localhost:8767/**"' in overlay
+    assert 'site_url = "http://127.0.0.1:8768/"' in overlay
+    assert '"http://localhost:8768/**"' in overlay
+    # Рабочий портал оператора остаётся разрешённым адресом: он живёт на 8767.
+    assert '"http://127.0.0.1:8767/**"' in overlay
     assert "[storage]" in overlay
     assert "[db.migrations]" in overlay
     assert "[functions.creator-generate]" in overlay
@@ -281,7 +284,7 @@ def test_required_dev_commands_and_three_browser_routes_exist() -> None:
         '"strategyButtonCount": 3',
         "!form?.textContent.includes('object_required')",
         "config.ALLOW_REAL_SPEND === false",
-        'LOCAL_DESKTOP_ORIGIN = "http://127.0.0.1:8767"',
+        'LOCAL_DESKTOP_ORIGIN = "http://127.0.0.1:8768"',
         "else project_id",
         'data-ce-v4-finder-mode=\\"organize\\"',
         'data-ce-v4-finder-view=\\"list\\"',
@@ -472,6 +475,40 @@ def test_supabase_cli_probe_timeout_terminates_its_owned_process_tree(
     with pytest.raises(SystemExit, match=r"Timed out after 7s.*process tree"):
         dev_workbench._run_bounded_npx_probe(["npx", "--version"], timeout=7)
     assert len(terminated) == 1
+
+
+def test_dev_status_reports_the_provisioned_owner_email(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    credentials = tmp_path / "owner.local.json"
+    credentials.write_text(
+        json.dumps({"email": "artiu@contentengine.test", "password": "x"}) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(dev_workbench, "LOCAL_OWNER_CREDENTIALS", credentials)
+
+    assert dev_workbench.local_owner_email() == "artiu@contentengine.test"
+
+
+def test_owner_email_downgrades_to_the_default_without_minting_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "owner.local.json"
+    monkeypatch.setattr(dev_workbench, "LOCAL_OWNER_CREDENTIALS", missing)
+    assert dev_workbench.local_owner_email() == dev_workbench.DEFAULT_LOCAL_OWNER_EMAIL
+    assert not missing.exists()
+
+    unreadable = tmp_path / "broken.local.json"
+    unreadable.write_text("{not json", encoding="utf-8")
+    monkeypatch.setattr(dev_workbench, "LOCAL_OWNER_CREDENTIALS", unreadable)
+    assert dev_workbench.local_owner_email() == dev_workbench.DEFAULT_LOCAL_OWNER_EMAIL
+
+    blank = tmp_path / "blank.local.json"
+    blank.write_text(json.dumps({"email": "   "}) + "\n", encoding="utf-8")
+    monkeypatch.setattr(dev_workbench, "LOCAL_OWNER_CREDENTIALS", blank)
+    assert dev_workbench.local_owner_email() == dev_workbench.DEFAULT_LOCAL_OWNER_EMAIL
 
 
 def test_write_local_site_propagates_cli_bootstrap_failure(

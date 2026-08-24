@@ -78,15 +78,18 @@ import {
 } from "../_shared/generation-strategy-edge-contract.js";
 
 const PUBLIC_APP_ORIGIN = "https://alisia777.github.io";
+// Рабочий портал оператора: контейнер local-web раздаёт прод-сборку на 8767.
 const LOCAL_QA_APP_ORIGIN = "http://127.0.0.1:8767";
-// Exact origin of the local production-site mirror used for authenticated QA.
-// Keep this literal (never localhost-wide or wildcard): browser sessions are
-// origin-bound, and no other local port may inherit generation authority.
-const LOCAL_PRODUCTION_QA_APP_ORIGIN = "http://127.0.0.1:8769";
+// Песочница разработки: контейнер sandbox-web раздаёт .local/site на 8768 и
+// смотрит в локальный Supabase. Точные литералы (никогда localhost-wide или
+// wildcard): браузерные сессии привязаны к origin, и никакой другой местный
+// порт не наследует право генерации. Порт 8769 (старая ручная раздача
+// зеркала) из списка удалён — той раздачи больше нет.
+const LOCAL_SANDBOX_APP_ORIGIN = "http://127.0.0.1:8768";
 const USER_APP_ORIGINS = new Set([
   PUBLIC_APP_ORIGIN,
   LOCAL_QA_APP_ORIGIN,
-  LOCAL_PRODUCTION_QA_APP_ORIGIN,
+  LOCAL_SANDBOX_APP_ORIGIN,
 ]);
 const RUNWAY_API_ORIGIN = "https://api.dev.runwayml.com";
 const RUNWAY_API_VERSION = "2024-11-06";
@@ -7427,7 +7430,12 @@ async function handleCreatorGenerate(
       return json(request, { ok: false, code: "duet_provider_response_invalid" }, 502);
     }
     const status = readLookStatus(look.status);
-    const lookError = isRecord(look.error) ? safeText(look.error.message, 300) : "";
+    // Сырой текст провайдера в браузер не уходит (контракт «provider errors
+    // are not returned raw»): отказ сводится к типовому человеческому
+    // сообщению — оно покрывает и модерацию, и лимиты кабинета.
+    const lookError = isRecord(look.error) || status === "failed"
+      ? "HeyGen отклонил генерацию персонажа. Уточните описание (без брендов и реальных людей) или проверьте кредиты кабинета HeyGen — и попробуйте ещё раз."
+      : "";
     // Готовая личность ищется в том же каталоге v2, которым живёт «Дуэт»: там
     // она лежит как talking_photo с тем же идентификатором. Если каталог её
     // ещё не показывает, отдаём look_id как фото-аватар — запуск всё равно
