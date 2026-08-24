@@ -22,7 +22,7 @@ def read(path: Path) -> str:
 def test_failed_research_can_be_closed_and_replaced_with_a_fresh_form() -> None:
     source = read(RECOVERY)
     assert (
-        'from "./product-research-view.js?v=20260823.copy-engines.60"'
+        'from "./product-research-view.js?v=20260823.copy-engines.61"'
         in source
     )
     for marker in (

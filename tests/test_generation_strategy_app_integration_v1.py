@@ -1534,3 +1534,24 @@ def test_typed_generation_strategy_rejections_are_never_auto_retried() -> None:
     assert "state.generationStrategyStartRetries.delete(sourceMediaId)" in auto_retry
     assert "if (generationStrategyStartFailureIsTransport(error))" in manual_retry
     assert "state.generationStrategyStartRetries.delete(sourceMediaId)" in manual_retry
+
+
+def test_paid_lock_releases_once_the_job_exists_so_the_next_run_queues() -> None:
+    """«Сделала 1-й ролик, ставлю 2-й — и оно подвешивается в очередь» (24.08).
+    Замок платного контекста держит форму только пока денежное решение в
+    полёте: human_confirmed и start_once. Фаза status наступает исключительно
+    с generation_job_id в ответе старта — резерв записан, опрос read-only,
+    и форма обязана быть свободна для подготовки следующего запуска."""
+    assert (
+        "const GENERATION_STRATEGY_PAID_DECISION_PHASES = Object.freeze([\n"
+        '  "human_confirmed",\n'
+        '  "start_once",\n'
+        "]);"
+    ) in APP
+    lock = _source_slice(
+        APP,
+        "function generationStrategySingleHasPaidAuthority(",
+        "function generationStrategyHasPaidAuthority()",
+    )
+    assert '"status"' not in lock
+    assert "GENERATION_STRATEGY_PAID_DECISION_PHASES.includes" in lock

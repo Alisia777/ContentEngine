@@ -11,20 +11,20 @@ import {
   reduceGenerationStrategyViewState,
   selectedGenerationStrategySummary,
   validateSelectedGenerationStrategyDraft,
-} from "./generation-strategy-view.js?v=20260823.copy-engines.60";
+} from "./generation-strategy-view.js?v=20260823.copy-engines.61";
 import {
   generationStrategyAssetEligibility,
   mergeGenerationStrategyAssetPages,
   normalizeGenerationStrategyAssetCandidates,
-} from "./generation-strategy-assets.js?v=20260823.copy-engines.60";
+} from "./generation-strategy-assets.js?v=20260823.copy-engines.61";
 import {
   GENERATION_STRATEGY_SOURCE_PICKER_ACTIONS,
   createGenerationStrategySourcePicker,
   generationStrategyRequiredSourceCount,
   generationStrategySourcePickerProjection,
   reduceGenerationStrategySourcePicker,
-} from "./generation-strategy-source-picker.js?v=20260823.copy-engines.60";
-import { resolveGenerationModelVisual } from "./generation-model-visuals-v1.js?v=20260823.copy-engines.60";
+} from "./generation-strategy-source-picker.js?v=20260823.copy-engines.61";
+import { resolveGenerationModelVisual } from "./generation-model-visuals-v1.js?v=20260823.copy-engines.61";
 
 /*
  * ContentEngine Desktop v4 · guided generation.
