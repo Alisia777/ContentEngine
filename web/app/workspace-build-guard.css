@@ -2,7 +2,7 @@
 
 .ce-build-pill {
   position: fixed;
-  z-index: 245;
+  z-index: 2147482000;
   bottom: calc(18px + env(safe-area-inset-bottom, 0px));
   left: 18px;
   display: inline-flex;
@@ -49,7 +49,9 @@
 
 .ce-build-update {
   position: fixed;
-  z-index: 400;
+  /* Поверх любого окна v4 (их слои доходят до ~900): баннер обновления обязан
+     быть виден и над развёрнутым окном, и над доком. */
+  z-index: 2147482000;
   top: calc(14px + env(safe-area-inset-top, 0px));
   left: 50%;
   display: grid;

@@ -30,7 +30,7 @@ QUEUE = (APP_DIR / "generation-strategy-queue.js").read_text(encoding="utf-8")
 
 def test_build_id_is_consistent_across_entrypoints() -> None:
     build_id = MANIFEST["id"]
-    assert build_id == "20260823.copy-engines.62"
+    assert build_id == "20260823.copy-engines.63"
     assert f'content="{build_id}"' in APP_INDEX
     assert f'content="{build_id}"' in ROOT_INDEX
     assert f'const CURRENT_BUILD = "{build_id}"' in SCRIPT
@@ -152,3 +152,15 @@ def test_build_guard_javascript_parses_when_node_is_available() -> None:
 
 def test_build_guard_css_is_balanced() -> None:
     assert CSS.count("{") == CSS.count("}")
+
+
+def test_update_banner_survives_v4_windows_and_reloads_itself_when_idle() -> None:
+    """Владелица сутки работала на устаревшей сборке и не видела баннер: окно
+    v4 (слои до ~900) перекрывало z-index 400. Баннер обязан быть поверх
+    всего, а свободное от ввода рабочее место — перезапускаться само."""
+    assert "z-index: 2147482000;" in CSS
+    assert "function interfaceIsBusy()" in SCRIPT
+    assert "'form[data-dirty], form[data-busy=\"true\"], [data-busy=\"true\"], dialog[open]'" in SCRIPT
+    assert "function scheduleAutoReload(id, banner)" in SCRIPT
+    assert "scheduleAutoReload(id, banner);" in SCRIPT
+    assert "Обновится само через" in SCRIPT

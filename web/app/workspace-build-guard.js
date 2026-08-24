@@ -4,7 +4,7 @@
  * credentials, forms or application state.
  */
 
-const CURRENT_BUILD = "20260823.copy-engines.62";
+const CURRENT_BUILD = "20260823.copy-engines.63";
 const BUILD_BADGE = "Desktop · 21.08.17";
 const MANIFEST_URL = new URL("./build.json", import.meta.url);
 const CHECK_INTERVAL_MS = 10 * 60 * 1000;
@@ -17,7 +17,28 @@ const runtime = {
   pillTimer: 0,
   banner: null,
   timer: 0,
+  autoReloadTimer: 0,
+  autoReloadDeadline: 0,
 };
+
+// Обновление не должно рвать живую работу: занятая форма, открытый диалог или
+// активный ввод откладывают автоперезапуск — остаётся видимый баннер с кнопкой.
+function interfaceIsBusy() {
+  try {
+    if (document.querySelector(
+      'form[data-dirty], form[data-busy="true"], [data-busy="true"], dialog[open]',
+    )) return true;
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLElement
+      && (["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName)
+        || active.isContentEditable)
+    ) return true;
+  } catch {
+    return true;
+  }
+  return false;
+}
 
 window.CONTENTENGINE_BUILD = Object.freeze({
   id: CURRENT_BUILD,
@@ -77,10 +98,43 @@ function reloadIntoBuild(buildId) {
   window.location.replace(url.toString());
 }
 
+function cancelAutoReload() {
+  window.clearTimeout(runtime.autoReloadTimer);
+  runtime.autoReloadTimer = 0;
+  runtime.autoReloadDeadline = 0;
+}
+
+function scheduleAutoReload(id, banner) {
+  cancelAutoReload();
+  const countdown = banner.querySelector("[data-build-countdown]");
+  runtime.autoReloadDeadline = Date.now() + 15_000;
+  const tick = () => {
+    if (runtime.banner !== banner || !banner.isConnected) return cancelAutoReload();
+    if (interfaceIsBusy()) {
+      // Человек занят: не дёргаем. Баннер остаётся, кнопка работает.
+      if (countdown) countdown.textContent = "Обновится после того, как закончите ввод, — или нажмите сейчас.";
+      runtime.autoReloadDeadline = Date.now() + 15_000;
+      runtime.autoReloadTimer = window.setTimeout(tick, 3_000);
+      return;
+    }
+    const remainingMs = runtime.autoReloadDeadline - Date.now();
+    if (remainingMs <= 0) {
+      reloadIntoBuild(id);
+      return;
+    }
+    if (countdown) {
+      countdown.textContent = `Обновится само через ${Math.ceil(remainingMs / 1_000)} с — или нажмите сейчас.`;
+    }
+    runtime.autoReloadTimer = window.setTimeout(tick, 1_000);
+  };
+  tick();
+}
+
 function showUpdate(remote) {
   const id = cleanBuildId(remote?.id);
   if (!id || id === CURRENT_BUILD) {
     removeBanner();
+    cancelAutoReload();
     return;
   }
   runtime.remote = { id, label: String(remote?.label || "Новая версия ContentEngine") };
@@ -93,9 +147,11 @@ function showUpdate(remote) {
   const mark = makeElement("span", "ce-build-update__mark", "↻");
   mark.setAttribute("aria-hidden", "true");
   const copy = makeElement("div", "ce-build-update__copy");
+  const countdown = makeElement("small", "", "Перезапустите интерфейс — открытые серверные задачи продолжат работу.");
+  countdown.dataset.buildCountdown = "";
   copy.append(
     makeElement("strong", "", "Рабочее место обновилось"),
-    makeElement("small", "", "Перезапустите интерфейс — открытые серверные задачи продолжат работу."),
+    countdown,
   );
   const action = makeElement("button", "ce-build-update__action", "Обновить");
   action.type = "button";
@@ -103,12 +159,16 @@ function showUpdate(remote) {
   const close = makeElement("button", "ce-build-update__close", "×");
   close.type = "button";
   close.setAttribute("aria-label", "Скрыть сообщение об обновлении");
-  close.addEventListener("click", removeBanner);
+  close.addEventListener("click", () => {
+    cancelAutoReload();
+    removeBanner();
+  });
 
   banner.append(mark, copy, action, close);
   document.body.append(banner);
   runtime.banner = banner;
   document.body.classList.add("ce-build-update-visible");
+  scheduleAutoReload(id, banner);
 }
 
 function flashPill(message, tone = "ok") {
