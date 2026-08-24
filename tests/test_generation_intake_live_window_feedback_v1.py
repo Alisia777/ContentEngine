@@ -78,7 +78,11 @@ def test_paid_launch_status_follows_the_job_to_its_end() -> None:
     intake = text(INTAKE)
     assert "async function watchExpressLaunchJob(initialForm, route, price)" in intake
     assert "void watchExpressLaunchJob(form, expressRoute(state), express.price);" in intake
-    assert "api.realGenerationStatus(jobId, { projectId: projectId() })" in intake
+    # Стратегия-задачи читаются только strategy_status: легаси-«status» на них
+    # отвечает 503, и наблюдатель не видел даже завершённую задачу.
+    assert 'action: "strategy_status",' in intake
+    assert "generation_job_id: jobId," in intake
+    assert "api.realGenerationStatus(jobId" not in intake
     assert "Готово! Ролик за ${price} собран и сохранён в проекте" in intake
     # Провайдера опрашивает только сервер; терминальные статусы — закрытый список.
     assert 'succeeded: "succeeded",\n  failed: "failed",\n  cancelled: "cancelled",' in intake

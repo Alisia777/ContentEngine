@@ -195,7 +195,7 @@ def test_recovery_writer_stays_get_only_append_only_and_ledger_immutable() -> No
     assert 'method: "get"' in poll.casefold()
     assert "system_recover_generation_strategy_provider_result" in poll
     assert "provider_result_http_${providerrefusedstatus}" not in poll.casefold()
-    assert 'recoveryexit("result_get_refused")' in poll.casefold()
+    assert 'recoveryexit(`result_get_refused_http_${providerrefusedstatus}`)' in poll.casefold()
     assert 'recoveryexit("result_routes_exhausted")' in poll.casefold()
 
     # The migration only patches the pre-existing writer and verifies that it
@@ -311,14 +311,21 @@ def test_official_stored_output_fallback_is_exact_and_identity_bound() -> None:
     }
 
 
-def test_stored_output_fallback_is_recovery_only_get_and_evidence_bound() -> None:
+def test_stored_output_fallback_is_refusal_gated_get_and_evidence_bound() -> None:
+    """С 24.08 запасное чтение сохранённого результата открыто и воркерному
+    опросу, но только при ОПРЕДЕЛЁННОМ HTTP-отказе очереди (fal отвечает 500 на
+    GET результата готового pikaswaps — задача висела при статусе COMPLETED).
+    Это по-прежнему только GET уже оплаченного запроса, никогда не повтор."""
     edge = _source(EDGE)
     poll = edge.split("const pollGenerationStrategyProvider = async (", 1)[1]
     fallback = poll.split(
-        "// Recovery only: fal's documented model-request Platform API", 1
+        "// fal's documented model-request Platform API exposes stored IO", 1
     )[1].split("const videoUrl = readFalResultVideoUrl", 1)[0]
 
-    assert "if (recoveryMode && falModelKey !== null)" in fallback
+    assert (
+        "(recoveryMode || providerRefusedStatus !== null) &&\n          falModelKey !== null"
+        in fallback
+    )
     assert "falModelRequestPayloadUrl(" in fallback
     assert "readFalModelRequestOutput(" in fallback
     assert 'method: "GET"' in fallback

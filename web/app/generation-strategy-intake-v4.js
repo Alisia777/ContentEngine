@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260823.copy-engines.53",
+  "./generation-strategy-intake-v4.css?v=20260823.copy-engines.54",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260823.copy-engines.53"
+  "./generation-engine-advisor.js?v=20260823.copy-engines.54"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -7351,7 +7351,16 @@ async function watchExpressLaunchJob(initialForm, route, price) {
     let jobStatus = "";
     try {
       const api = await apiRuntime();
-      const data = await api.realGenerationStatus(jobId, { projectId: projectId() });
+      // Задачи стратегий читает ТОЛЬКО strategy_status: легаси-действие
+      // «status» на них отвечает 503 job_read_failed — наблюдатель 24.08
+      // молотил им каждые десять секунд и не узнал даже о завершённой задаче.
+      const organizationId = String(api.organizationId || "").trim().toLowerCase();
+      const data = await api.generationStrategyStatus({
+        action: "strategy_status",
+        organization_id: organizationId,
+        project_id: projectId(),
+        generation_job_id: jobId,
+      });
       jobStatus = String(data?.job?.status || "").trim();
     } catch {
       jobStatus = "";
@@ -7372,7 +7381,9 @@ async function watchExpressLaunchJob(initialForm, route, price) {
     ) {
       setStatus(
         panel,
-        `Платная задача завершилась со статусом «${jobStatus}». Деньги защищены серверной сверкой: откройте «Запуски и готовые файлы», там точная причина и дальнейшие шаги.`,
+        jobStatus === "failed"
+          ? "Провайдер не смог собрать этот ролик — задача закрыта со статусом «failed», резерв денег снят или заморожен до сверки автоматически. Нажмите «Подготовить ролик» ещё раз (можно выбрать другой движок в «Чем генерируем») — материалы сохранены."
+          : `Платная задача завершилась со статусом «${jobStatus}». Деньги защищены серверной сверкой: откройте «Запуски и готовые файлы», там точная причина и дальнейшие шаги.`,
         "error",
       );
       return;

@@ -241,10 +241,10 @@ def test_completion_flow_does_not_open_an_achievement_subwindow() -> None:
 
 
 def test_training_journey_assets_are_loaded_with_versioned_urls() -> None:
-    assert './training-journey.css?v=20260823.copy-engines.53' in INDEX
-    assert BUILD == "20260823.copy-engines.53"
-    assert './app.js?v=20260823.copy-engines.53' in INDEX
-    assert 'from "./training-journey.js?v=20260823.copy-engines.53"' in APP
+    assert './training-journey.css?v=20260823.copy-engines.54' in INDEX
+    assert BUILD == "20260823.copy-engines.54"
+    assert './app.js?v=20260823.copy-engines.54' in INDEX
+    assert 'from "./training-journey.js?v=20260823.copy-engines.54"' in APP
     assert 'from "./training-interactive.js?v=20260718.4"' in APP
 
 

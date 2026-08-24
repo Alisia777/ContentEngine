@@ -44,14 +44,14 @@ def test_desktop_v4_6_is_the_only_eager_workspace_shell() -> None:
     )
     assert active_modules == [
         './workspace-os-v4-loader.js?v=20260822.live-windows.5',
-        './app.js?v=20260823.copy-engines.53',
-        './workspace-build-guard.js?v=20260823.copy-engines.53',
+        './app.js?v=20260823.copy-engines.54',
+        './workspace-build-guard.js?v=20260823.copy-engines.54',
     ]
 
 
 def test_route_loader_uses_current_v4_6_guided_assets_and_the_dom_patch() -> None:
     for marker in (
-        'const BUILD = "20260823.copy-engines.53"',
+        'const BUILD = "20260823.copy-engines.54"',
         'new URL(relative, import.meta.url).href',
         'import(href)',
         'return route.startsWith("/workspace/");',
@@ -94,7 +94,7 @@ def test_route_loader_uses_current_v4_6_guided_assets_and_the_dom_patch() -> Non
     assert 'fetch(' not in LOADER
     assert 'XMLHttpRequest' not in LOADER
 
-    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260823.copy-engines.53";' in APP_SCRIPT
+    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260823.copy-engines.54";' in APP_SCRIPT
     assert 'patchWorkspaceContent(existingContent, content);' in APP_SCRIPT
     for marker in (
         'export function patchWorkspaceContent(container, markup)',

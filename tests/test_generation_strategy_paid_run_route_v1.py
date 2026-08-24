@@ -922,7 +922,7 @@ def test_fal_completed_result_uses_exact_response_then_bare_fallbacks() -> None:
     poll = poll.split("const evidenceHash = await sha256Hex", 1)[0]
     assert "fetchFalQueueResult({" in poll
     assert "provider_result_http_${providerRefusedStatus}" not in poll
-    assert 'return recoveryExit("result_get_refused");' in poll
+    assert 'return recoveryExit(`result_get_refused_http_${providerRefusedStatus}`);' in poll
     assert 'return recoveryExit("result_routes_exhausted");' in poll
     assert 'fetchJson(candidate.url, { method: "GET" })' in CONTRACT.read_text(
         encoding="utf-8"
@@ -1228,7 +1228,7 @@ def test_strategy_status_result_recovery_is_get_only_and_uses_its_writer() -> No
     assert ': "recover_fal_result_http_405"' in handler
     assert "`${RUNWAY_API_ORIGIN}/v1/tasks/${identity.providerTaskId}`" in poll
     assert "provider_result_http_${providerRefusedStatus}" not in poll
-    assert 'return recoveryExit("result_get_refused");' in poll
+    assert 'return recoveryExit(`result_get_refused_http_${providerRefusedStatus}`);' in poll
 
 
 def test_strategy_result_recovery_silent_exits_are_redacted_and_flushed() -> None:
@@ -1241,10 +1241,9 @@ def test_strategy_result_recovery_silent_exits_are_redacted_and_flushed() -> Non
 
     helper = poll.split("const recoveryExit = (code: string): null => {", 1)[1]
     helper = helper.split("// The recovery writer is deliberately fal-only.", 1)[0]
-    assert (
-        'noteGenerationRefusal(request, "strategy_recovery.poll", code, {'
-        in helper
-    )
+    # С 24.08 код стадии пишется в ЛЮБОМ режиме (не только при ручной сверке):
+    # молчаливый воркерный опрос по логам был неотличим от «недоступен».
+    assert 'recoveryMode ? "strategy_recovery.poll" : "strategy_worker.poll"' in helper
     assert "jobId: identity.generationJobId" in helper
     for forbidden in (
         "response.value",
@@ -1262,7 +1261,6 @@ def test_strategy_result_recovery_silent_exits_are_redacted_and_flushed() -> Non
         "status_candidates_exhausted",
         "status_unclassified",
         "result_routes_exhausted",
-        "result_get_refused",
         "provider_processing",
         "provider_failed",
         "provider_cancelled",
@@ -1282,6 +1280,10 @@ def test_strategy_result_recovery_silent_exits_are_redacted_and_flushed() -> Non
             segment.isalpha() and 1 <= len(segment) <= 24
             for segment in code.split("_")
         )
+
+    # Отказ GET результата несёт код ответа провайдера прямо в имени стадии:
+    # голое result_get_refused не различало 405/413/401 в логах.
+    assert 'recoveryExit(`result_get_refused_http_${providerRefusedStatus}`)' in poll
 
     assert '"strategy_recovery.provider"' in poll
     assert 'providerState.failureCode ?? "provider_task_failed"' in poll

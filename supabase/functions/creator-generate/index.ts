@@ -10074,6 +10074,15 @@ async function handleCreatorGenerate(
     projectId: string,
     generationJobId: string,
   ): Promise<{ provider: string; modelKey: string | null } | null> => {
+    // Отказ разрешения маршрута обязан называть шаг: до 24.08 все семь
+    // проверок возвращали null молча, и повисший опрос выглядел в логах как
+    // «provider_unavailable / not_instrumented» — диагностировать было нечем.
+    const routeRefusal = (code: string): null => {
+      noteGenerationRefusal(request, "strategy_poll.route", code, {
+        jobId: generationJobId,
+      });
+      return null;
+    };
     try {
       const claims = await supabaseAdmin.schema("content_factory")
         .from("generation_strategy_start_claims")
@@ -10085,13 +10094,15 @@ async function handleCreatorGenerate(
         .eq("project_id", projectId)
         .eq("generation_job_id", generationJobId)
         .maybeSingle();
-      if (claims.error !== null || !isRecord(claims.data)) return null;
+      if (claims.error !== null || !isRecord(claims.data)) {
+        return routeRefusal("claim_read_failed");
+      }
       const receiptId = claims.data.readiness_receipt_id;
       const receiptHash = claims.data.receipt_hash;
       if (
         !isUuid(receiptId) || typeof receiptHash !== "string" ||
         !SHA256_PATTERN.test(receiptHash)
-      ) return null;
+      ) return routeRefusal("claim_receipt_reference_invalid");
       const receipts = await supabaseAdmin.schema("content_factory")
         .from("generation_strategy_readiness_receipts")
         .select(
@@ -10102,7 +10113,9 @@ async function handleCreatorGenerate(
         .eq("project_id", projectId)
         .eq("id", receiptId)
         .maybeSingle();
-      if (receipts.error !== null || !isRecord(receipts.data)) return null;
+      if (receipts.error !== null || !isRecord(receipts.data)) {
+        return routeRefusal("receipt_read_failed");
+      }
       const receipt = receipts.data;
       const strategyId = readGenerationStrategyId(receipt.strategy_id);
       const pricingVersion = typeof receipt.pricing_version === "string"
@@ -10112,7 +10125,7 @@ async function handleCreatorGenerate(
         receipt.receipt_hash !== receiptHash || strategyId === null ||
         !isKnownStrategyProvider(receipt.provider) ||
         !isKnownStrategyPricingVersion(pricingVersion)
-      ) return null;
+      ) return routeRefusal("receipt_signature_or_dictionary_mismatch");
       const provider = String(receipt.provider);
       // Runway опрашивается по номеру задачи: модель в адрес не входит, и
       // поведение этой ветки остаётся прежним до буквы.
@@ -10139,13 +10152,15 @@ async function handleCreatorGenerate(
       if (
         routes.error !== null || !Array.isArray(routes.data) ||
         routes.data.length !== 1
-      ) return null;
+      ) return routeRefusal(`route_rows_${Array.isArray(routes.data) ? routes.data.length : "error"}`);
       const route = routes.data[0] as Record<string, unknown>;
       // Модель называет реестр — он же назвал цену, по которой запуск оплачен.
       // Код проверяет не имя, а способность её исполнить: включённая строка,
       // формы запроса которой у нас нет, означала бы отправку тела чужой формы
       // и результат, который некому забрать.
-      if (!isRecord(route) || typeof route.model_key !== "string") return null;
+      if (!isRecord(route) || typeof route.model_key !== "string") {
+        return routeRefusal("route_shape_invalid");
+      }
       // У «Дуэта» устройство другое: адрес отправки один на все запросы
       // (/v3/videos), а модель — движок аватара, поэтому равенства
       // provider_path и model_key здесь нет и быть не должно. Формы запроса fal
@@ -10155,17 +10170,17 @@ async function handleCreatorGenerate(
           route.poll_kind !== "heygen_video" ||
           route.provider_path !== "/v2/video/generate" ||
           receipt.recipe !== "product_ugc"
-        ) return null;
+        ) return routeRefusal("heygen_route_contract_mismatch");
         return { provider, modelKey: route.model_key };
       }
       if (
         route.poll_kind !== "fal_request" ||
         route.provider_path !== route.model_key ||
         !falModelExecutable(receipt.recipe, route.model_key)
-      ) return null;
+      ) return routeRefusal("fal_route_contract_mismatch");
       return { provider, modelKey: route.model_key };
     } catch {
-      return null;
+      return routeRefusal("route_resolution_threw");
     }
   };
 
@@ -10203,11 +10218,14 @@ async function handleCreatorGenerate(
     // refusal trail here: only a closed machine code and the already-public
     // job UUID can enter the log, never a provider URL, response body or key.
     const recoveryExit = (code: string): null => {
-      if (recoveryMode) {
-        noteGenerationRefusal(request, "strategy_recovery.poll", code, {
-          jobId: identity.generationJobId,
-        });
-      }
+      // Именованный код пишется в любом режиме: обычный воркерный опрос до
+      // 24.08 гас молча, и по логам нельзя было сказать, ГДЕ он оборвался.
+      noteGenerationRefusal(
+        request,
+        recoveryMode ? "strategy_recovery.poll" : "strategy_worker.poll",
+        code,
+        { jobId: identity.generationJobId },
+      );
       return null;
     };
     // The recovery writer is deliberately fal-only. A future caller cannot
@@ -10366,7 +10384,10 @@ async function handleCreatorGenerate(
         ? result.refusedStatus
         : null;
       const reportResultAttempts = (): void => {
-        if (!recoveryMode || !Array.isArray(result.attempts)) return;
+        // Журнал попыток пишется в любом режиме: обычный воркерный опрос до
+        // 24.08 отдавал голое result_get_refused без кода ответа провайдера,
+        // и различить 405/413/401 по логам было нельзя.
+        if (!Array.isArray(result.attempts)) return;
         const candidateClasses = new Set([
           "provider_response_exact",
           "provider_response_bare",
@@ -10409,10 +10430,18 @@ async function handleCreatorGenerate(
       let falResultValue: unknown = resultResponse?.value ?? null;
       if (resultResponse === null) {
         reportResultAttempts();
-        // Recovery only: fal's documented model-request Platform API exposes
-        // stored IO by exact endpoint + request id. This is a separate GET of
-        // the already-paid request, never a queue submit or a second model run.
-        if (recoveryMode && falModelKey !== null) {
+        // fal's documented model-request Platform API exposes stored IO by
+        // exact endpoint + request id. This is a separate GET of the
+        // already-paid request, never a queue submit or a second model run —
+        // поэтому с 24.08 он разрешён и обычному воркерному опросу, но только
+        // когда очередь ОПРЕДЕЛЁННО отказала HTTP-статусом (fal отвечает 500
+        // на GET результата готового pikaswaps-запроса — задача 142a61e1 так
+        // висела при статусе COMPLETED). Неизвестный сетевой исход остаётся
+        // повторяемым обычным путём.
+        if (
+          (recoveryMode || providerRefusedStatus !== null) &&
+          falModelKey !== null
+        ) {
           const payloadUrl = falModelRequestPayloadUrl(
             falModelKey,
             identity.providerTaskId,
@@ -10455,29 +10484,94 @@ async function handleCreatorGenerate(
             identity.providerTaskId,
             payloadResponse.status,
           );
-          if (storedResult === null) {
-            return recoveryExit("stored_result_shape_invalid");
+          // Сохранённая запись, привязанная к точному endpoint + request id,
+          // с НЕ-двухсотым кодом исполнения модели — доказательство того, что
+          // прогон у провайдера не удался, хотя очередь пометила COMPLETED
+          // (наблюдалось вживую: pikaswaps, status_code=500, задача 142a61e1).
+          // Такой наряд закрывается штатным путём отказа: событие failed
+          // записывается ниже обычным регистратором, денежные триггеры
+          // (202608190006) снимают резерв. Это чтение, не повторный запуск.
+          const storedFailure = (() => {
+            if (storedResult !== null) return null;
+            const root = payloadResponse.value;
+            if (!isRecord(root) || !Array.isArray(root.items)) return null;
+            if (root.items.length !== 1 || !isRecord(root.items[0])) return null;
+            const item = root.items[0] as Record<string, unknown>;
+            if (
+              item.request_id !== identity.providerTaskId ||
+              item.endpoint_id !== falModelKey ||
+              typeof item.status_code !== "number" ||
+              item.status_code === 200
+            ) return null;
+            return { statusCode: item.status_code };
+          })();
+          if (storedFailure !== null) {
+            noteGenerationRefusal(
+              request,
+              recoveryMode ? "strategy_recovery.provider" : "strategy_worker.provider",
+              `stored_result_model_http_${storedFailure.statusCode}`,
+              { jobId: identity.generationJobId },
+            );
+            providerState = {
+              providerStatus: "failed",
+              outputUrl: null,
+              failureCode: "provider_task_failed",
+            };
+            falStoredResultEvidence = {
+              version: "fal-model-request-payload-v1",
+              request_id: identity.providerTaskId,
+              endpoint_id: falModelKey,
+              status_code: storedFailure.statusCode,
+              json_output: null,
+            };
+          } else if (storedResult === null) {
+            // Диагностика формы без содержимого: только булевы признаки и
+            // счётчики, никаких значений провайдера. Ответ 200 с неожиданной
+            // формой иначе неотличим от любого другого расхождения.
+            const shapeValue = payloadResponse.value;
+            const shapeItems = isRecord(shapeValue) &&
+                Array.isArray(shapeValue.items)
+              ? shapeValue.items
+              : null;
+            const shapeItem = shapeItems !== null && shapeItems.length === 1 &&
+                isRecord(shapeItems[0])
+              ? shapeItems[0] as Record<string, unknown>
+              : null;
+            const shapeCode = [
+              `items${shapeItems === null ? "x" : shapeItems.length}`,
+              `more${isRecord(shapeValue) && shapeValue.has_more === false ? 0 : 1}`,
+              `cur${isRecord(shapeValue) && shapeValue.next_cursor === null ? 0 : 1}`,
+              `req${shapeItem !== null && shapeItem.request_id === identity.providerTaskId ? 1 : 0}`,
+              `ep${shapeItem !== null && shapeItem.endpoint_id === falModelKey ? 1 : 0}`,
+              `sc${shapeItem !== null && typeof shapeItem.status_code === "number" ? String(shapeItem.status_code) : "x"}`,
+              `out${shapeItem !== null && isRecord(shapeItem.json_output) ? 1 : 0}`,
+            ].join("_");
+            return recoveryExit(`stored_result_shape_invalid_${shapeCode}`);
           }
-          falResultValue = storedResult.output;
-          falStoredResultEvidence = {
-            version: "fal-model-request-payload-v1",
-            request_id: identity.providerTaskId,
-            endpoint_id: falModelKey,
-            status_code: storedResult.statusCode,
-            json_output: storedResult.output,
-          };
+          if (storedResult !== null) {
+            falResultValue = storedResult.output;
+            falStoredResultEvidence = {
+              version: "fal-model-request-payload-v1",
+              request_id: identity.providerTaskId,
+              endpoint_id: falModelKey,
+              status_code: storedResult.statusCode,
+              json_output: storedResult.output,
+            };
+          }
         } else if (providerRefusedStatus === null) {
           return recoveryExit("result_routes_exhausted");
         } else {
-          return recoveryExit("result_get_refused");
+          return recoveryExit(`result_get_refused_http_${providerRefusedStatus}`);
         }
       }
-      const videoUrl = readFalResultVideoUrl(falResultValue);
-      if (videoUrl === null) {
-        reportResultAttempts();
-        return recoveryExit("result_shape_invalid");
+      if (providerState.providerStatus === "succeeded") {
+        const videoUrl = readFalResultVideoUrl(falResultValue);
+        if (videoUrl === null) {
+          reportResultAttempts();
+          return recoveryExit("result_shape_invalid");
+        }
+        providerState = { ...providerState, outputUrl: videoUrl };
       }
-      providerState = { ...providerState, outputUrl: videoUrl };
     }
     // A recovery status read is not a second provider-status transition. It
     // can only consume the already-completed fal result; processing, refusal
