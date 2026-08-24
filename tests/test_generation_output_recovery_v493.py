@@ -107,7 +107,9 @@ def test_provider_json_and_storage_operations_are_body_and_io_bounded() -> None:
     status = _status_section(source)
 
     assert "await withFetchDeadline(" in provider
-    assert "value: await readProviderJson(response)" in provider
+    # Потоковая приёмка (23.08): чтение тела провайдера ограничено и по
+    # времени, и по байтам — maxBytes передаётся внутрь читателя.
+    assert "value: await readProviderJson(response, maxBytes)" in provider
     assert "Promise.race([" in operation
     assert "new OperationDeadlineError()" in operation
     assert "fetchWithTimeout(" not in source

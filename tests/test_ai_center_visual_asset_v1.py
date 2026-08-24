@@ -90,6 +90,6 @@ def test_ai_center_scene_is_responsive_and_respects_reduced_motion() -> None:
 def test_ai_center_runtime_import_uses_current_content_factory_build() -> None:
     app = (APP_DIR / "app.js").read_text(encoding="utf-8")
     assert (
-        'from "./ai-learning-control-room.js?v=20260823.copy-engines.56"'
+        'from "./ai-learning-control-room.js?v=20260823.copy-engines.57"'
         in app
     )

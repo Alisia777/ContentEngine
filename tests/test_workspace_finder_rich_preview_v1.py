@@ -125,11 +125,18 @@ process.stdout.write(JSON.stringify({{
     assert "https://media.example.test/thumb.jpg" in result["grid"]
     assert "https://media.example.test/image-thumb.jpg" in result["grid"]
     assert "https://media.example.test/image.jpg" not in result["grid"]
-    assert "<video" not in result["grid"]
+    # Готовый постер всегда побеждает: <video> в сетке остаётся только у ролика
+    # БЕЗ картинки — это захват первого кадра по просьбе владельца (24.08,
+    # «1й кадр хотелось бы видеть»); он один и помечен data-preview-capture.
+    assert result["grid"].count("<video") == 1
+    assert 'data-preview-capture="unsafe"' in result["grid"]
     assert "javascript:alert(1)" not in result["grid"]
     assert 'preload="none"' in result["posterDetail"]
     assert 'poster="https://media.example.test/poster.webp"' in result["posterDetail"]
-    assert "<video" not in result["thumbDetail"]
+    # Разметка деталей включает и сетку, где живёт единственный capture-<video>
+    # ролика без картинки; сам ящик thumb-video видео не монтирует.
+    assert result["thumbDetail"].count("<video") == 1
+    assert 'data-preview-capture="unsafe"' in result["thumbDetail"]
     assert "https://media.example.test/thumb.jpg" in result["thumbDetail"]
     assert "https://media.example.test/image.jpg" in result["imageDetail"]
 

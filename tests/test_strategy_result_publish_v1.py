@@ -13,6 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "supabase/migrations/202608240001_strategy_result_publish_v1.sql"
+VOLATILE_FIX = ROOT / "supabase/migrations/202608240002_publishing_accounts_volatile_v1.sql"
 PGTAP = ROOT / "supabase/tests/strategy_result_publish_v1_test.sql"
 API = ROOT / "web/app/supabase-api.js"
 APP = ROOT / "web/app/app.js"
@@ -46,6 +47,12 @@ def test_the_rpc_pair_guards_watch_erid_account_and_idempotency() -> None:
     assert "begin_command" in sql and "finish_command" in sql
     pgtap = text(PGTAP)
     assert "select plan(13);" in pgtap
+    # PostgREST исполняет stable-функции в read-only транзакции, а приватные
+    # помощники дозаписывают строки — листинг обязан остаться volatile (25006).
+    assert (
+        "alter function public.creator_publishing_accounts(jsonb) volatile;"
+        in text(VOLATILE_FIX)
+    )
 
 
 def test_browser_api_validates_inputs_before_money_adjacent_calls() -> None:
@@ -55,6 +62,9 @@ def test_browser_api_validates_inputs_before_money_adjacent_calls() -> None:
     assert 'data.version !== "publishing-accounts-v1"' in api
     assert "/^[A-Z0-9-]{4,64}$/.test(erid)" in api
     assert 'input?.watch_confirmed !== true' in api
+    # Ключ generation_job_id уходит только когда он известен: пустая строка
+    # валит require_uuid на сервере (generation_job_id_invalid) — форма падала.
+    assert "...(generationJobId ? { generation_job_id: generationJobId } : {})," in api
 
 
 def test_the_ready_result_card_offers_publish_and_the_dialog_survives_renders() -> None:
