@@ -227,6 +227,6 @@ def test_review_health_layout_is_responsive_theme_aware_and_cache_busted() -> No
         "@media (max-width: 720px)",
     ):
         assert marker in CSS
-    assert './manager-dashboard.css?v=20260823.copy-engines.65' in INDEX
-    assert './app.js?v=20260823.copy-engines.65' in INDEX
-    assert 'from "./manager-dashboard-view.js?v=20260823.copy-engines.65"' in APP
+    assert './manager-dashboard.css?v=20260825.login-rain.1' in INDEX
+    assert './app.js?v=20260825.login-rain.1' in INDEX
+    assert 'from "./manager-dashboard-view.js?v=20260825.login-rain.1"' in APP

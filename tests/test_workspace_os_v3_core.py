@@ -28,9 +28,9 @@ def test_os_v3_assets_are_retired_from_the_active_runtime_graph() -> None:
         "workspace-os-v3-finish.css",
     )
     assert not any(any(name in asset for name in retired_names) for asset in active_assets)
-    assert "./workspace-os-v4.css?v=20260823.copy-engines.65" in active_assets
+    assert "./workspace-os-v4.css?v=20260825.login-rain.1" in active_assets
     assert (
-        "./workspace-os-v4-loader.js?v=20260823.copy-engines.65"
+        "./workspace-os-v4-loader.js?v=20260825.login-rain.1"
         in active_assets
     )
 

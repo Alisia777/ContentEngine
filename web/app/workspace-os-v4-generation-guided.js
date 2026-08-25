@@ -2,8 +2,8 @@ import {
   GENERATION_MODEL_RECOMMENDATION_ACTIONS,
   createGenerationModelRecommendationState,
   generationModelRecommendationReducer,
-} from "./generation-model-recommendation.js?v=20260823.copy-engines.65";
-import { normalizeGenerationModelAcceptance } from "./generation-model-acceptance-view.js?v=20260823.copy-engines.65";
+} from "./generation-model-recommendation.js?v=20260825.login-rain.1";
+import { normalizeGenerationModelAcceptance } from "./generation-model-acceptance-view.js?v=20260825.login-rain.1";
 import {
   GENERATION_STRATEGY_SELECT_ACTION,
   createGenerationStrategyViewState,
@@ -11,20 +11,20 @@ import {
   reduceGenerationStrategyViewState,
   selectedGenerationStrategySummary,
   validateSelectedGenerationStrategyDraft,
-} from "./generation-strategy-view.js?v=20260823.copy-engines.65";
+} from "./generation-strategy-view.js?v=20260825.login-rain.1";
 import {
   generationStrategyAssetEligibility,
   mergeGenerationStrategyAssetPages,
   normalizeGenerationStrategyAssetCandidates,
-} from "./generation-strategy-assets.js?v=20260823.copy-engines.65";
+} from "./generation-strategy-assets.js?v=20260825.login-rain.1";
 import {
   GENERATION_STRATEGY_SOURCE_PICKER_ACTIONS,
   createGenerationStrategySourcePicker,
   generationStrategyRequiredSourceCount,
   generationStrategySourcePickerProjection,
   reduceGenerationStrategySourcePicker,
-} from "./generation-strategy-source-picker.js?v=20260823.copy-engines.65";
-import { resolveGenerationModelVisual } from "./generation-model-visuals-v1.js?v=20260823.copy-engines.65";
+} from "./generation-strategy-source-picker.js?v=20260825.login-rain.1";
+import { resolveGenerationModelVisual } from "./generation-model-visuals-v1.js?v=20260825.login-rain.1";
 
 /*
  * ContentEngine Desktop v4 · guided generation.

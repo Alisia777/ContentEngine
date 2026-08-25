@@ -13,9 +13,9 @@ import {
   normalizeContentEngineEmbeddedWindowRoute,
   readContentEngineEmbeddedWindowCommand,
   readContentEngineEmbeddedWindowRequest,
-} from "./workspace-embedded-window-contract.js?v=20260823.copy-engines.65";
+} from "./workspace-embedded-window-contract.js?v=20260825.login-rain.1";
 
-const BUILD = "20260823.copy-engines.65";
+const BUILD = "20260825.login-rain.1";
 
 function embeddedRequest(windowLike = globalThis.window) {
   if (!windowLike) return null;

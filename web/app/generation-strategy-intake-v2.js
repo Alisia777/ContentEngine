@@ -1,2 +1,2 @@
 /* Compatibility entrypoint retained for the current workspace loader. */
-import "./generation-strategy-intake-v4.js?v=20260823.copy-engines.65";
+import "./generation-strategy-intake-v4.js?v=20260825.login-rain.1";
