@@ -423,10 +423,10 @@ def _run_fixture(width: int, height: int = 960) -> dict[str, object]:
 
 def test_strategy_harness_is_server_catalog_driven_and_uses_the_portal_form() -> None:
     assert (
-        'from "./generation-strategy-view.js?v=20260826.rebuild-clean.7"' in SUBJECT
+        'from "./generation-strategy-view.js?v=20260826.rebuild-clean.8"' in SUBJECT
     )
     assert (
-        'from "./generation-strategy-assets.js?v=20260826.rebuild-clean.7"' in SUBJECT
+        'from "./generation-strategy-assets.js?v=20260826.rebuild-clean.8"' in SUBJECT
     )
     assert "createGenerationStrategyViewState" in SUBJECT
     assert "reduceGenerationStrategyViewState" in SUBJECT
@@ -898,12 +898,8 @@ def test_strategy_panel_is_compact_like_copy() -> None:
     assert 'rightsConfirmation("strategy_video")' in intake
     assert "Стартовая заготовка: каким будет ролик с нуля" in intake
     assert '[data-generation-intake-rights="strategy_video"]' in intake
-    rights_branch = intake.split(
-        '[data-generation-intake-rights="strategy_video"]', 1
-    )[1]
-    assert 'applyConsolidatedRights(form, panelFor(state, "strategy_video"))' in (
-        rights_branch[:220]
-    )
+    # Единая галка применяется и по change (делегат), и в цепочке «Продолжить».
+    assert 'applyConsolidatedRights(form, panelFor(state, "strategy_video"))' in intake
 
     guided = (ROOT / "web/app/workspace-os-v4-generation-guided.js").read_text(
         encoding="utf-8"
@@ -916,6 +912,31 @@ def test_strategy_panel_is_compact_like_copy() -> None:
         "composition:", "audio_pattern:", "cta_pattern:",
     ):
         assert key in guided.split("STRATEGY_MECHANICS_DEFAULTS", 2)[1]
+
+    # Клон «Копии» (26.08, шестая просьба владельца дословно: «копируй форму
+    # копии и убирай видео»): та же панель gi-copy без блока MP4, product-слот
+    # переезжает между маршрутами (один id поля загрузки на форму), одна
+    # кнопка «Продолжить» сама переносит фото и права в движок мастера и
+    # автоматически выбирает референс механики.
+    assert 'panel.dataset.generationIntakePanel = "strategy_video"' in intake
+    strategy_panel = intake.split("function strategyPanel() {", 1)[1].split(
+        "function relocateProductSlot", 1
+    )[0]
+    assert "gi-copy" in strategy_panel
+    assert "generationIntakeStrategyProductHost" in strategy_panel
+    assert "generation-intake-continue-strategy" in strategy_panel
+    assert "sourceChooser(" not in strategy_panel
+    assert "function relocateProductSlot" in intake
+    assert "relocateProductSlot(state, route);" in intake
+    assert "generationIntakeProductSlotHome" in intake
+    chain = intake.split("async function continueStrategyFromZero", 1)[1].split(
+        "async function prepareCopy", 1
+    )[0]
+    assert "selectedProductFiles(panel)" in chain
+    assert "uploadProjectMedia(file, \"product_photo\", identity)" in chain
+    assert "applyConsolidatedRights(form, panel)" in chain
+    assert "data-generation-strategy-source-toggle" in chain
+    assert '#generation-submit' in chain
 
     css = (ROOT / "web/app/workspace-os-v4-generation-guided.css").read_text(
         encoding="utf-8"

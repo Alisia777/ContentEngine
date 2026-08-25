@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.7",
+  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.8",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260826.rebuild-clean.7"
+  "./generation-engine-advisor.js?v=20260826.rebuild-clean.8"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -2631,6 +2631,11 @@ function copyPanel() {
   productCard.dataset.giStep = "2";
   productCard.append(
     el("h4", "gi-card__title", "2. Ваш товар"),
+    (() => {
+      const home = el("div", "");
+      home.dataset.generationIntakeProductSlotHome = "";
+      return home;
+    })(),
     productSlot(),
     identity,
   );
@@ -2718,36 +2723,90 @@ function avatarPanel() {
 }
 
 function strategyPanel() {
-  const panel = el("section", "generation-intake-v4__panel generation-intake-v4__panel--strategy");
+  const panel = el("section", "generation-intake-v4__panel gi-copy generation-intake-v4__panel--strategy");
   panel.dataset.generationIntakePanel = "strategy_video";
   panel.hidden = true;
-  const host = el("div", "generation-intake-v4__strategy-host");
-  host.dataset.generationIntakeStrategyHost = "";
-  // Тот же каскад «модель → сложность → длительность» из реестра маршрутов,
-  // что у «Копии» и «Дуэта». До 23.08 «Создание» показывало в шаге «Модель»
-  // старый каталог Runway «как совет», а четыре движка fal из реестра, которыми
-  // реально идёт запуск, на экране не появлялись — три способа выглядели как
-  // три разных системы.
+
+  const head = el("header", "gi-copy__head");
+  head.append(
+    el("h3", "gi-copy__title", "Стратегия: Создание с нуля"),
+    el("p", "gi-copy__lede", "Ролик собирается по фото товара и вашему замыслу — исходное видео не нужно. Та же форма, что у «Копии», только без загрузки MP4."),
+  );
+
+  // «1. Ваш товар» — сюда при входе на маршрут переезжает ЕДИНСТВЕННЫЙ
+  // product-слот «Копии»: второй экземпляр создал бы дубль id поля загрузки и
+  // раздвоил очередь файлов. Слот самодостаточен и возвращается обратно при
+  // переключении маршрута — см. relocateProductSlot в setRoute.
+  const productCard = el("section", "gi-card");
+  productCard.dataset.giStep = "1";
+  const productHost = el("div", "");
+  productHost.dataset.generationIntakeStrategyProductHost = "";
+  productCard.append(el("h4", "gi-card__title", "1. Ваш товар"), productHost);
+
+  const briefCard = el("section", "gi-card");
+  briefCard.dataset.giStep = "2";
+  briefCard.append(
+    el("h4", "gi-card__title", "2. Комментарий"),
+    recommendationSlot("strategy_video"),
+  );
+
   const rights = rightsConfirmation("strategy_video");
   const rightsNote = el(
     "p",
     "muted tiny",
-    "Галка разом проставляет четыре юридических подтверждения ниже — их видно и можно снять по отдельности.",
+    "Галка разом проставляет четыре юридических подтверждения мастера — их видно в технических деталях и можно снять по отдельности.",
   );
-  const mechanicsNote = el(
-    "p",
-    "muted tiny",
-    "Механика ролика заполнена стандартной заготовкой — поля можно править; точное ТЗ вы прочитаете и одобрите перед оплатой.",
-  );
+
+  const tech = document.createElement("details");
+  tech.className = "gi-card generation-intake-v4__strategy-tech";
+  tech.dataset.generationIntakeStrategyTech = "";
+  const techSummary = document.createElement("summary");
+  techSummary.textContent = "Технические детали: референс механики, категория, точное ТЗ и запуск";
+  const host = el("div", "generation-intake-v4__strategy-host");
+  host.dataset.generationIntakeStrategyHost = "";
+  tech.append(techSummary, host);
+
+  const status = statusNode();
+  const actions = el("div", "gi-rail__actions");
+  const proceed = el("button", "btn btn-primary gi-rail__primary", "Продолжить");
+  proceed.type = "button";
+  proceed.dataset.action = "generation-intake-continue-strategy";
+  actions.append(proceed);
+
   panel.append(
+    head,
+    productCard,
+    briefCard,
     engineCascadeCard("strategy_video"),
-    recommendationSlot("strategy_video"),
     rights,
     rightsNote,
-    mechanicsNote,
-    host,
+    el(
+      "p",
+      "muted tiny",
+      "Механика ролика заполнена стандартной заготовкой; референс выбирается автоматически. Точное ТЗ вы прочитаете и одобрите перед оплатой в технических деталях.",
+    ),
+    tech,
+    status,
+    actions,
   );
   return panel;
+}
+
+// Product-слот «Копии» — один на форму: при входе на «Создание» он переезжает
+// в карточку «1. Ваш товар» стратегии, при возврате — назад в «Копию».
+function relocateProductSlot(state, route) {
+  const slot = q("[data-generation-intake-product-slot]", state?.shell);
+  if (!(slot instanceof HTMLElement)) return;
+  if (route === "strategy_video") {
+    const host = q("[data-generation-intake-strategy-product-host]", state.shell);
+    if (host instanceof HTMLElement && slot.parentElement !== host) host.append(slot);
+    return;
+  }
+  const copyPanelNode = q('[data-generation-intake-panel="copy_video"]', state?.shell);
+  const marker = q("[data-generation-intake-product-slot-home]", copyPanelNode || state?.shell);
+  if (marker instanceof HTMLElement && slot.previousElementSibling !== marker) {
+    marker.after(slot);
+  }
 }
 
 function placeGuidedShell(form, state, route = state?.route) {
@@ -7431,6 +7490,91 @@ async function watchExpressLaunchJob(initialForm, route, price) {
   }
 }
 
+// «Создание с нуля»: одна кнопка ведёт всю цепочку. Панель — копия «Копии»
+// без блока видео; референс механики (провайдеру он не уходит) выбирается
+// автоматически из роликов проекта, права проставляются единой галкой, дальше
+// решает действующий мастер: подготовка ТЗ, человеческое одобрение, точная
+// цена и явный платный клик — всё в «технических деталях» этой же панели.
+async function continueStrategyFromZero(form) {
+  const state = formStates.get(form);
+  const panel = panelFor(state, "strategy_video");
+  if (!state || !panel) return;
+  if (state.busy) {
+    reportRouteBusy(state, state.busyRoute || "strategy_video");
+    return;
+  }
+  const files = selectedProductFiles(panel);
+  const selectedIds = selectedProductMediaIds(form);
+  if (!files.length && !selectedIds.length) {
+    setStatus(panel, "Добавьте или отметьте хотя бы одно фото товара.", "error");
+    return;
+  }
+  const rightsBox = q('[data-generation-intake-rights="strategy_video"]', panel);
+  if (!(rightsBox instanceof HTMLInputElement) || !rightsBox.checked) {
+    setStatus(
+      panel,
+      "Поставьте единую галку прав: она разом подтверждает референс, переработку, изображения товара и согласия людей.",
+      "error",
+    );
+    return;
+  }
+  applyConsolidatedRights(form, panel);
+  const identity = currentProductIdentity(form);
+  if (files.length && !identity) {
+    const tech = q("[data-generation-intake-strategy-tech]", panel);
+    if (tech instanceof HTMLDetailsElement) tech.open = true;
+    setStatus(
+      panel,
+      "Для новых фото заполните артикул и название товара в технических деталях.",
+      "error",
+    );
+    return;
+  }
+  try {
+    if (files.length) {
+      setStatus(panel, "Загружаем фото товара…", "busy");
+      for (const file of files) {
+        await assertImage(file);
+        const mediaId = await uploadProjectMedia(file, "product_photo", identity);
+        ensureProductCheckbox(form, state, mediaId, identity, file.name);
+        const box = q(`input[name="media_id"][value="${CSS.escape(mediaId)}"]`, form);
+        if (box instanceof HTMLInputElement && !box.checked) {
+          box.checked = true;
+          box.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      }
+      pendingCopyProductFiles.delete(projectId());
+      const fileInput = q('input[data-generation-intake-image="product"]', panel);
+      if (fileInput instanceof HTMLInputElement) fileInput.value = "";
+      refreshProductSelectionCount(form, state);
+    }
+    const toggles = qa("input[data-generation-strategy-source-toggle]", form);
+    if (toggles.length && !toggles.some((input) => input.checked)) {
+      toggles.find((input) => !input.disabled)?.click();
+    }
+    const submit = q("#generation-submit", form);
+    if (submit instanceof HTMLButtonElement && !submit.disabled) submit.click();
+    const label = submit?.textContent?.trim();
+    setStatus(
+      panel,
+      label
+        ? `Движок ведёт запуск: «${label}». Точное ТЗ и цена — в технических деталях ниже.`
+        : "Продолжаем в технических деталях ниже.",
+      "busy",
+    );
+    const tech = q("[data-generation-intake-strategy-tech]", panel);
+    if (tech instanceof HTMLDetailsElement) tech.open = true;
+  } catch (error) {
+    setStatus(
+      panel,
+      error instanceof Error && error.message
+        ? error.message
+        : "Не удалось продолжить. Попробуйте ещё раз.",
+      "error",
+    );
+  }
+}
+
 async function prepareCopy(form) {
   const state = formStates.get(form);
   let route = state?.routes.copy_video;
@@ -8222,6 +8366,7 @@ function setRoute(form, state, route) {
     panel.hidden = !selected;
     panel.setAttribute("aria-hidden", String(!selected));
   });
+  relocateProductSlot(state, route);
   const compact = route !== "strategy_video";
   form.dataset.generationIntakeV4Mode = copyViewActive()
     ? "copy"
@@ -8288,6 +8433,9 @@ function bind(form, state) {
     const action = event.target.closest?.("[data-action]")?.dataset.action;
     if (action === "generation-intake-analyze-copy") void analyzeRoute(form, "copy_video");
     if (action === "generation-intake-analyze-avatar") void analyzeRoute(form, "avatar_video");
+    if (action === "generation-intake-continue-strategy") {
+      void continueStrategyFromZero(form);
+    }
     if (action === "generation-intake-prepare-copy") {
       // Двухфазная кнопка цены: idle → бесплатная подготовка и цена,
       // priced → явный платный запуск «Запустить за $X».

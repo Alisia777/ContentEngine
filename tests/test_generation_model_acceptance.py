@@ -542,11 +542,11 @@ def test_portal_loads_and_invalidates_server_acceptance_status() -> None:
     assert "loadGenerationModelAcceptance({ force: true })" in refresh
     assert "startRealGeneration" not in refresh
     assert "realGenerationPreflight" not in refresh
-    assert "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.7" in APP
+    assert "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.8" in APP
     assert ".generation-model-acceptance__grid" in STYLES
-    assert "./styles.css?v=20260826.rebuild-clean.7" in INDEX
-    assert "./app.js?v=20260826.rebuild-clean.7" in INDEX
-    assert "./supabase-api.js?v=20260826.rebuild-clean.7" in APP
+    assert "./styles.css?v=20260826.rebuild-clean.8" in INDEX
+    assert "./app.js?v=20260826.rebuild-clean.8" in INDEX
+    assert "./supabase-api.js?v=20260826.rebuild-clean.8" in APP
 
 
 def test_visible_generation_acceptance_refreshes_without_rebuilding_the_form() -> None:
