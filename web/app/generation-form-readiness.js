@@ -4,7 +4,15 @@ export function evaluateGenerationFormReadiness(value = {}) {
   const mode = String(value.mode || "").trim();
   const real = REAL_MODES.has(mode);
   const mock = mode === "mock";
-  const modeSelected = real || mock;
+  // Выбранная карточка стратегии («Копия», «Дуэт», «Создание») — это и есть
+  // способ создания. Раньше шаг «mode» требовал native-режим, который при
+  // выбранной стратегии спрятан и заблокирован, поэтому готовность вечно
+  // показывала «0 из N · Следующий шаг: Способ создания» (боевые скрины
+  // 25.08.2026). Бюджет и подтверждение стоимости при стратегии ведёт её
+  // собственный контур с точной серверной ценой — эти шаги здесь не двоятся.
+  const strategySelected = value.strategySelected === true;
+  const modeSelected = real || mock || strategySelected;
+  const strategyOnly = strategySelected && !real;
   const photo = mode === "real_photo";
   const mediaCount = Math.max(0, Number(value.mediaCount) || 0);
   const count = Number(value.count);
@@ -31,14 +39,16 @@ export function evaluateGenerationFormReadiness(value = {}) {
     step(
       "media",
       "Фото и ракурсы товара",
-      real ? mediaCount >= 1 && mediaCount <= 5 : mock && mediaCount >= 1,
-      real && mediaCount > 5
+      real || strategyOnly
+        ? mediaCount >= 1 && mediaCount <= 5
+        : mock && mediaCount >= 1,
+      (real || strategyOnly) && mediaCount > 5
         ? "Оставьте до пяти ракурсов одного и того же товара."
         : "Выберите от одного до пяти точных фото товара ниже.",
     ),
   ];
 
-  if (real) {
+  if (real || strategyOnly) {
     const referencePresent = value.generationReferencePresent === true;
     const referenceReady = value.generationReferenceReady === true;
     steps.push(
@@ -56,29 +66,33 @@ export function evaluateGenerationFormReadiness(value = {}) {
           ? "Опишите фон, свет и композицию; потребуйте сохранить точную упаковку и текст."
           : "Опишите один ролик и главную мысль без неподтверждённых обещаний.",
       ),
-      ...(!photo && referencePresent ? [step(
-        "video_reference",
-        "Видеореференс",
-        referenceReady,
-        "Проверьте YouTube-ссылку, опишите механику и подтвердите два условия использования.",
-      )] : []),
-      step(
-        "budget",
-        "Бюджет кампании",
-        Boolean(clean(value.campaignId) && value.spendAllowed === true),
-        clean(value.campaignId)
-          ? "Обновите остаток или выберите кампанию с доступным лимитом."
-          : "Выберите активную кампанию.",
-      ),
-      step(
-        "confirmation",
-        "Подтверждение стоимости",
-        value.confirmationMatches === true,
-        photo
-          ? "Подтвердите создание одного платного фото."
-          : "Подтвердите создание одного платного видео.",
-      ),
     );
+    if (real) {
+      steps.push(
+        ...(!photo && referencePresent ? [step(
+          "video_reference",
+          "Видеореференс",
+          referenceReady,
+          "Проверьте YouTube-ссылку, опишите механику и подтвердите два условия использования.",
+        )] : []),
+        step(
+          "budget",
+          "Бюджет кампании",
+          Boolean(clean(value.campaignId) && value.spendAllowed === true),
+          clean(value.campaignId)
+            ? "Обновите остаток или выберите кампанию с доступным лимитом."
+            : "Выберите активную кампанию.",
+        ),
+        step(
+          "confirmation",
+          "Подтверждение стоимости",
+          value.confirmationMatches === true,
+          photo
+            ? "Подтвердите создание одного платного фото."
+            : "Подтвердите создание одного платного видео.",
+        ),
+      );
+    }
   } else if (mock) {
     steps.push(
       step(

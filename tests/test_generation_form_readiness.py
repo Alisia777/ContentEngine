@@ -187,7 +187,7 @@ def test_internal_auto_brief_is_not_a_separate_human_step() -> None:
 
 
 def test_generation_form_updates_readiness_live_and_starts_fail_closed() -> None:
-    assert 'from "./generation-form-readiness.js?v=20260825.login-rain.5"' in APP
+    assert 'from "./generation-form-readiness.js?v=20260826.rebuild-clean.6"' in APP
     assert "function syncGenerationFormReadiness(form)" in APP
     assert "syncGenerationFormReadiness(form);" in APP
     assert 'id="generation-readiness"' in MODULE_TEXT
@@ -210,8 +210,8 @@ def test_generation_form_updates_readiness_live_and_starts_fail_closed() -> None
     assert ".generation-readiness__steps" in STYLES
     assert "@media (max-width: 820px)" in STYLES
     assert ".generation-readiness__steps { grid-template-columns: 1fr; }" in STYLES
-    assert './styles.css?v=20260825.login-rain.5' in INDEX
-    assert './app.js?v=20260825.login-rain.5' in INDEX
+    assert './styles.css?v=20260826.rebuild-clean.6' in INDEX
+    assert './app.js?v=20260826.rebuild-clean.6' in INDEX
 
 
 def test_mode_label_and_auto_brief_status_follow_selected_duration() -> None:
@@ -298,3 +298,35 @@ def test_paid_mode_outcome_and_human_brief_are_described_truthfully() -> None:
         ROOT / "web/app/content-generation-handoff.js"
     ).read_text(encoding="utf-8")
     assert "Опишите цельный сюжет обычным языком" in APP
+
+
+def test_selected_strategy_closes_mode_step_and_hides_legacy_single_launch() -> None:
+    """Чистая форма «Создания» (26.08.2026): выбранная карточка стратегии — это
+    и есть «Способ создания», а бюджет и подтверждение стоимости ведёт контур
+    самой стратегии. Раньше готовность вечно показывала «0 из N», а рядом
+    висели кнопка «Проверить техническую готовность» мёртвого Runway-однопуска
+    и примечание «без сгенерированной речи»."""
+    module = (ROOT / "web/app/generation-form-readiness.js").read_text(
+        encoding="utf-8"
+    )
+    assert "value.strategySelected === true" in module
+    assert "real || mock || strategySelected" in module
+    assert "const strategyOnly = strategySelected && !real" in module
+    branch = module.split("if (real || strategyOnly) {", 1)[1].split("} else if (mock)", 1)[0]
+    assert '"budget"' in branch.split("if (real) {", 1)[1]
+    assert '"confirmation"' in branch.split("if (real) {", 1)[1]
+    assert '"category"' in branch.split("if (real) {", 1)[0]
+
+    app = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
+    assert "strategySelected: Boolean(" in app
+    assert "generation_strategy_id?.value" in app.split("strategySelected: Boolean(", 1)[1][:120]
+
+    guided = (ROOT / "web/app/workspace-os-v4-generation-guided.js").read_text(
+        encoding="utf-8"
+    )
+    expose = guided.split("function exposeProviderReadinessControl", 1)[1].split("\nfunction ", 1)[0]
+    assert "selectedStrategyRow()" in expose
+    assert "#real-generation-note" in expose
+    assert "control.hidden = true" in expose
+    assert 'summaryRow("Фактический запуск", "Recipe стратегии подтверждает сервер")' in guided
+    assert "Точный Runway recipe подтверждает сервер" not in guided
