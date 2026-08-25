@@ -7,17 +7,17 @@
  * in favour of one deterministic stability coordinator.
  */
 
-import { workspaceActionKey } from "./workspace-action-key.js?v=20260825.login-rain.1";
+import { workspaceActionKey } from "./workspace-action-key.js?v=20260825.login-rain.2";
 import {
   contentEngineEmbeddedWindowRequest,
   installContentEngineEmbeddedWindowRuntime,
-} from "./workspace-embedded-window-runtime.js?v=20260825.login-rain.1";
+} from "./workspace-embedded-window-runtime.js?v=20260825.login-rain.2";
 
-const BUILD = "20260825.login-rain.1";
-const DESKTOP_CORE_BUILD = "20260825.login-rain.1";
-const EMBEDDED_WINDOW_BUILD = "20260825.login-rain.1";
-const GENERATION_HOTFIX_BUILD = "20260825.login-rain.1";
-const GENERATION_INTAKE_BUILD = "20260825.login-rain.1";
+const BUILD = "20260825.login-rain.2";
+const DESKTOP_CORE_BUILD = "20260825.login-rain.2";
+const EMBEDDED_WINDOW_BUILD = "20260825.login-rain.2";
+const GENERATION_HOTFIX_BUILD = "20260825.login-rain.2";
+const GENERATION_INTAKE_BUILD = "20260825.login-rain.2";
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;

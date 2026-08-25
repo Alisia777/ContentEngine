@@ -1,6 +1,6 @@
 import {
   generationStrategyAssetEligibility,
-} from "./generation-strategy-assets.js?v=20260825.login-rain.1";
+} from "./generation-strategy-assets.js?v=20260825.login-rain.2";
 
 /*
  * Pure ordered source-video picker for a ten-output strategy run.

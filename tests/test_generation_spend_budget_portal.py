@@ -220,7 +220,7 @@ def test_spend_snapshot_fails_closed_for_policy_blocker_and_escapes_campaign_cop
 
 
 def test_live_generation_form_is_fail_closed_but_keeps_mock_available() -> None:
-    assert 'from "./generation-spend-view.js?v=20260825.login-rain.1"' in APP
+    assert 'from "./generation-spend-view.js?v=20260825.login-rain.2"' in APP
     assert "generationSpend: {" in APP
     assert "async function loadGenerationSpendOverview" in APP
     assert "state.api.generationSpendOverview()" in APP
@@ -263,9 +263,9 @@ def test_cost_copy_is_provisional_and_budget_ui_is_theme_responsive_and_cache_bu
         "@media (max-width: 720px)",
     ):
         assert marker in CSS
-    assert './manager-dashboard.css?v=20260825.login-rain.1' in INDEX
-    assert './app.js?v=20260825.login-rain.1' in INDEX
-    assert './supabase-api.js?v=20260825.login-rain.1' in APP
+    assert './manager-dashboard.css?v=20260825.login-rain.2' in INDEX
+    assert './app.js?v=20260825.login-rain.2' in INDEX
+    assert './supabase-api.js?v=20260825.login-rain.2' in APP
 
 
 def test_campaign_create_field_survives_desktop_sanitizer_dom_clobbering_pass() -> None:
@@ -325,3 +325,31 @@ def test_form_field_names_avoid_dom_clobbering_across_web_app() -> None:
             if match.group(1) in clobbering:
                 offenders.append(f"{path.name}: name=\"{match.group(1)}\"")
     assert offenders == []
+
+
+def test_budget_refusals_reach_operator_by_name() -> None:
+    """Боевой отказ 25.08.2026: дневной бюджет кампании исчерпан ($24.62 из
+    $25), а оператор увидел «Сервис платной генерации временно недоступен» и
+    решил, что портал сломан. Денежные стражи обязаны называться по имени:
+    edge пробрасывает точный код (409, а не смазанный 503), клиентский словарь
+    стратегии объясняет, что деньги не списаны и какой лимит поднять."""
+    edge = (ROOT / "supabase/functions/creator-generate/index.ts").read_text(
+        encoding="utf-8"
+    )
+    budget_codes = (
+        "generation_campaign_daily_budget_exceeded",
+        "generation_campaign_monthly_budget_exceeded",
+        "generation_campaign_per_request_budget_exceeded",
+        "generation_daily_budget_exceeded",
+        "generation_monthly_budget_exceeded",
+        "generation_per_request_budget_exceeded",
+    )
+    edge_set = edge.split("GENERATION_BUDGET_CODES = new Set([", 1)[1]
+    edge_set = edge_set.split("]);", 1)[0]
+    for code in budget_codes:
+        assert f'"{code}"' in edge_set
+        assert f"{code}:" in API
+    assert "GENERATION_BUDGET_CODES.has(code)) return { code, status: 409 }" in edge
+    strategy_map = API.split("generation_unavailable:", 1)[1]
+    for code in budget_codes:
+        assert "Деньги не списаны" in strategy_map.split(f"{code}:", 1)[1].split('",', 1)[0]

@@ -5789,6 +5789,20 @@ const GENERATION_QUOTA_CODES = new Set([
   "real_generation_organization_concurrency_exceeded",
 ]);
 
+// Денежные стражи кампании и организации — такой же точный неболтливый
+// allowlist, как квоты выше. Без него исчерпанный дневной бюджет кампании
+// показывался оператору как «сервис временно недоступен», и это читалось как
+// поломка (боевой отказ 25.08.2026:
+// strategy_start.claim_rpc_rejected:generation_campaign_daily_budget_exceeded).
+const GENERATION_BUDGET_CODES = new Set([
+  "generation_campaign_daily_budget_exceeded",
+  "generation_campaign_monthly_budget_exceeded",
+  "generation_campaign_per_request_budget_exceeded",
+  "generation_daily_budget_exceeded",
+  "generation_monthly_budget_exceeded",
+  "generation_per_request_budget_exceeded",
+]);
+
 function readGenerationStrategyRpcError(value: unknown): {
   code: string;
   status: 403 | 409 | 422 | 503;
@@ -5799,6 +5813,7 @@ function readGenerationStrategyRpcError(value: unknown): {
   // an exact, non-sensitive allowlist: without them the portal only ever saw an
   // opaque 503 and could not tell the operator that the daily window is full.
   if (GENERATION_QUOTA_CODES.has(code)) return { code, status: 409 };
+  if (GENERATION_BUDGET_CODES.has(code)) return { code, status: 409 };
   if (!/^generation_strategy_[a-z0-9_]{3,110}$/u.test(code)) return null;
   if (code.endsWith("_access_required") || code.endsWith("_forbidden")) {
     return { code, status: 403 };

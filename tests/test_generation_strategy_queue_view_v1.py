@@ -282,11 +282,11 @@ def test_view_pins_all_frozen_authorities_and_has_no_side_effect_channel() -> No
         canonical_bytes = path.read_bytes().replace(b"\r\n", b"\n")
         assert hashlib.sha256(canonical_bytes).hexdigest() == expected
     assert (
-        'from "./generation-strategy-source-picker.js?v=20260825.login-rain.1";'
+        'from "./generation-strategy-source-picker.js?v=20260825.login-rain.2";'
         in VIEW_SOURCE
     )
     assert (
-        'from "./generation-strategy-queue.js?v=20260825.login-rain.1";'
+        'from "./generation-strategy-queue.js?v=20260825.login-rain.2";'
         in VIEW_SOURCE
     )
     for forbidden in (
