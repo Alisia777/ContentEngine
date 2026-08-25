@@ -699,10 +699,13 @@ def test_product_swap_dispatch_is_exactly_one_and_character_performance_is_close
     # только изнутри submitGenerationStrategyExactTen, а тот стоял после
     # стоп-крана. Оператор не мог ни заплатить, ни подготовить.
     assert "REBUILD_PAID_START_CLOSED" not in submit_batch
+    # «Создание» с 26.08.2026 — очередь из ОДНОГО референса (владелец: «форма
+    # как Копия, только без загрузки видео»): требуемое число задаёт пикер
+    # стратегии, и submit сверяет выбор с ним, а не с жёсткой десяткой.
     rebuild_branch = submit_batch.index('strategyId === "viral_rebuild"', swap_submit)
-    rebuild_count = submit_batch.index("sourceProjection.required_count === 10", rebuild_branch)
+    rebuild_count = submit_batch.index("sourceProjection.required_count >= 1", rebuild_branch)
     rebuild_selection_count = submit_batch.index(
-        "strategySelections?.length === 10", rebuild_count
+        "strategySelections?.length === sourceProjection.required_count", rebuild_count
     )
     rebuild_submit = submit_batch.index(
         "await submitGenerationStrategyExactTen(", rebuild_selection_count
@@ -915,7 +918,7 @@ def test_exact_ten_paid_gate_requires_fresh_receipts_and_real_generation() -> No
     )
     assert "receiptWindowReady" in readiness
     assert "&& REAL_GENERATION_ENABLED" in readiness
-    assert "Обновить 10 точных цен" in readiness
+    assert "Обновить точные цены" in readiness
     assert "resetGenerationStrategyQueueState({ clearSpecs: false })" not in submit
     assert "generationStrategyQueueReviewPreflightRefreshTargets()" in submit
     assert "refreshGenerationStrategyQueuePreflights(" in submit

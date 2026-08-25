@@ -273,20 +273,27 @@ def test_view_pins_all_frozen_authorities_and_has_no_side_effect_channel() -> No
     # `.40`–`.43` в строке импорта — cache-bust после починки зависания вкладки при
     # выборе MP4 (состояние каскада стало пострaтегийным, списки «Дуэта»
     # перестраиваются лишь при смене набора). Поведение очереди не менялось.
+    # Запись 26.08.2026: пин пикера сдвинут ОСОЗНАННО, и это правка поведения.
+    # «Создание» требует ОДИН референс-хит вместо десяти (владелец: «форма как
+    # Копия, только без загрузки видео»); referencing MP4 провайдеру по-прежнему
+    # не уходит (buildProductAd отвергает source_video). Кандидаты пикера
+    # схлопываются по имени файла: повторные загрузки одного ролика давали
+    # «файл ×3» и читались как поломка. Пины очереди/runtime сдвинуты только
+    # штампом сборки login-rain.4.
     expected_hashes = {
         RUNTIME_MODULE: "b1a7f6a96ee575dc632d737a1f9436877f473a7c38861c27154fc26040a5393b",
-        QUEUE_MODULE: "f785569c3db33b78bcfcfaf35bca4bbd25e7cb03a36cb85350e0e27097bbc8a3",
-        SOURCE_PICKER_MODULE: "587eb43dbe8659492b248ffad1ba85d4291594e3fa39a1d311206d8877b028ad",
+        QUEUE_MODULE: "ccca71649d435b02b36815389566b06690273dc3ea8ec8bc287ec982f5e95f25",
+        SOURCE_PICKER_MODULE: "f97b16a365aa711c73c7c953d61ba5371f64fa088258c5251ef66679f50feede",
     }
     for path, expected in expected_hashes.items():
         canonical_bytes = path.read_bytes().replace(b"\r\n", b"\n")
         assert hashlib.sha256(canonical_bytes).hexdigest() == expected
     assert (
-        'from "./generation-strategy-source-picker.js?v=20260825.login-rain.4";'
+        'from "./generation-strategy-source-picker.js?v=20260825.login-rain.5";'
         in VIEW_SOURCE
     )
     assert (
-        'from "./generation-strategy-queue.js?v=20260825.login-rain.4";'
+        'from "./generation-strategy-queue.js?v=20260825.login-rain.5";'
         in VIEW_SOURCE
     )
     for forbidden in (

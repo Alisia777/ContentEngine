@@ -423,10 +423,10 @@ def _run_fixture(width: int, height: int = 960) -> dict[str, object]:
 
 def test_strategy_harness_is_server_catalog_driven_and_uses_the_portal_form() -> None:
     assert (
-        'from "./generation-strategy-view.js?v=20260825.login-rain.4"' in SUBJECT
+        'from "./generation-strategy-view.js?v=20260825.login-rain.5"' in SUBJECT
     )
     assert (
-        'from "./generation-strategy-assets.js?v=20260825.login-rain.4"' in SUBJECT
+        'from "./generation-strategy-assets.js?v=20260825.login-rain.5"' in SUBJECT
     )
     assert "createGenerationStrategyViewState" in SUBJECT
     assert "reduceGenerationStrategyViewState" in SUBJECT
@@ -594,10 +594,13 @@ def test_three_strategy_picker_runtime_contract_and_geometry(width: int) -> None
 
     gate = result["attestationGate"]
     assert gate["beforeFinalAttestation"] is None
-    assert gate["exactTenSelectionCount"] == 10
-    assert gate["sourcePickerSelectedCount"] == 10
-    assert gate["mechanicsEditorCount"] == 10
-    assert gate["exactTenSourceOrder"] == SOURCE_MEDIA_IDS
+    # «Создание» с 26.08.2026 требует ОДИН референс-хит (владелец: «форма как
+    # Копия, только без загрузки видео»). Пикер принимает первый клик и
+    # отвергает остальные лимитом — выбранным остаётся ровно один ролик.
+    assert gate["exactTenSelectionCount"] == 1
+    assert gate["sourcePickerSelectedCount"] == 1
+    assert gate["mechanicsEditorCount"] == 1
+    assert gate["exactTenSourceOrder"] == SOURCE_MEDIA_IDS[:1]
     assert gate["afterFinalAttestation"]["strategy_id"] == "viral_rebuild"
     assert gate["afterFinalAttestation"]["audio"] is False
     assert gate["nativeFormValid"] is True

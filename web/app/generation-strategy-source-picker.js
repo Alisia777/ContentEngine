@@ -1,6 +1,6 @@
 import {
   generationStrategyAssetEligibility,
-} from "./generation-strategy-assets.js?v=20260825.login-rain.4";
+} from "./generation-strategy-assets.js?v=20260825.login-rain.5";
 
 /*
  * Pure ordered source-video picker for a ten-output strategy run.
@@ -15,10 +15,14 @@ export const GENERATION_STRATEGY_SOURCE_PICKER_VERSION =
   "generation-strategy-source-picker-v1";
 
 export const GENERATION_STRATEGY_SOURCE_COUNT = 10;
+// «Создание» с 26.08.2026 — ОДИН референс-хит, а не десять: владелец просил
+// форму «как Копия, только без загрузки видео». Референс провайдеру не уходит
+// (forwarded_to_provider = false, buildProductAd отвергает source_video) — он
+// смысловой якорь механики. Пакет из десяти вернётся отдельным режимом M1.
 export const GENERATION_STRATEGY_SOURCE_REQUIREMENTS = Object.freeze({
   viral_avatar_ugc: 1,
   viral_product_swap: 1,
-  viral_rebuild: GENERATION_STRATEGY_SOURCE_COUNT,
+  viral_rebuild: 1,
 });
 
 export function generationStrategyRequiredSourceCount(strategyId) {
@@ -111,17 +115,34 @@ function normalizeCandidate(asset, strategyId) {
   });
 }
 
+// Повторные загрузки одного файла дают несколько media-строк с одинаковым
+// именем: список из «файла ×3», где часть копий ещё и без измеренной
+// длительности, читался как поломка («задвоение форм», 25.08.2026).
+// Показываем один кандидат на имя файла, выбирая лучшую копию: готовую и с
+// длительностью раньше непроверенной. Остальные копии никуда не деваются —
+// они остаются проверочными ассетами спенд-контура.
+function candidateQuality(candidate) {
+  return (candidate.ready ? 2 : 0) + (candidate.duration_seconds !== null ? 1 : 0);
+}
+
 function normalizeCandidates(candidates, strategyId) {
   if (!Array.isArray(candidates)) return [];
   const seen = new Set();
-  const result = [];
+  const byFilename = new Map();
+  const order = [];
   for (const asset of candidates) {
     const candidate = normalizeCandidate(asset, strategyId);
     if (!candidate || seen.has(candidate.id)) continue;
     seen.add(candidate.id);
-    result.push(candidate);
+    const existing = byFilename.get(candidate.filename);
+    if (!existing) {
+      byFilename.set(candidate.filename, candidate);
+      order.push(candidate.filename);
+    } else if (candidateQuality(candidate) > candidateQuality(existing)) {
+      byFilename.set(candidate.filename, candidate);
+    }
   }
-  return result;
+  return order.map((filename) => byFilename.get(filename));
 }
 
 function pristine(strategyId, candidates = []) {
