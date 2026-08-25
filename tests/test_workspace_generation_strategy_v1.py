@@ -423,10 +423,10 @@ def _run_fixture(width: int, height: int = 960) -> dict[str, object]:
 
 def test_strategy_harness_is_server_catalog_driven_and_uses_the_portal_form() -> None:
     assert (
-        'from "./generation-strategy-view.js?v=20260826.rebuild-clean.8"' in SUBJECT
+        'from "./generation-strategy-view.js?v=20260826.rebuild-clean.9"' in SUBJECT
     )
     assert (
-        'from "./generation-strategy-assets.js?v=20260826.rebuild-clean.8"' in SUBJECT
+        'from "./generation-strategy-assets.js?v=20260826.rebuild-clean.9"' in SUBJECT
     )
     assert "createGenerationStrategyViewState" in SUBJECT
     assert "reduceGenerationStrategyViewState" in SUBJECT
@@ -951,3 +951,47 @@ def test_strategy_panel_is_compact_like_copy() -> None:
     ):
         assert selector in css
     assert "display: none !important" in zone
+
+
+def test_strategy_panel_matches_copy_layout_and_ai_advisor_parity() -> None:
+    """Паритет с «Копией» (26.08.2026): двухколоночный gi-copy__grid с правой
+    рельсой (чеклист товар/сценарий/права + статус + кнопка), кампания в
+    колонке, блок идентичности переезжает вместе с product-слотом, кнопка
+    панели зеркалит живой #generation-submit («Запустить … · $X»), а
+    ИИ-советчик работает без дыры первого рендера, не перекрывает выбор
+    человека и не загрязняет экспресс-память «Копии» радио «Создания»."""
+    intake = (ROOT / "web/app/generation-strategy-intake-v4.js").read_text(
+        encoding="utf-8"
+    )
+    strategy_panel = intake.split("function strategyPanel() {", 1)[1].split(
+        "function renderStrategyChecklist", 1
+    )[0]
+    assert 'el("div", "gi-copy__grid")' in strategy_panel
+    assert 'el("aside", "gi-rail")' in strategy_panel
+    assert 'copyChecklistRow("product", "Товар")' in strategy_panel
+    assert 'copyChecklistRow("brief", "Сценарий")' in strategy_panel
+    assert 'copyChecklistRow("rights", "Права")' in strategy_panel
+    assert "compactCampaignChoice()" in strategy_panel
+    assert 'proceed.dataset.expressPhase = "idle"' in strategy_panel
+    assert "умеют собрать ролик из фотографий" in strategy_panel
+
+    assert "function renderStrategyChecklist" in intake
+    assert "function syncStrategyLaunchButton" in intake
+    mirror = intake.split("function syncStrategyLaunchButton", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    assert '/^Запустить/u.test(label)' in mirror
+    assert "button.dataset.expressPhase !== nextPhase" in mirror
+
+    relocate = intake.split("function relocateProductSlot", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    assert '[data-generation-intake-identity]' in relocate
+    assert "identity.hidden = false" in relocate
+
+    assert "syncCompactCampaignControl(form, state, route = null)" in intake
+    assert 'syncCompactCampaignControl(form, existing, "strategy_video")' in intake
+    assert "STRATEGY_AUTHORITY_STRATEGY].includes(strategyId)" in intake
+    assert "engineInStrategyPanel" in intake
+    cascade = intake.split("storeCascadeState(state, ROUTE_AUTHORITY_STRATEGY[cascadeRoute], {", 1)[1]
+    assert "humanChoice: true," in cascade[:600]

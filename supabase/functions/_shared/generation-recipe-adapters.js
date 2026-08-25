@@ -1208,6 +1208,7 @@ function productAdImageReferences(shape, count) {
   }
   if (style === "named_refs") return imageReferences(count, limit, "Image ");
   if (style === "character_refs") return imageReferences(count, limit, "character");
+  if (style === "start_frame") return "the start frame";
   return imageReferences(count, limit, "@Image");
 }
 
@@ -1345,8 +1346,32 @@ function buildFalSeedanceProductAd(selection, assets) {
   };
 }
 
+// Kling O3 Standard image-to-video: стартовый кадр — главное фото товара,
+// сцену описывает prompt. Модель принимает одно изображение; остальные фото
+// остаются проверочными ассетами спенд-контура. Звук управляется полем
+// generate_audio и меняет цену ($0.084/с без, $0.112/с со звуком) — ставка
+// реестра покрывает дорогой вариант.
+function buildFalKlingProductAd(selection, assets) {
+  const images = falProductAdInputs(
+    assets,
+    FAL_SHAPE_IMAGE_LIMITS.kling_image_regenerate,
+  );
+  return {
+    prompt: buildFalProductAdPrompt(
+      "kling_image_regenerate",
+      selection,
+      images.length,
+    ),
+    image_url: images[0],
+    duration: String(productAdDuration(selection, 3, 15)),
+    generate_audio: selection.audio === true,
+  };
+}
+
 function buildFalProductAdBody(shape, selection, assets) {
   switch (shape) {
+    case "kling_image_regenerate":
+      return buildFalKlingProductAd(selection, assets);
     case "minimax_images_regenerate":
       return buildFalMinimaxProductAd(selection, assets);
     case "grok_images_regenerate":

@@ -177,6 +177,13 @@ export const FAL_GROK_IMAGINE_REFERENCE_MODEL =
 // при 720p. Не путать с video-edit той же модели: там вход — видео.
 export const FAL_HAPPY_HORSE_REFERENCE_MODEL =
   "alibaba/happy-horse/reference-to-video";
+// Kling O3 Standard image-to-video — «фото → видео» для «Создания»: стартовый
+// кадр задаёт ОДНО фото товара, сцену описывает prompt. 3–15 с; $0.084/с без
+// звука и $0.112/с со звуком (fal.ai/models/fal-ai/kling-video/o3/standard/
+// image-to-video, 26.08.2026). Кадр наследует пропорции стартового фото —
+// параметра aspect_ratio у модели нет.
+export const FAL_KLING_O3_STANDARD_I2V_MODEL =
+  "fal-ai/kling-video/o3/standard/image-to-video";
 
 export const FAL_STRATEGY_MODEL_SHAPES = Object.freeze({
   product_swap: Object.freeze({
@@ -205,6 +212,7 @@ export const FAL_STRATEGY_MODEL_SHAPES = Object.freeze({
   // без референсного видео, длительность и кадр выбирает оператор.
   product_ad: Object.freeze({
     [FAL_MINIMAX_H3_REFERENCE_MODEL]: "minimax_images_regenerate",
+    [FAL_KLING_O3_STANDARD_I2V_MODEL]: "kling_image_regenerate",
     [FAL_GROK_IMAGINE_REFERENCE_MODEL]: "grok_images_regenerate",
     [FAL_HAPPY_HORSE_REFERENCE_MODEL]: "happy_horse_images_regenerate",
     [FAL_SEEDANCE_2_5_REFERENCE_MODEL]: "seedance_images_regenerate",
@@ -225,6 +233,8 @@ export const FAL_SHAPE_IMAGE_LIMITS = Object.freeze({
   // «Создание»: Grok берёт до 7 (и берёт $0.002 за каждое), Happy Horse — до
   // 9, но в указании каждое фото называется по имени, поэтому пять.
   minimax_images_regenerate: 5,
+  // Kling image-to-video принимает ровно один стартовый кадр.
+  kling_image_regenerate: 1,
   grok_images_regenerate: 5,
   happy_horse_images_regenerate: 5,
   seedance_images_regenerate: 6,
@@ -241,6 +251,8 @@ export const FAL_SHAPE_PROMPT_STYLES = Object.freeze({
   seedance_reference_edit: "at_refs",
   minimax_reference_regenerate: "named_refs",
   minimax_images_regenerate: "named_refs",
+  // Kling i2v не знает @-ссылок: указание говорит о «стартовом кадре».
+  kling_image_regenerate: "start_frame",
   grok_images_regenerate: "at_refs",
   // Happy Horse reference-to-video называет фото «character1», «character2»…
   happy_horse_images_regenerate: "character_refs",

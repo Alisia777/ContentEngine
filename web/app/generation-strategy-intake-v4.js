@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.8",
+  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.9",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,12 +33,18 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260826.rebuild-clean.8"
+  "./generation-engine-advisor.js?v=20260826.rebuild-clean.9"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
     for (const [strategyId, context] of engineRenderContexts.entries()) {
-      if (strategyId !== COPY_AUTHORITY_STRATEGY || !context?.section) continue;
+      // «Создание» получает совет тем же колбэком: раньше перерисовывалась
+      // только «Копия», и note стратегии застревал в «не советует» до
+      // следующего события (дыра первого рендера, 26.08.2026).
+      if (
+        ![COPY_AUTHORITY_STRATEGY, STRATEGY_AUTHORITY_STRATEGY].includes(strategyId)
+        || !context?.section
+      ) continue;
       try {
         renderEngineChoice(context.form, context.state, context.section, strategyId);
       } catch {
@@ -2727,16 +2733,22 @@ function strategyPanel() {
   panel.dataset.generationIntakePanel = "strategy_video";
   panel.hidden = true;
 
+  const actions = el("div", "gi-rail__actions");
+  const proceed = el("button", "btn btn-primary gi-rail__primary", "Подготовить ролик");
+  proceed.type = "button";
+  proceed.dataset.action = "generation-intake-continue-strategy";
+  proceed.dataset.expressPhase = "idle";
+  actions.append(proceed);
+
   const head = el("header", "gi-copy__head");
   head.append(
     el("h3", "gi-copy__title", "Стратегия: Создание с нуля"),
     el("p", "gi-copy__lede", "Ролик собирается по фото товара и вашему замыслу — исходное видео не нужно. Та же форма, что у «Копии», только без загрузки MP4."),
   );
 
-  // «1. Ваш товар» — сюда при входе на маршрут переезжает ЕДИНСТВЕННЫЙ
-  // product-слот «Копии»: второй экземпляр создал бы дубль id поля загрузки и
-  // раздвоил очередь файлов. Слот самодостаточен и возвращается обратно при
-  // переключении маршрута — см. relocateProductSlot в setRoute.
+  // «1. Ваш товар» — сюда переезжает ЕДИНСТВЕННЫЙ product-слот «Копии» вместе
+  // с блоком идентичности (см. relocateProductSlot): вторые экземпляры дали бы
+  // дубль id поля загрузки и слепые data-селекторы идентичности.
   const productCard = el("section", "gi-card");
   productCard.dataset.giStep = "1";
   const productHost = el("div", "");
@@ -2757,39 +2769,104 @@ function strategyPanel() {
     "Галка разом проставляет четыре юридических подтверждения мастера — их видно в технических деталях и можно снять по отдельности.",
   );
 
+  const engines = engineCascadeCard("strategy_video");
+  const engineHint = el(
+    "p",
+    "muted tiny",
+    "Здесь движки «фото → видео» — все, которые умеют собрать ролик из фотографий. Kling-редакторы и Pika правят готовое видео, поэтому живут в «Копии».",
+  );
+
   const tech = document.createElement("details");
   tech.className = "gi-card generation-intake-v4__strategy-tech";
   tech.dataset.generationIntakeStrategyTech = "";
   const techSummary = document.createElement("summary");
-  techSummary.textContent = "Технические детали: референс механики, категория, точное ТЗ и запуск";
+  techSummary.textContent = "Технические детали: референс механики, точное ТЗ и запуск";
   const host = el("div", "generation-intake-v4__strategy-host");
   host.dataset.generationIntakeStrategyHost = "";
   tech.append(techSummary, host);
 
-  const status = statusNode();
-  const actions = el("div", "gi-rail__actions");
-  const proceed = el("button", "btn btn-primary gi-rail__primary", "Продолжить");
-  proceed.type = "button";
-  proceed.dataset.action = "generation-intake-continue-strategy";
-  actions.append(proceed);
-
-  panel.append(
-    head,
+  const main = el("div", "gi-copy__main");
+  main.append(
     productCard,
     briefCard,
-    engineCascadeCard("strategy_video"),
+    compactCampaignChoice(),
+    engines,
+    engineHint,
     rights,
     rightsNote,
     el(
       "p",
       "muted tiny",
-      "Механика ролика заполнена стандартной заготовкой; референс выбирается автоматически. Точное ТЗ вы прочитаете и одобрите перед оплатой в технических деталях.",
+      "Механика ролика заполнена стандартной заготовкой; референс выбирается автоматически. Точное ТЗ вы прочитаете и одобрите перед оплатой.",
     ),
     tech,
-    status,
-    actions,
   );
+
+  const rail = el("aside", "gi-rail");
+  const checkCard = el("section", "gi-rail__card");
+  const list = el("ul", "gi-checklist");
+  list.append(
+    copyChecklistRow("product", "Товар"),
+    copyChecklistRow("brief", "Сценарий"),
+    copyChecklistRow("rights", "Права"),
+  );
+  checkCard.append(list);
+  rail.append(checkCard, statusNode(), actions);
+
+  const grid = el("div", "gi-copy__grid");
+  grid.append(main, rail);
+  panel.append(head, grid);
   return panel;
+}
+
+// Чеклист «Создания»: те же строки-состояния, что у «Копии», но по своей
+// тройке (товар/сценарий/права). Записи только при изменении — панель
+// наблюдается MutationObserver'ом, безусловная запись замкнула бы цикл.
+function renderStrategyChecklist(form, state) {
+  const panel = panelFor(state, "strategy_video");
+  if (!panel) return;
+  const setRow = (key, ready, text) => {
+    const row = q(`[data-generation-intake-check="${key}"]`, panel);
+    if (!row) return;
+    const value = q(".gi-check__value", row);
+    const nextState = ready ? "ready" : "empty";
+    if (row.dataset.state !== nextState) row.dataset.state = nextState;
+    if (value && value.textContent !== text) value.textContent = text;
+  };
+  const photos = productSelectionCount(form, panel);
+  setRow(
+    "product",
+    photos >= MIN_PRODUCT_IMAGES && photos <= MAX_PRODUCT_IMAGES,
+    photos ? `${photos} фото` : "—",
+  );
+  const brief = String(form?.elements?.brief?.value || "").trim();
+  setRow("brief", Boolean(brief), brief ? "Заполнен" : "—");
+  const rightsBox = q('[data-generation-intake-rights="strategy_video"]', panel);
+  const rightsReady = rightsBox instanceof HTMLInputElement && rightsBox.checked;
+  setRow("rights", rightsReady, rightsReady ? "Подтверждены" : "—");
+}
+
+// Кнопка «Создания» зеркалит живой #generation-submit мастера: когда тот
+// дозрел до «Запустить … · $X», метка и фаза переезжают на кнопку панели.
+// Ссылки на мастера не удерживаются (форма перерисовывается целиком), записи
+// только при изменении — иначе MutationObserver замкнёт микрозадачный цикл.
+function syncStrategyLaunchButton(form, state) {
+  const panel = panelFor(state, "strategy_video");
+  const button = panel
+    ? q('[data-action="generation-intake-continue-strategy"]', panel)
+    : null;
+  if (!(button instanceof HTMLButtonElement)) return;
+  const submit = q("#generation-submit", form);
+  const label = String(submit?.textContent || "").trim();
+  const priced = Boolean(submit)
+    && !submit.disabled
+    && /^Запустить/u.test(label);
+  const nextLabel = priced ? label : "Подготовить ролик";
+  const nextPhase = priced ? "priced" : "idle";
+  if (button.dataset.expressPhase !== nextPhase) {
+    button.dataset.expressPhase = nextPhase;
+  }
+  if (button.textContent !== nextLabel) button.textContent = nextLabel;
 }
 
 // Product-слот «Копии» — один на форму: при входе на «Создание» он переезжает
@@ -2797,15 +2874,28 @@ function strategyPanel() {
 function relocateProductSlot(state, route) {
   const slot = q("[data-generation-intake-product-slot]", state?.shell);
   if (!(slot instanceof HTMLElement)) return;
+  // Блок идентичности товара (SKU/название/категория) — сосед слота и тоже
+  // один на форму: едет вместе с ним. На «Создании» он всегда видим: новые
+  // фото требуют артикул, а логика видимости «Копии» сюда не дотягивается.
+  const identity = q("[data-generation-intake-identity]", state?.shell);
   if (route === "strategy_video") {
     const host = q("[data-generation-intake-strategy-product-host]", state.shell);
-    if (host instanceof HTMLElement && slot.parentElement !== host) host.append(slot);
+    if (host instanceof HTMLElement) {
+      if (slot.parentElement !== host) host.append(slot);
+      if (identity instanceof HTMLElement) {
+        if (identity.parentElement !== host) host.append(identity);
+        identity.hidden = false;
+      }
+    }
     return;
   }
   const copyPanelNode = q('[data-generation-intake-panel="copy_video"]', state?.shell);
   const marker = q("[data-generation-intake-product-slot-home]", copyPanelNode || state?.shell);
   if (marker instanceof HTMLElement && slot.previousElementSibling !== marker) {
     marker.after(slot);
+  }
+  if (identity instanceof HTMLElement && slot.nextElementSibling !== identity) {
+    slot.after(identity);
   }
 }
 
@@ -3406,6 +3496,8 @@ function refreshProductSelectionCount(form, state) {
   refreshEngineChoice(form, state, "copy_video");
   refreshEngineChoice(form, state, "avatar_video");
   refreshEngineChoice(form, state, "strategy_video");
+  renderStrategyChecklist(form, state);
+  syncStrategyLaunchButton(form, state);
   // Ведущие грузятся один раз на проект и кэшируются: список меняется редко, а
   // перерисовок панели много.
   void ensureDuetPresenters(form, state);
@@ -5656,8 +5748,10 @@ function setCampaignNote(panel, resolution) {
 // Rebuild the visible compact mirror from the native campaign catalog.  The
 // native `campaign_id` remains the only field submitted to app.js; the mirror
 // merely lets the person make that exact choice before price/preflight.
-function syncCompactCampaignControl(form, state) {
-  const panel = state ? panelFor(state, expressRoute(state)) : null;
+function syncCompactCampaignControl(form, state, route = null) {
+  const panel = state
+    ? panelFor(state, route || expressRoute(state))
+    : null;
   const mirror = panel
     ? q("[data-generation-intake-campaign-select]", panel)
     : null;
@@ -6303,7 +6397,10 @@ function captureExpressCommittedInput(form, state, target) {
   const engine = target?.closest?.(
     '[data-generation-intake-choice-block="model"] input[type="radio"]',
   );
-  if (engine instanceof HTMLInputElement && engine.checked) {
+  const engineInStrategyPanel = Boolean(
+    engine?.closest?.('[data-generation-intake-panel="strategy_video"]'),
+  );
+  if (engine instanceof HTMLInputElement && engine.checked && !engineInStrategyPanel) {
     patch.engine = String(engine.value || "");
     patch.quality = "";
     state.copyEngine = {
@@ -8397,6 +8494,10 @@ function setRoute(form, state, route) {
     syncCompactCampaignControl(form, state);
     syncExpressPriceButton(state);
   }
+  if (route === "strategy_video") {
+    syncCompactCampaignControl(form, state, "strategy_video");
+    syncStrategyLaunchButton(form, state);
+  }
   refreshVideoSelects(form, state);
   refreshAvatarSelect(form, state);
   refreshModelSelects(form, state);
@@ -8674,6 +8775,10 @@ function bind(form, state) {
         modelId: String(engineChoice.value || ""),
         qualityCode: "",
         durationNotice: "",
+        // Человек выбрал сам: совет ИИ-центра больше не перекрывает выбор
+        // при перерисовке (раньше флаг ставила только «Копия», и на
+        // «Создании» выбранный движок откатывался к рекомендованному).
+        humanChoice: true,
       });
       refreshEngineChoice(form, state, cascadeRoute);
     }
@@ -8840,6 +8945,10 @@ function mount(form) {
         syncCompactCampaignControl(form, existing);
         syncExpressPriceButton(existing);
       }
+    } else if (existing.route === "strategy_video") {
+      refreshRecommendationUi(form, existing);
+      syncCompactCampaignControl(form, existing, "strategy_video");
+      syncStrategyLaunchButton(form, existing);
     } else if (existing.phase === "review") {
       moveProductNodes(form, existing, false);
       moveSharedBrief(form, existing, "strategy_video");

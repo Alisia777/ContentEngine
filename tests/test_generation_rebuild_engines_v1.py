@@ -365,3 +365,29 @@ def test_advisor_ranks_rebuild_engines_by_photos_duration_and_price() -> None:
     assert out["eight"]["engineId"] == "fal:minimax/h3/reference-to-video"
     assert out["eight"]["excluded"] == []
     assert out["eight"]["alternatives"][0]["engineId"] == "fal:xai/grok-imagine-video/reference-to-video"
+
+
+def test_kling_image_to_video_joins_rebuild_with_start_frame_style() -> None:
+    """Пятый движок «Создания» (26.08.2026): Kling O3 Standard image-to-video —
+    «фото → видео» со стартовым кадром. Одно фото, в указании оно зовётся
+    «the start frame» (@-ссылок нет), длительность 3–15 задаёт оператор,
+    звук управляется generate_audio и меняет цену провайдера."""
+    catalog = (ROOT / "supabase/functions/_shared/generation-strategy-catalog.js").read_text(
+        encoding="utf-8"
+    )
+    assert 'FAL_KLING_O3_STANDARD_I2V_MODEL =\n  "fal-ai/kling-video/o3/standard/image-to-video"' in catalog
+    assert '[FAL_KLING_O3_STANDARD_I2V_MODEL]: "kling_image_regenerate"' in catalog
+    assert "kling_image_regenerate: 1," in catalog
+    assert 'kling_image_regenerate: "start_frame",' in catalog
+
+    adapters = (ROOT / "supabase/functions/_shared/generation-recipe-adapters.js").read_text(
+        encoding="utf-8"
+    )
+    assert 'if (style === "start_frame") return "the start frame";' in adapters
+    builder = adapters.split("function buildFalKlingProductAd", 1)[1].split("\nfunction ", 1)[0]
+    assert "image_url: images[0]," in builder
+    assert "productAdDuration(selection, 3, 15)" in builder
+    assert "generate_audio: selection.audio === true," in builder
+    assert '"aspect_ratio"' not in builder
+    switch = adapters.split("function buildFalProductAdBody", 1)[1].split("\nfunction ", 1)[0]
+    assert 'case "kling_image_regenerate":' in switch
