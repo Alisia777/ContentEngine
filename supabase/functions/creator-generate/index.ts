@@ -79,6 +79,10 @@ import {
 } from "../_shared/generation-strategy-edge-contract.js";
 
 const PUBLIC_APP_ORIGIN = "https://alisia777.github.io";
+// Новый дом портала с 25.08.2026 — репозиторий Hardliver1/ContentEngine
+// (страница Pages «из ветки», без Actions). Старый origin остаётся рабочим
+// на время переезда.
+const PUBLIC_APP_ORIGIN_HARDLIVER = "https://hardliver1.github.io";
 // Рабочий портал оператора: контейнер local-web раздаёт прод-сборку на 8767.
 const LOCAL_QA_APP_ORIGIN = "http://127.0.0.1:8767";
 // Песочница разработки: контейнер sandbox-web раздаёт .local/site на 8768 и
@@ -89,6 +93,7 @@ const LOCAL_QA_APP_ORIGIN = "http://127.0.0.1:8767";
 const LOCAL_SANDBOX_APP_ORIGIN = "http://127.0.0.1:8768";
 const USER_APP_ORIGINS = new Set([
   PUBLIC_APP_ORIGIN,
+  PUBLIC_APP_ORIGIN_HARDLIVER,
   LOCAL_QA_APP_ORIGIN,
   LOCAL_SANDBOX_APP_ORIGIN,
 ]);

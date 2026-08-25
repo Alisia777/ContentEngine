@@ -48,8 +48,9 @@ enabled = false
 
 [auth]
 enabled = true
-site_url = "https://alisia777.github.io/ContentEngine/"
+site_url = "https://hardliver1.github.io/ContentEngine/"
 additional_redirect_urls = [
+  "https://hardliver1.github.io/ContentEngine/**",
   "https://alisia777.github.io/ContentEngine/**",
 ]
 jwt_expiry = 3600
