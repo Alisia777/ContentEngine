@@ -1,0 +1,382 @@
+/*
+ * Cinematic login skin for ContentEngine.
+ * Scope is intentionally limited to .auth-layout so the workspace UI is untouched.
+ */
+
+.auth-layout {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  min-height: 100svh;
+  color-scheme: dark;
+  grid-template-columns: minmax(0, 1fr) minmax(430px, 620px) !important;
+  background-color: #030710 !important;
+  background-image:
+    linear-gradient(90deg, rgba(2, 5, 11, 0.02) 0%, rgba(2, 5, 11, 0.06) 48%, rgba(2, 5, 11, 0.42) 66%, rgba(2, 5, 11, 0.72) 100%),
+    url("./assets/contentengine-login-bg.webp?v=20260825.login-rain.1") !important;
+  background-position: 50% 50%, 50% 50% !important;
+  background-repeat: no-repeat !important;
+  background-size: cover !important;
+  animation: ce-login-camera 24s ease-in-out infinite alternate;
+}
+
+/* Fast rain streaks. */
+.auth-layout::before {
+  position: absolute;
+  z-index: 1;
+  inset: -30%;
+  pointer-events: none;
+  content: "";
+  opacity: 0.34;
+  transform: translate3d(-4%, -18%, 0) rotate(7deg);
+  background-image:
+    repeating-linear-gradient(
+      103deg,
+      transparent 0 18px,
+      rgba(218, 232, 250, 0.15) 19px 20px,
+      transparent 21px 43px
+    ),
+    repeating-linear-gradient(
+      99deg,
+      transparent 0 36px,
+      rgba(255, 255, 255, 0.07) 37px 38px,
+      transparent 39px 77px
+    );
+  background-size: 310px 230px, 560px 390px;
+  filter: blur(0.2px);
+  will-change: background-position;
+  animation: ce-login-rain 0.78s linear infinite;
+}
+
+/* Drops on the virtual glass: intentionally subtle so fields remain readable. */
+.auth-layout::after {
+  position: absolute;
+  z-index: 5;
+  inset: -2%;
+  pointer-events: none;
+  content: "";
+  opacity: 0.17;
+  background-image:
+    radial-gradient(ellipse 3px 5px at 18% 16%, rgba(238, 247, 255, 0.82) 0 18%, rgba(158, 190, 218, 0.34) 25%, transparent 68%),
+    radial-gradient(ellipse 4px 7px at 72% 22%, rgba(241, 248, 255, 0.72) 0 16%, rgba(156, 190, 221, 0.28) 28%, transparent 72%),
+    radial-gradient(ellipse 2px 4px at 42% 68%, rgba(238, 247, 255, 0.74) 0 18%, rgba(158, 190, 218, 0.24) 30%, transparent 72%),
+    radial-gradient(ellipse 5px 8px at 88% 82%, rgba(238, 247, 255, 0.68) 0 16%, rgba(158, 190, 218, 0.22) 30%, transparent 70%);
+  background-size: 140px 170px, 210px 240px, 105px 135px, 260px 310px;
+  background-position: 0 0, 42px 18px, 17px 58px, 90px 30px;
+  filter: drop-shadow(0 1px 1px rgba(193, 221, 245, 0.24));
+  will-change: transform, background-position;
+  animation: ce-login-glass-drops 13s ease-in-out infinite alternate;
+}
+
+.auth-story,
+.auth-panel {
+  position: relative;
+  z-index: 2;
+  min-height: 100svh !important;
+}
+
+.auth-story {
+  overflow: hidden;
+  padding: 0 !important;
+  background: transparent !important;
+}
+
+/* The old editorial story remains in the accessibility tree, but the scene now does the visual storytelling. */
+.auth-story > * {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  user-select: none !important;
+}
+
+/* Slowly moving storm mass. */
+.auth-story::before {
+  position: absolute;
+  z-index: -1;
+  inset: -24% -18% 42% -22%;
+  border-radius: 50%;
+  pointer-events: none;
+  content: "";
+  opacity: 0.34;
+  background:
+    radial-gradient(ellipse at 24% 44%, rgba(173, 191, 215, 0.28), transparent 48%),
+    radial-gradient(ellipse at 68% 18%, rgba(207, 220, 237, 0.18), transparent 42%),
+    radial-gradient(ellipse at 52% 72%, rgba(90, 112, 140, 0.28), transparent 50%);
+  filter: blur(24px);
+  will-change: transform;
+  animation: ce-login-clouds 18s ease-in-out infinite alternate;
+}
+
+/* Rare, soft lightning behind the factory. */
+.auth-story::after {
+  position: absolute;
+  z-index: -1;
+  inset: -12% -8% 34% 12%;
+  pointer-events: none;
+  content: "";
+  opacity: 0;
+  background: radial-gradient(ellipse at 54% 36%, rgba(221, 232, 255, 0.7), rgba(139, 164, 207, 0.18) 28%, transparent 64%);
+  mix-blend-mode: screen;
+  filter: blur(7px);
+  animation: ce-login-lightning 14s linear infinite;
+}
+
+.auth-panel {
+  z-index: 3;
+  display: grid !important;
+  padding: clamp(22px, 4.5vw, 72px) clamp(20px, 4vw, 64px) !important;
+  background: linear-gradient(90deg, rgba(3, 7, 14, 0.08), rgba(3, 7, 14, 0.32)) !important;
+  place-items: center !important;
+}
+
+.auth-card {
+  position: relative;
+  width: min(100%, 530px) !important;
+  max-height: calc(100svh - 44px);
+  overflow: auto;
+  padding: clamp(28px, 4.2vw, 46px) !important;
+  border: 1px solid rgba(150, 171, 207, 0.2) !important;
+  border-radius: 18px !important;
+  color: #f4f7fb !important;
+  background:
+    linear-gradient(145deg, rgba(18, 27, 40, 0.9), rgba(7, 13, 23, 0.94)) !important;
+  box-shadow:
+    0 36px 110px rgba(0, 0, 0, 0.56),
+    0 0 0 1px rgba(255, 255, 255, 0.025) inset,
+    0 1px 0 rgba(255, 255, 255, 0.07) inset !important;
+  backdrop-filter: blur(24px) saturate(122%);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(111, 127, 164, 0.45) transparent;
+}
+
+.auth-card::before {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  margin: 0 0 22px;
+  border: 1px solid rgba(118, 97, 255, 0.26);
+  border-radius: 12px;
+  color: #8a78ff;
+  background:
+    radial-gradient(circle at 36% 28%, rgba(133, 102, 255, 0.25), transparent 54%),
+    rgba(30, 37, 56, 0.76);
+  box-shadow: 0 14px 32px rgba(54, 35, 160, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  content: "CE";
+  font-size: 0.75rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  place-items: center;
+}
+
+.auth-card .eyebrow {
+  margin-bottom: 7px !important;
+  color: #8878ff !important;
+  font-size: 0.69rem !important;
+  letter-spacing: 0.16em !important;
+}
+
+.auth-card h2 {
+  margin: 0 0 8px !important;
+  color: #f7f9fc !important;
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  font-size: clamp(1.9rem, 3.2vw, 2.55rem) !important;
+  font-weight: 660 !important;
+  line-height: 1.08 !important;
+  letter-spacing: -0.035em;
+}
+
+.auth-card .lead,
+.auth-card .muted,
+.auth-card p {
+  color: rgba(214, 222, 234, 0.64) !important;
+}
+
+.auth-card .form-stack {
+  gap: 17px !important;
+}
+
+.auth-card .field > span,
+.auth-card .field > label,
+.auth-card .field-label,
+.auth-card label {
+  color: rgba(236, 240, 247, 0.86) !important;
+}
+
+.auth-card input:not([type="checkbox"]):not([type="radio"]),
+.auth-card select,
+.auth-card textarea {
+  min-height: 52px !important;
+  border: 1px solid rgba(137, 157, 190, 0.17) !important;
+  border-radius: 10px !important;
+  color: #f6f8fb !important;
+  background: rgba(3, 8, 15, 0.62) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.025),
+    0 12px 28px rgba(0, 0, 0, 0.12) !important;
+}
+
+.auth-card input::placeholder,
+.auth-card textarea::placeholder {
+  color: rgba(193, 202, 217, 0.42) !important;
+}
+
+.auth-card input:not([type="checkbox"]):not([type="radio"]):hover,
+.auth-card select:hover,
+.auth-card textarea:hover {
+  border-color: rgba(146, 164, 200, 0.34) !important;
+}
+
+.auth-card input:not([type="checkbox"]):not([type="radio"]):focus,
+.auth-card select:focus,
+.auth-card textarea:focus {
+  border-color: rgba(104, 111, 255, 0.88) !important;
+  box-shadow: 0 0 0 4px rgba(87, 79, 255, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+  outline: 0 !important;
+}
+
+.auth-card input[type="checkbox"],
+.auth-card input[type="radio"] {
+  accent-color: #6256ff !important;
+}
+
+.auth-card a {
+  color: #6fa2ff !important;
+  text-underline-offset: 3px;
+}
+
+.auth-card .btn {
+  min-height: 56px !important;
+  border: 1px solid rgba(139, 124, 255, 0.24) !important;
+  border-radius: 10px !important;
+  color: #fff !important;
+  background: linear-gradient(100deg, #4b25ff 0%, #354cff 48%, #1f6fff 100%) !important;
+  box-shadow:
+    0 18px 42px rgba(44, 52, 255, 0.27),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+  font-size: 1rem !important;
+  font-weight: 680 !important;
+  transition: transform 180ms ease, box-shadow 180ms ease, filter 180ms ease !important;
+}
+
+.auth-card .btn:hover {
+  filter: brightness(1.08) saturate(1.08);
+  transform: translateY(-1px);
+  box-shadow:
+    0 22px 52px rgba(44, 52, 255, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24) !important;
+}
+
+.auth-card .btn:active {
+  transform: translateY(0) scale(0.995);
+}
+
+.auth-card .auth-access-guide {
+  border-color: rgba(137, 157, 190, 0.15) !important;
+  background: rgba(7, 13, 22, 0.52) !important;
+}
+
+.auth-card .auth-access-guide summary {
+  color: rgba(234, 239, 247, 0.82) !important;
+}
+
+.auth-card .auth-start-route li {
+  border-color: rgba(137, 157, 190, 0.13) !important;
+  background: rgba(255, 255, 255, 0.025) !important;
+}
+
+.auth-card .auth-start-route li > span {
+  background: linear-gradient(145deg, #4b25ff, #1f6fff) !important;
+}
+
+.auth-card .auth-start-route strong {
+  color: rgba(242, 246, 252, 0.9) !important;
+}
+
+.auth-card .auth-start-route small {
+  color: rgba(201, 211, 226, 0.56) !important;
+}
+
+@keyframes ce-login-rain {
+  from { background-position: 0 -220px, 80px -390px; }
+  to { background-position: 150px 230px, 260px 390px; }
+}
+
+@keyframes ce-login-glass-drops {
+  0% {
+    background-position: 0 0, 42px 18px, 17px 58px, 90px 30px;
+    transform: translate3d(0, -0.5%, 0);
+  }
+  100% {
+    background-position: 3px 28px, 46px 62px, 19px 94px, 94px 82px;
+    transform: translate3d(0.15%, 0.8%, 0);
+  }
+}
+
+@keyframes ce-login-clouds {
+  from { transform: translate3d(-4%, 1%, 0) scale(1.02); }
+  to { transform: translate3d(7%, -3%, 0) scale(1.12); }
+}
+
+@keyframes ce-login-camera {
+  from { background-position: 50% 50%, 49% 50%; }
+  to { background-position: 50% 50%, 51% 52%; }
+}
+
+@keyframes ce-login-lightning {
+  0%, 17.8%, 18.35%, 19.1%, 62%, 62.55%, 63.2%, 100% { opacity: 0; }
+  18% { opacity: 0.22; }
+  18.18% { opacity: 0.035; }
+  18.55% { opacity: 0.14; }
+  62.2% { opacity: 0.12; }
+  62.38% { opacity: 0.025; }
+  62.72% { opacity: 0.08; }
+}
+
+@media (max-width: 980px) {
+  .auth-layout {
+    grid-template-columns: 1fr !important;
+    background-position: 50% 50%, 39% 50% !important;
+  }
+
+  .auth-story {
+    display: none !important;
+  }
+
+  .auth-panel {
+    min-height: 100svh !important;
+    padding: 18px !important;
+    background: linear-gradient(90deg, rgba(3, 7, 14, 0.46), rgba(3, 7, 14, 0.72)) !important;
+  }
+
+  .auth-card {
+    width: min(100%, 560px) !important;
+    max-height: calc(100svh - 36px);
+  }
+}
+
+@media (max-width: 560px) {
+  .auth-layout {
+    animation: none;
+    background-position: 50% 50%, 35% 50% !important;
+  }
+
+  .auth-card {
+    padding: 25px 20px !important;
+    border-radius: 15px !important;
+  }
+
+  .auth-card::before {
+    width: 46px;
+    height: 46px;
+    margin-bottom: 18px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-layout,
+  .auth-layout::before,
+  .auth-layout::after,
+  .auth-story::before,
+  .auth-story::after {
+    animation: none !important;
+  }
+}
