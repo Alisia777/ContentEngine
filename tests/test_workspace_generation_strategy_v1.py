@@ -423,10 +423,10 @@ def _run_fixture(width: int, height: int = 960) -> dict[str, object]:
 
 def test_strategy_harness_is_server_catalog_driven_and_uses_the_portal_form() -> None:
     assert (
-        'from "./generation-strategy-view.js?v=20260826.rebuild-clean.9"' in SUBJECT
+        'from "./generation-strategy-view.js?v=20260826.rebuild-clean.10"' in SUBJECT
     )
     assert (
-        'from "./generation-strategy-assets.js?v=20260826.rebuild-clean.9"' in SUBJECT
+        'from "./generation-strategy-assets.js?v=20260826.rebuild-clean.10"' in SUBJECT
     )
     assert "createGenerationStrategyViewState" in SUBJECT
     assert "reduceGenerationStrategyViewState" in SUBJECT
@@ -936,7 +936,18 @@ def test_strategy_panel_is_compact_like_copy() -> None:
     assert "uploadProjectMedia(file, \"product_photo\", identity)" in chain
     assert "applyConsolidatedRights(form, panel)" in chain
     assert "data-generation-strategy-source-toggle" in chain
-    assert '#generation-submit' in chain
+    # Дальше цепочку ведёт копийный бесплатный драйвер: подготовка ТЗ,
+    # одобрение версий и точная цена без вызова провайдера; платный клик
+    # отдельной функцией ставит мастерский чекбокс и жмёт нативный submit.
+    assert "driveStrategyPreflight(form, panel, {" in chain
+    assert "REBUILD_FREE_SUBMIT_PHASES" in chain
+    assert "requireSourceDuration: false" in chain
+    launch = intake.split("async function startStrategyPricedLaunch", 1)[1].split(
+        "async function continueStrategyFromZero", 1
+    )[0]
+    assert "real_spend_confirmation" in launch
+    assert "confirmation.click()" in launch
+    assert "liveSubmit.click()" in launch
 
     css = (ROOT / "web/app/workspace-os-v4-generation-guided.css").read_text(
         encoding="utf-8"

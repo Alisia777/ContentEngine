@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.9",
+  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.10",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260826.rebuild-clean.9"
+  "./generation-engine-advisor.js?v=20260826.rebuild-clean.10"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -122,6 +122,13 @@ const COPY_ATTESTATION_LABELS = Object.freeze({
 // «Показать цену» проходит только бесплатные фазы действующего мастера:
 // подготовка точного ТЗ, его одобрение и бесплатный preflight с ценой.
 // Платная фаза требует отдельного человеческого клика «Запустить за $X».
+// Бесплатные фазы очереди «Создания»: тот же цикл (подготовка ТЗ → одобрение
+// → бесплатный preflight с ценой), только именами exact-контура.
+const REBUILD_FREE_SUBMIT_PHASES = Object.freeze([
+  "strategy_exact_10_prepare",
+  "strategy_exact_10_spec_review",
+  "strategy_exact_10_free_preflight",
+]);
 const EXPRESS_FREE_SUBMIT_PHASES = Object.freeze([
   "strategy_product_swap_prepare",
   "strategy_product_swap_spec_review",
@@ -5429,6 +5436,18 @@ function refreshModelSelects(form, state) {
 function moveSharedBrief(form, state, route) {
   if (!(state.briefField instanceof HTMLElement) || !state.briefOrigin) return;
   if (route === "strategy_video") {
+    // С 26.08 у «Создания» свой слот в панели (клон «Копии»): замысел живёт
+    // там. Возврат в мастер остаётся запасным путём, если слот не найден.
+    const strategySlot = q(
+      '[data-generation-intake-brief-slot="strategy_video"]',
+      state.shell,
+    );
+    if (strategySlot instanceof HTMLElement) {
+      if (state.briefField.parentElement !== strategySlot) {
+        strategySlot.append(state.briefField);
+      }
+      return;
+    }
     if (state.briefField.previousSibling !== state.briefOrigin) {
       state.briefOrigin.after(state.briefField);
     }
@@ -5906,13 +5925,14 @@ function liveCopyLaunchContext(
     busy = false,
     busyRoute = null,
     busyAction = null,
+    route: explicitRoute = null,
   } = {},
 ) {
   const form = liveGenerationForm(initialForm);
   if (!formStates.has(form)) mount(form);
   const state = formStates.get(form)
     || (form === initialForm ? fallbackState : null);
-  const route = expressRoute(state || fallbackState);
+  const route = explicitRoute || expressRoute(state || fallbackState);
   const panel = state
     ? panelFor(state, route)
     : form === initialForm
@@ -5985,7 +6005,14 @@ function invalidControlSummary(form) {
   }
 }
 
-async function driveStrategyPreflight(initialForm, panel) {
+async function driveStrategyPreflight(initialForm, panel, options = {}) {
+  const {
+    freePhases = EXPRESS_FREE_SUBMIT_PHASES,
+    requireSourceDuration = true,
+    strategyId = null,
+    routeKey = null,
+    busyAction = null,
+  } = options;
   const startedAt = Date.now();
   const deadline = startedAt + EXPRESS_PREFLIGHT_TIMEOUT_MS;
   let blockedPolls = 0;
@@ -6002,7 +6029,7 @@ async function driveStrategyPreflight(initialForm, panel) {
       initialForm,
       null,
       panel,
-      { busy: true },
+      { busy: true, route: routeKey, busyRoute: routeKey, busyAction },
     );
     const { form } = context;
     if (!context.state || !context.panel) {
@@ -6027,7 +6054,9 @@ async function driveStrategyPreflight(initialForm, panel) {
     // guided вернул этот факт, заменяем catalog default ДО любой spec/preflight
     // кнопки и ждём новый render. Цена за 10 с никогда не может пережить
     // серверно подтверждённый исходник длиной 5 с.
-    const sourceDuration = verifiedSourceDurationSeconds(form);
+    const sourceDuration = requireSourceDuration
+      ? verifiedSourceDurationSeconds(form)
+      : null;
     // Native setFormBusy временно disabled все контролы, включая уже принятые
     // 5 секунд. Busy — это ожидание текущей бесплатной операции, а не отказ
     // длительности; до любых disabled/readiness выводов ждём её завершения.
@@ -6070,7 +6099,7 @@ async function driveStrategyPreflight(initialForm, panel) {
       }
     }
     if (form.dataset.generationStrategyConfirmationReady === "true") {
-      if (sourceDuration === null) {
+      if (requireSourceDuration && sourceDuration === null) {
         // Даже если stale DOM сохранил readiness от прежнего ролика, платная
         // цена без длительности exact выбранного MP4 не принимается.
         throw new Error("express_source_duration_unverified");
@@ -6093,7 +6122,7 @@ async function driveStrategyPreflight(initialForm, panel) {
         // applyConsolidatedRights поставит их через change-события.
         selectStrategy(
           form,
-          ROUTE_AUTHORITY_STRATEGY[expressRoute(context.state)],
+          strategyId || ROUTE_AUTHORITY_STRATEGY[expressRoute(context.state)],
         );
         setStatus(
           rightsPanel,
@@ -6136,7 +6165,7 @@ async function driveStrategyPreflight(initialForm, panel) {
       await waitMs(EXPRESS_POLL_INTERVAL_MS);
     } else if (
       !submitButton.disabled
-      && EXPRESS_FREE_SUBMIT_PHASES.includes(phase)
+      && freePhases.includes(phase)
     ) {
       blockedPolls = 0;
       stalledPolls += 1;
@@ -7592,6 +7621,52 @@ async function watchExpressLaunchJob(initialForm, route, price) {
 // автоматически из роликов проекта, права проставляются единой галкой, дальше
 // решает действующий мастер: подготовка ТЗ, человеческое одобрение, точная
 // цена и явный платный клик — всё в «технических деталях» этой же панели.
+// Платный клик «Создания»: как startExpressLaunch, но контуром очереди —
+// человек уже видел точную цену на кнопке; здесь ставится мастерский чекбокс
+// подтверждения и нажимается нативный submit. Любое расхождение цены мастер
+// отвергнет сам (confirmation.value сверяется с ревизией очереди).
+async function startStrategyPricedLaunch(initialForm, initialState) {
+  const live = liveCopyLaunchContext(initialForm, initialState, null, {
+    route: "strategy_video",
+  });
+  const { form, state } = live;
+  const panel = live.panel;
+  if (!form || !state || !panel) return;
+  if (state.busy) {
+    reportRouteBusy(state, state.busyRoute || "strategy_video");
+    return;
+  }
+  const submit = q("#generation-submit", form);
+  const confirmation = form.elements?.real_spend_confirmation;
+  if (
+    !(submit instanceof HTMLButtonElement)
+    || !(confirmation instanceof HTMLInputElement)
+    || form.dataset.generationStrategyConfirmationReady !== "true"
+  ) {
+    setStatus(panel, "Цена устарела — нажмите «Подготовить ролик» ещё раз.", "error");
+    syncStrategyLaunchButton(form, state);
+    return;
+  }
+  if (!confirmation.checked) confirmation.click();
+  await waitMs(0);
+  const liveSubmit = q("#generation-submit", form);
+  if (liveSubmit instanceof HTMLButtonElement && !liveSubmit.disabled) {
+    liveSubmit.click();
+    setStatus(
+      panel,
+      "Платный запуск подтверждён. Статус появится в «Процессах», результат — в «Проверке».",
+      "busy",
+    );
+  } else {
+    setStatus(
+      panel,
+      String(liveSubmit?.dataset?.launchBlocker || "Мастер не принял запуск — проверьте технические детали."),
+      "error",
+    );
+  }
+  syncStrategyLaunchButton(form, state);
+}
+
 async function continueStrategyFromZero(form) {
   const state = formStates.get(form);
   const panel = panelFor(state, "strategy_video");
@@ -7649,18 +7724,42 @@ async function continueStrategyFromZero(form) {
     if (toggles.length && !toggles.some((input) => input.checked)) {
       toggles.find((input) => !input.disabled)?.click();
     }
-    const submit = q("#generation-submit", form);
-    if (submit instanceof HTMLButtonElement && !submit.disabled) submit.click();
-    const label = submit?.textContent?.trim();
-    setStatus(
-      panel,
-      label
-        ? `Движок ведёт запуск: «${label}». Точное ТЗ и цена — в технических деталях ниже.`
-        : "Продолжаем в технических деталях ниже.",
-      "busy",
+    // Дальше — ровно копийный бесплатный цикл: драйвер сам жмёт подготовку
+    // ТЗ, одобряет версии, снимает бесплатный preflight и возвращает точную
+    // цену. Провайдер не вызывается, деньги не списываются.
+    setStatus(panel, "Бесплатная проверка: ТЗ, одобрение и точная цена…", "busy");
+    beginRouteBusy(
+      state,
+      "strategy_video",
+      "generation-intake-continue-strategy",
+      "Готовим точное ТЗ и цену…",
     );
-    const tech = q("[data-generation-intake-strategy-tech]", panel);
-    if (tech instanceof HTMLDetailsElement) tech.open = true;
+    try {
+      const price = await driveStrategyPreflight(form, panel, {
+        freePhases: REBUILD_FREE_SUBMIT_PHASES,
+        requireSourceDuration: false,
+        strategyId: STRATEGY_AUTHORITY_STRATEGY,
+        routeKey: "strategy_video",
+        busyAction: "generation-intake-continue-strategy",
+      });
+      const live = liveCopyLaunchContext(form, state, panel, {
+        route: "strategy_video",
+      });
+      if (live.state) syncStrategyLaunchButton(live.form, live.state);
+      setStatus(
+        live.panel || panel,
+        price
+          ? `Точная цена: ${price}. Деньги не списаны — кнопка «Запустить» и есть подтверждение.`
+          : "Бесплатная проверка завершена. Проверьте технические детали ниже.",
+        price ? "ready" : "neutral",
+      );
+    } finally {
+      const live = liveCopyLaunchContext(form, state, panel, {
+        route: "strategy_video",
+      });
+      if (live.state) finishRouteBusy(live.state);
+      if (state !== live.state) finishRouteBusy(state);
+    }
   } catch (error) {
     setStatus(
       panel,
@@ -8535,7 +8634,12 @@ function bind(form, state) {
     if (action === "generation-intake-analyze-copy") void analyzeRoute(form, "copy_video");
     if (action === "generation-intake-analyze-avatar") void analyzeRoute(form, "avatar_video");
     if (action === "generation-intake-continue-strategy") {
-      void continueStrategyFromZero(form);
+      const trigger = event.target.closest?.("[data-action]");
+      if (trigger?.dataset.expressPhase === "priced") {
+        void startStrategyPricedLaunch(form, state);
+      } else {
+        void continueStrategyFromZero(form);
+      }
     }
     if (action === "generation-intake-prepare-copy") {
       // Двухфазная кнопка цены: idle → бесплатная подготовка и цена,
@@ -8946,6 +9050,7 @@ function mount(form) {
         syncExpressPriceButton(existing);
       }
     } else if (existing.route === "strategy_video") {
+      moveSharedBrief(form, existing, "strategy_video");
       refreshRecommendationUi(form, existing);
       syncCompactCampaignControl(form, existing, "strategy_video");
       syncStrategyLaunchButton(form, existing);

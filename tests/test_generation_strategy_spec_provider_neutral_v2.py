@@ -115,7 +115,7 @@ def test_prepare_replays_legacy_idempotency_receipt_before_using_v2_key() -> Non
 def test_review_card_does_not_present_legacy_runway_hint_as_execution_truth() -> None:
     app = APP.read_text(encoding="utf-8")
     assert (
-        'from "./generation-strategy-spec.js?v=20260826.rebuild-clean.9";'
+        'from "./generation-strategy-spec.js?v=20260826.rebuild-clean.10";'
         in app
     )
     start = app.index("function generationStrategySpecMechanicsMarkup")

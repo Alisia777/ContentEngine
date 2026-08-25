@@ -2141,3 +2141,12 @@ body.ce-v4-generation-guided-route .generation-launch-card > #mock-batch-form {
 [data-ce-v4-generation-purpose="from-zero"] section:has(> [data-ce-v4-model-selection-summary-body]) {
   display: none !important;
 }
+
+/* Экран «Создание с нуля», вторая волна (26.08): шапка мастера «Соберите
+   новый ролик…», выбор «Что создаём?» и весь шаг «Модель ИИ» не нужны —
+   модель выбирается каскадом панели, товар и замысел живут наверху. */
+[data-ce-v4-generation-purpose="from-zero"] .ce-v4-generation-guided__intro,
+[data-ce-v4-generation-purpose="from-zero"] .ce-v4-model-kind,
+[data-ce-v4-generation-purpose="from-zero"] [data-ce-v4-generation-panel="mode"] {
+  display: none !important;
+}
