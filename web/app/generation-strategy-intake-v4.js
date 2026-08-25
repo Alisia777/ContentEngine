@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.11",
+  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.12",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260826.rebuild-clean.11"
+  "./generation-engine-advisor.js?v=20260826.rebuild-clean.12"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -3923,12 +3923,43 @@ function renderEngineChoice(form, state, section, strategyId) {
     && !avatarPhotoAvailable(state);
   const engines = withAvatarPhotoGate(engineRoutesFor(strategyId), photoMissing);
   if (!engines.length) {
-    // Пока маршрутов нет, карточка скрыта целиком: три пустых пронумерованных
-    // ряда молчат хуже, чем их отсутствие. Загрузку запускаем здесь же.
-    if (!section.hidden) section.hidden = true;
+    // Пустой каскад больше не исчезает молча («нету выбора ИИ», боевые скрины
+    // 25–26.08): карточка остаётся и называет своё состояние, а отказ каталога
+    // получает кнопку повтора — прежний кэш ошибки был вечным до перезагрузки.
+    const cache = engineRouteCache(strategyId);
+    if (section.hidden) section.hidden = false;
+    let notice = q("[data-generation-intake-engine-empty]", section);
+    if (!notice) {
+      notice = el("div", "muted tiny");
+      notice.dataset.generationIntakeEngineEmpty = "";
+      section.prepend(notice);
+    }
+    const retry = cache.status === "error";
+    const message = retry
+      ? "Каталог движков не загрузился. "
+      : "Каталог движков загружается…";
+    if (notice.dataset.state !== cache.status) {
+      notice.dataset.state = cache.status;
+      notice.textContent = message;
+      if (retry) {
+        const button = el("button", "gi-link-button", "Повторить загрузку");
+        button.type = "button";
+        button.dataset.action = "generation-intake-retry-engines";
+        button.dataset.strategyId = strategyId;
+        notice.append(button);
+      }
+    }
+    qa("[data-generation-intake-choice-block]", section).forEach((block) => {
+      if (!block.hidden) block.hidden = true;
+    });
     void ensureEngineRoutes(strategyId);
     return;
   }
+  const emptyNotice = q("[data-generation-intake-engine-empty]", section);
+  if (emptyNotice) emptyNotice.remove();
+  qa("[data-generation-intake-choice-block]", section).forEach((block) => {
+    if (block.hidden) block.hidden = false;
+  });
   const cascade = cascadeStateFor(state, strategyId)
     || { modelId: "", qualityCode: "", durationNotice: "" };
 
@@ -8672,6 +8703,18 @@ function bind(form, state) {
       void registerDuetPresenterFromForm(form, formStates.get(form));
     }
     if (action === "generation-intake-upload-strategy") void uploadStrategySources(form);
+    if (action === "generation-intake-retry-engines") {
+      const strategyId = String(
+        event.target.closest?.("[data-strategy-id]")?.dataset.strategyId || "",
+      );
+      const cache = strategyId ? engineRouteCache(strategyId) : null;
+      if (cache) {
+        cache.status = "idle";
+        cache.routes = [];
+        void ensureEngineRoutes(strategyId);
+      }
+      return;
+    }
     if (action === "generation-intake-apply-recommendation") {
       const route = String(event.target.closest?.("[data-route]")?.dataset.route || state.route);
       const brief = form.elements?.brief;

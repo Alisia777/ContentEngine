@@ -423,10 +423,10 @@ def _run_fixture(width: int, height: int = 960) -> dict[str, object]:
 
 def test_strategy_harness_is_server_catalog_driven_and_uses_the_portal_form() -> None:
     assert (
-        'from "./generation-strategy-view.js?v=20260826.rebuild-clean.11"' in SUBJECT
+        'from "./generation-strategy-view.js?v=20260826.rebuild-clean.12"' in SUBJECT
     )
     assert (
-        'from "./generation-strategy-assets.js?v=20260826.rebuild-clean.11"' in SUBJECT
+        'from "./generation-strategy-assets.js?v=20260826.rebuild-clean.12"' in SUBJECT
     )
     assert "createGenerationStrategyViewState" in SUBJECT
     assert "reduceGenerationStrategyViewState" in SUBJECT
@@ -1006,3 +1006,24 @@ def test_strategy_panel_matches_copy_layout_and_ai_advisor_parity() -> None:
     assert "engineInStrategyPanel" in intake
     cascade = intake.split("storeCascadeState(state, ROUTE_AUTHORITY_STRATEGY[cascadeRoute], {", 1)[1]
     assert "humanChoice: true," in cascade[:600]
+
+
+def test_engine_cascade_never_disappears_silently() -> None:
+    """«Нету выбора ИИ» (боевые скрины 25–26.08): пустой каскад прятался
+    молча, а кэш ошибки каталога был вечным до перезагрузки. Теперь карточка
+    остаётся видимой, называет состояние (загружается / не загрузился) и даёт
+    кнопку повтора, которая сбрасывает кэш и перезапрашивает каталог."""
+    intake = (ROOT / "web/app/generation-strategy-intake-v4.js").read_text(
+        encoding="utf-8"
+    )
+    empty = intake.split("const engines = withAvatarPhotoGate", 1)[1].split(
+        "const cascade = cascadeStateFor", 1
+    )[0]
+    assert "generationIntakeEngineEmpty" in empty
+    assert "Каталог движков загружается" in empty
+    assert "Каталог движков не загрузился" in empty
+    assert "generation-intake-retry-engines" in empty
+    assert "if (section.hidden) section.hidden = false;" in empty
+    retry = intake.split('action === "generation-intake-retry-engines"', 1)[1]
+    assert 'cache.status = "idle"' in retry[:400]
+    assert "ensureEngineRoutes(strategyId)" in retry[:400]

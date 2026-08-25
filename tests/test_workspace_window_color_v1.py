@@ -76,4 +76,4 @@ def test_window_colour_layer_does_not_restyle_macos_traffic_lights():
 
 def test_window_colour_layer_is_loaded_with_the_current_build_key():
     index = _read(INDEX_PATH)
-    assert './workspace-window-color-v1.css?v=20260826.rebuild-clean.11' in index
+    assert './workspace-window-color-v1.css?v=20260826.rebuild-clean.12' in index

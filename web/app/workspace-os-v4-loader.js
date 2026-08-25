@@ -7,17 +7,17 @@
  * in favour of one deterministic stability coordinator.
  */
 
-import { workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.11";
+import { workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.12";
 import {
   contentEngineEmbeddedWindowRequest,
   installContentEngineEmbeddedWindowRuntime,
-} from "./workspace-embedded-window-runtime.js?v=20260826.rebuild-clean.11";
+} from "./workspace-embedded-window-runtime.js?v=20260826.rebuild-clean.12";
 
-const BUILD = "20260826.rebuild-clean.11";
-const DESKTOP_CORE_BUILD = "20260826.rebuild-clean.11";
-const EMBEDDED_WINDOW_BUILD = "20260826.rebuild-clean.11";
-const GENERATION_HOTFIX_BUILD = "20260826.rebuild-clean.11";
-const GENERATION_INTAKE_BUILD = "20260826.rebuild-clean.11";
+const BUILD = "20260826.rebuild-clean.12";
+const DESKTOP_CORE_BUILD = "20260826.rebuild-clean.12";
+const EMBEDDED_WINDOW_BUILD = "20260826.rebuild-clean.12";
+const GENERATION_HOTFIX_BUILD = "20260826.rebuild-clean.12";
+const GENERATION_INTAKE_BUILD = "20260826.rebuild-clean.12";
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;
