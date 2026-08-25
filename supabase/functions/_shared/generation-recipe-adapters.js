@@ -88,6 +88,14 @@ const PRODUCT_SWAP_FOOTWEAR_REGION =
   "all visible Chelsea boots and other footwear, whether held in hand or worn on the person's feet";
 const PRODUCT_SWAP_GRILL_REGION =
   "the entire grill-cart unit: both side table/shelf surfaces, firebox, lid/heat shield, full leg/support frame, lower shelf and wheels; exclude skewers, meat, flames, smoke, hands and background";
+// Сумки — свой регион вместо категорийного «garment»: слово «garment» (предмет
+// одежды) позволяло модели не считать сумку в руках персонажа целью замены, и
+// в сценах передачи из рук в руки появлялась «другая маленькая сумка»
+// (боевой прогон «Сумка 1» 25.08.2026, слом на ~10-й секунде у обоих Kling).
+const PRODUCT_SWAP_BAG_REGION =
+  "every bag shown in the video (handbag, backpack, purse or tote), in every scene and shot, whether worn, carried, held in hand, opened or emptied";
+const PRODUCT_SWAP_BAG_HANDOFF_GUARD =
+  "One single replacement bag: through every cut, hand-off between people, close-up, opening and emptying it stays the exact selected product at the same size; never show a different or smaller bag.";
 const PRODUCT_SWAP_REGION_BY_CATEGORY = Object.freeze({
   cosmetics: "the cosmetic product bottle or jar shown in the video",
   baa: "the supplement package shown in the video",
@@ -102,6 +110,8 @@ const PRODUCT_SWAP_FOOTWEAR_SIGNAL =
   /(?:\b(?:boot|boots|chelsea|footwear|shoe|shoes|sneaker|sneakers|trainer|trainers|loafer|loafers|sandal|sandals)\b|обув|ботин|сапог|кроссов|туфл|челси|кед|мокасин|сандал)/iu;
 const PRODUCT_SWAP_GRILL_SIGNAL =
   /(?:\b(?:barbecue|barbeque|bbq|brazier|charcoal[ -]?grill|grill[ -]?cart|rotisserie)\b|мангал|грил|шашлыч|жаровн)/iu;
+const PRODUCT_SWAP_BAG_SIGNAL =
+  /(?:\b(?:bag|bags|backpack|handbag|purse|tote|clutch|satchel|crossbody)\b|сумк|сумоч|рюкзак|портфел|клатч|шоппер|шопер|саквояж|барсетк)/iu;
 const PRODUCT_SWAP_CABLE_SIGNAL =
   /(?:\b(?:cable|cabled|cord|corded|power[ -]?lead|wired)\b|кабел|провод|шнур)/iu;
 const PRODUCT_SWAP_CABLE_CATEGORIES = new Set([
@@ -347,8 +357,20 @@ function productSwapRegion(productCategory, productInfo) {
   if (PRODUCT_SWAP_GRILL_SIGNAL.test(productInfo)) {
     return PRODUCT_SWAP_GRILL_REGION;
   }
+  if (PRODUCT_SWAP_BAG_SIGNAL.test(productInfo)) {
+    return PRODUCT_SWAP_BAG_REGION;
+  }
   return PRODUCT_SWAP_REGION_BY_CATEGORY[productCategory] ||
     PRODUCT_SWAP_REGION_BY_CATEGORY.other;
+}
+
+function productSwapBagGuard(productInfo) {
+  if (
+    PRODUCT_SWAP_FOOTWEAR_SIGNAL.test(productInfo) ||
+    PRODUCT_SWAP_GRILL_SIGNAL.test(productInfo) ||
+    !PRODUCT_SWAP_BAG_SIGNAL.test(productInfo)
+  ) return "";
+  return PRODUCT_SWAP_BAG_HANDOFF_GUARD;
 }
 
 function productSwapCableGuard(productCategory, productInfo) {
@@ -452,6 +474,7 @@ export function buildFalProductSwapSelection(input) {
     [
       instruction,
       cableGuard,
+      productSwapBagGuard(productInfo),
       `${PRODUCT_SWAP_SERVER_SCOPE_GUARD} ${correction}`,
       "Preserve the source scene, people, actions, camera, timing, lighting and edit.",
       "Keep product identity, scale and proportions stable in every frame; add no new text.",

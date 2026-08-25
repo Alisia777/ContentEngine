@@ -51,6 +51,16 @@ GRILL_REGION = (
     "lid/heat shield, full leg/support frame, lower shelf and wheels; exclude "
     "skewers, meat, flames, smoke, hands and background"
 )
+BAG_REGION = (
+    "every bag shown in the video (handbag, backpack, purse or tote), in "
+    "every scene and shot, whether worn, carried, held in hand, opened or "
+    "emptied"
+)
+BAG_HANDOFF_GUARD = (
+    "One single replacement bag: through every cut, hand-off between people, "
+    "close-up, opening and emptying it stays the exact selected product at "
+    "the same size; never show a different or smaller bag."
+)
 PIKA_MODEL = "fal-ai/pika/v2/pikaswaps"
 KLING_MODEL = "fal-ai/kling-video/o3/pro/video-to-video/edit"
 RUNWAY_FULL_PRODUCT_PREFIX = (
@@ -551,6 +561,65 @@ def test_pika_footwear_region_recognizes_english_title_and_russian_sku() -> None
         assert "garment" not in lowered
         assert "cable" not in lowered
         assert "cord" not in lowered
+
+
+def test_bag_region_holds_product_through_handoffs() -> None:
+    # Боевой слом 25.08.2026: «Сумка 1» под категорией apparel уходила в модель
+    # как «the garment shown in the video», и в сценах передачи из рук в руки
+    # Kling подменял сумку на другую, меньшую. Сумочный сигнал обязан выигрывать
+    # у категорийного слова и добавлять охрану идентичности при передаче.
+    user_concept = _user_concept(
+        "Вор отбирает рюкзак у девушки, открывает и показывает вещи."
+    )
+    result = _evaluate(
+        f"""
+        (() => {{
+          const commonSelection = {{
+            strategyVersion: subject.GENERATION_STRATEGY_CONTRACT_VERSION,
+            strategyId: "viral_product_swap",
+            recipe: "product_swap",
+            recipeVersion: subject.RUNWAY_RECIPE_VERSION,
+            durationSeconds: 14,
+            audio: true,
+          }};
+          const build = (modelKey, productInfo) =>
+            subject.buildFalProductSwapSelection({{
+              commonSelection,
+              modelKey,
+              resolution: "1080p",
+              productCategory: "apparel",
+              productInfo,
+              userConcept: {json.dumps(user_concept, ensure_ascii=False)},
+              productImageCount: 4,
+            }});
+          return {{
+            russianSku: build(
+              {json.dumps(KLING_MODEL)},
+              "Product: Сумка 1. SKU: Сумка 1. Category: apparel.",
+            ),
+            englishTitle: build(
+              {json.dumps(KLING_MODEL)},
+              "Product: Leather tote bag. SKU: TOTE-BEIGE-01. Category: apparel.",
+            ),
+            pika: build(
+              {json.dumps(PIKA_MODEL)},
+              "Product: Городской рюкзак. SKU: РЮКЗАК-01. Category: apparel.",
+            ),
+          }};
+        }})()
+        """
+    )
+
+    assert len(BAG_REGION) <= 160
+    for selection in (result["russianSku"], result["englishTitle"]):
+        assert BAG_REGION in selection["promptText"]
+        assert BAG_HANDOFF_GUARD in selection["promptText"]
+        lowered = selection["promptText"].lower()
+        assert "garment" not in lowered
+        assert "opened or emptied" in selection["promptText"]
+        assert len(selection["promptText"]) <= 1_500
+    assert result["pika"]["modifyRegion"] == BAG_REGION
+    assert BAG_HANDOFF_GUARD in result["pika"]["promptText"]
 
 
 def test_pika_grill_region_preserves_food_fire_and_people() -> None:
