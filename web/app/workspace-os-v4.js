@@ -7,11 +7,11 @@
  * DOM or transporting credentials. This module never calls business APIs.
  */
 
-import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260823.copy-engines.64";
+import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260823.copy-engines.65";
 import {
   createWorkspaceWindowManagerState,
   workspaceWindowManagerReducer,
-} from "./workspace-window-manager-contract.js?v=20260823.copy-engines.64";
+} from "./workspace-window-manager-contract.js?v=20260823.copy-engines.65";
 import {
   WORKSPACE_DOCK_PIN_HOVER_MS,
   WORKSPACE_DOCK_PREFERENCE_VERSION,
@@ -21,27 +21,27 @@ import {
   normalizeWorkspaceDockExternalTarget,
   selectWorkspaceDockShortcut,
   workspaceDockReducer,
-} from "./workspace-dock-contract.js?v=20260823.copy-engines.64";
+} from "./workspace-dock-contract.js?v=20260823.copy-engines.65";
 import {
   WORKSPACE_INTERNAL_APP_TABS,
   WORKSPACE_INTERNAL_SPACES,
   resolveWorkspaceCommand,
-} from "./workspace-command-registry.js?v=20260823.copy-engines.64";
+} from "./workspace-command-registry.js?v=20260823.copy-engines.65";
 import {
   countWorkspaceNotificationItems,
   evaluateWorkspaceNotificationAction,
   filterWorkspaceNotificationItems,
   formatWorkspaceNotificationBadge,
   normalizeWorkspaceNotificationFeed,
-} from "./workspace-notification-contract.js?v=20260823.copy-engines.64";
+} from "./workspace-notification-contract.js?v=20260823.copy-engines.65";
 import {
   CONTENTENGINE_EMBEDDED_WINDOW_MESSAGE,
   CONTENTENGINE_EMBEDDED_WINDOW_VERSION,
   createContentEngineEmbeddedWindowUrl,
   readContentEngineEmbeddedWindowEvent,
-} from "./workspace-embedded-window-contract.js?v=20260823.copy-engines.64";
+} from "./workspace-embedded-window-contract.js?v=20260823.copy-engines.65";
 
-const BUILD = "20260823.copy-engines.64";
+const BUILD = "20260823.copy-engines.65";
 const STORAGE_KEY = "contentengine.desktop-v4.v1";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
 const PROJECT_CONTEXT_KEY = "contentengine.desktop-v4.project";
@@ -62,7 +62,7 @@ const IS_EMBEDDED_WORKSPACE_WINDOW = window.CONTENTENGINE_EMBEDDED_WINDOW === tr
   || document.documentElement.dataset.ceWindowChild === "true";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const XLINK_NS = "http://www.w3.org/1999/xlink";
-const DOCK_SPRITE = new URL("./assets/workspace_dock_icon_sprite_v4_7_1.svg?v=20260823.copy-engines.64", import.meta.url).href;
+const DOCK_SPRITE = new URL("./assets/workspace_dock_icon_sprite_v4_7_1.svg?v=20260823.copy-engines.65", import.meta.url).href;
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
 const SPRING = "cubic-bezier(0.16, 1, 0.3, 1)";
 const DOCK_INTERNAL_POLICY = Object.freeze({

@@ -601,7 +601,7 @@ def test_titlebar_drag_focus_and_desktop_isolation_keep_one_live_business_author
 
 
 def test_dock_contract_is_the_only_visibility_and_overflow_owner() -> None:
-    assert 'from "./workspace-dock-contract.js?v=20260823.copy-engines.64"' in CORE
+    assert 'from "./workspace-dock-contract.js?v=20260823.copy-engines.65"' in CORE
     assert "createWorkspaceDockState(" in CORE
     assert "{ order: DOCK_CANONICAL_ORDER, shortcuts: {} }," in CORE
     assert "{ internalPolicy: DOCK_INTERNAL_POLICY }," in CORE
@@ -664,8 +664,8 @@ def test_320px_dock_fits_and_each_native_click_navigates_once() -> None:
     ):
         assert marker in html
     assert (
-        'data-fixture-dock-canonical-keys="finder,results,research,ai,create,review,'
-        'publish,processes,settings,trash"'
+        'data-fixture-dock-canonical-keys="finder,research,ai,create,review,'
+        'publish,results,processes,settings,trash"'
     ) in html
     assert 'data-fixture-dock-direct-route="#/workspace/board?project_id=11111111-1111-4111-8111-111111111111"' in html
     assert 'data-fixture-dock-overflow-route="#/workspace/work?project_id=11111111-1111-4111-8111-111111111111"' in html

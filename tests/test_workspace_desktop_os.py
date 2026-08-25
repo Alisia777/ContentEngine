@@ -36,9 +36,9 @@ def test_legacy_desktop_os_assets_are_absent_from_the_active_graph() -> None:
         "workspace-desktop-os.js",
     )
     assert not any(any(name in asset for name in retired_names) for asset in active_assets)
-    assert "./workspace-os-v4.css?v=20260823.copy-engines.64" in active_assets
+    assert "./workspace-os-v4.css?v=20260823.copy-engines.65" in active_assets
     assert (
-        "./workspace-os-v4-loader.js?v=20260823.copy-engines.64"
+        "./workspace-os-v4-loader.js?v=20260823.copy-engines.65"
         in active_assets
     )
 
