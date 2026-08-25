@@ -2129,3 +2129,15 @@ body.ce-v4-generation-guided-route .generation-launch-card > #mock-batch-form {
     transform: none;
   }
 }
+
+/* Экран «Создание с нуля» (компакт-фасад, 26.08.2026): степпер шагов,
+   админские поля исполнителя/начисления/количества и советную сводку «Точный
+   выбор» прячем — оператор идёт одной колонкой, как в «Копии». Юридические
+   подтверждения и плашка готовности остаются видимыми. */
+[data-ce-v4-generation-purpose="from-zero"] .ce-v4-generation-guided__steps,
+[data-ce-v4-generation-purpose="from-zero"] label.field:has(select[name="assignee_id"]),
+[data-ce-v4-generation-purpose="from-zero"] label.field:has(input[name="payout_rub"]),
+[data-ce-v4-generation-purpose="from-zero"] label.field:has(input[name="count"]),
+[data-ce-v4-generation-purpose="from-zero"] section:has(> [data-ce-v4-model-selection-summary-body]) {
+  display: none !important;
+}

@@ -2,8 +2,8 @@ import {
   GENERATION_MODEL_RECOMMENDATION_ACTIONS,
   createGenerationModelRecommendationState,
   generationModelRecommendationReducer,
-} from "./generation-model-recommendation.js?v=20260826.rebuild-clean.6";
-import { normalizeGenerationModelAcceptance } from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.6";
+} from "./generation-model-recommendation.js?v=20260826.rebuild-clean.7";
+import { normalizeGenerationModelAcceptance } from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.7";
 import {
   GENERATION_STRATEGY_SELECT_ACTION,
   createGenerationStrategyViewState,
@@ -11,20 +11,20 @@ import {
   reduceGenerationStrategyViewState,
   selectedGenerationStrategySummary,
   validateSelectedGenerationStrategyDraft,
-} from "./generation-strategy-view.js?v=20260826.rebuild-clean.6";
+} from "./generation-strategy-view.js?v=20260826.rebuild-clean.7";
 import {
   generationStrategyAssetEligibility,
   mergeGenerationStrategyAssetPages,
   normalizeGenerationStrategyAssetCandidates,
-} from "./generation-strategy-assets.js?v=20260826.rebuild-clean.6";
+} from "./generation-strategy-assets.js?v=20260826.rebuild-clean.7";
 import {
   GENERATION_STRATEGY_SOURCE_PICKER_ACTIONS,
   createGenerationStrategySourcePicker,
   generationStrategyRequiredSourceCount,
   generationStrategySourcePickerProjection,
   reduceGenerationStrategySourcePicker,
-} from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.6";
-import { resolveGenerationModelVisual } from "./generation-model-visuals-v1.js?v=20260826.rebuild-clean.6";
+} from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.7";
+import { resolveGenerationModelVisual } from "./generation-model-visuals-v1.js?v=20260826.rebuild-clean.7";
 
 /*
  * ContentEngine Desktop v4 · guided generation.
@@ -45,7 +45,7 @@ const FORM_BINDING_KEY = Symbol.for(
 // Эпоха модуля — литерал текущего штампа: массовый рестамп обновляет её вместе
 // со всеми пинами. По ней стражи отличают легитимный ремоунт того же кода от
 // второго экземпляра из смешанного кэша (боевой случай 25.08.2026).
-const GUIDED_EPOCH = "20260826.rebuild-clean.6";
+const GUIDED_EPOCH = "20260826.rebuild-clean.7";
 const STRATEGY_REPEAT_MEDIA_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const PRODUCT_SWAP_REPEAT_MEDIA_LIMIT = 10;
@@ -1325,10 +1325,27 @@ const STRATEGY_MECHANICS_FIELDS = Object.freeze([
   }),
 ]);
 
+// Стандартная заготовка механики «Создания»: нейтральная операторика без
+// продающих обещаний. Оператор видит поля заполненными, правит под ролик, а
+// точный prompt читает и одобряет перед оплатой (владелец 25.08.2026: «форма
+// как Копия» — шесть пустых обязательных полей превращали экран в космолёт).
+const STRATEGY_MECHANICS_DEFAULTS = Object.freeze({
+  hook: "Товар появляется в кадре с первой секунды — крупно и чётко.",
+  beat_sequence: "Крупный план товара с плавным движением камеры.\nТовар в использовании: главная польза видна без слов.\nФинальный акцент на товаре целиком.",
+  pacing: "Быстрый ритм коротких сцен без пауз.",
+  camera_language: "Плавные наезды и крупные планы товара.",
+  composition: "Товар в центре внимания каждой сцены.",
+  audio_pattern: "Ритмичный фон без речи, акценты на сменах сцен.",
+  cta_pattern: "Финальный кадр товара и призыв забрать свой.",
+});
+
 function strategyMechanicsDraft(sourceMediaId) {
   const existing = runtime.strategyMechanicsDrafts.get(sourceMediaId);
   if (existing) return existing;
-  return Object.fromEntries(STRATEGY_MECHANICS_FIELDS.map(({ key }) => [key, ""]));
+  return Object.fromEntries(STRATEGY_MECHANICS_FIELDS.map(({ key }) => [
+    key,
+    STRATEGY_MECHANICS_DEFAULTS[key] || "",
+  ]));
 }
 
 function strategySourceCandidates() {

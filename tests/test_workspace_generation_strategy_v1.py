@@ -423,10 +423,10 @@ def _run_fixture(width: int, height: int = 960) -> dict[str, object]:
 
 def test_strategy_harness_is_server_catalog_driven_and_uses_the_portal_form() -> None:
     assert (
-        'from "./generation-strategy-view.js?v=20260826.rebuild-clean.6"' in SUBJECT
+        'from "./generation-strategy-view.js?v=20260826.rebuild-clean.7"' in SUBJECT
     )
     assert (
-        'from "./generation-strategy-assets.js?v=20260826.rebuild-clean.6"' in SUBJECT
+        'from "./generation-strategy-assets.js?v=20260826.rebuild-clean.7"' in SUBJECT
     )
     assert "createGenerationStrategyViewState" in SUBJECT
     assert "reduceGenerationStrategyViewState" in SUBJECT
@@ -882,3 +882,51 @@ def test_three_strategy_picker_runtime_contract_and_geometry(width: int) -> None
     assert result["minimumTouchTarget"] >= 44
     assert result["geometryChecks"]
     assert all(result["geometryChecks"])
+
+
+def test_strategy_panel_is_compact_like_copy() -> None:
+    """Владелец (25.08.2026, трижды): «форма как в Копии, только без загрузки
+    видео... зачем мне этот космолёт». Компакт-фасад «Создания»: стартовая
+    ИИ-заготовка и единая галка прав — те же кирпичи, что у «Копии»; шесть
+    полей механики предзаполнены нейтральной заготовкой; степпер шагов,
+    исполнитель/начисление/количество и сводка «Точный выбор» спрятаны."""
+    intake = (ROOT / "web/app/generation-strategy-intake-v4.js").read_text(
+        encoding="utf-8"
+    )
+    assert "strategy_video: \"Создать продающий вертикальный ролик" in intake
+    assert 'recommendationSlot("strategy_video")' in intake
+    assert 'rightsConfirmation("strategy_video")' in intake
+    assert "Стартовая заготовка: каким будет ролик с нуля" in intake
+    assert '[data-generation-intake-rights="strategy_video"]' in intake
+    rights_branch = intake.split(
+        '[data-generation-intake-rights="strategy_video"]', 1
+    )[1]
+    assert 'applyConsolidatedRights(form, panelFor(state, "strategy_video"))' in (
+        rights_branch[:220]
+    )
+
+    guided = (ROOT / "web/app/workspace-os-v4-generation-guided.js").read_text(
+        encoding="utf-8"
+    )
+    assert "const STRATEGY_MECHANICS_DEFAULTS" in guided
+    draft = guided.split("function strategyMechanicsDraft", 1)[1].split("\nfunction ", 1)[0]
+    assert "STRATEGY_MECHANICS_DEFAULTS[key]" in draft
+    for key in (
+        "hook:", "beat_sequence:", "pacing:", "camera_language:",
+        "composition:", "audio_pattern:", "cta_pattern:",
+    ):
+        assert key in guided.split("STRATEGY_MECHANICS_DEFAULTS", 2)[1]
+
+    css = (ROOT / "web/app/workspace-os-v4-generation-guided.css").read_text(
+        encoding="utf-8"
+    )
+    zone = css.split('[data-ce-v4-generation-purpose="from-zero"]', 1)[1]
+    for selector in (
+        ".ce-v4-generation-guided__steps",
+        'select[name="assignee_id"]',
+        'input[name="payout_rub"]',
+        'input[name="count"]',
+        "[data-ce-v4-model-selection-summary-body]",
+    ):
+        assert selector in css
+    assert "display: none !important" in zone

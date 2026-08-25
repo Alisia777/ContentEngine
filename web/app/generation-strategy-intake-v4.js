@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.6",
+  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.7",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260826.rebuild-clean.6"
+  "./generation-engine-advisor.js?v=20260826.rebuild-clean.7"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -93,6 +93,9 @@ const DEFAULT_BRIEF_TEMPLATES = Object.freeze({
   // задание модели. Шаблон — пример реплики, которую надо переписать под
   // ролик.
   avatar_video: "Смотрите, как он держит товар — обратите внимание на этот момент. Именно так это и работает в жизни: быстро, без лишних движений. Дальше самое интересное.",
+  // «Создание»: ролик собирается с нуля по фото товара — заготовка описывает
+  // продающий каркас, оператор правит под свой товар.
+  strategy_video: "Создать продающий вертикальный ролик о товаре с фото: показать товар крупно с первой секунды, подчеркнуть главную пользу, показать товар в использовании и закончить призывом забрать свой. Товар — точная копия фото: форма, цвет, фурнитура и логотип без изменений. Не добавлять чужие бренды и надписи.",
 });
 // Экспресс-«Копия»: одна консолидированная галка прав текстуально покрывает
 // четыре юридически раздельных подтверждения мастера. Клик по ней ставит все
@@ -862,7 +865,9 @@ function recommendationSlot(route) {
   header.append(
     el("h4", "", route === "copy_video"
       ? "Стартовая заготовка: что сохранить и как заменить"
-      : "Стартовая заготовка для ролика с аватаром"),
+      : route === "strategy_video"
+        ? "Стартовая заготовка: каким будет ролик с нуля"
+        : "Стартовая заготовка для ролика с аватаром"),
     (() => {
       const badge = el("span", "badge", "Базовый шаблон");
       badge.dataset.generationIntakeRecommendationSource = "";
@@ -905,9 +910,9 @@ function rightsConfirmation(route) {
     el(
       "span",
       "",
-      route === "copy_video"
-        ? "Подтверждаю все права одним действием: у команды есть право использовать исходный ролик как референс; мы переносим только механику — это переработка без чужого бренда, музыки, голоса и точных кадров; права на изображения товара подтверждены; согласия людей в кадре получены — либо людей в кадре нет."
-        : "У команды есть право использовать исходный ролик.",
+      route === "avatar_video"
+        ? "У команды есть право использовать исходный ролик."
+        : "Подтверждаю все права одним действием: у команды есть право использовать исходный ролик как референс; мы переносим только механику — это переработка без чужого бренда, музыки, голоса и точных кадров; права на изображения товара подтверждены; согласия людей в кадре получены — либо людей в кадре нет.",
     ),
   );
   return label;
@@ -2723,7 +2728,25 @@ function strategyPanel() {
   // старый каталог Runway «как совет», а четыре движка fal из реестра, которыми
   // реально идёт запуск, на экране не появлялись — три способа выглядели как
   // три разных системы.
-  panel.append(engineCascadeCard("strategy_video"), host);
+  const rights = rightsConfirmation("strategy_video");
+  const rightsNote = el(
+    "p",
+    "muted tiny",
+    "Галка разом проставляет четыре юридических подтверждения ниже — их видно и можно снять по отдельности.",
+  );
+  const mechanicsNote = el(
+    "p",
+    "muted tiny",
+    "Механика ролика заполнена стандартной заготовкой — поля можно править; точное ТЗ вы прочитаете и одобрите перед оплатой.",
+  );
+  panel.append(
+    engineCascadeCard("strategy_video"),
+    recommendationSlot("strategy_video"),
+    rights,
+    rightsNote,
+    mechanicsNote,
+    host,
+  );
   return panel;
 }
 
@@ -8326,6 +8349,11 @@ function bind(form, state) {
     // patch-render the form. Its following `change` must not commit twice.
     if (event.target.closest?.("[data-generation-intake-campaign-select]")) {
       return;
+    }
+    // Единая галка «Создания» разом ставит четыре подтверждения мастера —
+    // ровно как экспресс-«Копия», только сразу по клику.
+    if (event.target.closest?.('[data-generation-intake-rights="strategy_video"]')) {
+      applyConsolidatedRights(form, panelFor(state, "strategy_video"));
     }
     // A committed context change must invalidate the previous paid phase before
     // any downstream handler can patch-render the native form. In particular,

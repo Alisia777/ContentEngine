@@ -284,7 +284,7 @@ def test_creator_api_sanitizes_edge_errors_and_never_echoes_provider_payloads() 
 
 def test_manager_workspace_wires_server_inspection_repair_and_refresh() -> None:
     for marker in (
-        'from "./access-center-view.js?v=20260826.rebuild-clean.6"',
+        'from "./access-center-view.js?v=20260826.rebuild-clean.7"',
         "ensureAccessCenterStyles();",
         "accessCenterMarkup(state.accessCenter)",
         'action === "open-manager-access"',
@@ -330,8 +330,8 @@ def test_manager_dashboard_exposes_only_the_verified_access_center_action() -> N
 
 def test_access_center_styles_are_scoped_responsive_theme_aware_and_injected_once() -> None:
     assert "link[data-access-center-styles]" in VIEW
-    assert 'link.href = "./access-center.css?v=20260826.rebuild-clean.6"' in VIEW
-    assert './access-center.css?v=20260826.rebuild-clean.6' in (
+    assert 'link.href = "./access-center.css?v=20260826.rebuild-clean.7"' in VIEW
+    assert './access-center.css?v=20260826.rebuild-clean.7' in (
         ROOT / "web" / "app" / "index.html"
     ).read_text(encoding="utf-8")
     assert ".access-center" in CSS

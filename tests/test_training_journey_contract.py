@@ -241,11 +241,11 @@ def test_completion_flow_does_not_open_an_achievement_subwindow() -> None:
 
 
 def test_training_journey_assets_are_loaded_with_versioned_urls() -> None:
-    assert './training-journey.css?v=20260826.rebuild-clean.6' in INDEX
-    assert BUILD == "20260826.rebuild-clean.6"
-    assert './app.js?v=20260826.rebuild-clean.6' in INDEX
-    assert 'from "./training-journey.js?v=20260826.rebuild-clean.6"' in APP
-    assert 'from "./training-interactive.js?v=20260826.rebuild-clean.6"' in APP
+    assert './training-journey.css?v=20260826.rebuild-clean.7' in INDEX
+    assert BUILD == "20260826.rebuild-clean.7"
+    assert './app.js?v=20260826.rebuild-clean.7' in INDEX
+    assert 'from "./training-journey.js?v=20260826.rebuild-clean.7"' in APP
+    assert 'from "./training-interactive.js?v=20260826.rebuild-clean.7"' in APP
 
 
 def test_missing_quiz_answers_move_focus_to_the_problem() -> None:
