@@ -5,7 +5,7 @@ import {
   isInternalWorkerRequest,
 } from "../_shared/internal-worker-auth.ts";
 
-const PUBLIC_APP_ORIGIN = "https://alisia777.github.io";
+const PUBLIC_APP_ORIGIN = "https://hardliver1.github.io";
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const OPENAI_MODERATIONS_URL = "https://api.openai.com/v1/moderations";
 const OPENAI_TRANSCRIPTIONS_URL =

@@ -1,6 +1,6 @@
 import { withSupabase } from "npm:@supabase/server@1.3.0";
 
-const PUBLIC_APP_URL = new URL("https://alisia777.github.io/ContentEngine/");
+const PUBLIC_APP_URL = new URL("https://hardliver1.github.io/ContentEngine/");
 const PUBLIC_APP_ORIGIN = PUBLIC_APP_URL.origin;
 const RECOVERY_REDIRECT_URL = new URL("?auth=recovery", PUBLIC_APP_URL).href;
 const MAX_BODY_BYTES = 4_096;

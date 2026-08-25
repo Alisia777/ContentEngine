@@ -2,7 +2,7 @@ import { type SupabaseContext, withSupabase } from "npm:@supabase/server@1.3.0";
 // @deno-types="https://cdn.sheetjs.com/xlsx-0.20.3/package/types/index.d.ts"
 import * as XLSX from "https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs";
 
-const PUBLIC_APP_ORIGIN = "https://alisia777.github.io";
+const PUBLIC_APP_ORIGIN = "https://hardliver1.github.io";
 const STORAGE_BUCKET = "contentengine-knowledge";
 const SCHEMA_VERSION = "ai_historical_cases.v1";
 const MAX_REQUEST_BYTES = 4_096;

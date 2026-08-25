@@ -19,7 +19,7 @@ import {
   youtubeRequestHash,
 } from "../_shared/youtube-data-api-v3.ts";
 
-const PUBLIC_APP_ORIGIN = "https://alisia777.github.io";
+const PUBLIC_APP_ORIGIN = "https://hardliver1.github.io";
 const MAX_BODY_BYTES = 4_096;
 const YOUTUBE_TIMEOUT_MS = 15_000;
 const UUID_PATTERN =

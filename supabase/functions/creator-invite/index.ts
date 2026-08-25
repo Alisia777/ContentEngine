@@ -3,7 +3,7 @@ import { withSupabase } from "npm:@supabase/server@1.3.0";
 const MAX_INVITES = 50;
 const MAX_CONCURRENT_INVITES = 5;
 const MAX_BODY_BYTES = 32_768;
-const PUBLIC_APP_URL = new URL("https://alisia777.github.io/ContentEngine/");
+const PUBLIC_APP_URL = new URL("https://hardliver1.github.io/ContentEngine/");
 const PUBLIC_APP_ORIGIN = PUBLIC_APP_URL.origin;
 const EMAIL_PATTERN = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,63}$/u;
 const UUID_PATTERN =
