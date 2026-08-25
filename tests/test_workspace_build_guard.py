@@ -13,7 +13,7 @@ ROOT_INDEX = (ROOT / "index.html").read_text(encoding="utf-8")
 SCRIPT = (APP_DIR / "workspace-build-guard.js").read_text(encoding="utf-8")
 CSS = (APP_DIR / "workspace-build-guard.css").read_text(encoding="utf-8")
 MANIFEST = json.loads((APP_DIR / "build.json").read_text(encoding="utf-8"))
-DESKTOP_ASSET_BUILD = "20260825.login-rain.2"
+DESKTOP_ASSET_BUILD = "20260825.login-rain.4"
 APP_SCRIPT = (APP_DIR / "app.js").read_text(encoding="utf-8")
 LOADER = (APP_DIR / "workspace-os-v4-loader.js").read_text(encoding="utf-8")
 INTAKE_ENTRY = (APP_DIR / "generation-strategy-intake-v2.js").read_text(
@@ -30,7 +30,7 @@ QUEUE = (APP_DIR / "generation-strategy-queue.js").read_text(encoding="utf-8")
 
 def test_build_id_is_consistent_across_entrypoints() -> None:
     build_id = MANIFEST["id"]
-    assert build_id == "20260825.login-rain.2"
+    assert build_id == "20260825.login-rain.4"
     assert f'content="{build_id}"' in APP_INDEX
     assert f'content="{build_id}"' in ROOT_INDEX
     assert f'const CURRENT_BUILD = "{build_id}"' in SCRIPT
@@ -164,3 +164,38 @@ def test_update_banner_survives_v4_windows_and_reloads_itself_when_idle() -> Non
     assert "function scheduleAutoReload(id, banner)" in SCRIPT
     assert "scheduleAutoReload(id, banner);" in SCRIPT
     assert "Обновится само через" in SCRIPT
+
+
+def test_mixed_build_guard_hands_the_tab_to_one_epoch_and_forces_reload() -> None:
+    """Страж смеси сборок (боевой случай 25.08.2026): кэш собрал вкладку из
+    модулей двух эпох — списки «Создания» рисовал один экземпляр guided, клики
+    перехватывал второй с пустым состоянием: «галка не ставится», секции
+    двоятся, док пустой. Закон: именем адаптера и привязкой формы владеет
+    ПЕРВАЯ эпоха; второй экземпляр не подменяет её молча, а объявляет смесь,
+    и build-guard форсирует баннер перезагрузки даже при совпадении манифеста
+    с собственной эпохой."""
+    os_v4 = (ROOT / "web/app/workspace-os-v4.js").read_text(encoding="utf-8")
+    assert "function reportMixedBuildEpoch" in os_v4
+    assert "contentengine:mixed-build-detected" in os_v4
+    assert "existing.epoch !== epoch" in os_v4
+    registry_guard = os_v4.split("existing.epoch !== epoch", 1)[1]
+    assert "reportMixedBuildEpoch(`adapter:${name}`" in registry_guard
+    assert "return () => {};" in registry_guard.split("runtime.adapters.set", 1)[0]
+    assert "desktopEpochHeld.build !== BUILD" in os_v4
+    assert "? desktopEpochHeld" in os_v4
+
+    guided = (ROOT / "web/app/workspace-os-v4-generation-guided.js").read_text(
+        encoding="utf-8"
+    )
+    assert 'const GUIDED_EPOCH = "' in guided
+    assert "existing.owner !== handleFormClick" in guided
+    binding_guard = guided.split("existing.owner !== handleFormClick", 1)[1]
+    assert "contentengine:mixed-build-detected" in binding_guard
+    assert "epoch: GUIDED_EPOCH" in guided
+    assert 'registerAdapter("generation-guided", mount, {' in guided
+
+    guard = (ROOT / "web/app/workspace-build-guard.js").read_text(encoding="utf-8")
+    assert '"contentengine:mixed-build-detected"' in guard
+    assert "force = false" in guard
+    assert "id === CURRENT_BUILD && !force" in guard
+    assert "force: true" in guard

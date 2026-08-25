@@ -7,11 +7,11 @@
  * DOM or transporting credentials. This module never calls business APIs.
  */
 
-import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260825.login-rain.2";
+import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260825.login-rain.4";
 import {
   createWorkspaceWindowManagerState,
   workspaceWindowManagerReducer,
-} from "./workspace-window-manager-contract.js?v=20260825.login-rain.2";
+} from "./workspace-window-manager-contract.js?v=20260825.login-rain.4";
 import {
   WORKSPACE_DOCK_PIN_HOVER_MS,
   WORKSPACE_DOCK_PREFERENCE_VERSION,
@@ -21,27 +21,27 @@ import {
   normalizeWorkspaceDockExternalTarget,
   selectWorkspaceDockShortcut,
   workspaceDockReducer,
-} from "./workspace-dock-contract.js?v=20260825.login-rain.2";
+} from "./workspace-dock-contract.js?v=20260825.login-rain.4";
 import {
   WORKSPACE_INTERNAL_APP_TABS,
   WORKSPACE_INTERNAL_SPACES,
   resolveWorkspaceCommand,
-} from "./workspace-command-registry.js?v=20260825.login-rain.2";
+} from "./workspace-command-registry.js?v=20260825.login-rain.4";
 import {
   countWorkspaceNotificationItems,
   evaluateWorkspaceNotificationAction,
   filterWorkspaceNotificationItems,
   formatWorkspaceNotificationBadge,
   normalizeWorkspaceNotificationFeed,
-} from "./workspace-notification-contract.js?v=20260825.login-rain.2";
+} from "./workspace-notification-contract.js?v=20260825.login-rain.4";
 import {
   CONTENTENGINE_EMBEDDED_WINDOW_MESSAGE,
   CONTENTENGINE_EMBEDDED_WINDOW_VERSION,
   createContentEngineEmbeddedWindowUrl,
   readContentEngineEmbeddedWindowEvent,
-} from "./workspace-embedded-window-contract.js?v=20260825.login-rain.2";
+} from "./workspace-embedded-window-contract.js?v=20260825.login-rain.4";
 
-const BUILD = "20260825.login-rain.2";
+const BUILD = "20260825.login-rain.4";
 const STORAGE_KEY = "contentengine.desktop-v4.v1";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
 const PROJECT_CONTEXT_KEY = "contentengine.desktop-v4.project";
@@ -62,7 +62,7 @@ const IS_EMBEDDED_WORKSPACE_WINDOW = window.CONTENTENGINE_EMBEDDED_WINDOW === tr
   || document.documentElement.dataset.ceWindowChild === "true";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const XLINK_NS = "http://www.w3.org/1999/xlink";
-const DOCK_SPRITE = new URL("./assets/workspace_dock_icon_sprite_v4_7_1.svg?v=20260825.login-rain.2", import.meta.url).href;
+const DOCK_SPRITE = new URL("./assets/workspace_dock_icon_sprite_v4_7_1.svg?v=20260825.login-rain.4", import.meta.url).href;
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
 const SPRING = "cubic-bezier(0.16, 1, 0.3, 1)";
 const DOCK_INTERNAL_POLICY = Object.freeze({
@@ -6661,12 +6661,39 @@ function runMount() {
   }
 }
 
+// Страж смеси сборок. Кэш браузера умеет собрать вкладку из модулей двух эпох
+// (боевой случай 25.08.2026: списки «Создания» рисовал один экземпляр guided,
+// клики перехватывал второй с пустым состоянием — галки «не работали», секции
+// двоились, док пустел). Событие ловит workspace-build-guard и форсирует
+// баннер перезагрузки.
+function reportMixedBuildEpoch(scope, held, incoming) {
+  console.error(
+    `ContentEngine mixed build detected: ${scope} держит ${held}, пришёл ${incoming}`,
+  );
+  try {
+    window.dispatchEvent(new CustomEvent("contentengine:mixed-build-detected", {
+      detail: { scope, held, incoming },
+    }));
+  } catch { /* событие — лучшая попытка; консоль уже сказала главное */ }
+}
+
 function registerAdapter(name, adapterMount, options = {}) {
   if (!name || typeof adapterMount !== "function") throw new TypeError("Desktop adapter requires a name and mount function");
+  const epoch = typeof options.epoch === "string" && options.epoch
+    ? options.epoch
+    : BUILD;
+  const existing = runtime.adapters.get(name);
+  if (existing && existing.epoch !== epoch) {
+    // Первый владелец имени остаётся: его рендер и его слушатели согласованы
+    // между собой. Молчаливая замена отдала бы клики экземпляру чужой эпохи.
+    reportMixedBuildEpoch(`adapter:${name}`, existing.epoch, epoch);
+    return () => {};
+  }
   runtime.adapters.set(name, {
     name,
     mount: adapterMount,
     priority: Number.isFinite(options.priority) ? options.priority : 100,
+    epoch,
   });
   scheduleMount();
   return () => {
@@ -6874,7 +6901,24 @@ observeWorkspace();
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", scheduleMount, { once: true });
 else scheduleMount();
 
-window.ContentEngineDesktopV4 = Object.freeze({
+// Рабочим столом владеет ПЕРВАЯ загрузившаяся эпоха: перезапись глобала второй
+// сборкой оставила бы слушатели первой без реестра. Смесь только объявляется —
+// дальше баннер build-guard доводит вкладку до перезагрузки.
+const desktopEpochHeld = window.ContentEngineDesktopV4;
+if (
+  desktopEpochHeld
+  && typeof desktopEpochHeld === "object"
+  && typeof desktopEpochHeld.build === "string"
+  && desktopEpochHeld.build !== BUILD
+) {
+  reportMixedBuildEpoch("workspace-os-v4", desktopEpochHeld.build, BUILD);
+}
+window.ContentEngineDesktopV4 = desktopEpochHeld
+  && typeof desktopEpochHeld === "object"
+  && typeof desktopEpochHeld.build === "string"
+  && desktopEpochHeld.build !== BUILD
+  ? desktopEpochHeld
+  : Object.freeze({
   build: BUILD,
   routes: ROUTES,
   route: routePath,

@@ -13,7 +13,7 @@ import {
   generationStrategyRuntimeSafeProjection,
   invalidateGenerationStrategyRuntimeState,
   reduceGenerationStrategyRuntimeState,
-} from "./generation-strategy-runtime.js?v=20260825.login-rain.2";
+} from "./generation-strategy-runtime.js?v=20260825.login-rain.4";
 
 export const GENERATION_STRATEGY_QUEUE_VERSION = "2026-08-14.v1";
 export const GENERATION_STRATEGY_QUEUE_SIZE = 10;

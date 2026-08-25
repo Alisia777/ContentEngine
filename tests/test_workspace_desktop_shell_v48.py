@@ -601,7 +601,7 @@ def test_titlebar_drag_focus_and_desktop_isolation_keep_one_live_business_author
 
 
 def test_dock_contract_is_the_only_visibility_and_overflow_owner() -> None:
-    assert 'from "./workspace-dock-contract.js?v=20260825.login-rain.2"' in CORE
+    assert 'from "./workspace-dock-contract.js?v=20260825.login-rain.4"' in CORE
     assert "createWorkspaceDockState(" in CORE
     assert "{ order: DOCK_CANONICAL_ORDER, shortcuts: {} }," in CORE
     assert "{ internalPolicy: DOCK_INTERNAL_POLICY }," in CORE

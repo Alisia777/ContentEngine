@@ -4,7 +4,7 @@
  * credentials, forms or application state.
  */
 
-const CURRENT_BUILD = "20260825.login-rain.2";
+const CURRENT_BUILD = "20260825.login-rain.4";
 const BUILD_BADGE = "Desktop · 21.08.17";
 const MANIFEST_URL = new URL("./build.json", import.meta.url);
 const CHECK_INTERVAL_MS = 10 * 60 * 1000;
@@ -130,9 +130,9 @@ function scheduleAutoReload(id, banner) {
   tick();
 }
 
-function showUpdate(remote) {
+function showUpdate(remote, { force = false, title = "" } = {}) {
   const id = cleanBuildId(remote?.id);
-  if (!id || id === CURRENT_BUILD) {
+  if (!id || (id === CURRENT_BUILD && !force)) {
     removeBanner();
     cancelAutoReload();
     return;
@@ -150,7 +150,7 @@ function showUpdate(remote) {
   const countdown = makeElement("small", "", "Перезапустите интерфейс — открытые серверные задачи продолжат работу.");
   countdown.dataset.buildCountdown = "";
   copy.append(
-    makeElement("strong", "", "Рабочее место обновилось"),
+    makeElement("strong", "", title || "Рабочее место обновилось"),
     countdown,
   );
   const action = makeElement("button", "ce-build-update__action", "Обновить");
@@ -232,6 +232,21 @@ function start() {
   });
   window.addEventListener("pageshow", () => void checkForUpdate());
 }
+
+// Смесь сборок в одной вкладке: модуль другой эпохи сообщает о себе этим
+// событием (реестр адаптеров os-v4 и привязка форм guided). Рендер и клики в
+// такой вкладке принадлежат разным версиям — предсказуемого поведения нет, и
+// единственное честное лечение — перезагрузка. Баннер форсируется даже когда
+// манифест совпадает с НАШЕЙ эпохой: чужая половина всё равно уже в памяти.
+window.addEventListener("contentengine:mixed-build-detected", () => {
+  void checkForUpdate().then((manifest) => {
+    const id = cleanBuildId(manifest?.id) || CURRENT_BUILD;
+    showUpdate(
+      { id, label: "Согласование версий интерфейса" },
+      { force: true, title: "Интерфейс обновился посреди работы" },
+    );
+  });
+});
 
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", start, { once: true });

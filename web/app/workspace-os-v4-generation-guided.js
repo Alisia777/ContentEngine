@@ -2,8 +2,8 @@ import {
   GENERATION_MODEL_RECOMMENDATION_ACTIONS,
   createGenerationModelRecommendationState,
   generationModelRecommendationReducer,
-} from "./generation-model-recommendation.js?v=20260825.login-rain.2";
-import { normalizeGenerationModelAcceptance } from "./generation-model-acceptance-view.js?v=20260825.login-rain.2";
+} from "./generation-model-recommendation.js?v=20260825.login-rain.4";
+import { normalizeGenerationModelAcceptance } from "./generation-model-acceptance-view.js?v=20260825.login-rain.4";
 import {
   GENERATION_STRATEGY_SELECT_ACTION,
   createGenerationStrategyViewState,
@@ -11,20 +11,20 @@ import {
   reduceGenerationStrategyViewState,
   selectedGenerationStrategySummary,
   validateSelectedGenerationStrategyDraft,
-} from "./generation-strategy-view.js?v=20260825.login-rain.2";
+} from "./generation-strategy-view.js?v=20260825.login-rain.4";
 import {
   generationStrategyAssetEligibility,
   mergeGenerationStrategyAssetPages,
   normalizeGenerationStrategyAssetCandidates,
-} from "./generation-strategy-assets.js?v=20260825.login-rain.2";
+} from "./generation-strategy-assets.js?v=20260825.login-rain.4";
 import {
   GENERATION_STRATEGY_SOURCE_PICKER_ACTIONS,
   createGenerationStrategySourcePicker,
   generationStrategyRequiredSourceCount,
   generationStrategySourcePickerProjection,
   reduceGenerationStrategySourcePicker,
-} from "./generation-strategy-source-picker.js?v=20260825.login-rain.2";
-import { resolveGenerationModelVisual } from "./generation-model-visuals-v1.js?v=20260825.login-rain.2";
+} from "./generation-strategy-source-picker.js?v=20260825.login-rain.4";
+import { resolveGenerationModelVisual } from "./generation-model-visuals-v1.js?v=20260825.login-rain.4";
 
 /*
  * ContentEngine Desktop v4 · guided generation.
@@ -42,6 +42,10 @@ const SESSION_ATTRIBUTE = "data-ce-v4-generation-session";
 const FORM_BINDING_KEY = Symbol.for(
   "contentengine.generation-guided.form-binding.v1",
 );
+// Эпоха модуля — литерал текущего штампа: массовый рестамп обновляет её вместе
+// со всеми пинами. По ней стражи отличают легитимный ремоунт того же кода от
+// второго экземпляра из смешанного кэша (боевой случай 25.08.2026).
+const GUIDED_EPOCH = "20260825.login-rain.4";
 const STRATEGY_REPEAT_MEDIA_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const PRODUCT_SWAP_REPEAT_MEDIA_LIMIT = 10;
@@ -4986,6 +4990,30 @@ function bindForm(form) {
     form.dataset.ceV4GenerationGuidedBound = "true";
     return;
   }
+  if (
+    existing
+    && existing.owner !== handleFormClick
+    && existing.controller?.signal?.aborted === false
+  ) {
+    // Живой владелец из другого экземпляра модуля: не отбираем у него клики —
+    // его рендер и его состояние согласованы между собой, а у нас пусто.
+    // Молчаливый перехват давал «галка не ставится»: рисовал один экземпляр,
+    // клики глотал второй. Смесь лечится перезагрузкой через build-guard.
+    console.error(
+      "ContentEngine mixed build detected: generation-guided form binding "
+      + `держит ${existing.epoch || "unknown"}, пришёл ${GUIDED_EPOCH}`,
+    );
+    try {
+      window.dispatchEvent(new CustomEvent("contentengine:mixed-build-detected", {
+        detail: {
+          scope: "generation-guided:form-binding",
+          held: String(existing.epoch || "unknown"),
+          incoming: GUIDED_EPOCH,
+        },
+      }));
+    } catch { /* консоль уже сообщила */ }
+    return;
+  }
   existing?.controller?.abort?.();
   const controller = new AbortController();
   const options = { signal: controller.signal };
@@ -4998,7 +5026,7 @@ function bindForm(form) {
   form.addEventListener("contentengine:generation-restore-strategy", handleStrategyRestore, options);
   Object.defineProperty(form, FORM_BINDING_KEY, {
     configurable: true,
-    value: Object.freeze({ controller, owner: handleFormClick }),
+    value: Object.freeze({ controller, owner: handleFormClick, epoch: GUIDED_EPOCH }),
   });
 }
 
@@ -5333,7 +5361,10 @@ function mount() {
   setupForm(form, { initialSync: formChanged });
 }
 
-window.ContentEngineDesktopV4.registerAdapter("generation-guided", mount, { priority: 180 });
+window.ContentEngineDesktopV4.registerAdapter("generation-guided", mount, {
+  priority: 180,
+  epoch: GUIDED_EPOCH,
+});
 
 window.ContentEngineGenerationGuidedV4 = Object.freeze({
   mount,

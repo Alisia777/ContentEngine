@@ -1,4 +1,4 @@
-import { CreatorApi } from "./supabase-api.js?v=20260825.login-rain.2";
+import { CreatorApi } from "./supabase-api.js?v=20260825.login-rain.4";
 
 /*
  * ContentEngine Desktop v4 · Context menus and Trash.
@@ -9,7 +9,7 @@ import { CreatorApi } from "./supabase-api.js?v=20260825.login-rain.2";
  * cleanup.
  */
 
-const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260825.login-rain.2";
+const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260825.login-rain.4";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
 const CLOSE_TRANSIENTS_EVENT = "contentengine:v4-close-transients";
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
