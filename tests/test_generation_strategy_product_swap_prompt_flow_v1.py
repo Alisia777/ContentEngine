@@ -57,9 +57,9 @@ BAG_REGION = (
     "emptied"
 )
 BAG_HANDOFF_GUARD = (
-    "One single replacement bag: through every cut, hand-off between people, "
-    "close-up, opening and emptying it stays the exact selected product at "
-    "the same size; never show a different or smaller bag."
+    "Each bag on screen must exactly match one supplied product photo; "
+    "through cuts, hand-offs and opening it stays that photographed product; "
+    "never invent a bag not in the photos."
 )
 PIKA_MODEL = "fal-ai/pika/v2/pikaswaps"
 KLING_MODEL = "fal-ai/kling-video/o3/pro/video-to-video/edit"

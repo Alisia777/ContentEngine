@@ -94,8 +94,12 @@ const PRODUCT_SWAP_GRILL_REGION =
 // (боевой прогон «Сумка 1» 25.08.2026, слом на ~10-й секунде у обоих Kling).
 const PRODUCT_SWAP_BAG_REGION =
   "every bag shown in the video (handbag, backpack, purse or tote), in every scene and shot, whether worn, carried, held in hand, opened or emptied";
+// Формулировка «через фото», а не «одна сумка»: владелец ставит в один ролик
+// НЕСКОЛЬКО разных товаров (сцены-«варианты» с разными сумками, 25.08.2026),
+// и запрет «одной сумки» противоречил бы такому заданию. Мутации это правило
+// закрывает так же: выдуманной «маленькой сумки» нет среди присланных фото.
 const PRODUCT_SWAP_BAG_HANDOFF_GUARD =
-  "One single replacement bag: through every cut, hand-off between people, close-up, opening and emptying it stays the exact selected product at the same size; never show a different or smaller bag.";
+  "Each bag on screen must exactly match one supplied product photo; through cuts, hand-offs and opening it stays that photographed product; never invent a bag not in the photos.";
 const PRODUCT_SWAP_REGION_BY_CATEGORY = Object.freeze({
   cosmetics: "the cosmetic product bottle or jar shown in the video",
   baa: "the supplement package shown in the video",
