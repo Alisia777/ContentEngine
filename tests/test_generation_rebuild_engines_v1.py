@@ -391,3 +391,52 @@ def test_kling_image_to_video_joins_rebuild_with_start_frame_style() -> None:
     assert '"aspect_ratio"' not in builder
     switch = adapters.split("function buildFalProductAdBody", 1)[1].split("\nfunction ", 1)[0]
     assert 'case "kling_image_regenerate":' in switch
+
+
+def test_engine_advisor_gives_correct_rebuild_recommendations() -> None:
+    """Живой контракт советчика ИИ-центра для «Создания» (26.08.2026): на пяти
+    боевых маршрутах реестра совет разумен — много фото и длинный ролик ведут
+    к дешёвому мульти-фото MiniMax, одно фото — к Kling image-to-video
+    («стартовый кадр»), а движки вне окна длительности исключаются с
+    названной причиной, не молча."""
+    import json
+    import shutil
+    import subprocess
+    import tempfile
+
+    node = shutil.which("node")
+    if node is None:
+        import pytest
+        pytest.skip("Node.js is required")
+    advisor = (ROOT / "web/app/generation-engine-advisor.js").read_text(encoding="utf-8")
+    harness = """
+import { adviseGenerationEngine } from "./advisor.mjs";
+const routes = [
+  { id: "fal:minimax", label: "MiniMax", enabled: true, recommended: true, tier: "cheap", priceKind: "usd_minor_per_second", priceRateMinor: 6, minDurationSeconds: 5, maxDurationSeconds: 15, durationSource: "operator_choice", engineFamily: "regenerate", inputProfile: { video: { max_seconds: 15, min_seconds: 5, max_long_side_px: null, min_short_side_px: null }, images: { max: 5, style: "named_refs" }, keeps_source_audio: false } },
+  { id: "fal:grok", label: "Grok", enabled: true, recommended: false, tier: "cheap", priceKind: "usd_minor_per_second", priceRateMinor: 8, minDurationSeconds: 4, maxDurationSeconds: 10, durationSource: "operator_choice", engineFamily: "regenerate", inputProfile: { video: { max_seconds: 10, min_seconds: 1, max_long_side_px: null, min_short_side_px: null }, images: { max: 5, style: "at_refs" }, keeps_source_audio: false } },
+  { id: "fal:kling-i2v", label: "Kling i2v", enabled: true, recommended: false, tier: "cheap", priceKind: "usd_minor_per_second", priceRateMinor: 12, minDurationSeconds: 4, maxDurationSeconds: 15, durationSource: "operator_choice", engineFamily: "regenerate", inputProfile: { video: { max_seconds: 15, min_seconds: 3, max_long_side_px: null, min_short_side_px: null }, images: { max: 1, style: "start_frame" }, keeps_source_audio: false } },
+  { id: "fal:happy", label: "Happy Horse", enabled: true, recommended: false, tier: "medium", priceKind: "usd_minor_per_second", priceRateMinor: 14, minDurationSeconds: 4, maxDurationSeconds: 15, durationSource: "operator_choice", engineFamily: "regenerate", inputProfile: { video: { max_seconds: 15, min_seconds: 3, max_long_side_px: null, min_short_side_px: null }, images: { max: 5, style: "at_refs" }, keeps_source_audio: false } },
+  { id: "fal:seedance", label: "Seedance", enabled: true, recommended: false, tier: "premium", priceKind: "usd_minor_per_second", priceRateMinor: 48, minDurationSeconds: 4, maxDurationSeconds: 15, durationSource: "operator_choice", engineFamily: "regenerate", inputProfile: { video: { max_seconds: 30, min_seconds: 4, max_long_side_px: null, min_short_side_px: null }, images: { max: 6, style: "at_refs" }, keeps_source_audio: false } },
+];
+const many = adviseGenerationEngine({ routes, facts: { sourceDurationSeconds: null, requestedDurationSeconds: 15, sourceShortSidePx: null, productImageCount: 5, productCategory: "apparel", brief: "Продающий ролик о рюкзаке, показать вместительность.", budgetMinorPerRun: null } });
+const single = adviseGenerationEngine({ routes, facts: { sourceDurationSeconds: null, requestedDurationSeconds: 10, sourceShortSidePx: null, productImageCount: 1, productCategory: "apparel", brief: "Короткий ролик о сумке.", budgetMinorPerRun: null } });
+process.stdout.write(JSON.stringify({
+  many: many?.engineId,
+  single: single?.engineId,
+  manyExcludedGrok: (many?.excluded || []).find((e) => e.engineId === "fal:grok")?.reason || "",
+}));
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        (d / "package.json").write_text('{"type":"module"}', encoding="utf-8")
+        (d / "advisor.mjs").write_text(advisor, encoding="utf-8")
+        (d / "run.mjs").write_text(harness, encoding="utf-8")
+        completed = subprocess.run(
+            [node, "run.mjs"], cwd=d, capture_output=True, text=True,
+            encoding="utf-8", timeout=15, check=False,
+        )
+    assert completed.returncode == 0, completed.stderr
+    verdict = json.loads(completed.stdout)
+    assert verdict["many"] == "fal:minimax"
+    assert verdict["single"] == "fal:kling-i2v"
+    assert "4–10" in verdict["manyExcludedGrok"]

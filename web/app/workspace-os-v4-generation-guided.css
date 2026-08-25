@@ -2150,3 +2150,11 @@ body.ce-v4-generation-guided-route .generation-launch-card > #mock-batch-form {
 [data-ce-v4-generation-purpose="from-zero"] [data-ce-v4-generation-panel="mode"] {
   display: none !important;
 }
+
+/* Экран «Создание с нуля», третья волна (26.08): блок «Технические детали»
+   убран с глаз целиком по просьбе владельца — движок мастера продолжает
+   работать скрытым, ровно как под экраном «Копии» (боевой прецедент
+   copy-view). Программным кликам драйвера display:none не мешает. */
+[data-generation-intake-strategy-tech] {
+  display: none !important;
+}
