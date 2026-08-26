@@ -895,7 +895,7 @@ def test_readable_typography_has_shared_ui_and_meta_scales() -> None:
     )
 
 
-def test_workspace_window_body_is_the_only_vertical_route_scroll_owner() -> None:
+def test_workspace_window_scroll_contract_allows_only_finder_desktop_panes() -> None:
     main_rules = _css_rules(CORE_CSS, "#main-content")
     assert main_rules and any(re.search(r"overflow\s*:\s*hidden", body) for body in main_rules)
     window_body_rules = _css_rules(CORE_CSS, ".ce-v4-window__body")
@@ -905,9 +905,6 @@ def test_workspace_window_body_is_the_only_vertical_route_scroll_owner() -> None
 
     nested_scrollers = (
         (CORE_CSS, ".home-project-grid"),
-        (FINDER_CSS, ".workspace-board__folders"),
-        (FINDER_CSS, ".workspace-board__grid"),
-        (FINDER_CSS, ".workspace-board__drawer"),
         (GENERATION_CSS, ".ce-v4-generation-guided__panel-content"),
         (REVIEW_CSS, ".ce-v4-review-guided__panel-content"),
         (CONTEXT_TRASH_CSS, ".ce-v4-trash-surface__body"),
@@ -919,6 +916,29 @@ def test_workspace_window_body_is_the_only_vertical_route_scroll_owner() -> None
             assert not re.search(r"overflow-y\s*:\s*(?:auto|scroll)", body), (
                 f"{selector} must grow inside the workspace window body instead of creating a second vertical scroll"
             )
+
+    # Finder is a three-pane file manager on desktop: its folder tree, file
+    # collection and inspector stay aligned while each long pane scrolls.
+    # The compact layout explicitly gives ownership back to the route scroll.
+    for selector in (
+        ".workspace-board__folders",
+        ".workspace-board__grid",
+        ".workspace-board__drawer",
+    ):
+        rules = _css_rules(FINDER_CSS, selector)
+        assert rules and any(
+            re.search(r"overflow-y\s*:\s*auto", body) for body in rules
+        ), selector
+
+    mobile = FINDER_CSS[
+        FINDER_CSS.index("@container ce-v4-finder-host (max-width: 760px)"):
+        FINDER_CSS.index("@container ce-v4-finder-host (max-width: 480px)")
+    ]
+    for selector in (".workspace-board__folders", ".workspace-board__grid"):
+        rules = _css_rules(mobile, selector)
+        assert rules and any(
+            re.search(r"overflow-y\s*:\s*visible", body) for body in rules
+        ), selector
 
 
 def test_route_loader_failure_is_an_inline_retryable_state() -> None:

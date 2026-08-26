@@ -13,6 +13,8 @@ const FINDER_VIEW_LABELS = Object.freeze({
   list: "Список",
   columns: "Колонки",
 });
+const FINDER_SORTS = new Set(["created_desc", "created_asc", "name", "type", "status"]);
+const FINDER_DATE_FILTERS = new Set(["all", "today", "7d", "30d"]);
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
 const MOBILE_SIDEBAR = window.matchMedia("(max-width: 760px)");
 
@@ -61,6 +63,16 @@ function create(tag, className = "", text = "") {
 function compact(value, limit = 160) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
   return text.length > limit ? `${text.slice(0, limit - 1).trim()}…` : text;
+}
+
+function normalizedFinderSort(value) {
+  const normalized = String(value || "").trim();
+  return FINDER_SORTS.has(normalized) ? normalized : "created_desc";
+}
+
+function normalizedDateFilter(value) {
+  const normalized = String(value || "").trim();
+  return FINDER_DATE_FILTERS.has(normalized) ? normalized : "all";
 }
 
 function readState() {
@@ -330,6 +342,11 @@ function selectCard(card, event = {}) {
 
 function finderCardTitle(card) {
   return compact(q(".workspace-board__item-copy strong", card)?.textContent || "Объект", 140);
+}
+
+function finderCardCreatedTimestamp(card) {
+  const timestamp = Date.parse(String(card?.dataset?.createdAt || ""));
+  return Number.isFinite(timestamp) ? timestamp : null;
 }
 
 function finderCardSubtitle(card) {
@@ -612,20 +629,31 @@ function applyView() {
 function sortCards(value) {
   const grid = q(".workspace-board__grid", runtime.board);
   if (!grid) return;
+  const normalizedValue = normalizedFinderSort(value);
   const ordered = cards().sort((left, right) => {
-    if (value === "type") {
+    if (normalizedValue === "created_desc" || normalizedValue === "created_asc") {
+      const leftCreatedAt = finderCardCreatedTimestamp(left);
+      const rightCreatedAt = finderCardCreatedTimestamp(right);
+      if (leftCreatedAt === null && rightCreatedAt !== null) return 1;
+      if (leftCreatedAt !== null && rightCreatedAt === null) return -1;
+      if (leftCreatedAt !== null && rightCreatedAt !== null && leftCreatedAt !== rightCreatedAt) {
+        return normalizedValue === "created_desc"
+          ? rightCreatedAt - leftCreatedAt
+          : leftCreatedAt - rightCreatedAt;
+      }
+    }
+    if (normalizedValue === "type") {
       const typeDelta = String(left.dataset.ceV4Kind || "").localeCompare(String(right.dataset.ceV4Kind || ""), "ru");
       if (typeDelta) return typeDelta;
     }
-    if (value === "status") {
+    if (normalizedValue === "status") {
       const leftStatus = compact(q(".workspace-board__status", left)?.textContent, 50);
       const rightStatus = compact(q(".workspace-board__status", right)?.textContent, 50);
       const delta = leftStatus.localeCompare(rightStatus, "ru", { sensitivity: "base" });
       if (delta) return delta;
     }
-    const leftTitle = compact(q(".workspace-board__item-copy strong", left)?.textContent, 200);
-    const rightTitle = compact(q(".workspace-board__item-copy strong", right)?.textContent, 200);
-    return leftTitle.localeCompare(rightTitle, "ru", { sensitivity: "base" });
+    const titleDelta = finderCardTitle(left).localeCompare(finderCardTitle(right), "ru", { sensitivity: "base" });
+    return titleDelta || finderCardKey(left).localeCompare(finderCardKey(right), "ru");
   });
   const current = qa(":scope > .workspace-board__item", grid);
   if (ordered.some((card, index) => current[index] !== card)) {
@@ -634,9 +662,39 @@ function sortCards(value) {
     grid.append(fragment);
   }
   runtime.sortedBoard = runtime.board;
-  runtime.sortedValue = value;
-  if (runtime.state.sort !== value) remember({ sort: value });
+  runtime.sortedValue = normalizedValue;
+  if (runtime.state.sort !== normalizedValue) remember({ sort: normalizedValue });
   if (currentFinderView() === "columns") syncColumnsProjection();
+}
+
+function dateFilterCutoff(value, now = new Date()) {
+  const normalizedValue = normalizedDateFilter(value);
+  if (normalizedValue === "all") return null;
+  const cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const days = normalizedValue === "today" ? 0 : normalizedValue === "7d" ? 6 : 29;
+  cutoff.setDate(cutoff.getDate() - days);
+  return cutoff.getTime();
+}
+
+function applyDateFilter(value) {
+  if (!runtime.board) return;
+  const normalizedValue = normalizedDateFilter(value);
+  const cutoff = dateFilterCutoff(normalizedValue);
+  const visibleKeys = new Set();
+  cards().forEach((card) => {
+    const createdAt = finderCardCreatedTimestamp(card);
+    const matches = cutoff === null || (createdAt !== null && createdAt >= cutoff);
+    card.hidden = !matches;
+    if (matches) visibleKeys.add(finderCardKey(card));
+  });
+  [...runtime.selectedKeys].forEach((key) => {
+    if (!visibleKeys.has(key)) runtime.selectedKeys.delete(key);
+  });
+  const control = q(".ce-v4-finder-date-filter", runtime.board);
+  if (control && control.value !== normalizedValue) control.value = normalizedValue;
+  if (runtime.state.dateFilter !== normalizedValue) remember({ dateFilter: normalizedValue });
+  syncSelectionDom();
+  syncFinderControlStatus();
 }
 
 function filterFolders(query) {
@@ -702,7 +760,14 @@ function syncFinderControlStatus() {
   const mode = finderMode();
   const viewLabel = FINDER_VIEW_LABELS[currentFinderView()] || FINDER_VIEW_LABELS.grid;
   const modeLabel = mode === "organize" ? "Организация" : "Просмотр";
-  const statusText = `${modeLabel} · вид «${viewLabel}»`;
+  const allCards = cards();
+  const dateFilter = normalizedDateFilter(
+    q(".ce-v4-finder-date-filter", runtime.board)?.value || runtime.state.dateFilter,
+  );
+  const periodStatus = dateFilter === "all"
+    ? ""
+    : ` · ${allCards.filter((card) => !card.hidden).length} из ${allCards.length} загруженных`;
+  const statusText = `${modeLabel} · вид «${viewLabel}»${periodStatus}`;
   const status = q("[data-ce-v4-finder-control-status]", runtime.board);
   if (status && status.textContent !== statusText) status.textContent = statusText;
 
@@ -845,12 +910,22 @@ function buildToolbar() {
   const sort = create("select", "ce-v4-finder-sort");
   sort.dataset.action = "finder-sort";
   sort.setAttribute("aria-label", "Сортировка объектов");
-  [["name", "По имени"], ["type", "По типу"], ["status", "По статусу"]].forEach(([value, label]) => {
+  [["created_desc", "Сначала новые"], ["created_asc", "Сначала старые"], ["name", "По имени"], ["type", "По типу"], ["status", "По статусу"]].forEach(([value, label]) => {
     const option = create("option", "", label);
     option.value = value;
     sort.append(option);
   });
-  sort.value = runtime.state.sort || "name";
+  sort.value = normalizedFinderSort(runtime.state.sort);
+  const dateFilter = create("select", "ce-v4-finder-date-filter");
+  dateFilter.dataset.action = "finder-date-filter";
+  dateFilter.setAttribute("aria-label", "Период среди загруженных объектов");
+  dateFilter.title = "Фильтр применяется к загруженным объектам";
+  [["all", "Все даты"], ["today", "Сегодня"], ["7d", "7 дней"], ["30d", "30 дней"]].forEach(([value, label]) => {
+    const option = create("option", "", label);
+    option.value = value;
+    dateFilter.append(option);
+  });
+  dateFilter.value = normalizedDateFilter(runtime.state.dateFilter);
   const grid = create("button", "ce-v4-finder-view");
   grid.type = "button";
   grid.dataset.action = "finder-view";
@@ -876,7 +951,7 @@ function buildToolbar() {
   upload.type = "button";
   upload.dataset.action = "finder-upload";
   upload.dataset.ceV4FinderUpload = "true";
-  controls.append(browse, organize, sort, grid, list, columns, quickLook, upload);
+  controls.append(browse, organize, sort, dateFilter, grid, list, columns, quickLook, upload);
   toolbar.append(title, controls);
   content.prepend(toolbar);
   ensureMobileSidebar();
@@ -1230,7 +1305,13 @@ function handleFinderViewControl(event) {
 
 function handleFinderSortControl(event) {
   const control = event.target;
-  if (!(control instanceof HTMLSelectElement) || !control.matches(".ce-v4-finder-sort")) return;
+  if (!(control instanceof HTMLSelectElement)) return;
+  if (control.matches(".ce-v4-finder-date-filter")) {
+    event.stopPropagation();
+    applyDateFilter(control.value);
+    return;
+  }
+  if (!control.matches(".ce-v4-finder-sort")) return;
   event.stopPropagation();
   sortCards(control.value);
 }
@@ -1270,8 +1351,10 @@ function mount() {
   buildFolderSearch();
   applyMode();
   applyView();
-  const sortValue = q(".ce-v4-finder-sort", board)?.value || runtime.state.sort || "name";
+  const sortValue = q(".ce-v4-finder-sort", board)?.value || runtime.state.sort || "created_desc";
   sortCards(sortValue);
+  const dateFilterValue = q(".ce-v4-finder-date-filter", board)?.value || runtime.state.dateFilter || "all";
+  applyDateFilter(dateFilterValue);
   filterFolders(q('#workspace-board-filter-form input[name="query"]', board)?.value || "");
   bindBoard();
   applyFolderTreeState();

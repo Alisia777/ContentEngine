@@ -29,7 +29,77 @@ def test_finder_uses_the_stable_desktop_viewport() -> None:
     assert "height: 100%" in board
     assert "min-height: 0" in board
     assert "position: relative" in board
+    assert "grid-template-rows: minmax(0, 1fr)" in board
+    assert "overflow: hidden" in board
     assert "100dvh" not in STYLES
+
+
+def test_finder_sorts_and_filters_loaded_cards_by_creation_date() -> None:
+    toolbar = _between(SCRIPT, "function buildToolbar()", "function buildFolderSearch()")
+    date_contract = _between(SCRIPT, "function sortCards(value)", "function filterFolders(query)")
+    status = _between(SCRIPT, "function syncFinderControlStatus()", "function applyMode()")
+    for marker in (
+        '["created_desc", "Сначала новые"]',
+        '["created_asc", "Сначала старые"]',
+        'create("select", "ce-v4-finder-date-filter")',
+        '["all", "Все даты"]',
+        '["today", "Сегодня"]',
+        '["7d", "7 дней"]',
+        '["30d", "30 дней"]',
+        'dateFilter.setAttribute("aria-label", "Период среди загруженных объектов")',
+    ):
+        assert marker in toolbar
+    for marker in (
+        "finderCardCreatedTimestamp(left)",
+        "finderCardCreatedTimestamp(right)",
+        'normalizedValue === "created_desc"',
+        "if (leftCreatedAt === null && rightCreatedAt !== null) return 1",
+        "function dateFilterCutoff(value, now = new Date())",
+        "function applyDateFilter(value)",
+        "card.hidden = !matches",
+        "if (!visibleKeys.has(key)) runtime.selectedKeys.delete(key)",
+    ):
+        assert marker in date_contract
+    assert "загруженных" in status
+
+
+def test_finder_contains_the_desktop_list_and_restores_document_scroll_on_mobile() -> None:
+    layout = _between(
+        STYLES,
+        "body.ce-v4-finder-route .workspace-board__layout {",
+        "body.ce-v4-finder-route .workspace-board__layout > *",
+    )
+    content = _between(
+        STYLES,
+        "body.ce-v4-finder-route .workspace-board__content {",
+        ".ce-v4-finder-toolbar {",
+    )
+    grid = _between(
+        STYLES,
+        "body.ce-v4-finder-route .workspace-board__grid {",
+        'body.ce-v4-finder-route .workspace-board[data-ce-v4-finder-view="list"]',
+    )
+    mobile = _between(
+        STYLES,
+        "@container ce-v4-finder-host (max-width: 760px)",
+        "@container ce-v4-finder-host (max-width: 480px)",
+    )
+    assert "height: 100%" in layout and "overflow: hidden" in layout
+    for marker in ("display: flex", "height: 100% !important", "flex-direction: column", "overflow: hidden"):
+        assert marker in content
+    for marker in ("flex: 1 1 0", "overflow-y: auto", "overscroll-behavior: contain"):
+        assert marker in grid
+    for marker in (
+        "height: auto",
+        "grid-template-rows: auto",
+        "overflow: visible",
+        "flex: none",
+        "overflow-y: visible",
+    ):
+        assert marker in mobile
+    assert ".workspace-board__item-preview video.workspace-board__preview-frame" in STYLES
+    assert "max-width: 100%" in STYLES
+    assert "max-height: 100%" in STYLES
 
 
 def test_wide_finder_keeps_folders_collection_and_inspector_visible_together() -> None:
@@ -254,7 +324,7 @@ def test_wide_quick_look_stays_in_the_inspector_with_safari_safe_motion() -> Non
         ".workspace-board.is-quicklook-inline .workspace-board__sidebar",
         "display: flex !important",
         ".workspace-board.is-quicklook-inline .workspace-board__content",
-        "display: grid !important",
+        "display: flex !important",
         ".workspace-board__drawer.ce-v4-quicklook-inline",
         "grid-column: 3",
         "position: sticky !important",
