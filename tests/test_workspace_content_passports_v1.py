@@ -71,7 +71,21 @@ def test_passport_read_model_is_single_and_read_only() -> None:
     for verb in ("insert into", "update content_factory", "delete from"):
         assert verb not in lowered
     assert lowered.count("security definer") == 2
-    assert lowered.count("stable") >= 2
+    # Волатильность — боевой урок 26.08 21:09: current_profile_id() пишет
+    # профиль при каждом вызове, а не-volatile RPC исполняется PostgREST в
+    # read-only транзакции («cannot execute INSERT in a read-only
+    # transaction»). Обе функции обязаны быть volatile (202608260004).
+    volatility_fix = (
+        ROOT / "supabase/migrations/202608260004_content_passport_volatile_v1.sql"
+    ).read_text(encoding="utf-8")
+    assert (
+        "alter function public.creator_content_passport_registry(jsonb) volatile"
+        in volatility_fix
+    )
+    assert (
+        "alter function public.creator_content_result_passport(jsonb) volatile"
+        in volatility_fix
+    )
     assert "grant execute on function public.creator_content_passport_registry" in MIGRATION
     assert "grant execute on function public.creator_content_result_passport" in MIGRATION
     assert "require_workspace_project_access" in MIGRATION
