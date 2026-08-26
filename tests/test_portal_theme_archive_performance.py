@@ -537,7 +537,7 @@ def test_theme_archive_motion_and_interface_hooks_are_wired_into_the_spa() -> No
         r'from "\./portal-experience\.js\?v=([^"]+)";',
         APP,
     )
-    assert portal_experience_imports == ["20260826.rebuild-clean.22"]
+    assert portal_experience_imports == ["20260826.rebuild-clean.23"]
     for hook in (
         "PORTAL_THEMES",
         "themePickerMarkup",
@@ -573,7 +573,7 @@ def test_theme_archive_motion_and_interface_hooks_are_wired_into_the_spa() -> No
     # а не только числовые эпохи — форма якоря прежняя, значение единое.
     assert re.search(r'<script src="\./theme-bootstrap\.js\?v=[\w.-]+"></script>', INDEX)
     assert (
-        '<link rel="stylesheet" href="./portal-experience.css?v=20260826.rebuild-clean.22"'
+        '<link rel="stylesheet" href="./portal-experience.css?v=20260826.rebuild-clean.23"'
         in INDEX
     )
     assert "try" in THEME_BOOTSTRAP and "catch" in THEME_BOOTSTRAP

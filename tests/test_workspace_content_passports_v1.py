@@ -134,3 +134,33 @@ def test_passport_media_and_product_interactivity() -> None:
     # Товар интерактивен: фильтр реестра по deep-link ?product=<uuid>.
     assert 'safeWorkspaceRouteEntityId("product")' in PORTAL
     assert "Показать все" in PORTAL
+
+
+def test_provenance_manifest_is_append_only_and_recorded_at_bind() -> None:
+    """Контур №2 ТЗ 4.9: манифест происхождения — append-only снимок в момент
+    bind, надстройкой-триггером на финальную запись bind'а (strategy
+    snapshot), без переписывания prepare/bind. Canonical hash самопроверяется,
+    replay идемпотентен (другой payload — отказ), generated-результат не может
+    притвориться исходником товара. Паспорт читает манифест (202608260008).
+    Проверено в проде транзакционной пробой: вставка снапшота породила
+    манифест с движком и ценой, RAISE откатил всё."""
+    manifest = (
+        ROOT / "supabase/migrations/202608260007_generation_provenance_manifest_v1.sql"
+    ).read_text(encoding="utf-8")
+    assert "create table if not exists content_factory.generation_provenance_manifests" in manifest
+    assert "manifest_hash = content_factory_private.json_hash(payload)" in manifest
+    assert "generation_provenance_manifest_append_only" in manifest
+    assert "after insert" in manifest
+    assert "on content_factory.generation_job_strategy_snapshots" in manifest
+    assert "generation_provenance_source_forgery" in manifest
+    assert "generation_provenance_idempotency_conflict" in manifest
+    assert "'generation-provenance-v1'" in manifest
+    assert "hypothesis_id" in manifest  # колонки контура №3 заведены заранее
+    reader = (
+        ROOT / "supabase/migrations/202608260008_passport_reads_manifest_v1.sql"
+    ).read_text(encoding="utf-8")
+    assert "passport_manifest_patch_anchor_missing" in reader
+    assert "manifest_row" in reader
+    # Веб показывает манифест и честно объясняет его отсутствие у legacy.
+    assert "Манифест происхождения" in PORTAL
+    assert "наряд создан до контура манифестов" in PORTAL
