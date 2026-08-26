@@ -2,8 +2,8 @@ import {
   GENERATION_MODEL_RECOMMENDATION_ACTIONS,
   createGenerationModelRecommendationState,
   generationModelRecommendationReducer,
-} from "./generation-model-recommendation.js?v=20260826.rebuild-clean.19";
-import { normalizeGenerationModelAcceptance } from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.19";
+} from "./generation-model-recommendation.js?v=20260826.rebuild-clean.20";
+import { normalizeGenerationModelAcceptance } from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.20";
 import {
   GENERATION_STRATEGY_SELECT_ACTION,
   createGenerationStrategyViewState,
@@ -11,20 +11,20 @@ import {
   reduceGenerationStrategyViewState,
   selectedGenerationStrategySummary,
   validateSelectedGenerationStrategyDraft,
-} from "./generation-strategy-view.js?v=20260826.rebuild-clean.19";
+} from "./generation-strategy-view.js?v=20260826.rebuild-clean.20";
 import {
   generationStrategyAssetEligibility,
   mergeGenerationStrategyAssetPages,
   normalizeGenerationStrategyAssetCandidates,
-} from "./generation-strategy-assets.js?v=20260826.rebuild-clean.19";
+} from "./generation-strategy-assets.js?v=20260826.rebuild-clean.20";
 import {
   GENERATION_STRATEGY_SOURCE_PICKER_ACTIONS,
   createGenerationStrategySourcePicker,
   generationStrategyRequiredSourceCount,
   generationStrategySourcePickerProjection,
   reduceGenerationStrategySourcePicker,
-} from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.19";
-import { resolveGenerationModelVisual } from "./generation-model-visuals-v1.js?v=20260826.rebuild-clean.19";
+} from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.20";
+import { resolveGenerationModelVisual } from "./generation-model-visuals-v1.js?v=20260826.rebuild-clean.20";
 
 /*
  * ContentEngine Desktop v4 · guided generation.
@@ -45,7 +45,7 @@ const FORM_BINDING_KEY = Symbol.for(
 // Эпоха модуля — литерал текущего штампа: массовый рестамп обновляет её вместе
 // со всеми пинами. По ней стражи отличают легитимный ремоунт того же кода от
 // второго экземпляра из смешанного кэша (боевой случай 25.08.2026).
-const GUIDED_EPOCH = "20260826.rebuild-clean.19";
+const GUIDED_EPOCH = "20260826.rebuild-clean.20";
 const STRATEGY_REPEAT_MEDIA_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const PRODUCT_SWAP_REPEAT_MEDIA_LIMIT = 10;
