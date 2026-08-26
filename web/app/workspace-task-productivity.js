@@ -21,7 +21,7 @@ import {
   schedulePersist,
   state,
   taskTone,
-} from "./workspace-task-productivity-core.js?v=20260826.rebuild-clean.12";
+} from "./workspace-task-productivity-core.js?v=20260826.rebuild-clean.13";
 import {
   closeContextPanel,
   closeParkDialog,
@@ -37,7 +37,7 @@ import {
   parkIsOpen,
   renderContextPanel,
   submitParkDialog,
-} from "./workspace-task-productivity-panel.js?v=20260826.rebuild-clean.12";
+} from "./workspace-task-productivity-panel.js?v=20260826.rebuild-clean.13";
 
 function chipMarkup(task) {
   const parked = task.parked && taskTone(task) !== "return";

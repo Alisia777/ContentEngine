@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.12",
+  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.13",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260826.rebuild-clean.12"
+  "./generation-engine-advisor.js?v=20260826.rebuild-clean.13"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -2763,9 +2763,9 @@ function strategyPanel() {
   productCard.append(el("h4", "gi-card__title", "1. Ваш товар"), productHost);
 
   const briefCard = el("section", "gi-card");
-  briefCard.dataset.giStep = "2";
+  briefCard.dataset.giStep = "3";
   briefCard.append(
-    el("h4", "gi-card__title", "2. Комментарий"),
+    el("h4", "gi-card__title", "3. Комментарий"),
     recommendationSlot("strategy_video"),
   );
 
@@ -2776,7 +2776,22 @@ function strategyPanel() {
     "Галка разом проставляет четыре юридических подтверждения мастера — их видно в технических деталях и можно снять по отдельности.",
   );
 
+  // Выбор ИИ — шаг «2», сразу под фото товара: в боевой раскладке карточка
+  // стояла после «Комментария» и кампании, ниже первого экрана, и владелица её
+  // не находила («нету выбора ИИ», скрины 25–26.08). Карточка видима с первой
+  // отрисовки: до ответа реестра она держит собственную строку загрузки, а не
+  // hidden-заглушку — исчезнуть молча ей больше не из чего.
   const engines = engineCascadeCard("strategy_video");
+  engines.hidden = false;
+  engines.dataset.giStep = "2";
+  const enginesTitle = q(".gi-card__title", engines);
+  if (enginesTitle) enginesTitle.textContent = "2. Выбор ИИ";
+  const enginesLoading = el("div", "muted tiny", "Каталог движков загружается…");
+  enginesLoading.dataset.generationIntakeEngineEmpty = "";
+  if (enginesTitle) enginesTitle.after(enginesLoading);
+  qa("[data-generation-intake-choice-block]", engines).forEach((block) => {
+    block.hidden = true;
+  });
   const engineHint = el(
     "p",
     "muted tiny",
@@ -2795,10 +2810,10 @@ function strategyPanel() {
   const main = el("div", "gi-copy__main");
   main.append(
     productCard,
-    briefCard,
-    compactCampaignChoice(),
     engines,
     engineHint,
+    briefCard,
+    compactCampaignChoice(),
     rights,
     rightsNote,
     el(
@@ -4030,7 +4045,10 @@ function renderEngineChoice(form, state, section, strategyId) {
   );
 
   if (!selectedEngine) {
-    if (!section.hidden) section.hidden = true;
+    // При непустом каталоге сюда не попасть (fallback берёт первый маршрут),
+    // но и этот путь не имеет права прятать карточку: список моделей уже
+    // нарисован выше, а «каскад не исчезает молча» — контракт экрана.
+    if (section.hidden) section.hidden = false;
     return;
   }
 

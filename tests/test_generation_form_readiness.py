@@ -187,7 +187,7 @@ def test_internal_auto_brief_is_not_a_separate_human_step() -> None:
 
 
 def test_generation_form_updates_readiness_live_and_starts_fail_closed() -> None:
-    assert 'from "./generation-form-readiness.js?v=20260826.rebuild-clean.12"' in APP
+    assert 'from "./generation-form-readiness.js?v=20260826.rebuild-clean.13"' in APP
     assert "function syncGenerationFormReadiness(form)" in APP
     assert "syncGenerationFormReadiness(form);" in APP
     assert 'id="generation-readiness"' in MODULE_TEXT
@@ -210,8 +210,8 @@ def test_generation_form_updates_readiness_live_and_starts_fail_closed() -> None
     assert ".generation-readiness__steps" in STYLES
     assert "@media (max-width: 820px)" in STYLES
     assert ".generation-readiness__steps { grid-template-columns: 1fr; }" in STYLES
-    assert './styles.css?v=20260826.rebuild-clean.12' in INDEX
-    assert './app.js?v=20260826.rebuild-clean.12' in INDEX
+    assert './styles.css?v=20260826.rebuild-clean.13' in INDEX
+    assert './app.js?v=20260826.rebuild-clean.13' in INDEX
 
 
 def test_mode_label_and_auto_brief_status_follow_selected_duration() -> None:
