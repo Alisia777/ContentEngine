@@ -26,11 +26,11 @@ def test_os_v3_visual_qa_assets_are_retired_from_the_active_graph() -> None:
         "workspace-os-v3-zen-control.js",
     )
     assert not any(any(name in asset for name in retired_names) for asset in active_assets)
-    assert "./workspace-os-v4.css?v=20260826.rebuild-clean.24" in active_assets
+    assert "./workspace-os-v4.css?v=20260826.rebuild-clean.25" in active_assets
     assert active_assets.index(
-        "./workspace-os-v4-loader.js?v=20260826.rebuild-clean.24"
+        "./workspace-os-v4-loader.js?v=20260826.rebuild-clean.25"
     ) < active_assets.index(
-        "./workspace-build-guard.js?v=20260826.rebuild-clean.24"
+        "./workspace-build-guard.js?v=20260826.rebuild-clean.25"
     )
 
 

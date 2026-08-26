@@ -81,6 +81,11 @@ export const RPC = Object.freeze({
   resultsFunnel: "creator_results_funnel",
   contentPassportRegistry: "creator_content_passport_registry",
   contentResultPassport: "creator_content_result_passport",
+  contentHypotheses: "creator_content_hypotheses",
+  contentHypothesis: "creator_content_hypothesis",
+  saveContentHypothesis: "creator_save_content_hypothesis",
+  approveContentHypothesisVersion: "creator_approve_content_hypothesis_version",
+  decideContentHypothesis: "creator_decide_content_hypothesis",
   managerDashboard: "creator_manager_dashboard",
   operationalHealth: "creator_operational_health",
   generationSpendOverview: "creator_generation_spend_overview",
@@ -6823,6 +6828,77 @@ export class CreatorApi {
       || !Array.isArray(data.timeline)
     ) {
       throw new CreatorApiError("Паспорт ролика пришёл в неизвестной форме.");
+    }
+    return data;
+  }
+
+  // Папка «Гипотезы» (контур №3): проверяемые утверждения с версиями и
+  // человеческими решениями. Confirmed ставит только человек.
+  async contentHypotheses({ projectId = "", project_id: projectIdSnake = "" } = {}) {
+    const normalizedProjectId = requiredProjectId(projectIdSnake || projectId);
+    const data = await this.call(RPC.contentHypotheses, {
+      organization_id: String(this.organizationId || ""),
+      project_id: normalizedProjectId,
+    });
+    if (
+      !data || data.ok !== true
+      || data.version !== "content-hypotheses-v1"
+      || !Array.isArray(data.hypotheses)
+    ) {
+      throw new CreatorApiError("Список гипотез пришёл в неизвестной форме.");
+    }
+    return data;
+  }
+
+  async contentHypothesis({ projectId = "", project_id: projectIdSnake = "", hypothesisId = "" } = {}) {
+    const normalizedProjectId = requiredProjectId(projectIdSnake || projectId);
+    const data = await this.call(RPC.contentHypothesis, {
+      organization_id: String(this.organizationId || ""),
+      project_id: normalizedProjectId,
+      hypothesis_id: String(hypothesisId || ""),
+    });
+    if (
+      !data || data.ok !== true
+      || data.version !== "content-hypothesis-v1"
+      || !data.hypothesis || typeof data.hypothesis !== "object"
+      || !Array.isArray(data.versions)
+    ) {
+      throw new CreatorApiError("Гипотеза пришла в неизвестной форме.");
+    }
+    return data;
+  }
+
+  async saveContentHypothesis(payload = {}) {
+    const data = await this.call(RPC.saveContentHypothesis, {
+      organization_id: String(this.organizationId || ""),
+      ...payload,
+    });
+    if (!data || data.ok !== true || data.version !== "content-hypothesis-save-v1") {
+      throw new CreatorApiError("Гипотеза сохранена не полностью. Обновите раздел.");
+    }
+    return data;
+  }
+
+  async approveContentHypothesisVersion({ hypothesisVersionId = "" } = {}) {
+    const data = await this.call(RPC.approveContentHypothesisVersion, {
+      organization_id: String(this.organizationId || ""),
+      hypothesis_version_id: String(hypothesisVersionId || ""),
+    });
+    if (!data || data.ok !== true || data.status !== "approved") {
+      throw new CreatorApiError("Версия гипотезы не утвердилась. Обновите раздел.");
+    }
+    return data;
+  }
+
+  async decideContentHypothesis({ hypothesisId = "", action = "", reason = "" } = {}) {
+    const data = await this.call(RPC.decideContentHypothesis, {
+      organization_id: String(this.organizationId || ""),
+      hypothesis_id: String(hypothesisId || ""),
+      action: String(action || ""),
+      reason: String(reason || ""),
+    });
+    if (!data || data.ok !== true || data.version !== "content-hypothesis-decision-v1") {
+      throw new CreatorApiError("Решение по гипотезе не записалось. Обновите раздел.");
     }
     return data;
   }

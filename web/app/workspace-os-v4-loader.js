@@ -7,17 +7,17 @@
  * in favour of one deterministic stability coordinator.
  */
 
-import { workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.24";
+import { workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.25";
 import {
   contentEngineEmbeddedWindowRequest,
   installContentEngineEmbeddedWindowRuntime,
-} from "./workspace-embedded-window-runtime.js?v=20260826.rebuild-clean.24";
+} from "./workspace-embedded-window-runtime.js?v=20260826.rebuild-clean.25";
 
-const BUILD = "20260826.rebuild-clean.24";
-const DESKTOP_CORE_BUILD = "20260826.rebuild-clean.24";
-const EMBEDDED_WINDOW_BUILD = "20260826.rebuild-clean.24";
-const GENERATION_HOTFIX_BUILD = "20260826.rebuild-clean.24";
-const GENERATION_INTAKE_BUILD = "20260826.rebuild-clean.24";
+const BUILD = "20260826.rebuild-clean.25";
+const DESKTOP_CORE_BUILD = "20260826.rebuild-clean.25";
+const EMBEDDED_WINDOW_BUILD = "20260826.rebuild-clean.25";
+const GENERATION_HOTFIX_BUILD = "20260826.rebuild-clean.25";
+const GENERATION_INTAKE_BUILD = "20260826.rebuild-clean.25";
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;
@@ -63,6 +63,12 @@ const ROUTE_ASSETS = Object.freeze({
   // экран вечно «загружался». Маршруту нужен только стиль.
   passports: Object.freeze({
     match: (route) => route === "/workspace/passports",
+    styles: [`workspace-content-passports.css?v=${BUILD}`],
+    modules: [],
+  }),
+  // «Гипотезы» делят вёрстку срезов с «Паспортами» — стиль общий.
+  hypotheses: Object.freeze({
+    match: (route) => route === "/workspace/hypotheses",
     styles: [`workspace-content-passports.css?v=${BUILD}`],
     modules: [],
   }),

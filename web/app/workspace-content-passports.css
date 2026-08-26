@@ -141,3 +141,27 @@
 .content-passport__asset figcaption {
   overflow-wrap: anywhere;
 }
+
+/* «Гипотезы»: цвет итога — единственная семантика, остальное — общий срез. */
+.content-hypothesis-outcome[data-outcome="confirmed"] {
+  color: var(--success, #4ade80);
+  font-weight: 700;
+}
+
+.content-hypothesis-outcome[data-outcome="disproved"] {
+  color: var(--danger, #f87171);
+  font-weight: 700;
+}
+
+.content-hypothesis-outcome[data-outcome="inconclusive"] {
+  color: var(--warning, #facc15);
+}
+
+[data-hypothesis-create-status][data-state="error"],
+[data-hypothesis-decision-status][data-state="error"] {
+  color: var(--danger, #f87171);
+}
+
+[data-hypothesis-create-status][data-state="ok"] {
+  color: var(--success, #4ade80);
+}

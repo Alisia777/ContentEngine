@@ -3,12 +3,12 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260826.rebuild-clean.24";
+} from "./supabase-api.js?v=20260826.rebuild-clean.25";
 import {
   adminPeopleMarkup,
   normalizeAdminSnapshot,
   normalizeAdminView,
-} from "./admin-people-view.js?v=20260826.rebuild-clean.24";
+} from "./admin-people-view.js?v=20260826.rebuild-clean.25";
 import {
   clearExactYoutubeMediaHandoff,
   exactYoutubeRegisteredMediaId,
@@ -16,12 +16,12 @@ import {
   isExactYoutubeMp4,
   readExactYoutubeMediaHandoff,
   updateExactYoutubeMediaHandoffProgress,
-} from "./exact-youtube-media-handoff.js?v=20260826.rebuild-clean.24";
+} from "./exact-youtube-media-handoff.js?v=20260826.rebuild-clean.25";
 import {
   captureVerifiedPrivateVideoBlob,
   exactYoutubeResearchFailureRecovery,
   resolveExactYoutubeResearchCaptureMedia,
-} from "./exact-youtube-research-capture.js?v=20260826.rebuild-clean.24";
+} from "./exact-youtube-research-capture.js?v=20260826.rebuild-clean.25";
 import {
   approvedGenerationSpecContext,
   generationSpecApprovalReviewDecision,
@@ -34,21 +34,21 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
-} from "./generation-spec.js?v=20260826.rebuild-clean.24";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260826.rebuild-clean.24";
-import { generationStrategyRequiredSourceCount } from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.24";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.24";
+} from "./generation-spec.js?v=20260826.rebuild-clean.25";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260826.rebuild-clean.25";
+import { generationStrategyRequiredSourceCount } from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.25";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.25";
 import {
   normalizeWorkspaceInternalTarget,
   resolveWorkspaceCommand,
-} from "./workspace-command-registry.js?v=20260826.rebuild-clean.24";
+} from "./workspace-command-registry.js?v=20260826.rebuild-clean.25";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
   mergeMediaFileSelection,
   mediaFileValidationError as mediaUploadFileValidationError,
   mediaUploadWorkerCount,
-} from "./media-upload-queue.js?v=20260826.rebuild-clean.24";
+} from "./media-upload-queue.js?v=20260826.rebuild-clean.25";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -56,39 +56,39 @@ import {
   REQUIRED_MODULE_CODES,
   SIMPLE_WORKSPACE_TAB_KEYS,
   WORKSPACE_TABS,
-} from "./catalog.js?v=20260826.rebuild-clean.24";
+} from "./catalog.js?v=20260826.rebuild-clean.25";
 import {
   ACCOUNT_LAUNCH_PATH,
   accountLaunchCenterMarkup,
   accountLaunchGuideMarkup,
   accountLaunchSlugFromPath,
   evaluateAdvertisingAnswers,
-} from "./account-launch-view.js?v=20260826.rebuild-clean.24";
+} from "./account-launch-view.js?v=20260826.rebuild-clean.25";
 import {
   managerDashboardMarkup,
   managerOperationalHealthMarkup,
-} from "./manager-dashboard-view.js?v=20260826.rebuild-clean.24";
+} from "./manager-dashboard-view.js?v=20260826.rebuild-clean.25";
 import {
   generationCampaignSelectionState,
   generationSpendAllowsMinor,
   generationSpendSnapshotMarkup,
   managerGenerationSpendMarkup,
   normalizeGenerationSpendOverview,
-} from "./generation-spend-view.js?v=20260826.rebuild-clean.24";
+} from "./generation-spend-view.js?v=20260826.rebuild-clean.25";
 import {
   generationProviderReadinessPreflights,
   normalizeGenerationProviderPreflight,
-} from "./generation-provider-readiness.js?v=20260826.rebuild-clean.24";
+} from "./generation-provider-readiness.js?v=20260826.rebuild-clean.25";
 import {
   generationModelAcceptanceMarkup,
   normalizeGenerationModelAcceptance,
-} from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.24";
+} from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.25";
 import {
   accessCenterMarkup,
   ensureAccessCenterStyles,
   normalizeAccessCenterEmail,
   normalizeAccessCenterResult,
-} from "./access-center-view.js?v=20260826.rebuild-clean.24";
+} from "./access-center-view.js?v=20260826.rebuild-clean.25";
 import {
   applyResearchMarketCategoryResolution,
   applyResearchOutcomeLearningMutation,
@@ -110,7 +110,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260826.rebuild-clean.24";
+} from "./product-research-view.js?v=20260826.rebuild-clean.25";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -121,7 +121,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260826.rebuild-clean.24";
+} from "./ai-learning-control-room.js?v=20260826.rebuild-clean.25";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -137,15 +137,15 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260826.rebuild-clean.24";
+} from "./content-generation-handoff.js?v=20260826.rebuild-clean.25";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
-} from "./generation-quality-training.js?v=20260826.rebuild-clean.24";
+} from "./generation-quality-training.js?v=20260826.rebuild-clean.25";
 import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,
-} from "./generation-form-readiness.js?v=20260826.rebuild-clean.24";
+} from "./generation-form-readiness.js?v=20260826.rebuild-clean.25";
 import {
   GENERATION_STRATEGY_RUNTIME_ACTIONS,
   createGenerationStrategyRuntimeFingerprint,
@@ -159,7 +159,7 @@ import {
   invalidateGenerationStrategyRuntimeState,
   normalizeGenerationStrategyProbeResponse,
   reduceGenerationStrategyRuntimeState,
-} from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.24";
+} from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.25";
 import {
   createGenerationStrategyQueue,
   generationStrategyQueueAggregateReview,
@@ -168,33 +168,33 @@ import {
   planGenerationStrategyQueueFreeWork,
   planGenerationStrategyQueueSequentialStarts,
   updateGenerationStrategyQueueRow,
-} from "./generation-strategy-queue.js?v=20260826.rebuild-clean.24";
+} from "./generation-strategy-queue.js?v=20260826.rebuild-clean.25";
 import {
   renderGenerationStrategyQueueView,
-} from "./generation-strategy-queue-view.js?v=20260826.rebuild-clean.24";
+} from "./generation-strategy-queue-view.js?v=20260826.rebuild-clean.25";
 import {
   buildGenerationStrategySpecApprovalRequest,
   buildGenerationStrategySpecPrepareRequest,
   generationStrategySpecSafeProjection,
   normalizeGenerationStrategySpecControlResponse,
   normalizeGenerationStrategySpecPrepareResponse,
-} from "./generation-strategy-spec.js?v=20260826.rebuild-clean.24";
+} from "./generation-strategy-spec.js?v=20260826.rebuild-clean.25";
 import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
   normalizeGenerationVideoReferenceContext,
-} from "./generation-video-reference.js?v=20260826.rebuild-clean.24";
+} from "./generation-video-reference.js?v=20260826.rebuild-clean.25";
 import {
   buildGenerationFormDraft,
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260826.rebuild-clean.24";
+} from "./generation-form-draft.js?v=20260826.rebuild-clean.25";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
   resolveGenerationExpectedProductMatch,
-} from "./generation-ai-research-working-draft.js?v=20260826.rebuild-clean.24";
+} from "./generation-ai-research-working-draft.js?v=20260826.rebuild-clean.25";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -206,7 +206,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260826.rebuild-clean.24";
+} from "./generation-autopilot.js?v=20260826.rebuild-clean.25";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -228,14 +228,14 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260826.rebuild-clean.24";
+} from "./content-review-view.js?v=20260826.rebuild-clean.25";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
   createFirstShiftFullState,
   firstShiftFullScenarioMarkup,
   reduceFirstShiftFullState,
-} from "./first-shift-full-scenario.js?v=20260826.rebuild-clean.24";
+} from "./first-shift-full-scenario.js?v=20260826.rebuild-clean.25";
 import {
   GENERATION_ARCHIVE_PAGE_SIZE,
   GENERATION_VISIBLE_CAP,
@@ -250,7 +250,7 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260826.rebuild-clean.24";
+} from "./portal-experience.js?v=20260826.rebuild-clean.25";
 import {
   isWorkspaceSmartFolderId,
   normalizeWorkspaceBoard,
@@ -258,7 +258,7 @@ import {
   workspaceBoardItemKey,
   workspaceBoardPaginationState,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260826.rebuild-clean.24";
+} from "./workspace-board-view.js?v=20260826.rebuild-clean.25";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -270,7 +270,7 @@ import {
   syncTrainingWalkthroughStatus,
   trainingInteractiveMarkup,
   trainingWalkthroughStorageKey,
-} from "./training-interactive.js?v=20260826.rebuild-clean.24";
+} from "./training-interactive.js?v=20260826.rebuild-clean.25";
 import {
   LEARNING_TRACKS,
   achievementMarkup,
@@ -287,16 +287,16 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260826.rebuild-clean.24";
+} from "./training-journey.js?v=20260826.rebuild-clean.25";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
   trainingPlatformSimulatorsMarkup,
-} from "./training-platform-simulators.js?v=20260826.rebuild-clean.24";
+} from "./training-platform-simulators.js?v=20260826.rebuild-clean.25";
 import {
   bindTrainingMediaCards,
   trainingMediaCardsMarkup,
-} from "./training-media-cards.js?v=20260826.rebuild-clean.24";
+} from "./training-media-cards.js?v=20260826.rebuild-clean.25";
 import {
   normalizeTrainingPracticalProject,
   normalizeTrainingPracticalReviews,
@@ -306,7 +306,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260826.rebuild-clean.24";
+} from "./training-practical-review.js?v=20260826.rebuild-clean.25";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -325,7 +325,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260826.rebuild-clean.24";
+} from "./my-work-view.js?v=20260826.rebuild-clean.25";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -336,8 +336,8 @@ const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
   ),
 );
 const MEDIA_UPLOAD_CONCURRENCY = DEFAULT_MEDIA_UPLOAD_CONCURRENCY;
-const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260826.rebuild-clean.24";
-const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260826.rebuild-clean.24";
+const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260826.rebuild-clean.25";
+const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260826.rebuild-clean.25";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
 const MAX_MOCK_BATCH_SIZE = Math.min(50, Math.max(1, Number(CONFIG.MAX_BATCH_SIZE) || 50));
@@ -10050,6 +10050,7 @@ function renderWorkspace(section) {
     placement: renderPlacementSection,
     stats: renderStatsSection,
     passports: renderPassportsSection,
+    hypotheses: renderHypothesesSection,
     payouts: renderPayoutsSection,
     tasks: renderTasksSection,
     media: renderMediaSection,
@@ -11363,6 +11364,23 @@ async function loadSection(section, options = {}) {
           : state.api.contentPassportRegistry({ projectId }).then((registry) => ({
             kind: "registry",
             registry,
+            key: `${projectId}:`,
+          })))
+        : section === "hypotheses"
+        // «Гипотезы» — тот же секционный контур, что «Паспорта»: одна
+        // read-модель, deep-link ?hypothesis=<uuid> открывает срез.
+        ? (safeWorkspaceRouteEntityId("hypothesis")
+          ? state.api.contentHypothesis({
+            projectId,
+            hypothesisId: safeWorkspaceRouteEntityId("hypothesis"),
+          }).then((detail) => ({
+            kind: "detail",
+            detail,
+            key: `${projectId}:${safeWorkspaceRouteEntityId("hypothesis")}`,
+          }))
+          : state.api.contentHypotheses({ projectId }).then((list) => ({
+            kind: "list",
+            list,
             key: `${projectId}:`,
           })))
         : state.api.workspaceSection(
@@ -19644,6 +19662,312 @@ function renderPassportsSection(sectionState) {
   return `${header}${body}`;
 }
 
+// Папка «Гипотезы» (контур №3, v1): идея как проверяемое утверждение
+// «Если X, то метрика Y, потому что Z» с версиями и человеческим выводом.
+// Секционный контур портала (урок «Паспортов»): загрузка в loadSection,
+// отказ виден с «Повторить», deep-link ?hypothesis=<uuid> открывает срез.
+const HYPOTHESIS_METRIC_LABELS = Object.freeze({
+  ctr: "CTR",
+  click_to_order: "Конверсия из клика в заказ",
+  view_to_order: "Конверсия из просмотра в заказ",
+  revenue_per_mille: "Выручка на 1000 просмотров",
+  views: "Просмотры",
+  orders: "Заказы",
+});
+const HYPOTHESIS_STATUS_LABELS = Object.freeze({
+  draft: "Черновик",
+  collecting_evidence: "Сбор доказательств",
+  preparing: "Подготовка",
+  ready_for_test: "Готова к тесту",
+  testing: "Тестируется",
+  awaiting_mature_metrics: "Ждёт зрелых метрик",
+  completed: "Завершена",
+  archived: "В архиве",
+});
+const HYPOTHESIS_OUTCOME_LABELS = Object.freeze({
+  untested: "Не проверена",
+  confirmed: "Подтверждена",
+  disproved: "Опровергнута",
+  inconclusive: "Данных недостаточно",
+});
+
+function hypothesesSectionKey() {
+  const projectId = currentWorkspaceProjectId();
+  return `${projectId}:${safeWorkspaceRouteEntityId("hypothesis")}`;
+}
+
+function hypothesisCardMarkup(entry, projectId) {
+  const head = entry.head || {};
+  const href = `#/workspace/hypotheses?project_id=${encodeURIComponent(projectId)}&hypothesis=${encodeURIComponent(String(entry.id || ""))}`;
+  const outcome = String(entry.outcome || "untested");
+  const facts = [
+    HYPOTHESIS_STATUS_LABELS[entry.lifecycle_status] || entry.lifecycle_status,
+    head.product_title ? String(head.product_title) : "",
+    HYPOTHESIS_METRIC_LABELS[head.metric] || head.metric || "",
+    `${entry.versions_count || 0} верс. · ${entry.launches_count || 0} запусков`,
+  ].filter(Boolean).join(" · ");
+  return `
+    <article class="content-passport-card" data-hypothesis-card="${escapeHtml(String(entry.id || ""))}">
+      <h3 class="content-passport-card__title">${escapeHtml(`${entry.code || ""} · ${entry.title || ""}`)}</h3>
+      <p class="tiny content-hypothesis-outcome" data-outcome="${escapeHtml(outcome)}">${escapeHtml(HYPOTHESIS_OUTCOME_LABELS[outcome] || outcome)}</p>
+      ${head.statement ? `<p class="muted tiny">${escapeHtml(String(head.statement).slice(0, 160))}${String(head.statement).length > 160 ? "…" : ""}</p>` : ""}
+      <p class="muted tiny">${escapeHtml(facts)}</p>
+      <a class="btn btn-secondary btn-small" href="${escapeHtml(href)}">Открыть гипотезу</a>
+    </article>
+  `;
+}
+
+function hypothesisCreateFormMarkup() {
+  return `
+    <section class="card card-pad" data-hypothesis-create>
+      <p class="eyebrow">Новая гипотеза</p>
+      <h2 style="font:600 1.3rem/1.2 Georgia,serif; margin:0 0 8px">Сформулировать проверяемо</h2>
+      <p class="muted tiny">Шаблон: «Если [изменение], то [метрика изменится], потому что [обоснование]». Автозапуска нет — гипотеза сначала утверждается, потом тестируется, вывод делает человек.</p>
+      <div class="form-stack">
+        <label class="field"><span>Название</span><input name="hypothesis_title" maxlength="200" placeholder="Товар в первые две секунды" /></label>
+        <label class="field"><span>Формулировка</span><textarea name="hypothesis_statement" rows="3" maxlength="2000" placeholder="Если показать товар в первые две секунды через резкое появление, то CTR вырастет не менее чем на 15%, потому что зритель раньше поймёт, что рекламируется."></textarea></label>
+        <div class="form-grid-2">
+          <label class="field"><span>Основная метрика</span>
+            <select name="hypothesis_metric">
+              ${Object.entries(HYPOTHESIS_METRIC_LABELS).map(([value, label]) => `<option value="${value}">${escapeHtml(label)}</option>`).join("")}
+            </select>
+          </label>
+          <label class="field"><span>Площадка</span>
+            <select name="hypothesis_platform">
+              <option value="">Не выбрана</option>
+              ${["wildberries", "instagram", "youtube", "tiktok", "vk", "telegram", "other"].map((value) => `<option value="${value}">${value}</option>`).join("")}
+            </select>
+          </label>
+          <label class="field"><span>Baseline (текущее значение)</span><input name="hypothesis_baseline" type="number" step="any" placeholder="4.3" /></label>
+          <label class="field"><span>Цель</span><input name="hypothesis_target" type="number" step="any" placeholder="4.95" /></label>
+        </div>
+        <label class="field"><span>Критерий успеха</span><input name="hypothesis_success" maxlength="500" placeholder="CTR 4.95% или выше на зрелом окне 72 часа" /></label>
+        <p class="tiny" data-hypothesis-create-status hidden></p>
+        <button class="btn btn-primary" type="button" data-action="hypothesis-create">Создать гипотезу</button>
+      </div>
+    </section>
+  `;
+}
+
+function hypothesisDetailMarkup(detail, projectId) {
+  const hypothesis = detail.hypothesis || {};
+  const versions = Array.isArray(detail.versions) ? detail.versions : [];
+  const decisions = Array.isArray(detail.decisions) ? detail.decisions : [];
+  const launches = Array.isArray(detail.launches) ? detail.launches : [];
+  const backHref = `#/workspace/hypotheses?project_id=${encodeURIComponent(projectId)}`;
+  const outcome = String(hypothesis.outcome || "untested");
+  const canDecide = ["owner", "admin", "producer"].includes(
+    state.bootstrap?.membership?.role,
+  );
+  const versionsMarkup = versions.map((version) => `
+    <section class="content-passport__section">
+      <h3 class="content-passport__section-title">Версия v${version.version} · ${escapeHtml(version.status === "approved" ? "утверждена" : version.status === "draft" ? "черновик" : version.status === "superseded" ? "заменена" : String(version.status))}</h3>
+      <p>${escapeHtml(String(version.statement || ""))}</p>
+      <div class="content-passport__row"><span class="muted">Метрика</span><span>${escapeHtml(HYPOTHESIS_METRIC_LABELS[version.metric] || version.metric || "—")}${version.platform ? ` · ${escapeHtml(version.platform)}` : ""}</span></div>
+      <div class="content-passport__row"><span class="muted">Baseline → цель</span><span>${version.baseline_value === null || version.baseline_value === undefined ? "не определён" : escapeHtml(String(version.baseline_value))} → ${version.target_value === null || version.target_value === undefined ? "—" : escapeHtml(String(version.target_value))}</span></div>
+      ${version.success_criteria ? `<div class="content-passport__row"><span class="muted">Критерий успеха</span><span>${escapeHtml(String(version.success_criteria))}</span></div>` : ""}
+      <div class="content-passport__row"><span class="muted">Создана</span><span>${escapeHtml(passportDateTime(version.created_at))}${version.approved_at ? ` · утверждена ${escapeHtml(passportDateTime(version.approved_at))}` : ""}</span></div>
+      ${version.status === "draft" && canDecide
+        ? `<button class="btn btn-primary btn-small" type="button" data-action="hypothesis-approve" data-version-id="${escapeHtml(String(version.id))}">Утвердить эту версию</button>`
+        : ""}
+    </section>
+  `).join("");
+  const decisionsMarkup = decisions.length
+    ? decisions.map((decision) => `
+      <div class="content-passport__row"><span class="muted">${escapeHtml(passportDateTime(decision.decided_at))}</span><span><strong>${escapeHtml({ confirm: "Подтверждена", disprove: "Опровергнута", inconclusive: "Данных недостаточно", rework: "На доработку", archive: "В архив" }[decision.action] || decision.action)}</strong> — ${escapeHtml(String(decision.reason || ""))}</span></div>
+    `).join("")
+    : `<p class="muted">Решений пока нет: их принимает только человек после зрелых метрик.</p>`;
+  const launchesMarkup = launches.length
+    ? launches.map((launch) => `
+      <div class="content-passport__row"><span class="muted">${escapeHtml(passportDateTime(launch.created_at))}</span><span>наряд ${escapeHtml(String(launch.generation_job_id || "").slice(0, 8))}… · манифест ${escapeHtml(String(launch.manifest_hash || "").slice(0, 10))}…</span></div>
+    `).join("")
+    : `<p class="muted">Запусков по этой гипотезе ещё не было — привязка появится в формах генерации следующим шагом.</p>`;
+  return `
+    <div class="content-passport">
+      <a class="btn btn-secondary btn-small" href="${escapeHtml(backHref)}">← Ко всем гипотезам</a>
+      <section class="content-passport__section">
+        <h3 class="content-passport__section-title">${escapeHtml(`${hypothesis.code || ""} · ${hypothesis.title || ""}`)}</h3>
+        <div class="content-passport__row"><span class="muted">Статус</span><span>${escapeHtml(HYPOTHESIS_STATUS_LABELS[hypothesis.lifecycle_status] || hypothesis.lifecycle_status || "—")}</span></div>
+        <div class="content-passport__row"><span class="muted">Итог</span><span class="content-hypothesis-outcome" data-outcome="${escapeHtml(outcome)}">${escapeHtml(HYPOTHESIS_OUTCOME_LABELS[outcome] || outcome)}</span></div>
+      </section>
+      ${versionsMarkup}
+      <section class="content-passport__section">
+        <h3 class="content-passport__section-title">Запуски</h3>
+        ${launchesMarkup}
+      </section>
+      <section class="content-passport__section">
+        <h3 class="content-passport__section-title">Вывод — только человек</h3>
+        ${decisionsMarkup}
+        ${canDecide ? `
+          <div class="form-stack" data-hypothesis-decision>
+            <label class="field"><span>Решение</span>
+              <select name="hypothesis_decision_action">
+                <option value="confirm">Подтвердить</option>
+                <option value="disprove">Опровергнуть</option>
+                <option value="inconclusive">Данных недостаточно</option>
+                <option value="rework">Вернуть на доработку</option>
+                <option value="archive">Архивировать</option>
+              </select>
+            </label>
+            <label class="field"><span>Причина (обязательно, от 10 символов)</span><textarea name="hypothesis_decision_reason" rows="2" maxlength="2000" placeholder="На зрелом окне CTR 5.1% против baseline 4.3% — цель +15% достигнута."></textarea></label>
+            <p class="tiny" data-hypothesis-decision-status hidden></p>
+            <button class="btn btn-secondary btn-small" type="button" data-action="hypothesis-decide" data-hypothesis-id="${escapeHtml(String(hypothesis.id || ""))}">Записать решение</button>
+          </div>
+        ` : `<p class="muted tiny">Решение записывает руководитель или продюсер.</p>`}
+      </section>
+    </div>
+  `;
+}
+
+function renderHypothesesSection(sectionState) {
+  const header = `
+    <div class="page-header">
+      <div>
+        <h1>Гипотезы</h1>
+        <p class="muted">Идея → доказательства → тест → человеческий вывод. Ролик всегда привязан к точной версии гипотезы.</p>
+      </div>
+      <button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="hypotheses">Обновить</button>
+    </div>
+  `;
+  if (sectionState.error) {
+    const rawDetail = String(
+      sectionState.error?.message || sectionState.error || "",
+    ).slice(0, 200);
+    return `${header}
+      <section class="card">
+        <p class="muted">Гипотезы не загрузились: ${escapeHtml(actionErrorMessage(sectionState.error))}</p>
+        ${rawDetail ? `<p class="muted tiny">Техподробность: ${escapeHtml(rawDetail)}</p>` : ""}
+        <button class="btn btn-secondary btn-small" type="button" data-action="refresh-section" data-section="hypotheses">Повторить</button>
+      </section>
+    `;
+  }
+  const data = sectionState.data;
+  const projectId = currentWorkspaceProjectId();
+  if (data && data.key !== hypothesesSectionKey()) {
+    window.queueMicrotask(() => {
+      const target = state.sections.hypotheses;
+      if (["loading", "refreshing"].includes(target.status)) return;
+      target.status = "idle";
+      target.data = null;
+      loadSection("hypotheses");
+    });
+    return `${header}<section class="card"><p class="muted">Гипотезы загружаются…</p></section>`;
+  }
+  if (!data) {
+    return `${header}<section class="card"><p class="muted">Гипотезы загружаются…</p></section>`;
+  }
+  if (data.kind === "detail" && data.detail) {
+    return `${header}${hypothesisDetailMarkup(data.detail, projectId)}`;
+  }
+  const list = data.list || {};
+  const hypotheses = Array.isArray(list.hypotheses) ? list.hypotheses : [];
+  const cards = hypotheses.length
+    ? `<div class="content-passports-list">${hypotheses.map((entry) => hypothesisCardMarkup(entry, projectId)).join("")}</div>`
+    : `<section class="card"><p class="muted">Гипотез пока нет. Сформулируйте первую — например, про товар в первые две секунды.</p></section>`;
+  return `${header}${hypothesisCreateFormMarkup()}${cards}`;
+}
+
+async function createContentHypothesisFromForm() {
+  const host = document.querySelector("[data-hypothesis-create]");
+  const status = document.querySelector("[data-hypothesis-create-status]");
+  const projectId = currentWorkspaceProjectId();
+  if (!(host instanceof HTMLElement) || !isWorkspaceProjectId(projectId)) return;
+  const read = (name) => {
+    const field = host.querySelector(`[name="${name}"]`);
+    return field instanceof HTMLInputElement
+      || field instanceof HTMLTextAreaElement
+      || field instanceof HTMLSelectElement
+      ? String(field.value || "").trim()
+      : "";
+  };
+  const show = (text, stateName) => {
+    if (!(status instanceof HTMLElement)) return;
+    status.hidden = false;
+    status.dataset.state = stateName;
+    status.textContent = text;
+  };
+  const statement = read("hypothesis_statement");
+  if (statement.length < 20) {
+    show("Формулировка коротковата: опишите «Если…, то…, потому что…» хотя бы 20 символами.", "error");
+    return;
+  }
+  const title = read("hypothesis_title") || statement.slice(0, 80);
+  const payload = {
+    project_id: projectId,
+    title,
+    statement,
+    metric: read("hypothesis_metric") || "ctr",
+  };
+  const platform = read("hypothesis_platform");
+  if (platform) payload.platform = platform;
+  const baseline = read("hypothesis_baseline");
+  if (baseline !== "" && Number.isFinite(Number(baseline))) {
+    payload.baseline_value = Number(baseline);
+  }
+  const target = read("hypothesis_target");
+  if (target !== "" && Number.isFinite(Number(target))) {
+    payload.target_value = Number(target);
+  }
+  const success = read("hypothesis_success");
+  if (success) payload.success_criteria = success;
+  show("Сохраняем гипотезу…", "busy");
+  try {
+    const saved = await state.api.saveContentHypothesis(payload);
+    show(`Гипотеза ${saved.code} создана (v${saved.hypothesis_version}, черновик).`, "ok");
+    const targetSection = state.sections.hypotheses;
+    targetSection.status = "idle";
+    targetSection.data = null;
+    await loadSection("hypotheses");
+  } catch (error) {
+    show(`Не сохранилось: ${actionErrorMessage(error)}`, "error");
+  }
+}
+
+async function approveContentHypothesisVersionAction(control) {
+  const versionId = String(control.dataset.versionId || "");
+  if (!versionId) return;
+  control.disabled = true;
+  try {
+    await state.api.approveContentHypothesisVersion({ hypothesisVersionId: versionId });
+    const targetSection = state.sections.hypotheses;
+    targetSection.status = "idle";
+    targetSection.data = null;
+    await loadSection("hypotheses");
+  } catch (error) {
+    control.disabled = false;
+    toast(actionErrorMessage(error), "error");
+  }
+}
+
+async function decideContentHypothesisAction(control) {
+  const hypothesisId = String(control.dataset.hypothesisId || "");
+  const host = document.querySelector("[data-hypothesis-decision]");
+  const status = document.querySelector("[data-hypothesis-decision-status]");
+  if (!hypothesisId || !(host instanceof HTMLElement)) return;
+  const action = String(host.querySelector('[name="hypothesis_decision_action"]')?.value || "");
+  const reason = String(host.querySelector('[name="hypothesis_decision_reason"]')?.value || "").trim();
+  const show = (text, stateName) => {
+    if (!(status instanceof HTMLElement)) return;
+    status.hidden = false;
+    status.dataset.state = stateName;
+    status.textContent = text;
+  };
+  if (reason.length < 10) {
+    show("Причина обязательна: не короче 10 символов — она войдёт в несмываемую историю решения.", "error");
+    return;
+  }
+  show("Записываем решение…", "busy");
+  try {
+    await state.api.decideContentHypothesis({ hypothesisId, action, reason });
+    const targetSection = state.sections.hypotheses;
+    targetSection.status = "idle";
+    targetSection.data = null;
+    await loadSection("hypotheses");
+  } catch (error) {
+    show(`Не записалось: ${actionErrorMessage(error)}`, "error");
+  }
+}
+
 function renderPayoutsSection(sectionState) {
   const data = sectionState.data || {};
   const items = listFrom(data, "payouts", "items", "rows");
@@ -24656,6 +24980,21 @@ async function handleClick(event) {
 
   if (action === "refresh-work-generations") {
     await loadWorkGenerations({ silent: false });
+    return;
+  }
+
+  if (action === "hypothesis-create") {
+    await createContentHypothesisFromForm();
+    return;
+  }
+
+  if (action === "hypothesis-approve") {
+    await approveContentHypothesisVersionAction(control);
+    return;
+  }
+
+  if (action === "hypothesis-decide") {
+    await decideContentHypothesisAction(control);
     return;
   }
 

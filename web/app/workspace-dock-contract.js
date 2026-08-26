@@ -51,6 +51,7 @@ export const WORKSPACE_DOCK_DEFAULT_CATALOG = Object.freeze([
   Object.freeze({ key: "publish", kind: "app", appId: "publish", removable: true }),
   Object.freeze({ key: "results", kind: "app", appId: "results", removable: true }),
   Object.freeze({ key: "passports", kind: "app", appId: "passports", removable: true }),
+  Object.freeze({ key: "hypotheses", kind: "app", appId: "hypotheses", removable: true }),
   Object.freeze({ key: "processes", kind: "app", appId: "processes", removable: true }),
   Object.freeze({ key: "settings", kind: "app", appId: "settings", removable: true }),
   Object.freeze({ key: "trash", kind: "trash", appId: "trash", protected: true }),
@@ -73,6 +74,11 @@ const LEGACY_DEFAULT_ORDERS = Object.freeze([
   Object.freeze([
     "finder", "research", "ai", "create", "review",
     "publish", "results", "processes", "settings", "trash",
+  ]),
+  // Дефолт вечера 26.08 — с «Паспортами», но ещё без «Гипотез».
+  Object.freeze([
+    "finder", "research", "ai", "create", "review",
+    "publish", "results", "passports", "processes", "settings", "trash",
   ]),
 ]);
 

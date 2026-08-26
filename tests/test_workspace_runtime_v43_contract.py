@@ -39,7 +39,7 @@ def _between(source: str, start: str, end: str) -> str:
 
 
 def test_v49_loader_script_adapters_and_one_shared_operations_style() -> None:
-    assert 'const BUILD = "20260826.rebuild-clean.24"' in LOADER
+    assert 'const BUILD = "20260826.rebuild-clean.25"' in LOADER
     route_assets = _between(
         LOADER,
         "const ROUTE_ASSETS = Object.freeze({",
@@ -50,7 +50,7 @@ def test_v49_loader_script_adapters_and_one_shared_operations_style() -> None:
         route_assets,
         flags=re.MULTILINE,
     )
-    assert route_keys == ["finder", "generation", "review", "passports", "operations"]
+    assert route_keys == ["finder", "generation", "review", "passports", "hypotheses", "operations"]
     assert 'styles: [`workspace-os-v4-operations.css?v=${BUILD}`]' in route_assets
     assert "modules: []" in route_assets
 
@@ -217,7 +217,7 @@ def test_route_scroll_is_restored_once_before_the_mount_frame_paints() -> None:
 
 
 def test_same_route_dom_patch_preserves_live_surfaces_and_stable_records() -> None:
-    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260826.rebuild-clean.24"' in APP_JS
+    assert 'import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260826.rebuild-clean.25"' in APP_JS
     for marker in (
         "const WORKSPACE_PATCH_KEY_ATTRIBUTES",
         '"data-workspace-item-key"',

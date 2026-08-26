@@ -41,6 +41,7 @@ export const SIMPLE_WORKSPACE_TAB_KEYS = Object.freeze([
   "placement",
   "stats",
   "passports",
+  "hypotheses",
   "payouts",
 ]);
 
@@ -52,6 +53,7 @@ export const WORKSPACE_TABS = Object.freeze([
   ["placement", "Публикации", "↗"],
   ["stats", "Результаты", "◫"],
   ["passports", "Паспорта", "◪"],
+  ["hypotheses", "Гипотезы", "∴"],
   ["payouts", "Выплаты", "₽"],
   ["work", "Моя работа", "●"],
   ["board", "Рабочий стол", "▦"],

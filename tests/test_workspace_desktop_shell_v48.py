@@ -32,7 +32,7 @@ DOCK_RUNTIME_PROBE = HARNESS.replace(
       const keyed = [...document.querySelectorAll("[data-ce-v4-dock-key]")];
       const keys = keyed.map((item) => item.dataset.ceV4DockKey);
       document.body.dataset.fixtureDockCanonicalKeys = keys.join(",");
-      document.body.dataset.fixtureDockUniqueKeys = String(keys.length === 11 && new Set(keys).size === 11);
+      document.body.dataset.fixtureDockUniqueKeys = String(keys.length === 12 && new Set(keys).size === 12);
 
       let directChanges = 0;
       const directRoute = "#/workspace/board?project_id=11111111-1111-4111-8111-111111111111";
@@ -72,6 +72,7 @@ EXPECTED_DOCK_SYMBOLS = {
     "ce-dock-finder",
     "ce-dock-results",
     "ce-dock-passports",
+    "ce-dock-hypotheses",
     "ce-dock-research",
     "ce-dock-ai",
     "ce-dock-create",
@@ -602,7 +603,7 @@ def test_titlebar_drag_focus_and_desktop_isolation_keep_one_live_business_author
 
 
 def test_dock_contract_is_the_only_visibility_and_overflow_owner() -> None:
-    assert 'from "./workspace-dock-contract.js?v=20260826.rebuild-clean.24"' in CORE
+    assert 'from "./workspace-dock-contract.js?v=20260826.rebuild-clean.25"' in CORE
     assert "createWorkspaceDockState(" in CORE
     assert "{ order: DOCK_CANONICAL_ORDER, shortcuts: {} }," in CORE
     assert "{ internalPolicy: DOCK_INTERNAL_POLICY }," in CORE
@@ -630,6 +631,7 @@ def test_dock_contract_is_the_only_visibility_and_overflow_owner() -> None:
         "publish",
         "results",
         "passports",
+        "hypotheses",
         "processes",
         "settings",
         "trash",
@@ -667,7 +669,7 @@ def test_320px_dock_fits_and_each_native_click_navigates_once() -> None:
         assert marker in html
     assert (
         'data-fixture-dock-canonical-keys="finder,research,ai,create,review,'
-        'publish,results,passports,processes,settings,trash"'
+        'publish,results,passports,hypotheses,processes,settings,trash"'
     ) in html
     assert 'data-fixture-dock-direct-route="#/workspace/board?project_id=11111111-1111-4111-8111-111111111111"' in html
     assert 'data-fixture-dock-overflow-route="#/workspace/work?project_id=11111111-1111-4111-8111-111111111111"' in html

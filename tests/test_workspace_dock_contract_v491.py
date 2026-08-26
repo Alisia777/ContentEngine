@@ -164,6 +164,7 @@ def test_contract_is_pure_scoped_and_migrates_catalog_before_order_normalization
         "publish",
         "results",
         "passports",
+        "hypotheses",
         "processes",
         "settings",
         "trash",
@@ -759,6 +760,6 @@ def test_saved_legacy_default_order_upgrades_to_the_conveyor_but_custom_stays() 
     )
     assert result["legacyOrder"] == [
         "finder", "research", "ai", "create", "review",
-        "publish", "results", "passports", "processes", "settings", "trash",
+        "publish", "results", "passports", "hypotheses", "processes", "settings", "trash",
     ]
     assert result["customOrder"] == ["finder", "results", "ai", "review", "trash"]
