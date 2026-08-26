@@ -559,9 +559,18 @@ def test_strategy_and_engine_choices_have_local_visual_cards() -> None:
         assert asset.exists()
         assert asset.stat().st_size > 500_000
         assert asset.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
-    for visual in ('return "pika"', 'return "kling"', 'return "runway"'):
+    for visual in ('return "pika"', 'return "kling"', 'return "runway"', 'return "heygen"'):
         assert visual in source
     assert "const MODEL_VISUALS" in source
+    for visual in (
+        "happyhorse: Object.freeze",
+        "seedance: Object.freeze",
+        "minimax: Object.freeze",
+        "grok: Object.freeze",
+        "heygen: Object.freeze",
+        "model: Object.freeze",
+    ):
+        assert visual in source
     model_assets = (
         "content-factory-model-pika-v1.png",
         "content-factory-model-kling-v1.png",
@@ -583,7 +592,14 @@ def test_strategy_and_engine_choices_have_local_visual_cards() -> None:
     assert 'image.loading = "eager"' in visual_contract
     assert 'image.decoding = "async"' in visual_contract
     assert "https://" not in visual_contract
+    assert 'scene.dataset.image = asset.image ? "true" : "false"' in visual_contract
+    assert 'el("span", "gi-model-choice__motion")' in visual_contract
+    assert "gi-model-choice__motion-layer--four" in visual_contract
+    model_visual_contract = between(source, "function modelVisualNode", "function humanAuthorityStrip")
+    assert 'return visualArtNode' not in model_visual_contract
     assert ".generation-intake-v4__route-scene-image" in styles
+    assert ".generation-intake-v4__route-motion" in styles
+    assert "gi-route-signal-pulse" in styles
     assert "object-fit: cover" in styles
     assert "aspect-ratio: 16 / 9" in styles
     assert "@keyframes gi-route-cinematic-push" in styles
@@ -603,10 +619,103 @@ def test_strategy_and_engine_choices_have_local_visual_cards() -> None:
     assert '.gi-model-choice:has(input:checked)' in styles
     assert ".gi-model-choice__visual" in styles
     assert ".gi-model-choice__image" in styles
+    assert ".gi-model-choice__motion" in styles
+    assert '.gi-model-choice__visual[data-motion="edit"]' in styles
+    assert '.gi-model-choice__visual[data-motion="flow"]' in styles
+    assert '.gi-model-choice__visual[data-motion="timeline"]' in styles
+    assert '.gi-model-choice__visual[data-motion="signals"]' in styles
+    assert '.gi-model-choice__visual[data-motion="avatar"]' in styles
+    assert '.gi-model-choice__visual[data-motion="workspace"]' in styles
     assert "object-fit: cover" in styles
     assert ":has(input:focus-visible)" in styles
     assert "gi-model-cinematic-drift" in styles
     assert '@keyframes gi-model-glow' in styles
+    assert '@keyframes gi-model-layer-scan-x' in styles
+    assert '@keyframes gi-model-layer-scan-y' in styles
+    assert '@keyframes gi-model-timeline-playhead' in styles
+    assert '.gi-model-choice__motion-layer' in styles
+    assert '.gi-model-choice:not(:is(:hover, :has(input:checked), :has(input:focus-visible)))' in styles
+    assert 'animation: none !important' in styles
+    route_motion_styles = between(
+        styles,
+        ".generation-intake-v4__route-motion {",
+        ".generation-intake-v4__route:hover .generation-intake-v4__route-motion",
+    )
+    model_motion_styles = between(
+        styles,
+        ".gi-model-choice__motion {",
+        ".gi-model-choice:hover .gi-model-choice__motion",
+    )
+    assert "pointer-events: none" in route_motion_styles
+    assert "pointer-events: none" in model_motion_styles
+    assert "@media (prefers-reduced-motion: no-preference)" in styles
+    reduced_motion = styles.split("@media (prefers-reduced-motion: reduce)", 1)[1]
+    assert ".generation-intake-v4__route-motion-layer" in reduced_motion
+    assert ".gi-model-choice__motion-layer" in reduced_motion
+    assert ".generation-intake-v4__route-motion" in reduced_motion
+    assert ".gi-model-choice__motion" in reduced_motion
+
+
+def test_engine_visual_runtime_never_falls_back_to_a_tiny_generic_icon() -> None:
+    node = shutil.which("node")
+    assert node is not None, "Node.js is required for executable UI contracts"
+    source = text(V4)
+    visual_contract = source[
+        source.index("const MODEL_VISUALS"):
+        source.index("function humanAuthorityStrip")
+    ]
+    engine_visual_key = source[
+        source.index("function engineVisualKey"):
+        source.index("function engineInputNote")
+    ]
+    script = f"""
+function fakeNode(tag, className = "") {{
+  return {{
+    tag,
+    className,
+    dataset: {{}},
+    attributes: {{}},
+    children: [],
+    style: {{ values: {{}}, setProperty(key, value) {{ this.values[key] = value; }} }},
+    setAttribute(key, value) {{ this.attributes[key] = value; }},
+    append(...children) {{ this.children.push(...children); }},
+  }};
+}}
+const el = (tag, className = "") => fakeNode(tag, className);
+globalThis.document = {{
+  createElement: (tag) => fakeNode(tag),
+  createElementNS: (_namespace, tag) => fakeNode(tag),
+}};
+const VISUAL_ICON_PATHS = Object.freeze({{ model: Object.freeze([]) }});
+{visual_contract}
+{engine_visual_key}
+
+const happyHorse = modelVisualNode("happyhorse");
+if (happyHorse.dataset.visual !== "happyhorse") throw new Error("known_visual_lost");
+if (happyHorse.dataset.image !== "false") throw new Error("generated_scene_claims_image");
+if (happyHorse.dataset.motion !== "edit") throw new Error("known_motion_lost");
+if (happyHorse.children.length !== 1) throw new Error("generated_scene_shape_changed");
+if (happyHorse.children[0].children.length !== 4) throw new Error("motion_layers_missing");
+
+const future = modelVisualNode("future-engine");
+if (future.dataset.visual !== "model") throw new Error("unknown_visual_not_neutral");
+if (future.dataset.image !== "false") throw new Error("unknown_visual_claims_image");
+if (future.dataset.motion !== "workspace") throw new Error("unknown_motion_not_workspace");
+if (future.children.some((child) => child.tag === "img")) throw new Error("unknown_visual_has_image");
+
+if (engineVisualKey({{ id: "heygen:avatar_v3" }}) !== "heygen") throw new Error("heygen_not_mapped");
+if (engineVisualKey({{ id: "provider:future_v1" }}) !== "model") throw new Error("future_not_neutral");
+console.log("living-engine-visuals-ok");
+"""
+    result = subprocess.run(
+        [node, "--input-type=module", "--eval", script],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "living-engine-visuals-ok"
 
 
 def test_strategy_cards_keep_rich_scenes_without_a_duplicate_route_map() -> None:
@@ -2190,4 +2299,3 @@ def test_express_preflight_cannot_be_silently_blocked_by_hidden_required_fields(
     assert 'new Error("express_preflight_rejected")' in driver
     assert "Сервер отказал на шаге" in source
     assert app.count("recordGenerationStrategyFailure(form, error);") == 3
-
