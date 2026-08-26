@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import re
 import shutil
 import subprocess
@@ -61,6 +62,15 @@ def test_finder_sorts_and_filters_loaded_cards_by_creation_date() -> None:
     ):
         assert marker in date_contract
     assert "загруженных" in status
+
+
+def test_finder_folder_navigation_notifies_the_application_router() -> None:
+    navigation = _between(SCRIPT, "function setFolderUrl(", "function visible(")
+    assert "history.pushState" not in navigation
+    assert "history.replaceState" not in navigation
+    assert 'navigate(destination, { preserveProject: false })' in navigation
+    assert "window.location.hash = nextHash" in navigation
+    assert "window.location.replace(nextHash)" in navigation
 
 
 def test_finder_contains_the_desktop_list_and_restores_document_scroll_on_mobile() -> None:
@@ -290,6 +300,87 @@ def test_finder_inline_surfaces_have_no_runtime_horizontal_overflow(width: int) 
             timeout=30,
         )
     assert 'data-passed="true"' in result.stdout
+
+
+def test_all_files_click_settles_after_one_board_request() -> None:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Node.js is unavailable for Finder refresh QA")
+    navigation = _between(SCRIPT, "function setFolderUrl(", "function visible(")
+    harness = """
+const ROUTE = "/workspace/board";
+const projectId = "11111111-1111-4111-8111-111111111111";
+const events = [];
+let appRouteFolder = "";
+globalThis.window = {
+  location: {
+    hash: `#/workspace/board?project_id=${projectId}`,
+    replace(nextHash) {
+      this.hash = nextHash;
+      appRouteFolder = new URLSearchParams(nextHash.split("?")[1] || "").get("folder") || "";
+      events.push(["replace", nextHash]);
+    },
+  },
+  history: {
+    state: {},
+    pushState(state, title, nextHash) {
+      window.location.hash = nextHash;
+      events.push(["silent-push", nextHash]);
+    },
+    replaceState(state, title, nextHash) {
+      window.location.hash = nextHash;
+      events.push(["silent-replace", nextHash]);
+    },
+  },
+  ContentEngineDesktopV4: {
+    navigate(destination, options) {
+      window.location.hash = `#${destination}`;
+      appRouteFolder = new URLSearchParams(destination.split("?")[1] || "").get("folder") || "";
+      events.push(["navigate", destination, options?.preserveProject]);
+      return destination;
+    },
+  },
+};
+function finderProjectId() { return projectId; }
+""" + navigation + """
+setFolderUrl("all", { projectId });
+let boardRequests = 1;
+let syntheticClicks = 0;
+if (appRouteFolder !== "all") {
+  syntheticClicks += 1;
+  setFolderUrl("all", { projectId });
+  boardRequests += 1;
+}
+process.stdout.write(JSON.stringify({
+  appRouteFolder,
+  boardRequests,
+  syntheticClicks,
+  navigateCalls: events.filter(([kind]) => kind === "navigate").length,
+  silentHistoryCalls: events.filter(([kind]) => kind.startsWith("silent-")).length,
+  hash: window.location.hash,
+}));
+"""
+    result = subprocess.run(
+        [node, "--input-type=module", "-e", harness],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=10,
+    )
+    state = json.loads(result.stdout)
+    assert state == {
+        "appRouteFolder": "all",
+        "boardRequests": 1,
+        "syntheticClicks": 0,
+        "navigateCalls": 1,
+        "silentHistoryCalls": 0,
+        "hash": (
+            "#/workspace/board?project_id=11111111-1111-4111-8111-111111111111"
+            "&folder=all"
+        ),
+    }
 
 
 def test_wide_quick_look_stays_in_the_inspector_with_safari_safe_motion() -> None:

@@ -87,3 +87,15 @@ def test_preview_signing_cannot_freeze_a_section() -> None:
         "      ).catch(() => data);"
     ) in app
     assert '"generation_media_preview_timeout",' in app
+
+
+def test_fallback_preview_signing_cannot_freeze_all_files() -> None:
+    app = text(APP)
+    assert "const fallbackData = {" in app
+    assert (
+        "target.data = await withUiTimeout(\n"
+        "          hydratePrivateMedia(fallbackData),\n"
+        "          WORKSPACE_REQUEST_TIMEOUT_MS,\n"
+        '          "workspace_board_fallback_hydrate_timeout",\n'
+        "        ).catch(() => fallbackData);"
+    ) in app

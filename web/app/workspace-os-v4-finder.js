@@ -133,10 +133,19 @@ function setFolderUrl(folderId, { replace = false, projectId: projectOverride = 
   const projectId = String(projectOverride || finderProjectId()).trim();
   if (projectId) query.set("project_id", projectId);
   query.set("folder", String(folderId || "all"));
-  const nextHash = `#${path}${query.size ? `?${query.toString()}` : ""}`;
+  const destination = `${path}${query.size ? `?${query.toString()}` : ""}`;
+  const nextHash = `#${destination}`;
   if (nextHash === window.location.hash) return;
-  const state = { ...(window.history.state || {}), ceV4FinderFolder: String(folderId || "all") };
-  window.history[replace ? "replaceState" : "pushState"](state, "", nextHash);
+  if (replace) {
+    window.location.replace(nextHash);
+    return;
+  }
+  const navigate = window.ContentEngineDesktopV4?.navigate;
+  if (typeof navigate === "function") {
+    navigate(destination, { preserveProject: false });
+    return;
+  }
+  window.location.hash = nextHash;
 }
 
 function visible(node) {
