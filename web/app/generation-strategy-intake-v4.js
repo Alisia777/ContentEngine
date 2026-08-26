@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.26",
+  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.27",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260826.rebuild-clean.26"
+  "./generation-engine-advisor.js?v=20260826.rebuild-clean.27"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -2604,6 +2604,8 @@ const hypothesisPickerState = {
   status: "idle",
   items: [],
   selectedId: "",
+  assignedId: "",
+  autoAppliedFor: "",
 };
 
 function hypothesisPickerCard(route) {
@@ -2679,7 +2681,35 @@ async function ensureHypothesisPicker(form, state) {
       hypothesisPickerState.selectedId = String(
         data?.operator_selection?.hypothesis_id || "",
       );
+      hypothesisPickerState.assignedId = String(
+        data?.assigned?.hypothesis_id || "",
+      );
       hypothesisPickerState.status = "ready";
+      // Закреплённая за оператором гипотеза подставляется сама — один раз на
+      // проект и только когда у него нет собственного выбора. Явный выбор
+      // человека (включая «Без гипотезы» после этого) не перекрывается.
+      if (
+        !hypothesisPickerState.selectedId
+        && hypothesisPickerState.assignedId
+        && hypothesisPickerState.autoAppliedFor !== currentProjectId
+        && hypothesisPickerState.items.some(
+          (item) => item.id === hypothesisPickerState.assignedId,
+        )
+      ) {
+        hypothesisPickerState.autoAppliedFor = currentProjectId;
+        try {
+          const autoApi = await apiRuntime();
+          await autoApi.call("creator_select_content_hypothesis", {
+            organization_id: String(autoApi.organizationId || ""),
+            project_id: currentProjectId,
+            hypothesis_id: hypothesisPickerState.assignedId,
+          });
+          hypothesisPickerState.selectedId = hypothesisPickerState.assignedId;
+        } catch {
+          // Автоподстановка — удобство, не обязанность: молча остаёмся без
+          // выбора, человек выберет руками.
+        }
+      }
     } catch {
       hypothesisPickerState.status = "error";
     }
@@ -2722,7 +2752,11 @@ function renderHypothesisPickers(state) {
       setNodeText(
         status,
         chosen
-          ? `Следующий запуск привяжется к ${chosen.code} (утверждённая версия v${chosen.approvedVersion}).`
+          ? `Следующий запуск привяжется к ${chosen.code} (утверждённая версия v${chosen.approvedVersion})${
+            chosen.id === hypothesisPickerState.assignedId
+              ? " — назначена вам"
+              : ""
+          }.`
           : "Запуск пойдёт без гипотезы.",
       );
     }

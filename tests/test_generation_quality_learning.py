@@ -97,5 +97,5 @@ def test_portal_explains_quality_before_business_performance() -> None:
         assert token in APP or token in HANDOFF
     assert 'source: "performance_learning"' in APP
     assert '"creator_generation_learning_policy"' in EDGE
-    assert "./content-generation-handoff.js?v=20260826.rebuild-clean.26" in APP
-    assert "./app.js?v=20260826.rebuild-clean.26" in INDEX
+    assert "./content-generation-handoff.js?v=20260826.rebuild-clean.27" in APP
+    assert "./app.js?v=20260826.rebuild-clean.27" in INDEX

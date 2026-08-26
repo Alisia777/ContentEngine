@@ -130,3 +130,31 @@ def test_hypothesis_launch_link_flows_through_operator_selection() -> None:
     assert "Одно изменение — одна гипотеза" in PORTAL
     assert "Значение метрики ДО теста" in PORTAL
     assert "Путь гипотезы: черновик" in PORTAL
+
+
+def test_hypothesis_owner_and_passport_hypothesis() -> None:
+    """Закрепление человека за гипотезой и гипотеза в паспорте (202608260012,
+    живая проба в проде: owner назначен, список отдал assigned, срез — членов
+    команды, паспорт показал H-001 v1 из манифеста; всё откатано)."""
+    owner = (
+        ROOT / "supabase/migrations/202608260012_hypothesis_owner_and_passport_v1.sql"
+    ).read_text(encoding="utf-8")
+    assert "creator_assign_content_hypothesis_owner" in owner
+    assert "content_hypothesis_owner_not_member" in owner
+    assert "array['owner', 'admin', 'producer']" in owner
+    assert "'assigned', (" in owner.replace("''", "'")
+    assert "'members', (" in owner.replace("''", "'")
+    # Паспорт берёт гипотезу из МАНИФЕСТА — точная версия момента bind.
+    assert "manifest_row.hypothesis_version_id" in owner
+    assert "passport_hypothesis_value" in owner
+    # Срез: select ответственного с автосохранением; подпись про подстановку.
+    assert "data-hypothesis-owner-select" in PORTAL
+    assert "assignContentHypothesisOwner" in PORTAL
+    assert "подставится в формах генерации сама" in PORTAL
+    # Паспорт: гипотеза со ссылкой в папку и формулировкой версии.
+    assert "Метрика гипотезы" in PORTAL
+    # Intake: автоподстановка назначенной — один раз, без перекрытия выбора.
+    intake = (APP / "generation-strategy-intake-v4.js").read_text(encoding="utf-8")
+    assert "assignedId" in intake
+    assert "autoAppliedFor" in intake
+    assert "назначена вам" in intake

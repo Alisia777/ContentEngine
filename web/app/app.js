@@ -3,12 +3,12 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260826.rebuild-clean.26";
+} from "./supabase-api.js?v=20260826.rebuild-clean.27";
 import {
   adminPeopleMarkup,
   normalizeAdminSnapshot,
   normalizeAdminView,
-} from "./admin-people-view.js?v=20260826.rebuild-clean.26";
+} from "./admin-people-view.js?v=20260826.rebuild-clean.27";
 import {
   clearExactYoutubeMediaHandoff,
   exactYoutubeRegisteredMediaId,
@@ -16,12 +16,12 @@ import {
   isExactYoutubeMp4,
   readExactYoutubeMediaHandoff,
   updateExactYoutubeMediaHandoffProgress,
-} from "./exact-youtube-media-handoff.js?v=20260826.rebuild-clean.26";
+} from "./exact-youtube-media-handoff.js?v=20260826.rebuild-clean.27";
 import {
   captureVerifiedPrivateVideoBlob,
   exactYoutubeResearchFailureRecovery,
   resolveExactYoutubeResearchCaptureMedia,
-} from "./exact-youtube-research-capture.js?v=20260826.rebuild-clean.26";
+} from "./exact-youtube-research-capture.js?v=20260826.rebuild-clean.27";
 import {
   approvedGenerationSpecContext,
   generationSpecApprovalReviewDecision,
@@ -34,21 +34,21 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
-} from "./generation-spec.js?v=20260826.rebuild-clean.26";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260826.rebuild-clean.26";
-import { generationStrategyRequiredSourceCount } from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.26";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.26";
+} from "./generation-spec.js?v=20260826.rebuild-clean.27";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260826.rebuild-clean.27";
+import { generationStrategyRequiredSourceCount } from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.27";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.27";
 import {
   normalizeWorkspaceInternalTarget,
   resolveWorkspaceCommand,
-} from "./workspace-command-registry.js?v=20260826.rebuild-clean.26";
+} from "./workspace-command-registry.js?v=20260826.rebuild-clean.27";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
   mergeMediaFileSelection,
   mediaFileValidationError as mediaUploadFileValidationError,
   mediaUploadWorkerCount,
-} from "./media-upload-queue.js?v=20260826.rebuild-clean.26";
+} from "./media-upload-queue.js?v=20260826.rebuild-clean.27";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -56,39 +56,39 @@ import {
   REQUIRED_MODULE_CODES,
   SIMPLE_WORKSPACE_TAB_KEYS,
   WORKSPACE_TABS,
-} from "./catalog.js?v=20260826.rebuild-clean.26";
+} from "./catalog.js?v=20260826.rebuild-clean.27";
 import {
   ACCOUNT_LAUNCH_PATH,
   accountLaunchCenterMarkup,
   accountLaunchGuideMarkup,
   accountLaunchSlugFromPath,
   evaluateAdvertisingAnswers,
-} from "./account-launch-view.js?v=20260826.rebuild-clean.26";
+} from "./account-launch-view.js?v=20260826.rebuild-clean.27";
 import {
   managerDashboardMarkup,
   managerOperationalHealthMarkup,
-} from "./manager-dashboard-view.js?v=20260826.rebuild-clean.26";
+} from "./manager-dashboard-view.js?v=20260826.rebuild-clean.27";
 import {
   generationCampaignSelectionState,
   generationSpendAllowsMinor,
   generationSpendSnapshotMarkup,
   managerGenerationSpendMarkup,
   normalizeGenerationSpendOverview,
-} from "./generation-spend-view.js?v=20260826.rebuild-clean.26";
+} from "./generation-spend-view.js?v=20260826.rebuild-clean.27";
 import {
   generationProviderReadinessPreflights,
   normalizeGenerationProviderPreflight,
-} from "./generation-provider-readiness.js?v=20260826.rebuild-clean.26";
+} from "./generation-provider-readiness.js?v=20260826.rebuild-clean.27";
 import {
   generationModelAcceptanceMarkup,
   normalizeGenerationModelAcceptance,
-} from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.26";
+} from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.27";
 import {
   accessCenterMarkup,
   ensureAccessCenterStyles,
   normalizeAccessCenterEmail,
   normalizeAccessCenterResult,
-} from "./access-center-view.js?v=20260826.rebuild-clean.26";
+} from "./access-center-view.js?v=20260826.rebuild-clean.27";
 import {
   applyResearchMarketCategoryResolution,
   applyResearchOutcomeLearningMutation,
@@ -110,7 +110,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260826.rebuild-clean.26";
+} from "./product-research-view.js?v=20260826.rebuild-clean.27";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -121,7 +121,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260826.rebuild-clean.26";
+} from "./ai-learning-control-room.js?v=20260826.rebuild-clean.27";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -137,15 +137,15 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260826.rebuild-clean.26";
+} from "./content-generation-handoff.js?v=20260826.rebuild-clean.27";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
-} from "./generation-quality-training.js?v=20260826.rebuild-clean.26";
+} from "./generation-quality-training.js?v=20260826.rebuild-clean.27";
 import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,
-} from "./generation-form-readiness.js?v=20260826.rebuild-clean.26";
+} from "./generation-form-readiness.js?v=20260826.rebuild-clean.27";
 import {
   GENERATION_STRATEGY_RUNTIME_ACTIONS,
   createGenerationStrategyRuntimeFingerprint,
@@ -159,7 +159,7 @@ import {
   invalidateGenerationStrategyRuntimeState,
   normalizeGenerationStrategyProbeResponse,
   reduceGenerationStrategyRuntimeState,
-} from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.26";
+} from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.27";
 import {
   createGenerationStrategyQueue,
   generationStrategyQueueAggregateReview,
@@ -168,33 +168,33 @@ import {
   planGenerationStrategyQueueFreeWork,
   planGenerationStrategyQueueSequentialStarts,
   updateGenerationStrategyQueueRow,
-} from "./generation-strategy-queue.js?v=20260826.rebuild-clean.26";
+} from "./generation-strategy-queue.js?v=20260826.rebuild-clean.27";
 import {
   renderGenerationStrategyQueueView,
-} from "./generation-strategy-queue-view.js?v=20260826.rebuild-clean.26";
+} from "./generation-strategy-queue-view.js?v=20260826.rebuild-clean.27";
 import {
   buildGenerationStrategySpecApprovalRequest,
   buildGenerationStrategySpecPrepareRequest,
   generationStrategySpecSafeProjection,
   normalizeGenerationStrategySpecControlResponse,
   normalizeGenerationStrategySpecPrepareResponse,
-} from "./generation-strategy-spec.js?v=20260826.rebuild-clean.26";
+} from "./generation-strategy-spec.js?v=20260826.rebuild-clean.27";
 import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
   normalizeGenerationVideoReferenceContext,
-} from "./generation-video-reference.js?v=20260826.rebuild-clean.26";
+} from "./generation-video-reference.js?v=20260826.rebuild-clean.27";
 import {
   buildGenerationFormDraft,
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260826.rebuild-clean.26";
+} from "./generation-form-draft.js?v=20260826.rebuild-clean.27";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
   resolveGenerationExpectedProductMatch,
-} from "./generation-ai-research-working-draft.js?v=20260826.rebuild-clean.26";
+} from "./generation-ai-research-working-draft.js?v=20260826.rebuild-clean.27";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -206,7 +206,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260826.rebuild-clean.26";
+} from "./generation-autopilot.js?v=20260826.rebuild-clean.27";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -228,14 +228,14 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260826.rebuild-clean.26";
+} from "./content-review-view.js?v=20260826.rebuild-clean.27";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
   createFirstShiftFullState,
   firstShiftFullScenarioMarkup,
   reduceFirstShiftFullState,
-} from "./first-shift-full-scenario.js?v=20260826.rebuild-clean.26";
+} from "./first-shift-full-scenario.js?v=20260826.rebuild-clean.27";
 import {
   GENERATION_ARCHIVE_PAGE_SIZE,
   GENERATION_VISIBLE_CAP,
@@ -250,7 +250,7 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260826.rebuild-clean.26";
+} from "./portal-experience.js?v=20260826.rebuild-clean.27";
 import {
   isWorkspaceSmartFolderId,
   normalizeWorkspaceBoard,
@@ -258,7 +258,7 @@ import {
   workspaceBoardItemKey,
   workspaceBoardPaginationState,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260826.rebuild-clean.26";
+} from "./workspace-board-view.js?v=20260826.rebuild-clean.27";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -270,7 +270,7 @@ import {
   syncTrainingWalkthroughStatus,
   trainingInteractiveMarkup,
   trainingWalkthroughStorageKey,
-} from "./training-interactive.js?v=20260826.rebuild-clean.26";
+} from "./training-interactive.js?v=20260826.rebuild-clean.27";
 import {
   LEARNING_TRACKS,
   achievementMarkup,
@@ -287,16 +287,16 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260826.rebuild-clean.26";
+} from "./training-journey.js?v=20260826.rebuild-clean.27";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
   trainingPlatformSimulatorsMarkup,
-} from "./training-platform-simulators.js?v=20260826.rebuild-clean.26";
+} from "./training-platform-simulators.js?v=20260826.rebuild-clean.27";
 import {
   bindTrainingMediaCards,
   trainingMediaCardsMarkup,
-} from "./training-media-cards.js?v=20260826.rebuild-clean.26";
+} from "./training-media-cards.js?v=20260826.rebuild-clean.27";
 import {
   normalizeTrainingPracticalProject,
   normalizeTrainingPracticalReviews,
@@ -306,7 +306,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260826.rebuild-clean.26";
+} from "./training-practical-review.js?v=20260826.rebuild-clean.27";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -325,7 +325,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260826.rebuild-clean.26";
+} from "./my-work-view.js?v=20260826.rebuild-clean.27";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -336,8 +336,8 @@ const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
   ),
 );
 const MEDIA_UPLOAD_CONCURRENCY = DEFAULT_MEDIA_UPLOAD_CONCURRENCY;
-const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260826.rebuild-clean.26";
-const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260826.rebuild-clean.26";
+const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260826.rebuild-clean.27";
+const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260826.rebuild-clean.27";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
 const MAX_MOCK_BATCH_SIZE = Math.min(50, Math.max(1, Number(CONFIG.MAX_BATCH_SIZE) || 50));
@@ -19467,8 +19467,16 @@ function passportViewMarkup(passport, projectId, signed = {}) {
     media.audio === true ? "со звуком" : media.audio === false ? "без звука" : "",
   ].filter(Boolean).join(" · ");
 
-  const whyMarkup = passport.hypothesis
-    ? passportRowMarkup("Гипотеза", String(passport.hypothesis.code || ""))
+  const passportHypothesis = passport.hypothesis;
+  const whyMarkup = passportHypothesis
+    ? `
+      <div class="content-passport__row"><span class="muted">Гипотеза</span><span><a href="#/workspace/hypotheses?project_id=${encodeURIComponent(projectId)}&hypothesis=${encodeURIComponent(String(passportHypothesis.hypothesis_id || ""))}">${escapeHtml(`${passportHypothesis.code || ""} · ${passportHypothesis.title || ""}`)}</a>${passportHypothesis.version ? ` · v${escapeHtml(String(passportHypothesis.version))}` : ""}</span></div>
+      ${passportHypothesis.statement ? `<p class="muted tiny">${escapeHtml(String(passportHypothesis.statement))}</p>` : ""}
+      ${passportRowMarkup(
+        "Метрика гипотезы",
+        `${HYPOTHESIS_METRIC_LABELS[passportHypothesis.metric] || passportHypothesis.metric || "—"}${passportHypothesis.baseline_value !== null && passportHypothesis.baseline_value !== undefined ? ` · baseline ${passportHypothesis.baseline_value}` : ""}${passportHypothesis.target_value !== null && passportHypothesis.target_value !== undefined ? ` → цель ${passportHypothesis.target_value}` : ""}`,
+      )}
+    `
     : `<p class="muted">Гипотеза не была указана. Legacy-результат: запуск создан до появления папки «Гипотезы».</p>`;
 
   const videoUrl = media.object_name ? String(signed[media.object_name] || "") : "";
@@ -19797,6 +19805,15 @@ function hypothesisDetailMarkup(detail, projectId) {
         <div class="content-passport__row"><span class="muted">Статус</span><span>${escapeHtml(HYPOTHESIS_STATUS_LABELS[hypothesis.lifecycle_status] || hypothesis.lifecycle_status || "—")}</span></div>
         <div class="content-passport__row"><span class="muted">Итог</span><span class="content-hypothesis-outcome" data-outcome="${escapeHtml(outcome)}">${escapeHtml(HYPOTHESIS_OUTCOME_LABELS[outcome] || outcome)}</span></div>
         <p class="muted tiny">Путь гипотезы: черновик → утверждение версии → выбор в форме генерации («Гипотеза запуска») → ролики и метрики стекаются сюда → человеческий вывод внизу. «Статус» — где она на этом пути; «Итог» — решение человека, и его не ставит никакая автоматика.</p>
+        ${canDecide && Array.isArray(detail.members)
+          ? `<div class="content-passport__row"><span class="muted">Ответственный</span><span>
+              <select data-hypothesis-owner-select data-hypothesis-id="${escapeHtml(String(hypothesis.id || ""))}">
+                <option value="">Не закреплён</option>
+                ${detail.members.map((member) => `<option value="${escapeHtml(String(member.profile_id))}" ${String(member.profile_id) === String(hypothesis.owner_profile_id || "") ? "selected" : ""}>${escapeHtml(String(member.display_name || member.profile_id))}</option>`).join("")}
+              </select>
+            </span></div>
+            <p class="muted tiny">Закреплённому сотруднику эта гипотеза подставится в формах генерации сама (если он не выбрал другую), и его запуски будут собираться здесь.</p>`
+          : ""}
       </section>
       ${versionsMarkup}
       <section class="content-passport__section">
@@ -19929,6 +19946,28 @@ async function createContentHypothesisFromForm() {
     await loadSection("hypotheses");
   } catch (error) {
     show(`Не сохранилось: ${actionErrorMessage(error)}`, "error");
+  }
+}
+
+async function assignContentHypothesisOwner(select) {
+  const hypothesisId = String(select.dataset.hypothesisId || "");
+  if (!hypothesisId) return;
+  const ownerId = String(select.value || "");
+  select.disabled = true;
+  try {
+    await state.api.call("creator_assign_content_hypothesis_owner", {
+      organization_id: String(state.api.organizationId || ""),
+      hypothesis_id: hypothesisId,
+      ...(ownerId ? { owner_profile_id: ownerId } : {}),
+    });
+    toast(ownerId ? "Ответственный закреплён." : "Закрепление снято.", "success");
+    const targetSection = state.sections.hypotheses;
+    targetSection.status = "idle";
+    targetSection.data = null;
+    await loadSection("hypotheses");
+  } catch (error) {
+    select.disabled = false;
+    toast(actionErrorMessage(error), "error");
   }
 }
 
@@ -25631,6 +25670,10 @@ async function submitSavedMyWorkView(form) {
 }
 
 function handleChange(event) {
+  if (event.target.matches("[data-hypothesis-owner-select]")) {
+    void assignContentHypothesisOwner(event.target);
+    return;
+  }
   if (event.target.matches("[data-generation-spec-approval-confirm]")) {
     const form = event.target.closest("#mock-batch-form");
     const spec = state.generationSpec.data?.generationSpec;
