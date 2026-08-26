@@ -440,3 +440,27 @@ process.stdout.write(JSON.stringify({
     assert verdict["many"] == "fal:minimax"
     assert verdict["single"] == "fal:kling-i2v"
     assert "4–10" in verdict["manyExcludedGrok"]
+
+
+def test_edge_input_profile_styles_mirror_sql_validator() -> None:
+    """Боевой урок 26.08: стиль start_frame попал в SQL-валидатор и в реестр,
+    а edge-валидатор каталога о нём не знал — строка Kling i2v валила проверку
+    ВСЕЙ политики, strategy_catalog отвечал 503, и все три формы показывали
+    «каталог движков не загрузился». Списки стилей обязаны совпадать буквально,
+    и связка «start_frame ⇔ ровно одно фото» обязана жить в обоих слоях."""
+    edge = EDGE_SOURCE
+    block = edge.split("function generationStrategyRouteInputProfileValid", 1)[1]
+    block = block.split("\nfunction ", 1)[0]
+    assert '"start_frame"' in block
+    assert '(images.style === "start_frame" && (images.max as number) !== 1)' in block
+    migration = (
+        ROOT / "supabase/migrations/202608260001_input_profile_start_frame_v1.sql"
+    ).read_text(encoding="utf-8")
+    sql_styles = re.search(
+        r"in \(([^)]*)\)", migration.split("'style'", 1)[1]
+    ).group(1)
+    edge_styles = re.search(r"!\[([^\]]*)\]\.includes", block).group(1)
+    assert (
+        sorted(re.findall(r"'([a-z_]+)'", sql_styles))
+        == sorted(re.findall(r'"([a-z_]+)"', edge_styles))
+    )

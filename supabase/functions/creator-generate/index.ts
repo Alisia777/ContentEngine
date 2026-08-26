@@ -3005,10 +3005,17 @@ function generationStrategyRouteInputProfileValid(
     !isRecord(images) ||
     !hasExactKeys(images, ["max", "style"]) ||
     !isIntegerInRange(images.max, 0, 30) ||
-    !["none", "region", "at_refs", "named_refs"].includes(
+    // Зеркало SQL-валидатора (202608260001): стиль start_frame — «одно фото
+    // стартовым кадром» у Kling i2v. Отставание этого списка от базы уже
+    // роняло каталог целиком: строка реестра с новым стилем не проходила
+    // проверку, политика становилась null, и strategy_catalog отвечал 503
+    // всем трём формам («каталог движков не загрузился», 26.08).
+    !["none", "region", "at_refs", "named_refs", "start_frame"].includes(
       images.style as string,
     ) ||
-    ((images.max as number) === 0) !== (images.style === "none")
+    ((images.max as number) === 0) !== (images.style === "none") ||
+    // Стартовый кадр — ровно одно фото: модель не принимает больше.
+    (images.style === "start_frame" && (images.max as number) !== 1)
   ) return false;
   return true;
 }
