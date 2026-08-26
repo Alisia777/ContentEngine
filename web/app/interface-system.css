@@ -1343,3 +1343,44 @@ html[data-portal-theme="obsidian"] .alert-info {
     transition: none !important;
   }
 }
+
+/* «Забрать видео»: три способа в одну строку на широких экранах. */
+.video-intake-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  margin-top: 10px;
+}
+
+.video-intake-way {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  padding: 12px;
+  border: 1px solid var(--line, rgba(148, 163, 184, 0.25));
+  border-radius: 12px;
+}
+
+.video-intake-way .btn,
+.video-intake-way a.btn {
+  justify-self: start;
+}
+
+.video-intake-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.video-intake-row input {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+[data-video-intake-status][data-state="error"] {
+  color: var(--danger, #f87171);
+}
+
+[data-video-intake-status][data-state="ok"] {
+  color: var(--success, #4ade80);
+}
