@@ -498,11 +498,31 @@ const MODEL_VISUALS = Object.freeze({
     focal: "50% 50%",
     motion: "panels",
   }),
-  happyhorse: Object.freeze({ motion: "edit" }),
-  seedance: Object.freeze({ motion: "flow" }),
-  minimax: Object.freeze({ motion: "timeline" }),
-  grok: Object.freeze({ motion: "signals" }),
-  heygen: Object.freeze({ motion: "avatar" }),
+  happyhorse: Object.freeze({
+    image: "./assets/content-factory-model-happyhorse-v1.png",
+    focal: "50% 50%",
+    motion: "edit",
+  }),
+  seedance: Object.freeze({
+    image: "./assets/content-factory-model-family-seedance-v1.png",
+    focal: "66% 48%",
+    motion: "flow",
+  }),
+  minimax: Object.freeze({
+    image: "./assets/content-factory-model-minimax-v1.png",
+    focal: "50% 50%",
+    motion: "timeline",
+  }),
+  grok: Object.freeze({
+    image: "./assets/content-factory-model-grok-v1.png",
+    focal: "50% 50%",
+    motion: "signals",
+  }),
+  heygen: Object.freeze({
+    image: "./assets/content-factory-model-heygen-v1.png",
+    focal: "50% 50%",
+    motion: "avatar",
+  }),
   model: Object.freeze({ motion: "workspace" }),
 });
 

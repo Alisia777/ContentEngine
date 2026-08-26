@@ -575,13 +575,21 @@ def test_strategy_and_engine_choices_have_local_visual_cards() -> None:
         "content-factory-model-pika-v1.png",
         "content-factory-model-kling-v1.png",
         "content-factory-model-runway-v1.png",
+        "content-factory-model-happyhorse-v1.png",
+        "content-factory-model-family-seedance-v1.png",
+        "content-factory-model-minimax-v1.png",
+        "content-factory-model-grok-v1.png",
+        "content-factory-model-heygen-v1.png",
     )
     for asset_name in model_assets:
         assert f'image: "./assets/{asset_name}"' in source
         asset = ROOT / "web/app/assets" / asset_name
         assert asset.exists()
         assert asset.stat().st_size > 500_000
-        assert asset.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+        asset_bytes = asset.read_bytes()
+        assert asset_bytes[:8] == b"\x89PNG\r\n\x1a\n"
+        assert int.from_bytes(asset_bytes[16:20], "big") == 1672
+        assert int.from_bytes(asset_bytes[20:24], "big") == 941
     assert "createElementNS" in source
     visual_contract = source[
         source.index("const VISUAL_ICON_PATHS"):source.index("function routeButton")
@@ -690,12 +698,22 @@ const VISUAL_ICON_PATHS = Object.freeze({{ model: Object.freeze([]) }});
 {visual_contract}
 {engine_visual_key}
 
-const happyHorse = modelVisualNode("happyhorse");
-if (happyHorse.dataset.visual !== "happyhorse") throw new Error("known_visual_lost");
-if (happyHorse.dataset.image !== "false") throw new Error("generated_scene_claims_image");
-if (happyHorse.dataset.motion !== "edit") throw new Error("known_motion_lost");
-if (happyHorse.children.length !== 1) throw new Error("generated_scene_shape_changed");
-if (happyHorse.children[0].children.length !== 4) throw new Error("motion_layers_missing");
+const knownVisuals = [
+  ["happyhorse", "edit"],
+  ["seedance", "flow"],
+  ["minimax", "timeline"],
+  ["grok", "signals"],
+  ["heygen", "avatar"],
+];
+for (const [visual, motion] of knownVisuals) {{
+  const scene = modelVisualNode(visual);
+  if (scene.dataset.visual !== visual) throw new Error(`${{visual}}_visual_lost`);
+  if (scene.dataset.image !== "true") throw new Error(`${{visual}}_image_missing`);
+  if (scene.dataset.motion !== motion) throw new Error(`${{visual}}_motion_lost`);
+  if (scene.children.length !== 2) throw new Error(`${{visual}}_scene_shape_changed`);
+  if (scene.children[0].tag !== "img") throw new Error(`${{visual}}_raster_missing`);
+  if (scene.children[1].children.length !== 4) throw new Error(`${{visual}}_motion_layers_missing`);
+}}
 
 const future = modelVisualNode("future-engine");
 if (future.dataset.visual !== "model") throw new Error("unknown_visual_not_neutral");
