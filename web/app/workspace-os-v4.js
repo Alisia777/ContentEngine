@@ -7,11 +7,11 @@
  * DOM or transporting credentials. This module never calls business APIs.
  */
 
-import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.13";
+import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.18";
 import {
   createWorkspaceWindowManagerState,
   workspaceWindowManagerReducer,
-} from "./workspace-window-manager-contract.js?v=20260826.rebuild-clean.13";
+} from "./workspace-window-manager-contract.js?v=20260826.rebuild-clean.18";
 import {
   WORKSPACE_DOCK_PIN_HOVER_MS,
   WORKSPACE_DOCK_PREFERENCE_VERSION,
@@ -21,27 +21,27 @@ import {
   normalizeWorkspaceDockExternalTarget,
   selectWorkspaceDockShortcut,
   workspaceDockReducer,
-} from "./workspace-dock-contract.js?v=20260826.rebuild-clean.13";
+} from "./workspace-dock-contract.js?v=20260826.rebuild-clean.18";
 import {
   WORKSPACE_INTERNAL_APP_TABS,
   WORKSPACE_INTERNAL_SPACES,
   resolveWorkspaceCommand,
-} from "./workspace-command-registry.js?v=20260826.rebuild-clean.13";
+} from "./workspace-command-registry.js?v=20260826.rebuild-clean.18";
 import {
   countWorkspaceNotificationItems,
   evaluateWorkspaceNotificationAction,
   filterWorkspaceNotificationItems,
   formatWorkspaceNotificationBadge,
   normalizeWorkspaceNotificationFeed,
-} from "./workspace-notification-contract.js?v=20260826.rebuild-clean.13";
+} from "./workspace-notification-contract.js?v=20260826.rebuild-clean.18";
 import {
   CONTENTENGINE_EMBEDDED_WINDOW_MESSAGE,
   CONTENTENGINE_EMBEDDED_WINDOW_VERSION,
   createContentEngineEmbeddedWindowUrl,
   readContentEngineEmbeddedWindowEvent,
-} from "./workspace-embedded-window-contract.js?v=20260826.rebuild-clean.13";
+} from "./workspace-embedded-window-contract.js?v=20260826.rebuild-clean.18";
 
-const BUILD = "20260826.rebuild-clean.13";
+const BUILD = "20260826.rebuild-clean.18";
 const STORAGE_KEY = "contentengine.desktop-v4.v1";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
 const PROJECT_CONTEXT_KEY = "contentengine.desktop-v4.project";
@@ -62,7 +62,7 @@ const IS_EMBEDDED_WORKSPACE_WINDOW = window.CONTENTENGINE_EMBEDDED_WINDOW === tr
   || document.documentElement.dataset.ceWindowChild === "true";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const XLINK_NS = "http://www.w3.org/1999/xlink";
-const DOCK_SPRITE = new URL("./assets/workspace_dock_icon_sprite_v4_7_1.svg?v=20260826.rebuild-clean.13", import.meta.url).href;
+const DOCK_SPRITE = new URL("./assets/workspace_dock_icon_sprite_v4_7_1.svg?v=20260826.rebuild-clean.18", import.meta.url).href;
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
 const SPRING = "cubic-bezier(0.16, 1, 0.3, 1)";
 const DOCK_INTERNAL_POLICY = Object.freeze({
@@ -138,6 +138,7 @@ const ROUTES = Object.freeze([
   Object.freeze({ route: "/workspace/review", label: "Проверить", icon: "check", dockIcon: "ce-dock-review", appLabel: "Проверить", accent: "#C84C65", description: "Качество, риски и одно решение" }),
   Object.freeze({ route: "/workspace/placement", label: "Опубликовать", icon: "upload", dockIcon: "ce-dock-publish", appLabel: "Публикация", accent: "#38D2E8", description: "Один пост — один маршрут" }),
   Object.freeze({ route: "/workspace/stats", label: "Результаты", icon: "chart", dockIcon: "ce-dock-results", appLabel: "Результаты", accent: "#39D99E", description: "Метрики и следующая гипотеза" }),
+  Object.freeze({ route: "/workspace/passports", label: "Паспорта", icon: "chart", dockIcon: "ce-dock-passports", appLabel: "Паспорта", accent: "#5FB0FF", description: "Паспорт ролика: от исходника до метрик и денег" }),
   Object.freeze({ route: "/workspace/research", label: "Исследования", icon: "search", dockIcon: "ce-dock-research", appLabel: "Исследования", accent: "#4A8FFF", description: "Факты, источники и сценарии" }),
   Object.freeze({ route: "/workspace/ai", label: "ИИ-центр", icon: "spark", dockIcon: "ce-dock-ai", appLabel: "ИИ-центр", accent: "#976BFF", description: "Знания категорий и обратная связь" }),
 ]);
@@ -160,6 +161,7 @@ const DOCK_APPS = Object.freeze([
   Object.freeze({ key: "review", route: "/workspace/review", label: "Проверить", dockIcon: "ce-dock-review", description: "Качество, риски и одно решение" }),
   Object.freeze({ key: "publish", route: "/workspace/placement", label: "Опубликовать", dockIcon: "ce-dock-publish", description: "Один пост — один маршрут" }),
   Object.freeze({ key: "results", route: "/workspace/stats", label: "Результаты", dockIcon: "ce-dock-results", description: "Метрики и следующая гипотеза" }),
+  Object.freeze({ key: "passports", route: "/workspace/passports", label: "Паспорта", dockIcon: "ce-dock-passports", description: "Паспорт ролика: от исходника до метрик и денег" }),
   Object.freeze({ key: "processes", route: "/workspace/work", label: "Процессы", dockIcon: "ce-dock-processes", description: "Личная очередь и рабочие действия" }),
   Object.freeze({ key: "settings", route: "/workspace/team", label: "Команда", dockIcon: "ce-dock-settings", description: "Доступы и участники" }),
 ]);
@@ -171,6 +173,7 @@ const DOCK_CANONICAL_ORDER = Object.freeze([
   "review",
   "publish",
   "results",
+  "passports",
   "processes",
   "settings",
   "trash",
@@ -229,6 +232,7 @@ const PROJECT_REQUIRED_ROUTES = new Set([
   "/workspace/tasks",
   "/workspace/placement",
   "/workspace/stats",
+  "/workspace/passports",
   "/workspace/payouts",
   "/workspace/research",
   "/workspace/work",

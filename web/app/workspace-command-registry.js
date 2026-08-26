@@ -88,6 +88,7 @@ export const WORKSPACE_INTERNAL_APP_TABS = deepFreeze({
   create: ["material", "motion", "model", "cost"],
   review: ["mine", "rework"],
   publish: ["ready", "planned"],
+  passports: [],
   processes: ["active", "ready", "attention"],
   settings: [],
 });

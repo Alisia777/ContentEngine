@@ -251,6 +251,45 @@
 <path d="M18 47V35"/><path d="M28 47V23"/><path d="M38 47V30"/><path d="M48 47V17"/><path d="M15 50h36" opacity=".55"/><circle cx="18" cy="32" r="2.2" fill="currentColor" stroke="none"/><circle cx="28" cy="20" r="2.2" fill="currentColor" stroke="none"/><circle cx="38" cy="27" r="2.2" fill="currentColor" stroke="none"/><circle cx="48" cy="14" r="2.2" fill="currentColor" stroke="none"/>
 </g>
 </symbol>
+<symbol id="ce-dock-passports" viewBox="0 0 64 64">
+<defs>
+  <linearGradient id="ce-passports-body" x1="8" y1="5" x2="55" y2="60" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#9CCEFF" stop-opacity=".44"/>
+    <stop offset=".34" stop-color="#5FB0FF" stop-opacity=".26"/>
+    <stop offset="1" stop-color="#0B111A" stop-opacity=".98"/>
+  </linearGradient>
+  <linearGradient id="ce-passports-rim" x1="12" y1="8" x2="50" y2="58" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#9CCEFF" stop-opacity=".78"/>
+    <stop offset=".45" stop-color="#5FB0FF" stop-opacity=".48"/>
+    <stop offset="1" stop-color="#1F5C99" stop-opacity=".22"/>
+  </linearGradient>
+  <radialGradient id="ce-passports-shine" cx="0" cy="0" r="1" gradientTransform="translate(20 14) rotate(42) scale(42 30)" gradientUnits="userSpaceOnUse">
+    <stop stop-color="#fff" stop-opacity=".33"/>
+    <stop offset=".34" stop-color="#fff" stop-opacity=".08"/>
+    <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+  </radialGradient>
+  <filter id="ce-passports-shadow" x="-40%" y="-35%" width="180%" height="190%">
+    <feDropShadow dx="0" dy="7" stdDeviation="5" flood-color="#000" flood-opacity=".55"/>
+    <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#5FB0FF" flood-opacity=".18"/>
+  </filter>
+  <filter id="ce-passports-glyphGlow" x="-60%" y="-60%" width="220%" height="220%">
+    <feDropShadow dx="0" dy="0" stdDeviation="2.4" flood-color="#5FB0FF" flood-opacity=".70"/>
+  </filter>
+</defs>
+<g filter="url(#ce-passports-shadow)">
+  <rect x="6" y="5" width="52" height="52" rx="15" fill="#101722"/>
+  <rect x="7" y="6" width="50" height="50" rx="14" fill="url(#ce-passports-body)" stroke="url(#ce-passports-rim)" stroke-width="1.5"/>
+  <rect x="9" y="8" width="46" height="46" rx="12" fill="none" stroke="#fff" stroke-opacity=".07"/>
+  <path d="M14 10h32c5 0 9 4 9 9v3c-11-5-28-6-46 1v-4c0-5 2-9 5-9Z" fill="url(#ce-passports-shine)"/>
+  <path d="M12 52c11 2 27 2 40-1" fill="none" stroke="#000" stroke-opacity=".46" stroke-width="2.5" stroke-linecap="round"/>
+</g>
+<g color="#9CCEFF" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" filter="url(#ce-passports-glyphGlow)">
+<rect x="17" y="13" width="30" height="38" rx="4"/>
+<path d="M23 21h18" opacity=".8"/><path d="M23 27h18" opacity=".55"/><path d="M23 33h10" opacity=".55"/>
+<circle cx="38" cy="41" r="6.5"/>
+<path d="M35.2 41.2l2 2 3.6-4"/>
+</g>
+</symbol>
 <symbol id="ce-dock-review" viewBox="0 0 64 64">
 <defs>
   <linearGradient id="ce-review-body" x1="8" y1="5" x2="55" y2="60" gradientUnits="userSpaceOnUse">

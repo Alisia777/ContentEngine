@@ -37,7 +37,7 @@ def test_static_spa_assets_are_complete_and_cloud_only() -> None:
     assert "render.com" not in bundle.casefold()
     assert (
         'const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?'
-        'v=20260826.rebuild-clean.13";'
+        'v=20260826.rebuild-clean.18";'
     ) in bundle
     assert "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm" not in bundle
     assert "@supabase/supabase-js@latest" not in bundle
@@ -78,7 +78,7 @@ def test_supabase_browser_runtime_is_same_origin_versioned_and_integrity_pinned(
         runtime = _text(runtime_name)
         assert (
             'const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?'
-            'v=20260826.rebuild-clean.13";'
+            'v=20260826.rebuild-clean.18";'
         ) in runtime
         assert "cdn.jsdelivr.net/npm/@supabase/supabase-js" not in runtime
         assert "lock: processLock" in runtime
@@ -651,7 +651,9 @@ def test_spa_payload_and_workspace_fields_match_the_creator_rpc_migration() -> N
     # 112 = 110 + очередь проверки и витрина аккаунтов (202608240003):
     # creator_reject_generation_result + creator_team_accounts.
     # 113 = 112 + creator_results_funnel (202608240004): воронка «Результатов».
-    assert len(set(rpc_names)) == 113
+    # 115 = 113 + «Паспорт ролика» (202608260003): реестр паспортов проекта и
+    # полный срез одного ролика — обе read-only.
+    assert len(set(rpc_names)) == 115
     assert "creator_admin_snapshot" in rpc_names
     assert "creator_admin_mutate" in rpc_names
     assert "creator_admin_account_ownership" in rpc_names
@@ -660,6 +662,8 @@ def test_spa_payload_and_workspace_fields_match_the_creator_rpc_migration() -> N
     assert "creator_reject_generation_result" in rpc_names
     assert "creator_team_accounts" in rpc_names
     assert "creator_results_funnel" in rpc_names
+    assert "creator_content_passport_registry" in rpc_names
+    assert "creator_content_result_passport" in rpc_names
     assert "creator_operational_health" in rpc_names
     assert "creator_generation_learning_policy" in rpc_names
     assert "creator_generation_repair_policy" in rpc_names
@@ -835,7 +839,7 @@ def test_password_reset_has_a_bounded_wait_and_always_unlocks_the_form() -> None
     assert "finally" in reset
     assert "if (form.isConnected) setFormBusy(form, false)" in reset
     assert "Promise.race([operation, timeout])" in app
-    assert './app.js?v=20260826.rebuild-clean.13' in index
+    assert './app.js?v=20260826.rebuild-clean.18' in index
 
 
 def test_novice_workspace_has_required_tabs_and_last_mile_forms() -> None:

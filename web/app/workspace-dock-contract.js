@@ -50,6 +50,7 @@ export const WORKSPACE_DOCK_DEFAULT_CATALOG = Object.freeze([
   Object.freeze({ key: "review", kind: "app", appId: "review", protected: true }),
   Object.freeze({ key: "publish", kind: "app", appId: "publish", removable: true }),
   Object.freeze({ key: "results", kind: "app", appId: "results", removable: true }),
+  Object.freeze({ key: "passports", kind: "app", appId: "passports", removable: true }),
   Object.freeze({ key: "processes", kind: "app", appId: "processes", removable: true }),
   Object.freeze({ key: "settings", kind: "app", appId: "settings", removable: true }),
   Object.freeze({ key: "trash", kind: "trash", appId: "trash", protected: true }),
@@ -65,6 +66,13 @@ const LEGACY_DEFAULT_ORDERS = Object.freeze([
   Object.freeze([
     "finder", "results", "research", "ai", "create",
     "review", "publish", "processes", "settings", "trash",
+  ]),
+  // Дефолт эпохи до 26.08 — без «Паспортов». Сохранённый в точности такой
+  // порядок — снимок прежнего канона, а не ручная перестановка: апгрейдим,
+  // чтобы новое приложение появилось у всех, кто док не переставлял.
+  Object.freeze([
+    "finder", "research", "ai", "create", "review",
+    "publish", "results", "processes", "settings", "trash",
   ]),
 ]);
 

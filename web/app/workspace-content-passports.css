@@ -1,0 +1,93 @@
+/* «Паспорта роликов»: список карточек и срез одного ролика. Палитра и
+   поверхности — токены портала; свои цвета не вводим. */
+
+.content-passports-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.content-passport-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line, rgba(148, 163, 184, 0.25));
+  border-radius: 14px;
+  background: var(--panel, rgba(15, 23, 42, 0.35));
+}
+
+.content-passport-card__title {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.content-passport-card .btn {
+  justify-self: start;
+}
+
+.content-passport {
+  display: grid;
+  gap: 16px;
+}
+
+.content-passport__section {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line, rgba(148, 163, 184, 0.25));
+  border-radius: 14px;
+}
+
+.content-passport__section-title {
+  margin: 0;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.85;
+}
+
+.content-passport__row {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
+  gap: 10px;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.content-passport__formula {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: baseline;
+  font-size: 14px;
+}
+
+.content-passport__formula-value {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.content-passport__prompt {
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.25);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.content-passport__timeline {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+
+[data-content-passports-status][data-state="error"] {
+  color: var(--danger, #f87171);
+}

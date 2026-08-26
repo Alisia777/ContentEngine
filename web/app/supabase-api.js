@@ -79,6 +79,8 @@ export const RPC = Object.freeze({
   rejectGenerationResult: "creator_reject_generation_result",
   teamAccounts: "creator_team_accounts",
   resultsFunnel: "creator_results_funnel",
+  contentPassportRegistry: "creator_content_passport_registry",
+  contentResultPassport: "creator_content_result_passport",
   managerDashboard: "creator_manager_dashboard",
   operationalHealth: "creator_operational_health",
   generationSpendOverview: "creator_generation_spend_overview",
@@ -6782,6 +6784,47 @@ export class CreatorApi {
       throw new CreatorApiError("Воронка результатов пришла в неизвестной форме.");
     }
     return data.funnel;
+  }
+
+  // «Паспорта»: реестр готовых роликов проекта с кратким срезом — товар,
+  // движок, деньги, публикации, последние метрики. Одна server-owned
+  // read-модель для всех экранов паспорта.
+  async contentPassportRegistry({ projectId = "", project_id: projectIdSnake = "", limit = 100 } = {}) {
+    const normalizedProjectId = requiredProjectId(projectIdSnake || projectId);
+    const data = await this.call(RPC.contentPassportRegistry, {
+      organization_id: String(this.organizationId || ""),
+      project_id: normalizedProjectId,
+      limit,
+    });
+    if (
+      !data || data.ok !== true
+      || data.version !== "content-passport-registry-v1"
+      || !Array.isArray(data.passports)
+    ) {
+      throw new CreatorApiError("Реестр паспортов пришёл в неизвестной форме.");
+    }
+    return data;
+  }
+
+  // Полный паспорт одного готового ролика: продукт, ТЗ, материалы,
+  // производство, публикации, метрики числителями/знаменателями, хронология.
+  async contentResultPassport({ projectId = "", project_id: projectIdSnake = "", mediaId = "" } = {}) {
+    const normalizedProjectId = requiredProjectId(projectIdSnake || projectId);
+    const data = await this.call(RPC.contentResultPassport, {
+      organization_id: String(this.organizationId || ""),
+      project_id: normalizedProjectId,
+      media_id: String(mediaId || ""),
+    });
+    if (
+      !data || data.ok !== true
+      || data.version !== "content-result-passport-v1"
+      || !data.media || typeof data.media !== "object"
+      || !data.execution || typeof data.execution !== "object"
+      || !Array.isArray(data.timeline)
+    ) {
+      throw new CreatorApiError("Паспорт ролика пришёл в неизвестной форме.");
+    }
+    return data;
   }
 
   // Вкладка «Команда → Аккаунты»: реестр владения с выдачами, подключениями

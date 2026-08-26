@@ -7,17 +7,17 @@
  * in favour of one deterministic stability coordinator.
  */
 
-import { workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.13";
+import { workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.18";
 import {
   contentEngineEmbeddedWindowRequest,
   installContentEngineEmbeddedWindowRuntime,
-} from "./workspace-embedded-window-runtime.js?v=20260826.rebuild-clean.13";
+} from "./workspace-embedded-window-runtime.js?v=20260826.rebuild-clean.18";
 
-const BUILD = "20260826.rebuild-clean.13";
-const DESKTOP_CORE_BUILD = "20260826.rebuild-clean.13";
-const EMBEDDED_WINDOW_BUILD = "20260826.rebuild-clean.13";
-const GENERATION_HOTFIX_BUILD = "20260826.rebuild-clean.13";
-const GENERATION_INTAKE_BUILD = "20260826.rebuild-clean.13";
+const BUILD = "20260826.rebuild-clean.18";
+const DESKTOP_CORE_BUILD = "20260826.rebuild-clean.18";
+const EMBEDDED_WINDOW_BUILD = "20260826.rebuild-clean.18";
+const GENERATION_HOTFIX_BUILD = "20260826.rebuild-clean.18";
+const GENERATION_INTAKE_BUILD = "20260826.rebuild-clean.18";
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;
@@ -57,6 +57,11 @@ const ROUTE_ASSETS = Object.freeze({
     match: (route) => route === "/workspace/review",
     styles: [`workspace-os-v4-review-guided.css?v=${BUILD}`],
     modules: [`workspace-os-v4-review-guided.js?v=${BUILD}`],
+  }),
+  passports: Object.freeze({
+    match: (route) => route === "/workspace/passports",
+    styles: [`workspace-content-passports.css?v=${BUILD}`],
+    modules: [`workspace-content-passports.js?v=${BUILD}`],
   }),
   operations: Object.freeze({
     match: (route) => ["/workspace/tasks", "/workspace/review", "/workspace/placement", "/workspace/stats"].includes(route),

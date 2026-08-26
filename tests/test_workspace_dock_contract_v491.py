@@ -163,6 +163,7 @@ def test_contract_is_pure_scoped_and_migrates_catalog_before_order_normalization
         "review",
         "publish",
         "results",
+        "passports",
         "processes",
         "settings",
         "trash",
@@ -728,9 +729,10 @@ def test_file_resolution_is_live_and_serialization_excludes_transient_or_sensiti
 
 
 def test_saved_legacy_default_order_upgrades_to_the_conveyor_but_custom_stays() -> None:
-    """25.08: «Результаты» переехали после «Опубликовать». Сохранённый порядок,
-    в точности равный старому дефолту, — снимок прежнего канона, а не выбор
-    человека: он апгрейдится сам. Действительно свой порядок неприкосновенен."""
+    """25.08: «Результаты» переехали после «Опубликовать». 26.08: появились
+    «Паспорта». Сохранённый порядок, в точности равный любому старому дефолту,
+    — снимок прежнего канона, а не выбор человека: он апгрейдится сам.
+    Действительно свой порядок неприкосновенен."""
     result = _run_node(
         """
         const scope = { organizationId: "org-1", userId: "user-1" };
@@ -757,6 +759,6 @@ def test_saved_legacy_default_order_upgrades_to_the_conveyor_but_custom_stays() 
     )
     assert result["legacyOrder"] == [
         "finder", "research", "ai", "create", "review",
-        "publish", "results", "processes", "settings", "trash",
+        "publish", "results", "passports", "processes", "settings", "trash",
     ]
     assert result["customOrder"] == ["finder", "results", "ai", "review", "trash"]
