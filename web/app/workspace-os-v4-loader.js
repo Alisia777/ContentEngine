@@ -7,17 +7,17 @@
  * in favour of one deterministic stability coordinator.
  */
 
-import { workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.18";
+import { workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.19";
 import {
   contentEngineEmbeddedWindowRequest,
   installContentEngineEmbeddedWindowRuntime,
-} from "./workspace-embedded-window-runtime.js?v=20260826.rebuild-clean.18";
+} from "./workspace-embedded-window-runtime.js?v=20260826.rebuild-clean.19";
 
-const BUILD = "20260826.rebuild-clean.18";
-const DESKTOP_CORE_BUILD = "20260826.rebuild-clean.18";
-const EMBEDDED_WINDOW_BUILD = "20260826.rebuild-clean.18";
-const GENERATION_HOTFIX_BUILD = "20260826.rebuild-clean.18";
-const GENERATION_INTAKE_BUILD = "20260826.rebuild-clean.18";
+const BUILD = "20260826.rebuild-clean.19";
+const DESKTOP_CORE_BUILD = "20260826.rebuild-clean.19";
+const EMBEDDED_WINDOW_BUILD = "20260826.rebuild-clean.19";
+const GENERATION_HOTFIX_BUILD = "20260826.rebuild-clean.19";
+const GENERATION_INTAKE_BUILD = "20260826.rebuild-clean.19";
 const loadedStyles = new Set();
 const loadedModules = new Map();
 let queued = false;
@@ -58,10 +58,13 @@ const ROUTE_ASSETS = Object.freeze({
     styles: [`workspace-os-v4-review-guided.css?v=${BUILD}`],
     modules: [`workspace-os-v4-review-guided.js?v=${BUILD}`],
   }),
+  // Рендер и загрузка «Паспортов» живут в app.js (секционный контур):
+  // отдельный сателлитный модуль во встроенном окне доезжал не всегда, и
+  // экран вечно «загружался». Маршруту нужен только стиль.
   passports: Object.freeze({
     match: (route) => route === "/workspace/passports",
     styles: [`workspace-content-passports.css?v=${BUILD}`],
-    modules: [`workspace-content-passports.js?v=${BUILD}`],
+    modules: [],
   }),
   operations: Object.freeze({
     match: (route) => ["/workspace/tasks", "/workspace/review", "/workspace/placement", "/workspace/stats"].includes(route),

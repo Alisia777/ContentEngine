@@ -22,13 +22,13 @@ def _between(source: str, start: str, end: str) -> str:
 
 
 def test_academy_uses_the_single_v44_interface_graph() -> None:
-    assert BUILD == "20260826.rebuild-clean.18"
+    assert BUILD == "20260826.rebuild-clean.19"
     assert f'./interface-system.css?v={BUILD}' in ACTIVE_INDEX
-    assert './workspace-os-v4.css?v=20260826.rebuild-clean.18' in ACTIVE_INDEX
+    assert './workspace-os-v4.css?v=20260826.rebuild-clean.19' in ACTIVE_INDEX
 
     assert f'./workspace-build-guard.js?v={BUILD}' in ACTIVE_INDEX
-    assert './workspace-os-v4-loader.js?v=20260826.rebuild-clean.18' in ACTIVE_INDEX
-    assert './app.js?v=20260826.rebuild-clean.18' in ACTIVE_INDEX
+    assert './workspace-os-v4-loader.js?v=20260826.rebuild-clean.19' in ACTIVE_INDEX
+    assert './app.js?v=20260826.rebuild-clean.19' in ACTIVE_INDEX
 
     for retired_asset in (
         "learning-premium.css",

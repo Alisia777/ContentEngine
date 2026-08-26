@@ -3,9 +3,11 @@
 Владелец: «отдельная вкладка в доке, куда человек нажимает — и это срез:
 исходники, результат, задание, статистика, гипотеза, деньги». Контракты:
 одна server-owned read-модель (два read-only RPC), приложение в доке между
-«Результатами» и «Процессами», экран не умирает молча при отказе загрузки,
-формулы считаются только из числителей и знаменателей сервера, ноль в
-знаменателе — честный отказ, а не NaN.
+«Результатами» и «Процессами», загрузка и рендер — в СЕКЦИОННОМ контуре
+app.js (боевой урок 26.08: отдельный сателлитный модуль во встроенном окне
+доезжал не всегда, и экран вечно «загружался»), отказ виден и даёт
+«Повторить», формулы считаются только из числителей и знаменателей сервера,
+ноль в знаменателе — честный отказ, а не NaN.
 """
 from pathlib import Path
 
@@ -19,7 +21,6 @@ CATALOG = (APP / "catalog.js").read_text(encoding="utf-8")
 PORTAL = (APP / "app.js").read_text(encoding="utf-8")
 API = (APP / "supabase-api.js").read_text(encoding="utf-8")
 LOADER = (APP / "workspace-os-v4-loader.js").read_text(encoding="utf-8")
-MODULE = (APP / "workspace-content-passports.js").read_text(encoding="utf-8")
 SPRITE = (APP / "assets" / "workspace_dock_icon_sprite_v4_7_1.svg").read_text(
     encoding="utf-8"
 )
@@ -40,16 +41,25 @@ def test_passports_app_is_registered_across_the_shell() -> None:
     assert '"passports",' in CATALOG  # simple navigation keys
 
 
-def test_passports_screen_mounts_without_server_section_loader() -> None:
-    # Секция не ходит в creator_workspace_section: у паспорта своя read-модель,
-    # и её вызывает модуль экрана сам — данные не двоятся.
+def test_passports_load_and_render_live_in_the_portal_section_loop() -> None:
+    # Загрузка — стандартный loadSection: никакой зависимости от доставки
+    # отдельного скрипта. Сателлитного модуля не существует вовсе.
+    assert not (APP / "workspace-content-passports.js").exists()
     assert "passports: renderPassportsSection," in PORTAL
-    assert '["research", "passports"].includes(key)' in PORTAL
-    assert '["research", "passports"].includes(section)' in PORTAL
-    assert "data-content-passports-root" in PORTAL
+    assert 'section === "passports"' in PORTAL
+    assert "state.api.contentPassportRegistry({ projectId })" in PORTAL
+    assert "state.api.contentResultPassport({" in PORTAL
     loader_entry = LOADER.split("passports: Object.freeze({", 1)[1].split("})", 1)[0]
     assert "/workspace/passports" in loader_entry
-    assert "workspace-content-passports.js" in loader_entry
+    assert "workspace-content-passports.css" in loader_entry
+    assert "modules: []" in loader_entry
+    assert "workspace-content-passports.js" not in LOADER
+    # Deep-link сменился — данные устарели и перезагружаются, прошлый срез
+    # не выдаётся за текущий.
+    assert "data.key !== passportSectionKey()" in PORTAL
+    # «Открыть паспорт» доступен из архива генераций тем же deep-link.
+    assert "generationPassportLinkMarkup" in PORTAL
+    assert "data-generation-passport-link" in PORTAL
 
 
 def test_passport_read_model_is_single_and_read_only() -> None:
@@ -72,22 +82,16 @@ def test_passport_read_model_is_single_and_read_only() -> None:
     assert "'preliminary_metrics', preliminary_value" in MIGRATION
 
 
-def test_passport_screen_never_dies_silently_and_formulas_refuse_zero() -> None:
-    # Отказ загрузки — видимый статус с кнопкой повтора (урок каскада 26.08).
-    assert "Паспорта не загрузились" in MODULE
-    assert "content-passports-retry" in MODULE
-    # Ноль в знаменателе — «Недостаточно данных», никаких NaN и Infinity.
-    ratio = MODULE.split("function ratioLine", 1)[1].split("\n}", 1)[0]
+def test_passport_screen_shows_failures_and_formulas_refuse_zero() -> None:
+    # Отказ загрузки — видимая карточка со стандартной кнопкой повтора секции.
+    assert "Паспорта не загрузились" in PORTAL
+    assert 'data-action="refresh-section" data-section="passports"' in PORTAL
+    # Ноль в знаменателе — «Недостаточно данных»; деление — только после
+    # guard'а по знаменателю.
+    ratio = PORTAL.split("function passportRatioMarkup", 1)[1].split("\n}", 1)[0]
     assert "base <= 0" in ratio
     assert "Недостаточно данных" in ratio
-    # Деление выполняется только после guard'а по знаменателю: в ветке с
-    # процентом guard уже отработал, отдельного «NaN-фильтра» не существует.
     assert ratio.index("base <= 0") < ratio.index("toFixed")
-    # Идемпотентный mount: повторный проход при неизменном ключе — ноль работы;
-    # собственного MutationObserver у модуля нет (правило адаптеров v4).
-    assert "runtime.loadedKey === loadKey" in MODULE
-    assert "MutationObserver" not in MODULE
-    assert 'registerAdapter(\n      "content-passports"' in MODULE
     # Легаси честно называется легаси, гипотеза не выдумывается.
-    assert "Гипотеза не была указана" in MODULE
-    assert "Legacy-результат" in MODULE
+    assert "Гипотеза не была указана" in PORTAL
+    assert "Legacy-результат" in PORTAL
