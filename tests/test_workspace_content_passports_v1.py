@@ -109,3 +109,28 @@ def test_passport_screen_shows_failures_and_formulas_refuse_zero() -> None:
     # Легаси честно называется легаси, гипотеза не выдумывается.
     assert "Гипотеза не была указана" in PORTAL
     assert "Legacy-результат" in PORTAL
+
+
+def test_passport_media_and_product_interactivity() -> None:
+    """«Тут бы фото добавить... и ссылку на ролик или плеер, и продукты
+    интерактивнее» (владелец, 26.08 21:20). Контракты: RPC отдают object_name
+    приватного хранилища (202608260006), браузер подписывает ссылки одним
+    существующим батчем, карточка списка несёт превью-кадр, паспорт — плеер
+    и плитки материалов, клик по товару фильтрует реестр deep-link'ом."""
+    media_links = (
+        ROOT / "supabase/migrations/202608260006_content_passport_media_links_v1.sql"
+    ).read_text(encoding="utf-8")
+    assert media_links.count("'object_name'") == 3
+    assert "volatile" in media_links
+    assert "spec_reference_binding_id" in media_links
+    # Подписи — одним батчем и без права ронять паспорт при отказе.
+    assert "hydratePassportSignedUrls" in PORTAL
+    assert "signedPrivateObjectUrls([...keys], 900)" in PORTAL
+    # Превью и плеер.
+    assert "content-passport-card__preview" in PORTAL
+    assert "content-passport__player" in PORTAL
+    assert "Открыть ролик в новой вкладке" in PORTAL
+    assert "content-passport__asset-grid" in PORTAL
+    # Товар интерактивен: фильтр реестра по deep-link ?product=<uuid>.
+    assert 'safeWorkspaceRouteEntityId("product")' in PORTAL
+    assert "Показать все" in PORTAL

@@ -3,12 +3,12 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260826.rebuild-clean.21";
+} from "./supabase-api.js?v=20260826.rebuild-clean.22";
 import {
   adminPeopleMarkup,
   normalizeAdminSnapshot,
   normalizeAdminView,
-} from "./admin-people-view.js?v=20260826.rebuild-clean.21";
+} from "./admin-people-view.js?v=20260826.rebuild-clean.22";
 import {
   clearExactYoutubeMediaHandoff,
   exactYoutubeRegisteredMediaId,
@@ -16,12 +16,12 @@ import {
   isExactYoutubeMp4,
   readExactYoutubeMediaHandoff,
   updateExactYoutubeMediaHandoffProgress,
-} from "./exact-youtube-media-handoff.js?v=20260826.rebuild-clean.21";
+} from "./exact-youtube-media-handoff.js?v=20260826.rebuild-clean.22";
 import {
   captureVerifiedPrivateVideoBlob,
   exactYoutubeResearchFailureRecovery,
   resolveExactYoutubeResearchCaptureMedia,
-} from "./exact-youtube-research-capture.js?v=20260826.rebuild-clean.21";
+} from "./exact-youtube-research-capture.js?v=20260826.rebuild-clean.22";
 import {
   approvedGenerationSpecContext,
   generationSpecApprovalReviewDecision,
@@ -34,21 +34,21 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
-} from "./generation-spec.js?v=20260826.rebuild-clean.21";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260826.rebuild-clean.21";
-import { generationStrategyRequiredSourceCount } from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.21";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.21";
+} from "./generation-spec.js?v=20260826.rebuild-clean.22";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260826.rebuild-clean.22";
+import { generationStrategyRequiredSourceCount } from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.22";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.22";
 import {
   normalizeWorkspaceInternalTarget,
   resolveWorkspaceCommand,
-} from "./workspace-command-registry.js?v=20260826.rebuild-clean.21";
+} from "./workspace-command-registry.js?v=20260826.rebuild-clean.22";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
   mergeMediaFileSelection,
   mediaFileValidationError as mediaUploadFileValidationError,
   mediaUploadWorkerCount,
-} from "./media-upload-queue.js?v=20260826.rebuild-clean.21";
+} from "./media-upload-queue.js?v=20260826.rebuild-clean.22";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -56,39 +56,39 @@ import {
   REQUIRED_MODULE_CODES,
   SIMPLE_WORKSPACE_TAB_KEYS,
   WORKSPACE_TABS,
-} from "./catalog.js?v=20260826.rebuild-clean.21";
+} from "./catalog.js?v=20260826.rebuild-clean.22";
 import {
   ACCOUNT_LAUNCH_PATH,
   accountLaunchCenterMarkup,
   accountLaunchGuideMarkup,
   accountLaunchSlugFromPath,
   evaluateAdvertisingAnswers,
-} from "./account-launch-view.js?v=20260826.rebuild-clean.21";
+} from "./account-launch-view.js?v=20260826.rebuild-clean.22";
 import {
   managerDashboardMarkup,
   managerOperationalHealthMarkup,
-} from "./manager-dashboard-view.js?v=20260826.rebuild-clean.21";
+} from "./manager-dashboard-view.js?v=20260826.rebuild-clean.22";
 import {
   generationCampaignSelectionState,
   generationSpendAllowsMinor,
   generationSpendSnapshotMarkup,
   managerGenerationSpendMarkup,
   normalizeGenerationSpendOverview,
-} from "./generation-spend-view.js?v=20260826.rebuild-clean.21";
+} from "./generation-spend-view.js?v=20260826.rebuild-clean.22";
 import {
   generationProviderReadinessPreflights,
   normalizeGenerationProviderPreflight,
-} from "./generation-provider-readiness.js?v=20260826.rebuild-clean.21";
+} from "./generation-provider-readiness.js?v=20260826.rebuild-clean.22";
 import {
   generationModelAcceptanceMarkup,
   normalizeGenerationModelAcceptance,
-} from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.21";
+} from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.22";
 import {
   accessCenterMarkup,
   ensureAccessCenterStyles,
   normalizeAccessCenterEmail,
   normalizeAccessCenterResult,
-} from "./access-center-view.js?v=20260826.rebuild-clean.21";
+} from "./access-center-view.js?v=20260826.rebuild-clean.22";
 import {
   applyResearchMarketCategoryResolution,
   applyResearchOutcomeLearningMutation,
@@ -110,7 +110,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260826.rebuild-clean.21";
+} from "./product-research-view.js?v=20260826.rebuild-clean.22";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -121,7 +121,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260826.rebuild-clean.21";
+} from "./ai-learning-control-room.js?v=20260826.rebuild-clean.22";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -137,15 +137,15 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260826.rebuild-clean.21";
+} from "./content-generation-handoff.js?v=20260826.rebuild-clean.22";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
-} from "./generation-quality-training.js?v=20260826.rebuild-clean.21";
+} from "./generation-quality-training.js?v=20260826.rebuild-clean.22";
 import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,
-} from "./generation-form-readiness.js?v=20260826.rebuild-clean.21";
+} from "./generation-form-readiness.js?v=20260826.rebuild-clean.22";
 import {
   GENERATION_STRATEGY_RUNTIME_ACTIONS,
   createGenerationStrategyRuntimeFingerprint,
@@ -159,7 +159,7 @@ import {
   invalidateGenerationStrategyRuntimeState,
   normalizeGenerationStrategyProbeResponse,
   reduceGenerationStrategyRuntimeState,
-} from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.21";
+} from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.22";
 import {
   createGenerationStrategyQueue,
   generationStrategyQueueAggregateReview,
@@ -168,33 +168,33 @@ import {
   planGenerationStrategyQueueFreeWork,
   planGenerationStrategyQueueSequentialStarts,
   updateGenerationStrategyQueueRow,
-} from "./generation-strategy-queue.js?v=20260826.rebuild-clean.21";
+} from "./generation-strategy-queue.js?v=20260826.rebuild-clean.22";
 import {
   renderGenerationStrategyQueueView,
-} from "./generation-strategy-queue-view.js?v=20260826.rebuild-clean.21";
+} from "./generation-strategy-queue-view.js?v=20260826.rebuild-clean.22";
 import {
   buildGenerationStrategySpecApprovalRequest,
   buildGenerationStrategySpecPrepareRequest,
   generationStrategySpecSafeProjection,
   normalizeGenerationStrategySpecControlResponse,
   normalizeGenerationStrategySpecPrepareResponse,
-} from "./generation-strategy-spec.js?v=20260826.rebuild-clean.21";
+} from "./generation-strategy-spec.js?v=20260826.rebuild-clean.22";
 import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
   normalizeGenerationVideoReferenceContext,
-} from "./generation-video-reference.js?v=20260826.rebuild-clean.21";
+} from "./generation-video-reference.js?v=20260826.rebuild-clean.22";
 import {
   buildGenerationFormDraft,
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260826.rebuild-clean.21";
+} from "./generation-form-draft.js?v=20260826.rebuild-clean.22";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
   resolveGenerationExpectedProductMatch,
-} from "./generation-ai-research-working-draft.js?v=20260826.rebuild-clean.21";
+} from "./generation-ai-research-working-draft.js?v=20260826.rebuild-clean.22";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -206,7 +206,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260826.rebuild-clean.21";
+} from "./generation-autopilot.js?v=20260826.rebuild-clean.22";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -228,14 +228,14 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260826.rebuild-clean.21";
+} from "./content-review-view.js?v=20260826.rebuild-clean.22";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
   createFirstShiftFullState,
   firstShiftFullScenarioMarkup,
   reduceFirstShiftFullState,
-} from "./first-shift-full-scenario.js?v=20260826.rebuild-clean.21";
+} from "./first-shift-full-scenario.js?v=20260826.rebuild-clean.22";
 import {
   GENERATION_ARCHIVE_PAGE_SIZE,
   GENERATION_VISIBLE_CAP,
@@ -250,7 +250,7 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260826.rebuild-clean.21";
+} from "./portal-experience.js?v=20260826.rebuild-clean.22";
 import {
   isWorkspaceSmartFolderId,
   normalizeWorkspaceBoard,
@@ -258,7 +258,7 @@ import {
   workspaceBoardItemKey,
   workspaceBoardPaginationState,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260826.rebuild-clean.21";
+} from "./workspace-board-view.js?v=20260826.rebuild-clean.22";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -270,7 +270,7 @@ import {
   syncTrainingWalkthroughStatus,
   trainingInteractiveMarkup,
   trainingWalkthroughStorageKey,
-} from "./training-interactive.js?v=20260826.rebuild-clean.21";
+} from "./training-interactive.js?v=20260826.rebuild-clean.22";
 import {
   LEARNING_TRACKS,
   achievementMarkup,
@@ -287,16 +287,16 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260826.rebuild-clean.21";
+} from "./training-journey.js?v=20260826.rebuild-clean.22";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
   trainingPlatformSimulatorsMarkup,
-} from "./training-platform-simulators.js?v=20260826.rebuild-clean.21";
+} from "./training-platform-simulators.js?v=20260826.rebuild-clean.22";
 import {
   bindTrainingMediaCards,
   trainingMediaCardsMarkup,
-} from "./training-media-cards.js?v=20260826.rebuild-clean.21";
+} from "./training-media-cards.js?v=20260826.rebuild-clean.22";
 import {
   normalizeTrainingPracticalProject,
   normalizeTrainingPracticalReviews,
@@ -306,7 +306,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260826.rebuild-clean.21";
+} from "./training-practical-review.js?v=20260826.rebuild-clean.22";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -325,7 +325,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260826.rebuild-clean.21";
+} from "./my-work-view.js?v=20260826.rebuild-clean.22";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -336,8 +336,8 @@ const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
   ),
 );
 const MEDIA_UPLOAD_CONCURRENCY = DEFAULT_MEDIA_UPLOAD_CONCURRENCY;
-const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260826.rebuild-clean.21";
-const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260826.rebuild-clean.21";
+const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260826.rebuild-clean.22";
+const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260826.rebuild-clean.22";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
 const MAX_MOCK_BATCH_SIZE = Math.min(50, Math.max(1, Number(CONFIG.MAX_BATCH_SIZE) || 50));
@@ -11751,6 +11751,9 @@ async function loadSection(section, options = {}) {
         projectId,
       });
     }
+    if (section === "passports") {
+      data = await hydratePassportSignedUrls(data);
+    }
     if (!requestIsCurrent()) return;
     target.data = data;
     target.status = "ready";
@@ -19359,7 +19362,32 @@ function passportSectionKey() {
   return `${projectId}:${safeWorkspaceRouteEntityId("media")}`;
 }
 
-function passportRegistryCardMarkup(entry, projectId) {
+// Подписанные ссылки на приватные файлы паспорта (ролик списка, ролик
+// паспорта, материалы запуска) — одним батчем. Отказ подписи не роняет
+// паспорт: карточки просто остаются без превью.
+async function hydratePassportSignedUrls(data) {
+  try {
+    const keys = new Set();
+    if (data?.kind === "registry") {
+      (data.registry?.passports || []).forEach((entry) => {
+        if (entry?.object_name) keys.add(String(entry.object_name));
+      });
+    } else if (data?.kind === "passport") {
+      const passport = data.passport;
+      if (passport?.media?.object_name) keys.add(String(passport.media.object_name));
+      (passport?.assets || []).forEach((asset) => {
+        if (asset?.object_name) keys.add(String(asset.object_name));
+      });
+    }
+    if (!keys.size) return data;
+    const urls = await state.api.signedPrivateObjectUrls([...keys], 900);
+    return { ...data, signed: Object.fromEntries(urls) };
+  } catch {
+    return data;
+  }
+}
+
+function passportRegistryCardMarkup(entry, projectId, signed = {}) {
   // Заголовок карточки — товар, а не UUID-имя файла: владелец опознаёт ролик
   // по продукту и дате («фото нету, не понять что это», скрин 26.08 21:13).
   const productLine = entry.product
@@ -19381,9 +19409,18 @@ function passportRegistryCardMarkup(entry, projectId) {
       ? "Метрики ещё не сняты"
       : "Публикаций пока нет";
   const href = `#/workspace/passports?project_id=${encodeURIComponent(projectId)}&media=${encodeURIComponent(String(entry.media_id || ""))}`;
+  const previewUrl = entry.object_name ? String(signed[entry.object_name] || "") : "";
+  const productHref = entry.product?.id
+    ? `#/workspace/passports?project_id=${encodeURIComponent(projectId)}&product=${encodeURIComponent(String(entry.product.id))}`
+    : "";
   return `
     <article class="content-passport-card" data-content-passport-card="${escapeHtml(String(entry.media_id || ""))}">
-      <h3 class="content-passport-card__title">${escapeHtml(title)}</h3>
+      ${previewUrl
+        ? `<a href="${escapeHtml(href)}" class="content-passport-card__preview-link"><video class="content-passport-card__preview" src="${escapeHtml(previewUrl)}#t=0.1" preload="metadata" muted playsinline></video></a>`
+        : ""}
+      <h3 class="content-passport-card__title">${productHref
+        ? `<a href="${escapeHtml(productHref)}" title="Показать все ролики этого товара">${escapeHtml(title)}</a>`
+        : escapeHtml(title)}</h3>
       ${productLine ? `<p class="muted tiny">${escapeHtml(String(entry.original_filename || ""))}</p>` : ""}
       <p class="muted tiny">${escapeHtml(facts)}</p>
       <p class="${latest ? "tiny" : "muted tiny"}">${escapeHtml(metricsLine)}</p>
@@ -19392,7 +19429,7 @@ function passportRegistryCardMarkup(entry, projectId) {
   `;
 }
 
-function passportViewMarkup(passport, projectId) {
+function passportViewMarkup(passport, projectId, signed = {}) {
   const media = passport.media || {};
   const product = passport.product;
   const execution = passport.execution || {};
@@ -19416,15 +19453,40 @@ function passportViewMarkup(passport, projectId) {
     ? passportRowMarkup("Гипотеза", String(passport.hypothesis.code || ""))
     : `<p class="muted">Гипотеза не была указана. Legacy-результат: запуск создан до появления папки «Гипотезы».</p>`;
 
+  const videoUrl = media.object_name ? String(signed[media.object_name] || "") : "";
+  const playerMarkup = videoUrl
+    ? `
+      <video class="content-passport__player" src="${escapeHtml(videoUrl)}" controls playsinline preload="metadata"></video>
+      <p class="tiny"><a href="${escapeHtml(videoUrl)}" target="_blank" rel="noopener">Открыть ролик в новой вкладке</a></p>
+    `
+    : "";
+
   const sourcesMarkup = sources
-    .filter((source) => source?.canonical_url)
-    .map((source) => passportRowMarkup("Источник", String(source.canonical_url)))
+    .filter((source) => source?.canonical_url || source?.mechanics_summary)
+    .map((source) => `
+      ${source.canonical_url ? passportRowMarkup("Источник", String(source.canonical_url)) : ""}
+      ${source.mechanics_summary ? passportRowMarkup("Механика референса", String(source.mechanics_summary)) : ""}
+    `)
     .join("");
+  // Материалы — плитками с миниатюрами: фото как картинка, видео как кадр.
+  // Роль и отпечаток остаются подписью — паспорт не теряет доказуемость.
   const assetsMarkup = assets.length
-    ? assets.map((asset) => passportRowMarkup(
-      String(asset.role || "материал"),
-      `${asset.original_filename || asset.media_object_id || ""} · sha ${String(asset.sha256 || "").slice(0, 10)}…`,
-    )).join("")
+    ? `<div class="content-passport__asset-grid">${assets.map((asset) => {
+      const assetUrl = asset.object_name ? String(signed[asset.object_name] || "") : "";
+      const mime = String(asset.mime_type || "");
+      const thumb = assetUrl
+        ? mime.startsWith("video/")
+          ? `<video class="content-passport__asset-thumb" src="${escapeHtml(assetUrl)}#t=0.1" preload="metadata" muted playsinline></video>`
+          : `<img class="content-passport__asset-thumb" src="${escapeHtml(assetUrl)}" alt="" loading="lazy">`
+        : `<div class="content-passport__asset-thumb content-passport__asset-thumb--empty"></div>`;
+      const caption = `${asset.role || "материал"} · ${asset.original_filename || ""}`;
+      return `
+        <figure class="content-passport__asset" title="sha ${escapeHtml(String(asset.sha256 || ""))}">
+          ${assetUrl ? `<a href="${escapeHtml(assetUrl)}" target="_blank" rel="noopener">${thumb}</a>` : thumb}
+          <figcaption class="muted tiny">${escapeHtml(caption)}</figcaption>
+        </figure>
+      `;
+    }).join("")}</div>`
     : sourcesMarkup
       ? ""
       : `<p class="muted">Список материалов запуска недоступен для этого legacy-наряда.</p>`;
@@ -19485,6 +19547,7 @@ function passportViewMarkup(passport, projectId) {
     <div class="content-passport" data-content-passport-view="${escapeHtml(String(media.id || ""))}">
       <a class="btn btn-secondary btn-small" href="${escapeHtml(backHref)}">← Ко всем паспортам</a>
       ${section("Ролик", `
+        ${playerMarkup}
         ${passportRowMarkup("Файл", String(media.original_filename || media.id || "—"))}
         ${passportRowMarkup("Параметры", mediaFacts || "—")}
         ${passportRowMarkup("Создан", passportDateTime(media.created_at))}
@@ -19492,7 +19555,9 @@ function passportViewMarkup(passport, projectId) {
       `)}
       ${section("Зачем создан", `
         ${whyMarkup}
-        ${passportRowMarkup("Продукт", product ? `${product.title || ""}${product.sku ? ` · ${product.sku}` : ""}` : "—")}
+        ${product && product.id
+          ? `<div class="content-passport__row"><span class="muted">Продукт</span><span><a href="#/workspace/passports?project_id=${encodeURIComponent(projectId)}&product=${encodeURIComponent(String(product.id))}" title="Показать все ролики этого товара">${escapeHtml(`${product.title || ""}${product.sku && product.sku !== product.title ? ` · ${product.sku}` : ""}`)}</a></span></div>`
+          : passportRowMarkup("Продукт", product ? `${product.title || ""}${product.sku ? ` · ${product.sku}` : ""}` : "—")}
       `)}
       ${section("Из чего создан", `${sourcesMarkup}${assetsMarkup}`)}
       ${section("Задание (ТЗ)", briefMarkup)}
@@ -19552,14 +19617,27 @@ function renderPassportsSection(sectionState) {
   if (!data) {
     return `${header}<section class="card"><p class="muted">Паспорта загружаются…</p></section>`;
   }
+  const signed = data.signed && typeof data.signed === "object" ? data.signed : {};
   if (data.kind === "passport" && data.passport) {
-    return `${header}${passportViewMarkup(data.passport, projectId)}`;
+    return `${header}${passportViewMarkup(data.passport, projectId, signed)}`;
   }
   const registry = data.registry || {};
   const passports = Array.isArray(registry.passports) ? registry.passports : [];
-  const body = passports.length
-    ? `<div class="content-passports-list">${passports.map((entry) => passportRegistryCardMarkup(entry, projectId)).join("")}</div>`
-    : `<section class="card"><p class="muted">Готовых роликов в проекте пока нет — паспорт появляется у каждого результата генерации.</p></section>`;
+  // Клик по товару фильтрует реестр: ?product=<uuid> в deep-link. Данные те
+  // же — фильтр чисто экранный, с видимым чипом и сбросом.
+  const productFilter = safeWorkspaceRouteEntityId("product");
+  const visible = productFilter
+    ? passports.filter((entry) => String(entry.product?.id || "") === productFilter)
+    : passports;
+  const filterProduct = productFilter
+    ? passports.find((entry) => String(entry.product?.id || "") === productFilter)?.product
+    : null;
+  const filterChip = productFilter
+    ? `<p class="tiny">Показан товар: <strong>${escapeHtml(String(filterProduct?.title || "выбранный"))}</strong> · <a href="#/workspace/passports?project_id=${encodeURIComponent(projectId)}">Показать все</a></p>`
+    : "";
+  const body = visible.length
+    ? `${filterChip}<div class="content-passports-list">${visible.map((entry) => passportRegistryCardMarkup(entry, projectId, signed)).join("")}</div>`
+    : `${filterChip}<section class="card"><p class="muted">${productFilter ? "По этому товару готовых роликов пока нет." : "Готовых роликов в проекте пока нет — паспорт появляется у каждого результата генерации."}</p></section>`;
   return `${header}${body}`;
 }
 

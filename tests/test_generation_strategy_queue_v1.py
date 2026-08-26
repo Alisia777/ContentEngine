@@ -396,7 +396,7 @@ def test_queue_imports_frozen_runtime_and_is_pure_planning_only() -> None:
         "b1a7f6a96ee575dc632d737a1f9436877f473a7c38861c27154fc26040a5393b"
     )
     assert (
-        'from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.21";'
+        'from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.22";'
         in QUEUE_SOURCE
     )
     for forbidden in (
