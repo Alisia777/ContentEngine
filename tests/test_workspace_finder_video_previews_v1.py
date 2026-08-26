@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BOARD = ROOT / "web/app/workspace-board-view.js"
 APP = ROOT / "web/app/app.js"
 CSS = ROOT / "web/app/workspace-board.css"
+FINDER_CSS = ROOT / "web/app/workspace-os-v4-finder.css"
 
 
 def text(path: Path) -> str:
@@ -32,6 +33,25 @@ def test_video_cards_paint_the_first_frame() -> None:
     assert "object-fit: cover;" in css
     # Абсолютному кадру нужен позиционированный контейнер.
     assert ".workspace-board__item-preview {\n  position: relative;" in css.replace("\r\n", "\n")
+
+
+def test_finder_keeps_video_frames_inside_the_scrollable_collection() -> None:
+    board = text(BOARD)
+    finder_css = text(FINDER_CSS).replace("\r\n", "\n")
+    assert 'data-created-at="${escapeHtml(item.createdAt)}"' in board
+    assert ".workspace-board__item-preview video.workspace-board__preview-frame {" in finder_css
+    video_rule = finder_css.split(
+        ".workspace-board__item-preview video.workspace-board__preview-frame {",
+        1,
+    )[1].split("}", 1)[0]
+    for marker in ("max-width: 100%", "max-height: 100%", "object-fit: cover"):
+        assert marker in video_rule
+    grid_rule = finder_css.split(
+        "body.ce-v4-finder-route .workspace-board__grid {",
+        1,
+    )[1].split("}", 1)[0]
+    assert "flex: 1 1 0" in grid_rule
+    assert "overflow-y: auto" in grid_rule
 
 
 def test_captured_frames_live_in_a_cache_so_rerenders_do_not_blink() -> None:
@@ -67,3 +87,15 @@ def test_preview_signing_cannot_freeze_a_section() -> None:
         "      ).catch(() => data);"
     ) in app
     assert '"generation_media_preview_timeout",' in app
+
+
+def test_fallback_preview_signing_cannot_freeze_all_files() -> None:
+    app = text(APP)
+    assert "const fallbackData = {" in app
+    assert (
+        "target.data = await withUiTimeout(\n"
+        "          hydratePrivateMedia(fallbackData),\n"
+        "          WORKSPACE_REQUEST_TIMEOUT_MS,\n"
+        '          "workspace_board_fallback_hydrate_timeout",\n'
+        "        ).catch(() => fallbackData);"
+    ) in app

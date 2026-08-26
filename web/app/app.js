@@ -11829,7 +11829,7 @@ async function loadSection(section, options = {}) {
         const canCreateProjects = ["owner", "admin"].includes(
           String(state.bootstrap?.membership?.role || "").toLowerCase(),
         );
-        target.data = await hydratePrivateMedia({
+        const fallbackData = {
           ...fallback,
           folders: previousFolders,
           capabilities: {
@@ -11839,7 +11839,12 @@ async function loadSection(section, options = {}) {
             move_items: previousCapabilities.move_items === true
               || previousCapabilities.moveItems === true,
           },
-        });
+        };
+        target.data = await withUiTimeout(
+          hydratePrivateMedia(fallbackData),
+          WORKSPACE_REQUEST_TIMEOUT_MS,
+          "workspace_board_fallback_hydrate_timeout",
+        ).catch(() => fallbackData);
         target.error = null;
         target.status = "ready";
         state.workspaceBoard.loadingMore = false;

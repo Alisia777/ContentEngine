@@ -286,6 +286,7 @@ def test_same_route_patch_recoordinates_runtime_state_after_one_dom_pass() -> No
 
     finder_mount = _between(FINDER, "function mount()", "\ndocument.addEventListener(\"keydown\"")
     assert "sortCards(sortValue);" in finder_mount
+    assert "applyDateFilter(dateFilterValue);" in finder_mount
     assert 'filterFolders(q(\'#workspace-board-filter-form input[name="query"]\', board)?.value || "")' in finder_mount
     assert "runtime.sortedBoard !== board" not in finder_mount
     annotate = _between(FINDER, "function annotateCards()", "\nfunction applyView()")
@@ -339,6 +340,9 @@ def test_live_browser_harnesses_cover_identity_motion_and_runtime_resets() -> No
         "toolbarIdentity",
         "searchIdentity",
         "sortedOrder",
+        "dateFilterIdentity",
+        "dateFilterValue",
+        "dateFilterVisibility",
         "cardTabIndex",
         "folderFilter",
     ):

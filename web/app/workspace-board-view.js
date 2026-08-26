@@ -1696,6 +1696,7 @@ function itemCardMarkup(item, selectedItemKey, busy) {
              data-artifact-class="${escapeHtml(item.artifactClass)}"
              data-lifecycle-stage="${escapeHtml(item.lifecycleStage)}"
              data-folder-id="${escapeHtml(item.folderId || "root")}"
+             data-created-at="${escapeHtml(item.createdAt)}"
              data-read-only="${item.readOnly ? "true" : "false"}"
              data-selected="false"
              role="option"

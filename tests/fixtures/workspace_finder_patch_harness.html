@@ -29,6 +29,8 @@
         .replaceAll(">", "&gt;")
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#39;");
+      const recentCreatedAt = new Date().toISOString();
+      const oldCreatedAt = new Date(Date.now() - (12 * 24 * 60 * 60 * 1000)).toISOString();
       const boardMarkup = ({ updated = false, query = "" } = {}) => `
         <div class="page-wrap">
           <section class="workspace-board">
@@ -44,17 +46,17 @@
               <div class="workspace-board__content">
                 <div class="workspace-board__grid">
                   ${updated ? `
-                    <article class="workspace-board__item" data-workspace-item-key="beta" data-entity-type="task">
+                    <article class="workspace-board__item" data-workspace-item-key="beta" data-entity-type="task" data-created-at="${recentCreatedAt}">
                       <div class="workspace-board__item-copy"><strong>Beta</strong></div><span class="workspace-board__status">Zulu</span>
                     </article>
-                    <article class="workspace-board__item" data-workspace-item-key="alpha" data-entity-type="task">
+                    <article class="workspace-board__item" data-workspace-item-key="alpha" data-entity-type="task" data-created-at="${oldCreatedAt}">
                       <div class="workspace-board__item-copy"><strong>Alpha</strong></div><span class="workspace-board__status">Alpha</span>
                     </article>
                   ` : `
-                    <article class="workspace-board__item" data-workspace-item-key="alpha" data-entity-type="task">
+                    <article class="workspace-board__item" data-workspace-item-key="alpha" data-entity-type="task" data-created-at="${oldCreatedAt}">
                       <div class="workspace-board__item-copy"><strong>Alpha</strong></div><span class="workspace-board__status">Zulu</span>
                     </article>
-                    <article class="workspace-board__item" data-workspace-item-key="beta" data-entity-type="task">
+                    <article class="workspace-board__item" data-workspace-item-key="beta" data-entity-type="task" data-created-at="${recentCreatedAt}">
                       <div class="workspace-board__item-copy"><strong>Beta</strong></div><span class="workspace-board__status">Alpha</span>
                     </article>
                   `}
@@ -73,13 +75,16 @@
       const toolbar = document.querySelector(".ce-v4-finder-toolbar");
       const search = document.querySelector('#workspace-board-filter-form input[name="query"]');
       const sort = document.querySelector(".ce-v4-finder-sort");
+      const dateFilter = document.querySelector(".ce-v4-finder-date-filter");
       const board = document.querySelector(".workspace-board");
       const layout = document.querySelector(".workspace-board__layout");
       const sidebar = document.querySelector(".workspace-board__sidebar");
       const alpha = document.querySelector('[data-workspace-item-key="alpha"]');
       const beta = document.querySelector('[data-workspace-item-key="beta"]');
-      sort.value = "status";
+      sort.value = "created_asc";
       sort.dispatchEvent(new Event("change", { bubbles: true }));
+      dateFilter.value = "7d";
+      dateFilter.dispatchEvent(new Event("change", { bubbles: true }));
       search.focus({ preventScroll: true });
       search.value = "beta";
       search.dispatchEvent(new Event("input", { bubbles: true }));
@@ -98,7 +103,10 @@
         searchIdentity: document.querySelector('#workspace-board-filter-form input[name="query"]') === search,
         searchFocus: document.activeElement === search,
         sortIdentity: document.querySelector(".ce-v4-finder-sort") === sort,
-        sortValue: sort.value === "status",
+        sortValue: sort.value === "created_asc",
+        dateFilterIdentity: document.querySelector(".ce-v4-finder-date-filter") === dateFilter,
+        dateFilterValue: dateFilter.value === "7d",
+        dateFilterVisibility: cards[0].hidden === true && cards[1].hidden === false,
         sortedOrder: cards.map((card) => card.dataset.workspaceItemKey).join(",") === "alpha,beta",
         cardIdentity: cards[0] === alpha && cards[1] === beta,
         cardTabIndex: cards.every((card) => card.tabIndex === -1),

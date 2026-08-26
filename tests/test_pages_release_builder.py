@@ -85,6 +85,10 @@ def test_pages_release_is_complete_version_bound_and_deterministic(
         "assets/content-factory-model-family-seedance-v1.png",
         "assets/content-factory-model-family-veo-v1.png",
         "assets/content-factory-model-family-omni-v1.png",
+        "assets/content-factory-model-happyhorse-v1.png",
+        "assets/content-factory-model-minimax-v1.png",
+        "assets/content-factory-model-grok-v1.png",
+        "assets/content-factory-model-heygen-v1.png",
         "assets/content-factory-ai-center-human-review-v1.png",
     ):
         assert model_visual_asset in manifest["sha256"]

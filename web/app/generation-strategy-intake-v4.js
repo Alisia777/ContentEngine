@@ -486,15 +486,44 @@ const MODEL_VISUALS = Object.freeze({
   pika: Object.freeze({
     image: "./assets/content-factory-model-pika-v1.png",
     focal: "50% 50%",
+    motion: "transform",
   }),
   kling: Object.freeze({
     image: "./assets/content-factory-model-kling-v1.png",
     focal: "50% 48%",
+    motion: "orbit",
   }),
   runway: Object.freeze({
     image: "./assets/content-factory-model-runway-v1.png",
     focal: "50% 50%",
+    motion: "panels",
   }),
+  happyhorse: Object.freeze({
+    image: "./assets/content-factory-model-happyhorse-v1.png",
+    focal: "50% 50%",
+    motion: "edit",
+  }),
+  seedance: Object.freeze({
+    image: "./assets/content-factory-model-family-seedance-v1.png",
+    focal: "66% 48%",
+    motion: "flow",
+  }),
+  minimax: Object.freeze({
+    image: "./assets/content-factory-model-minimax-v1.png",
+    focal: "50% 50%",
+    motion: "timeline",
+  }),
+  grok: Object.freeze({
+    image: "./assets/content-factory-model-grok-v1.png",
+    focal: "50% 50%",
+    motion: "signals",
+  }),
+  heygen: Object.freeze({
+    image: "./assets/content-factory-model-heygen-v1.png",
+    focal: "50% 50%",
+    motion: "avatar",
+  }),
+  model: Object.freeze({ motion: "workspace" }),
 });
 
 function visualArtNode(visual, className = "gi-visual-art") {
@@ -529,27 +558,43 @@ function routeSceneNode(visual) {
   image.loading = "eager";
   image.decoding = "async";
   image.draggable = false;
-  scene.append(image);
+  const motion = el("span", "generation-intake-v4__route-motion");
+  motion.append(
+    el("span", "generation-intake-v4__route-motion-layer generation-intake-v4__route-motion-layer--signal"),
+    el("span", "generation-intake-v4__route-motion-layer generation-intake-v4__route-motion-layer--scan"),
+    el("span", "generation-intake-v4__route-motion-layer generation-intake-v4__route-motion-layer--dust"),
+  );
+  scene.append(image, motion);
   return scene;
 }
 
 function modelVisualNode(visualKey) {
-  const key = Object.hasOwn(MODEL_VISUALS, visualKey) ? visualKey : "";
-  if (!key) return visualArtNode(visualKey || "model", "gi-model-choice__art");
-
+  const key = Object.hasOwn(MODEL_VISUALS, visualKey) ? visualKey : "model";
   const asset = MODEL_VISUALS[key];
   const scene = el("span", "gi-model-choice__visual");
   scene.dataset.visual = key;
-  scene.style.setProperty("--model-focal", asset.focal);
+  scene.dataset.image = asset.image ? "true" : "false";
+  scene.dataset.motion = asset.motion;
   scene.setAttribute("aria-hidden", "true");
-  const image = document.createElement("img");
-  image.className = "gi-model-choice__image";
-  image.src = new URL(asset.image, import.meta.url).href;
-  image.alt = "";
-  image.loading = "eager";
-  image.decoding = "async";
-  image.draggable = false;
-  scene.append(image);
+  if (asset.image) {
+    scene.style.setProperty("--model-focal", asset.focal);
+    const image = document.createElement("img");
+    image.className = "gi-model-choice__image";
+    image.src = new URL(asset.image, import.meta.url).href;
+    image.alt = "";
+    image.loading = "eager";
+    image.decoding = "async";
+    image.draggable = false;
+    scene.append(image);
+  }
+  const motion = el("span", "gi-model-choice__motion");
+  motion.append(
+    el("span", "gi-model-choice__motion-layer gi-model-choice__motion-layer--one"),
+    el("span", "gi-model-choice__motion-layer gi-model-choice__motion-layer--two"),
+    el("span", "gi-model-choice__motion-layer gi-model-choice__motion-layer--three"),
+    el("span", "gi-model-choice__motion-layer gi-model-choice__motion-layer--four"),
+  );
+  scene.append(motion);
   return scene;
 }
 
@@ -2240,6 +2285,7 @@ function engineVisualKey(engine) {
   if (id.includes("seedance")) return "seedance";
   if (id.includes("minimax")) return "minimax";
   if (id.includes("grok")) return "grok";
+  if (id.includes("heygen")) return "heygen";
   return "model";
 }
 
