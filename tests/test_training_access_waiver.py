@@ -167,3 +167,27 @@ def test_browser_trusts_explicit_waiver_instead_of_fake_completion() -> None:
     assert "exam.passed = true" not in APP
     assert BUILD == "20260826.rebuild-clean.13"
     assert "app.js?v=20260826.rebuild-clean.13" in INDEX
+
+
+def test_bootstrap_waiver_branch_accepts_admin_role() -> None:
+    """Боевой случай 26.08.2026: Климову и Михаилу 25.08 подняли роль до
+    admin, но waiver-ветка creator_bootstrap знала только operator/owner —
+    активный waiver администратора переставал действовать, state оставался
+    'learning', и портал гнал его в «Обязательный допуск» даже по magic-ссылке.
+    Действующее определение creator_bootstrap обязано признавать admin."""
+    fix = (
+        ROOT / "supabase/migrations/202608260002_bootstrap_waiver_admin_v1.sql"
+    ).read_text(encoding="utf-8")
+    assert "create or replace function public.creator_bootstrap" in fix
+    assert "actor_role not in ('operator', 'admin', 'owner')" in fix
+    assert "training_access_waiver_active" in fix
+    # Ни одна более поздняя миграция не переопределяет creator_bootstrap без
+    # admin в списке: последняя по имени файла — авторитет.
+    owners = sorted(
+        path
+        for path in (ROOT / "supabase/migrations").glob("*.sql")
+        if "create or replace function public.creator_bootstrap"
+        in path.read_text(encoding="utf-8")
+    )
+    latest = owners[-1].read_text(encoding="utf-8")
+    assert "actor_role not in ('operator', 'admin', 'owner')" in latest, owners[-1]
