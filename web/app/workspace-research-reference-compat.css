@@ -1,0 +1,32 @@
+.ce-reference-compat-status,
+.ce-reference-compat-recovery {
+  display: block;
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.ce-reference-compat-status[data-tone="ok"] { color: #9dd8c8; }
+.ce-reference-compat-status[data-tone="warning"] { color: #f2c17a; }
+.ce-reference-compat-status[data-tone="error"] { color: #ff9b91; }
+
+.ce-reference-compat-recovery {
+  padding: 16px;
+  border: 1px solid rgba(231, 139, 75, .28);
+  border-radius: 16px;
+  background: rgba(231, 139, 75, .07);
+}
+
+.ce-reference-compat-recovery strong,
+.ce-reference-compat-recovery p { display: block; }
+.ce-reference-compat-recovery p { margin: 6px 0 12px; }
+.ce-reference-compat-recovery button {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid rgba(231, 139, 75, .34);
+  border-radius: 12px;
+  background: rgba(231, 139, 75, .12);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
