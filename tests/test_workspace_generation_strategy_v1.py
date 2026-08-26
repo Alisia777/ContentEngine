@@ -423,10 +423,10 @@ def _run_fixture(width: int, height: int = 960) -> dict[str, object]:
 
 def test_strategy_harness_is_server_catalog_driven_and_uses_the_portal_form() -> None:
     assert (
-        'from "./generation-strategy-view.js?v=20260826.rebuild-clean.25"' in SUBJECT
+        'from "./generation-strategy-view.js?v=20260826.rebuild-clean.26"' in SUBJECT
     )
     assert (
-        'from "./generation-strategy-assets.js?v=20260826.rebuild-clean.25"' in SUBJECT
+        'from "./generation-strategy-assets.js?v=20260826.rebuild-clean.26"' in SUBJECT
     )
     assert "createGenerationStrategyViewState" in SUBJECT
     assert "reduceGenerationStrategyViewState" in SUBJECT
@@ -1047,7 +1047,8 @@ def test_strategy_engine_choice_is_step_two_above_the_fold() -> None:
     assert "Каталог движков загружается" in panel
     assert "generationIntakeEngineEmpty" in panel
     assert '"3. Комментарий"' in panel
-    # Порядок в main: товар → каскад → подсказка → комментарий → кампания.
+    # Порядок в main: товар → каскад → подсказка → комментарий → гипотеза →
+    # кампания. Гипотеза запуска стоит после замысла (26.08, контур №3).
     order = panel.split("main.append(", 1)[1].split(")", 1)[0]
     names = [line.strip().rstrip(",") for line in order.splitlines() if line.strip()]
     head = [name for name in names if name][:5]
@@ -1056,7 +1057,7 @@ def test_strategy_engine_choice_is_step_two_above_the_fold() -> None:
         "engines",
         "engineHint",
         "briefCard",
-        "compactCampaignChoice(",
+        'hypothesisPickerCard("strategy_video"',
     ], head
     # Люк «нет выбранного движка» больше не прячет карточку молча.
     guard = intake.split("if (!selectedEngine) {", 1)[1][:400]

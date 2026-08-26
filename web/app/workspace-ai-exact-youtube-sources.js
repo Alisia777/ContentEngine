@@ -6,7 +6,7 @@
  * separate analysis receipt exists.
  */
 
-import { writeExactYoutubeMediaHandoff } from "./exact-youtube-media-handoff.js?v=20260826.rebuild-clean.25";
+import { writeExactYoutubeMediaHandoff } from "./exact-youtube-media-handoff.js?v=20260826.rebuild-clean.26";
 
 const ROUTE = "/workspace/ai";
 const ROOT_ATTRIBUTE = "data-ai-exact-youtube-sources-root";

@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.25",
+  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.26",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260826.rebuild-clean.25"
+  "./generation-engine-advisor.js?v=20260826.rebuild-clean.26"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -2594,6 +2594,141 @@ function engineCascadeCard(route = "copy_video") {
   return section;
 }
 
+// Гипотеза запуска (контур №3): оператор выбирает утверждённую гипотезу, и
+// момент bind вписывает её точную версию в манифест происхождения — паспорт
+// заполняет «Зачем создан», а гипотеза копит «Запуски». Выбор необязателен.
+// Кэш по проекту; DOM обновляется только по отпечатку (панели под
+// MutationObserver — безусловные записи замкнули бы цикл).
+const hypothesisPickerState = {
+  projectId: "",
+  status: "idle",
+  items: [],
+  selectedId: "",
+};
+
+function hypothesisPickerCard(route) {
+  const card = el("section", "gi-card");
+  card.dataset.generationIntakeHypothesisCard = route;
+  card.hidden = true;
+  const title = el("h4", "gi-card__title", "Гипотеза запуска");
+  const hint = el(
+    "p",
+    "muted tiny",
+    "Необязательно. Выбранная гипотеза впишется в манифест этого запуска: паспорт ролика покажет «Зачем создан», а гипотеза соберёт свои запуски и метрики.",
+  );
+  const select = document.createElement("select");
+  select.dataset.generationIntakeHypothesis = route;
+  const status = el("p", "muted tiny", "");
+  status.dataset.generationIntakeHypothesisStatus = route;
+  select.addEventListener("change", () => {
+    void commitHypothesisSelection(select, status);
+  });
+  card.append(title, hint, select, status);
+  return card;
+}
+
+async function commitHypothesisSelection(select, status) {
+  const hypothesisId = String(select.value || "");
+  const chosen = hypothesisPickerState.items.find(
+    (item) => item.id === hypothesisId,
+  );
+  setNodeText(status, "Сохраняем выбор…");
+  try {
+    const api = await apiRuntime();
+    await api.call("creator_select_content_hypothesis", {
+      organization_id: String(api.organizationId || ""),
+      project_id: projectId(),
+      ...(hypothesisId ? { hypothesis_id: hypothesisId } : {}),
+    });
+    hypothesisPickerState.selectedId = hypothesisId;
+    setNodeText(
+      status,
+      chosen
+        ? `Следующий запуск привяжется к ${chosen.code} (утверждённая версия v${chosen.approvedVersion}).`
+        : "Запуск пойдёт без гипотезы.",
+    );
+  } catch {
+    setNodeText(status, "Выбор не сохранился. Попробуйте ещё раз.");
+  }
+}
+
+async function ensureHypothesisPicker(form, state) {
+  const currentProjectId = projectId();
+  if (!currentProjectId) return;
+  if (
+    hypothesisPickerState.projectId !== currentProjectId
+    && hypothesisPickerState.status !== "loading"
+  ) {
+    hypothesisPickerState.projectId = currentProjectId;
+    hypothesisPickerState.status = "loading";
+    try {
+      const api = await apiRuntime();
+      const data = await api.call("creator_content_hypotheses", {
+        organization_id: String(api.organizationId || ""),
+        project_id: currentProjectId,
+      });
+      const rows = Array.isArray(data?.hypotheses) ? data.hypotheses : [];
+      hypothesisPickerState.items = rows
+        .filter((row) => row?.approved && row.approved.id)
+        .map((row) => ({
+          id: String(row.id),
+          code: String(row.code || ""),
+          title: String(row.title || ""),
+          approvedVersion: Number(row.approved.version || 0),
+        }));
+      hypothesisPickerState.selectedId = String(
+        data?.operator_selection?.hypothesis_id || "",
+      );
+      hypothesisPickerState.status = "ready";
+    } catch {
+      hypothesisPickerState.status = "error";
+    }
+  }
+  renderHypothesisPickers(state);
+}
+
+function renderHypothesisPickers(state) {
+  const shell = state?.shell;
+  if (!shell) return;
+  const fingerprint = JSON.stringify([
+    hypothesisPickerState.items.map((item) => item.id),
+    hypothesisPickerState.selectedId,
+    hypothesisPickerState.status,
+  ]);
+  qa("[data-generation-intake-hypothesis-card]", shell).forEach((card) => {
+    const select = q("select[data-generation-intake-hypothesis]", card);
+    if (!(select instanceof HTMLSelectElement)) return;
+    const empty = hypothesisPickerState.status !== "ready"
+      || !hypothesisPickerState.items.length;
+    if (card.hidden !== empty) card.hidden = empty;
+    if (empty) return;
+    if (card.dataset.hypothesisFingerprint === fingerprint) return;
+    card.dataset.hypothesisFingerprint = fingerprint;
+    select.replaceChildren(
+      new Option("Без гипотезы", ""),
+      ...hypothesisPickerState.items.map((item) =>
+        new Option(`${item.code} · ${item.title} (v${item.approvedVersion})`, item.id)
+      ),
+    );
+    select.value = hypothesisPickerState.selectedId;
+    const status = q(
+      "[data-generation-intake-hypothesis-status]",
+      card,
+    );
+    if (status) {
+      const chosen = hypothesisPickerState.items.find(
+        (item) => item.id === hypothesisPickerState.selectedId,
+      );
+      setNodeText(
+        status,
+        chosen
+          ? `Следующий запуск привяжется к ${chosen.code} (утверждённая версия v${chosen.approvedVersion}).`
+          : "Запуск пойдёт без гипотезы.",
+      );
+    }
+  });
+}
+
 function copyChecklistRow(key, label) {
   const row = el("li", "gi-check");
   row.dataset.generationIntakeCheck = key;
@@ -2714,6 +2849,7 @@ function copyPanel() {
     compactCampaignChoice(),
     engineCascadeCard(),
     briefCard,
+    hypothesisPickerCard("copy_video"),
     rightsConfirmation("copy_video"),
     campaignNote,
     autoDefaults,
@@ -2859,6 +2995,7 @@ function strategyPanel() {
     engines,
     engineHint,
     briefCard,
+    hypothesisPickerCard("strategy_video"),
     compactCampaignChoice(),
     rights,
     rightsNote,
@@ -3570,6 +3707,7 @@ function refreshProductSelectionCount(form, state) {
     pendingClear.hidden = !queued.length;
   }
   refreshCopyChecklist(form, state);
+  void ensureHypothesisPicker(form, state);
   refreshEngineChoice(form, state, "copy_video");
   refreshEngineChoice(form, state, "avatar_video");
   refreshEngineChoice(form, state, "strategy_video");

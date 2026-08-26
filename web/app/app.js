@@ -3,12 +3,12 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260826.rebuild-clean.25";
+} from "./supabase-api.js?v=20260826.rebuild-clean.26";
 import {
   adminPeopleMarkup,
   normalizeAdminSnapshot,
   normalizeAdminView,
-} from "./admin-people-view.js?v=20260826.rebuild-clean.25";
+} from "./admin-people-view.js?v=20260826.rebuild-clean.26";
 import {
   clearExactYoutubeMediaHandoff,
   exactYoutubeRegisteredMediaId,
@@ -16,12 +16,12 @@ import {
   isExactYoutubeMp4,
   readExactYoutubeMediaHandoff,
   updateExactYoutubeMediaHandoffProgress,
-} from "./exact-youtube-media-handoff.js?v=20260826.rebuild-clean.25";
+} from "./exact-youtube-media-handoff.js?v=20260826.rebuild-clean.26";
 import {
   captureVerifiedPrivateVideoBlob,
   exactYoutubeResearchFailureRecovery,
   resolveExactYoutubeResearchCaptureMedia,
-} from "./exact-youtube-research-capture.js?v=20260826.rebuild-clean.25";
+} from "./exact-youtube-research-capture.js?v=20260826.rebuild-clean.26";
 import {
   approvedGenerationSpecContext,
   generationSpecApprovalReviewDecision,
@@ -34,21 +34,21 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
-} from "./generation-spec.js?v=20260826.rebuild-clean.25";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260826.rebuild-clean.25";
-import { generationStrategyRequiredSourceCount } from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.25";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.25";
+} from "./generation-spec.js?v=20260826.rebuild-clean.26";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260826.rebuild-clean.26";
+import { generationStrategyRequiredSourceCount } from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.26";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.26";
 import {
   normalizeWorkspaceInternalTarget,
   resolveWorkspaceCommand,
-} from "./workspace-command-registry.js?v=20260826.rebuild-clean.25";
+} from "./workspace-command-registry.js?v=20260826.rebuild-clean.26";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
   mergeMediaFileSelection,
   mediaFileValidationError as mediaUploadFileValidationError,
   mediaUploadWorkerCount,
-} from "./media-upload-queue.js?v=20260826.rebuild-clean.25";
+} from "./media-upload-queue.js?v=20260826.rebuild-clean.26";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -56,39 +56,39 @@ import {
   REQUIRED_MODULE_CODES,
   SIMPLE_WORKSPACE_TAB_KEYS,
   WORKSPACE_TABS,
-} from "./catalog.js?v=20260826.rebuild-clean.25";
+} from "./catalog.js?v=20260826.rebuild-clean.26";
 import {
   ACCOUNT_LAUNCH_PATH,
   accountLaunchCenterMarkup,
   accountLaunchGuideMarkup,
   accountLaunchSlugFromPath,
   evaluateAdvertisingAnswers,
-} from "./account-launch-view.js?v=20260826.rebuild-clean.25";
+} from "./account-launch-view.js?v=20260826.rebuild-clean.26";
 import {
   managerDashboardMarkup,
   managerOperationalHealthMarkup,
-} from "./manager-dashboard-view.js?v=20260826.rebuild-clean.25";
+} from "./manager-dashboard-view.js?v=20260826.rebuild-clean.26";
 import {
   generationCampaignSelectionState,
   generationSpendAllowsMinor,
   generationSpendSnapshotMarkup,
   managerGenerationSpendMarkup,
   normalizeGenerationSpendOverview,
-} from "./generation-spend-view.js?v=20260826.rebuild-clean.25";
+} from "./generation-spend-view.js?v=20260826.rebuild-clean.26";
 import {
   generationProviderReadinessPreflights,
   normalizeGenerationProviderPreflight,
-} from "./generation-provider-readiness.js?v=20260826.rebuild-clean.25";
+} from "./generation-provider-readiness.js?v=20260826.rebuild-clean.26";
 import {
   generationModelAcceptanceMarkup,
   normalizeGenerationModelAcceptance,
-} from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.25";
+} from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.26";
 import {
   accessCenterMarkup,
   ensureAccessCenterStyles,
   normalizeAccessCenterEmail,
   normalizeAccessCenterResult,
-} from "./access-center-view.js?v=20260826.rebuild-clean.25";
+} from "./access-center-view.js?v=20260826.rebuild-clean.26";
 import {
   applyResearchMarketCategoryResolution,
   applyResearchOutcomeLearningMutation,
@@ -110,7 +110,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260826.rebuild-clean.25";
+} from "./product-research-view.js?v=20260826.rebuild-clean.26";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -121,7 +121,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260826.rebuild-clean.25";
+} from "./ai-learning-control-room.js?v=20260826.rebuild-clean.26";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -137,15 +137,15 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260826.rebuild-clean.25";
+} from "./content-generation-handoff.js?v=20260826.rebuild-clean.26";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
-} from "./generation-quality-training.js?v=20260826.rebuild-clean.25";
+} from "./generation-quality-training.js?v=20260826.rebuild-clean.26";
 import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,
-} from "./generation-form-readiness.js?v=20260826.rebuild-clean.25";
+} from "./generation-form-readiness.js?v=20260826.rebuild-clean.26";
 import {
   GENERATION_STRATEGY_RUNTIME_ACTIONS,
   createGenerationStrategyRuntimeFingerprint,
@@ -159,7 +159,7 @@ import {
   invalidateGenerationStrategyRuntimeState,
   normalizeGenerationStrategyProbeResponse,
   reduceGenerationStrategyRuntimeState,
-} from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.25";
+} from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.26";
 import {
   createGenerationStrategyQueue,
   generationStrategyQueueAggregateReview,
@@ -168,33 +168,33 @@ import {
   planGenerationStrategyQueueFreeWork,
   planGenerationStrategyQueueSequentialStarts,
   updateGenerationStrategyQueueRow,
-} from "./generation-strategy-queue.js?v=20260826.rebuild-clean.25";
+} from "./generation-strategy-queue.js?v=20260826.rebuild-clean.26";
 import {
   renderGenerationStrategyQueueView,
-} from "./generation-strategy-queue-view.js?v=20260826.rebuild-clean.25";
+} from "./generation-strategy-queue-view.js?v=20260826.rebuild-clean.26";
 import {
   buildGenerationStrategySpecApprovalRequest,
   buildGenerationStrategySpecPrepareRequest,
   generationStrategySpecSafeProjection,
   normalizeGenerationStrategySpecControlResponse,
   normalizeGenerationStrategySpecPrepareResponse,
-} from "./generation-strategy-spec.js?v=20260826.rebuild-clean.25";
+} from "./generation-strategy-spec.js?v=20260826.rebuild-clean.26";
 import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
   normalizeGenerationVideoReferenceContext,
-} from "./generation-video-reference.js?v=20260826.rebuild-clean.25";
+} from "./generation-video-reference.js?v=20260826.rebuild-clean.26";
 import {
   buildGenerationFormDraft,
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260826.rebuild-clean.25";
+} from "./generation-form-draft.js?v=20260826.rebuild-clean.26";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
   resolveGenerationExpectedProductMatch,
-} from "./generation-ai-research-working-draft.js?v=20260826.rebuild-clean.25";
+} from "./generation-ai-research-working-draft.js?v=20260826.rebuild-clean.26";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -206,7 +206,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260826.rebuild-clean.25";
+} from "./generation-autopilot.js?v=20260826.rebuild-clean.26";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -228,14 +228,14 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260826.rebuild-clean.25";
+} from "./content-review-view.js?v=20260826.rebuild-clean.26";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
   createFirstShiftFullState,
   firstShiftFullScenarioMarkup,
   reduceFirstShiftFullState,
-} from "./first-shift-full-scenario.js?v=20260826.rebuild-clean.25";
+} from "./first-shift-full-scenario.js?v=20260826.rebuild-clean.26";
 import {
   GENERATION_ARCHIVE_PAGE_SIZE,
   GENERATION_VISIBLE_CAP,
@@ -250,7 +250,7 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260826.rebuild-clean.25";
+} from "./portal-experience.js?v=20260826.rebuild-clean.26";
 import {
   isWorkspaceSmartFolderId,
   normalizeWorkspaceBoard,
@@ -258,7 +258,7 @@ import {
   workspaceBoardItemKey,
   workspaceBoardPaginationState,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260826.rebuild-clean.25";
+} from "./workspace-board-view.js?v=20260826.rebuild-clean.26";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -270,7 +270,7 @@ import {
   syncTrainingWalkthroughStatus,
   trainingInteractiveMarkup,
   trainingWalkthroughStorageKey,
-} from "./training-interactive.js?v=20260826.rebuild-clean.25";
+} from "./training-interactive.js?v=20260826.rebuild-clean.26";
 import {
   LEARNING_TRACKS,
   achievementMarkup,
@@ -287,16 +287,16 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260826.rebuild-clean.25";
+} from "./training-journey.js?v=20260826.rebuild-clean.26";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
   trainingPlatformSimulatorsMarkup,
-} from "./training-platform-simulators.js?v=20260826.rebuild-clean.25";
+} from "./training-platform-simulators.js?v=20260826.rebuild-clean.26";
 import {
   bindTrainingMediaCards,
   trainingMediaCardsMarkup,
-} from "./training-media-cards.js?v=20260826.rebuild-clean.25";
+} from "./training-media-cards.js?v=20260826.rebuild-clean.26";
 import {
   normalizeTrainingPracticalProject,
   normalizeTrainingPracticalReviews,
@@ -306,7 +306,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260826.rebuild-clean.25";
+} from "./training-practical-review.js?v=20260826.rebuild-clean.26";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -325,7 +325,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260826.rebuild-clean.25";
+} from "./my-work-view.js?v=20260826.rebuild-clean.26";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -336,8 +336,8 @@ const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
   ),
 );
 const MEDIA_UPLOAD_CONCURRENCY = DEFAULT_MEDIA_UPLOAD_CONCURRENCY;
-const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260826.rebuild-clean.25";
-const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260826.rebuild-clean.25";
+const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260826.rebuild-clean.26";
+const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260826.rebuild-clean.26";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
 const MAX_MOCK_BATCH_SIZE = Math.min(50, Math.max(1, Number(CONFIG.MAX_BATCH_SIZE) || 50));
@@ -19724,24 +19724,31 @@ function hypothesisCreateFormMarkup() {
       <h2 style="font:600 1.3rem/1.2 Georgia,serif; margin:0 0 8px">Сформулировать проверяемо</h2>
       <p class="muted tiny">Шаблон: «Если [изменение], то [метрика изменится], потому что [обоснование]». Автозапуска нет — гипотеза сначала утверждается, потом тестируется, вывод делает человек.</p>
       <div class="form-stack">
-        <label class="field"><span>Название</span><input name="hypothesis_title" maxlength="200" placeholder="Товар в первые две секунды" /></label>
-        <label class="field"><span>Формулировка</span><textarea name="hypothesis_statement" rows="3" maxlength="2000" placeholder="Если показать товар в первые две секунды через резкое появление, то CTR вырастет не менее чем на 15%, потому что зритель раньше поймёт, что рекламируется."></textarea></label>
+        <label class="field"><span>Название</span><input name="hypothesis_title" maxlength="200" placeholder="Товар в первые две секунды" />
+          <small class="muted">Короткое имя для списка — по нему гипотезу находят. Код H-001 присвоится сам.</small></label>
+        <label class="field"><span>Формулировка</span><textarea name="hypothesis_statement" rows="3" maxlength="2000" placeholder="Если показать товар в первые две секунды через резкое появление, то CTR вырастет не менее чем на 15%, потому что зритель раньше поймёт, что рекламируется."></textarea>
+          <small class="muted">Одно изменение — одна гипотеза. После создания текст не редактируется: правка создаст версию v2, история сохранится.</small></label>
         <div class="form-grid-2">
           <label class="field"><span>Основная метрика</span>
             <select name="hypothesis_metric">
               ${Object.entries(HYPOTHESIS_METRIC_LABELS).map(([value, label]) => `<option value="${value}">${escapeHtml(label)}</option>`).join("")}
             </select>
+            <small class="muted">Что меряем. Именно по этой метрике будет вывод — победа по просмотрам не считается, если метрика — заказы.</small>
           </label>
           <label class="field"><span>Площадка</span>
             <select name="hypothesis_platform">
               <option value="">Не выбрана</option>
               ${["wildberries", "instagram", "youtube", "tiktok", "vk", "telegram", "other"].map((value) => `<option value="${value}">${value}</option>`).join("")}
             </select>
+            <small class="muted">Где тестируем. Сравнивать метрику между площадками нельзя — у каждой свой baseline.</small>
           </label>
-          <label class="field"><span>Baseline (текущее значение)</span><input name="hypothesis_baseline" type="number" step="any" placeholder="4.3" /></label>
-          <label class="field"><span>Цель</span><input name="hypothesis_target" type="number" step="any" placeholder="4.95" /></label>
+          <label class="field"><span>Baseline (текущее значение)</span><input name="hypothesis_baseline" type="number" step="any" placeholder="4.3" />
+            <small class="muted">Значение метрики ДО теста, от него меряем сдвиг. Можно оставить пустым, но без baseline вывод «подтверждена» будет невозможен честно.</small></label>
+          <label class="field"><span>Цель</span><input name="hypothesis_target" type="number" step="any" placeholder="4.95" />
+            <small class="muted">Какое значение метрики считаем успехом теста.</small></label>
         </div>
-        <label class="field"><span>Критерий успеха</span><input name="hypothesis_success" maxlength="500" placeholder="CTR 4.95% или выше на зрелом окне 72 часа" /></label>
+        <label class="field"><span>Критерий успеха</span><input name="hypothesis_success" maxlength="500" placeholder="CTR 4.95% или выше на зрелом окне 72 часа" />
+          <small class="muted">Словами: что должно случиться, чтобы нажать «Подтверждена». Пишется до теста — чтобы потом не подгонять ответ.</small></label>
         <p class="tiny" data-hypothesis-create-status hidden></p>
         <button class="btn btn-primary" type="button" data-action="hypothesis-create">Создать гипотезу</button>
       </div>
@@ -19789,10 +19796,12 @@ function hypothesisDetailMarkup(detail, projectId) {
         <h3 class="content-passport__section-title">${escapeHtml(`${hypothesis.code || ""} · ${hypothesis.title || ""}`)}</h3>
         <div class="content-passport__row"><span class="muted">Статус</span><span>${escapeHtml(HYPOTHESIS_STATUS_LABELS[hypothesis.lifecycle_status] || hypothesis.lifecycle_status || "—")}</span></div>
         <div class="content-passport__row"><span class="muted">Итог</span><span class="content-hypothesis-outcome" data-outcome="${escapeHtml(outcome)}">${escapeHtml(HYPOTHESIS_OUTCOME_LABELS[outcome] || outcome)}</span></div>
+        <p class="muted tiny">Путь гипотезы: черновик → утверждение версии → выбор в форме генерации («Гипотеза запуска») → ролики и метрики стекаются сюда → человеческий вывод внизу. «Статус» — где она на этом пути; «Итог» — решение человека, и его не ставит никакая автоматика.</p>
       </section>
       ${versionsMarkup}
       <section class="content-passport__section">
         <h3 class="content-passport__section-title">Запуски</h3>
+        <p class="muted tiny">Каждый запуск генерации, сделанный под этой гипотезой: выбираешь её в форме «Создание» или «Копия» (блок «Гипотеза запуска») — и наряд с манифестом появляются здесь сами.</p>
         ${launchesMarkup}
       </section>
       <section class="content-passport__section">

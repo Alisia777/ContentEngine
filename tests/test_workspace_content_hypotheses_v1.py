@@ -102,3 +102,31 @@ def test_hypotheses_screen_lives_in_the_section_loop() -> None:
     assert "Причина обязательна" in PORTAL
     assert 'contentHypotheses: "creator_content_hypotheses"' in API
     assert 'decideContentHypothesis: "creator_decide_content_hypothesis"' in API
+
+
+def test_hypothesis_launch_link_flows_through_operator_selection() -> None:
+    """Замыкание «гипотеза → запуск» (202608260011, проверено живой пробой в
+    проде: выбор → bind → манифест с точной версией, всё откатано): оператор
+    выбирает утверждённую гипотезу в формах генерации, триггер манифеста
+    читает выбор bound_by и вписывает версию. Платный контур не тронут."""
+    binding = (
+        ROOT / "supabase/migrations/202608260011_hypothesis_launch_binding_v1.sql"
+    ).read_text(encoding="utf-8")
+    assert "content_hypothesis_operator_selections" in binding
+    assert "creator_select_content_hypothesis" in binding
+    assert "content_hypothesis_version_not_approved" in binding
+    assert "on conflict on constraint content_hypothesis_operator_selections_pk" in binding
+    assert "s.profile_id = new.bound_by" in binding
+    assert "'hypothesis_version_id', selection_row.hypothesis_version_id" in binding
+    intake = (APP / "generation-strategy-intake-v4.js").read_text(encoding="utf-8")
+    # Пикер в обеих формах, DOM — только по отпечатку, выбор уходит в RPC.
+    assert intake.count("hypothesisPickerCard(") >= 3  # def + два вызова
+    assert 'hypothesisPickerCard("copy_video")' in intake
+    assert 'hypothesisPickerCard("strategy_video")' in intake
+    assert "creator_select_content_hypothesis" in intake
+    assert "hypothesisFingerprint" in intake
+    assert "Гипотеза запуска" in intake
+    # Подписи-путеводители в форме и срезе гипотезы.
+    assert "Одно изменение — одна гипотеза" in PORTAL
+    assert "Значение метрики ДО теста" in PORTAL
+    assert "Путь гипотезы: черновик" in PORTAL

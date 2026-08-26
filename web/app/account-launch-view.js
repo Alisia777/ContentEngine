@@ -2,7 +2,7 @@ import {
   ACCOUNT_LAUNCH_GUIDES,
   ADVERTISING_DECISION_STEPS,
   accountLaunchGuide,
-} from "./account-launch-guides.js?v=20260826.rebuild-clean.25";
+} from "./account-launch-guides.js?v=20260826.rebuild-clean.26";
 
 export const ACCOUNT_LAUNCH_PATH = "/learn/accounts";
 
