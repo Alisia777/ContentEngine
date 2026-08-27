@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.28",
+  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.29",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260826.rebuild-clean.28"
+  "./generation-engine-advisor.js?v=20260826.rebuild-clean.29"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -2594,6 +2594,175 @@ function engineCascadeCard(route = "copy_video") {
   return section;
 }
 
+// Оригинал по ссылке (intake v2, контур №1): человек кидает YouTube-ссылку
+// прямо в форме «Копии». Ссылка регистрируется в едином реестре источников
+// проекта, а выбранный ниже MP4 получает несмываемый след происхождения в
+// метаданных (creator_stamp_media_origin_url) — паспорт покажет «оригинал»
+// у исходника. Файл система не скачивает (ТЗ 3.3): его прикладывает человек
+// и галкой подтверждает, что это тот же ролик.
+const copyOriginState = {
+  canonical: "",
+  videoId: "",
+  sourceId: "",
+  confirmed: false,
+};
+
+function normalizeCopyOriginUrl(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return { error: "Вставьте ссылку на оригинал." };
+  let url;
+  try {
+    url = new URL(text);
+  } catch {
+    return { error: "Это не похоже на ссылку." };
+  }
+  if (url.protocol !== "https:") return { error: "Нужна https-ссылка." };
+  const host = url.hostname.toLowerCase()
+    .replace(/^www\./u, "")
+    .replace(/^m\./u, "");
+  let videoId = "";
+  if (host === "youtu.be") {
+    videoId = url.pathname.slice(1).split("/")[0] || "";
+  } else if (host === "youtube.com" || host === "youtube-nocookie.com") {
+    if (url.pathname === "/watch") videoId = url.searchParams.get("v") || "";
+    else if (
+      url.pathname.startsWith("/shorts/")
+      || url.pathname.startsWith("/embed/")
+      || url.pathname.startsWith("/live/")
+    ) videoId = url.pathname.split("/")[2] || "";
+  } else {
+    return { error: "Пока поддерживается только YouTube." };
+  }
+  videoId = String(videoId).trim();
+  if (!/^[A-Za-z0-9_-]{11}$/u.test(videoId)) {
+    return { error: "В ссылке не нашёлся код ролика YouTube (11 символов)." };
+  }
+  return { videoId, canonical: `https://youtube.com/watch?v=${videoId}` };
+}
+
+function copyOriginLinkBlock() {
+  const details = document.createElement("details");
+  details.className = "gi-origin-link";
+  details.dataset.generationIntakeCopyOrigin = "";
+  const summary = document.createElement("summary");
+  summary.textContent = "Оригинал по ссылке (необязательно)";
+  const hint = el(
+    "p",
+    "muted tiny",
+    "Если исходник взят из публичного ролика — вставьте ссылку: она зарегистрируется источником проекта, а файл получит след происхождения. Сам файл система не скачивает — его прикладываете вы.",
+  );
+  const row = el("div", "gi-origin-link__row");
+  const input = document.createElement("input");
+  input.type = "url";
+  input.placeholder = "https://youtu.be/…";
+  input.dataset.generationIntakeCopyOriginUrl = "";
+  const bindButton = el("button", "btn btn-small", "Привязать ссылку");
+  bindButton.type = "button";
+  bindButton.dataset.action = "generation-intake-copy-origin";
+  row.append(input, bindButton);
+  const confirmLabel = el("label", "gi-origin-link__confirm");
+  const confirmBox = document.createElement("input");
+  confirmBox.type = "checkbox";
+  confirmBox.dataset.generationIntakeCopyOriginConfirm = "";
+  confirmLabel.append(
+    confirmBox,
+    el(
+      "span",
+      "tiny",
+      " Подтверждаю: файл, который я прикладываю, — этот же ролик, и права на переработку есть.",
+    ),
+  );
+  const status = el("p", "muted tiny", "");
+  status.dataset.generationIntakeCopyOriginStatus = "";
+  details.append(summary, hint, row, confirmLabel, status);
+  return details;
+}
+
+async function bindCopyOriginLink(form) {
+  const shell = form?.closest?.("body") || document;
+  const input = q("[data-generation-intake-copy-origin-url]", shell);
+  const confirm = q("[data-generation-intake-copy-origin-confirm]", shell);
+  const status = q("[data-generation-intake-copy-origin-status]", shell);
+  if (!(input instanceof HTMLInputElement)) return;
+  const normalized = normalizeCopyOriginUrl(input.value);
+  if (normalized.error) {
+    if (status) setNodeText(status, normalized.error);
+    return;
+  }
+  if (!(confirm instanceof HTMLInputElement) || !confirm.checked) {
+    if (status) {
+      setNodeText(
+        status,
+        "Поставьте галку подтверждения: без неё след происхождения не ставится.",
+      );
+    }
+    return;
+  }
+  if (status) setNodeText(status, `Регистрируем ${normalized.canonical}…`);
+  try {
+    const api = await apiRuntime();
+    let sourceId = "";
+    try {
+      const registered = await api.call(
+        "contentengine_register_exact_youtube_source",
+        {
+          organization_id: String(api.organizationId || ""),
+          project_id: projectId(),
+          canonical_url: normalized.canonical,
+          video_id: normalized.videoId,
+          idempotency_key:
+            `copy-origin-${projectId()}-${normalized.videoId}`.slice(0, 180),
+        },
+      );
+      sourceId = String(
+        registered?.source?.id || registered?.data?.source?.id || "",
+      );
+    } catch {
+      // Источник уже зарегистрирован ранее — след ссылкой всё равно ставим.
+    }
+    copyOriginState.canonical = normalized.canonical;
+    copyOriginState.videoId = normalized.videoId;
+    copyOriginState.sourceId = sourceId;
+    copyOriginState.confirmed = true;
+    if (status) {
+      setNodeText(
+        status,
+        `Ссылка привязана: ${normalized.canonical}. Файл, который вы выберете, получит этот след происхождения при загрузке.`,
+      );
+    }
+  } catch {
+    if (status) {
+      setNodeText(status, "Не получилось зарегистрировать ссылку. Попробуйте ещё раз.");
+    }
+  }
+}
+
+// Штамп происхождения на исходнике «Копии». Ошибка штампа не валит запуск:
+// след — ценность, но не условие генерации.
+async function stampCopyOriginOnMedia(api, mediaId) {
+  if (!copyOriginState.confirmed || !copyOriginState.canonical) return;
+  try {
+    await api.call("creator_stamp_media_origin_url", {
+      organization_id: String(api.organizationId || ""),
+      project_id: projectId(),
+      media_id: mediaId,
+      canonical_url: copyOriginState.canonical,
+      video_id: copyOriginState.videoId,
+      ...(copyOriginState.sourceId
+        ? { source_id: copyOriginState.sourceId }
+        : {}),
+    });
+  } catch {
+    const status = q("[data-generation-intake-copy-origin-status]");
+    if (status) {
+      setNodeText(
+        status,
+        "След происхождения не записался (файл уже мог быть привязан к другой ссылке). Запуску это не мешает.",
+      );
+    }
+  }
+}
+
 // Гипотеза запуска (контур №3): оператор выбирает утверждённую гипотезу, и
 // момент bind вписывает её точную версию в манифест происхождения — паспорт
 // заполняет «Зачем создан», а гипотеза копит «Запуски». Выбор необязателен.
@@ -2851,6 +3020,7 @@ function copyPanel() {
   sourceCard.append(
     el("h4", "gi-card__title", "1. Исходный ролик"),
     sourceChooser("copy_video", null),
+    copyOriginLinkBlock(),
     storyboardNode(),
     originalFrameSlot(),
   );
@@ -7520,6 +7690,7 @@ async function ensureSourceMedia(routeState) {
   if (UUID_PATTERN.test(routeState.sourceMediaId || "")) {
     const api = await apiRuntime();
     await attachDirectMp4(api, routeState.sourceMediaId);
+    await stampCopyOriginOnMedia(api, routeState.sourceMediaId);
     return routeState.sourceMediaId;
   }
   if (!(routeState.sourceFile instanceof File)) {
@@ -7529,6 +7700,7 @@ async function ensureSourceMedia(routeState) {
     routeState.sourceFile,
     "source_video",
   );
+  await stampCopyOriginOnMedia(await apiRuntime(), routeState.sourceMediaId);
   return routeState.sourceMediaId;
 }
 
@@ -8909,6 +9081,9 @@ function bind(form, state) {
     const action = event.target.closest?.("[data-action]")?.dataset.action;
     if (action === "generation-intake-analyze-copy") void analyzeRoute(form, "copy_video");
     if (action === "generation-intake-analyze-avatar") void analyzeRoute(form, "avatar_video");
+    if (action === "generation-intake-copy-origin") {
+      void bindCopyOriginLink(form);
+    }
     if (action === "generation-intake-continue-strategy") {
       const trigger = event.target.closest?.("[data-action]");
       if (trigger?.dataset.expressPhase === "priced") {

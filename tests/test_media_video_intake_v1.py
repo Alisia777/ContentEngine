@@ -39,6 +39,37 @@ def test_video_intake_card_offers_three_ways_in_media_section() -> None:
     assert ".video-intake-grid" in CSS
 
 
+def test_copy_origin_link_stamps_file_provenance() -> None:
+    """Intake v2 (решение владельца 26.08): ссылка на оригинал прямо в форме
+    «Копии». Ссылка регистрируется единым реестром источников; выбранный файл
+    получает несмываемый след происхождения (creator_stamp_media_origin_url —
+    живая проба в проде: штамп, идемпотентность, отказ на другой URL). Файл
+    система не скачивает — его прикладывает человек с галкой подтверждения."""
+    intake = (ROOT / "web" / "app" / "generation-strategy-intake-v4.js").read_text(
+        encoding="utf-8"
+    )
+    assert "copyOriginLinkBlock()" in intake
+    assert "Оригинал по ссылке (необязательно)" in intake
+    assert "normalizeCopyOriginUrl" in intake
+    assert 'contentengine_register_exact_youtube_source' in intake
+    assert "creator_stamp_media_origin_url" in intake
+    # Галка подтверждения обязательна для следа; без неё — только регистрация.
+    assert "Поставьте галку подтверждения" in intake
+    # Штамп в обеих ветках исходника: существующий media и свежая загрузка.
+    assert intake.count("stampCopyOriginOnMedia(") >= 3  # def + 2 вызова
+    # Штамп — ценность, но не условие: его ошибка не валит запуск.
+    assert "Запуску это не мешает" in intake
+    migration = (
+        ROOT / "supabase/migrations/202608270002_media_origin_stamp_v1.sql"
+    ).read_text(encoding="utf-8")
+    assert "media_origin_already_stamped" in migration
+    assert "origin_url_canonical" in migration
+    assert "media_origin_kind_invalid" in migration
+    # Паспорт показывает происхождение у материала-исходника.
+    assert "'origin_url'" in migration.replace("''", "'")
+    assert "оригинал: " in PORTAL
+
+
 def test_video_intake_url_normalization_behaves() -> None:
     node = shutil.which("node")
     if node is None:

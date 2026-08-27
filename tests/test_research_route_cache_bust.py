@@ -43,17 +43,17 @@ def test_research_route_bootstrap_uses_content_addressed_ai_center_cache_key() -
     )
     assert (
         '"workspace-ai-research-training.js":\n'
-        '      "20260826.rebuild-clean.28"'
+        '      "20260826.rebuild-clean.29"'
         in bootstrap
     )
     assert (
         '"workspace-ai-research-training.css":\n'
-        '      "20260826.rebuild-clean.28"'
+        '      "20260826.rebuild-clean.29"'
         in bootstrap
     )
     assert (
         '"workspace-generation-research-recommendations.js":\n'
-        '      "20260826.rebuild-clean.28"'
+        '      "20260826.rebuild-clean.29"'
         in bootstrap
     )
     assert (

@@ -2905,3 +2905,34 @@
     grid-column: 1 / -1;
   }
 }
+
+/* «Оригинал по ссылке» в карточке исходника «Копии». */
+.gi-origin-link {
+  border: 1px dashed var(--intake-line, rgba(148, 163, 184, 0.35));
+  border-radius: 11px;
+  padding: 8px 11px;
+}
+
+.gi-origin-link summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.gi-origin-link__row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+
+.gi-origin-link__row input {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.gi-origin-link__confirm {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
