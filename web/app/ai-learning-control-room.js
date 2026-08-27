@@ -820,14 +820,10 @@ export function aiLearningControlRoomMarkup(snapshot, options = {}) {
       { canDecideResearchInbox, busy, busyResearchReceiptId },
     )}
 
-    ${marketLearningMarkup}
-
-    ${legacyReadOnly ? `<aside class="ai-learning-legacy-boundary" role="note">
-      <strong>Legacy safety bucket · только история</strong>
-      <span>Восемь старых product_category сохранены для совместимости и аудита. Их registrations и teaching cards не считаются анализом и больше не меняют платную генерацию. Исторические кейсы можно пометить «Верно» или «Не учить», но даже подтверждённый кейс применяется только после точной связи с товаром и evidence-порога. Для новых решений используйте точную market category выше.</span>
-    </aside>` : ""}
-
-    <div class="ai-learning-category-strip" role="group" aria-label="Legacy safety categories">
+    <!-- Выбор и действия — первым экраном (решение владельца 27.08.2026):
+         сначала «что отбирать» (категория) и «что сделать» (вкладки),
+         большой блок рыночного разбора уходит ниже панелей. -->
+    <div class="ai-learning-category-strip" role="group" aria-label="Категории обучения">
       ${control.categories.map((item) => categoryButtonMarkup(item, selectedCategory, busy)).join("")}
     </div>
 
@@ -865,6 +861,13 @@ export function aiLearningControlRoomMarkup(snapshot, options = {}) {
     <div class="ai-learning-view-panel" id="ai-learning-panel-history" role="tabpanel" aria-labelledby="ai-learning-tab-history" ${view === "history" ? "" : "hidden"} data-ce-patch-key="ai-learning-panel-history">
       ${view === "history" ? historyMarkup(category, control, legacyReadOnly) : ""}
     </div>
+
+    ${marketLearningMarkup}
+
+    ${legacyReadOnly ? `<aside class="ai-learning-legacy-boundary" role="note">
+      <strong>Legacy safety bucket · только история</strong>
+      <span>Восемь старых product_category сохранены для совместимости и аудита. Их registrations и teaching cards не считаются анализом и больше не меняют платную генерацию. Исторические кейсы можно пометить «Верно» или «Не учить», но даже подтверждённый кейс применяется только после точной связи с товаром и evidence-порога. Для новых решений используйте точную market category выше.</span>
+    </aside>` : ""}
   </section>`;
 }
 

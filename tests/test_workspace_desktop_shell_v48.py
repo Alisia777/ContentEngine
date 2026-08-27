@@ -485,7 +485,7 @@ def test_multiple_visible_live_surfaces_survive_desktop_home() -> None:
         'data-fixture-multi-desktop-obscured="true"',
         'data-fixture-multi-windows-avoid-chrome="true"',
         'data-fixture-multi-inactive-titlebar-exposed="true"',
-        'data-fixture-multi-initial-windows-tiled="true"',
+        'data-fixture-multi-initial-windows-cascade="true"',
         'data-fixture-window-titlebar-drag-moves="true"',
         'data-fixture-window-pointer-focus-raises="true"',
         'data-fixture-window-focus-keeps-parent-route="true"',
@@ -520,7 +520,7 @@ def test_window_controls_work_at_the_reported_desktop_viewport() -> None:
         'data-fixture-multi-surface-count="2"',
         'data-fixture-multi-both-surfaces-interactive="true"',
         'data-fixture-multi-parent-coordinator-parked="true"',
-        'data-fixture-multi-initial-windows-tiled="true"',
+        'data-fixture-multi-initial-windows-cascade="true"',
         'data-fixture-window-titlebar-drag-moves="true"',
         'data-fixture-window-pointer-focus-raises="true"',
         'data-fixture-window-focus-keeps-parent-route="true"',
@@ -550,12 +550,12 @@ def test_ultrawide_geometry_is_route_aware_and_stays_inside_the_workspace() -> N
         "Math.min(ordinal, 5) * (bounds.width >= 1400 ? 42 : 30)",
         "Math.min(bounds.width - width",
         "Math.min(bounds.height - height",
-        "function arrangeInitialWorkspaceWindows(",
-        "windows.length !== 2",
-        "runtime.windowGeometryTouched.has(item.windowId)",
-        "index * (width + gap)",
     ):
         assert marker in geometry
+    # Новое окно ложится каскадом ПОВЕРХ предыдущего (виден край старого);
+    # авто-тайлинг первых двух окон отменён решением владельца 27.08.2026.
+    assert "arrangeInitialWorkspaceWindows" not in CORE
+    assert "cascade ON TOP" in geometry
 
 
 def test_titlebar_drag_focus_and_desktop_isolation_keep_one_live_business_authority() -> None:
@@ -603,7 +603,7 @@ def test_titlebar_drag_focus_and_desktop_isolation_keep_one_live_business_author
 
 
 def test_dock_contract_is_the_only_visibility_and_overflow_owner() -> None:
-    assert 'from "./workspace-dock-contract.js?v=20260826.rebuild-clean.31"' in CORE
+    assert 'from "./workspace-dock-contract.js?v=20260826.rebuild-clean.32"' in CORE
     assert "createWorkspaceDockState(" in CORE
     assert "{ order: DOCK_CANONICAL_ORDER, shortcuts: {} }," in CORE
     assert "{ internalPolicy: DOCK_INTERNAL_POLICY }," in CORE

@@ -294,15 +294,24 @@
           )),
         );
         const inactiveShell = shellsBeforeHome.find((shell) => shell.dataset.ceV4WindowActive === "false");
-        const tiledWindows = managerBeforeHome.windows
+        // Каскад вместо тайлинга (решение владельца 27.08.2026): второе окно
+        // ложится ПОВЕРХ первого со сдвигом вниз-вправо, так что титлбар
+        // старого окна остаётся виден краем сверху-слева.
+        const cascadeWindows = managerBeforeHome.windows
           .filter((item) => !item.minimized)
-          .sort((left, right) => left.position.x - right.position.x);
-        document.body.dataset.fixtureMultiInitialWindowsTiled = String(Boolean(
-          tiledWindows.length === 2
-          && tiledWindows[0].size.width === tiledWindows[1].size.width
-          && tiledWindows[0].size.height === tiledWindows[1].size.height
-          && tiledWindows[0].position.y === tiledWindows[1].position.y
-          && tiledWindows[0].position.x + tiledWindows[0].size.width <= tiledWindows[1].position.x
+          .sort((left, right) => left.zIndex - right.zIndex);
+        document.body.dataset.fixtureMultiInitialWindowsCascade = String(Boolean(
+          cascadeWindows.length === 2
+          // Сдвиг вниз оставляет видимым титлбар нижнего окна…
+          && cascadeWindows[1].position.y > cascadeWindows[0].position.y
+          // …а окна перекрываются (маршрутные ширины могут различаться),
+          // то есть это каскад, а не тайлинг бок о бок.
+          && cascadeWindows[1].position.x
+            < cascadeWindows[0].position.x + cascadeWindows[0].size.width
+          && cascadeWindows[0].position.x
+            < cascadeWindows[1].position.x + cascadeWindows[1].size.width
+          && cascadeWindows[1].position.y
+            < cascadeWindows[0].position.y + cascadeWindows[0].size.height
         ));
         const inactiveTitlebar = inactiveShell?.querySelector("[data-ce-v4-window-titlebar]");
         const inactiveTitlebarRect = inactiveTitlebar?.getBoundingClientRect();
@@ -318,8 +327,8 @@
         document.body.dataset.fixtureMultiRouteGeometry = String(Boolean(
           boardWindow
           && aiWindow
-          && boardWindow.size.width === aiWindow.size.width
-          && boardWindow.size.height === aiWindow.size.height
+          // Геометрия маршрутная: широкая поверхность (board) не уже ai.
+          && boardWindow.size.width >= aiWindow.size.width
           && boardWindow.position.x >= 0
           && aiWindow.position.x >= 0
           && boardWindow.position.x + boardWindow.size.width <= window.innerWidth

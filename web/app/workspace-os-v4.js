@@ -7,11 +7,11 @@
  * DOM or transporting credentials. This module never calls business APIs.
  */
 
-import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.31";
+import { isWorkspaceActionKey, workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.32";
 import {
   createWorkspaceWindowManagerState,
   workspaceWindowManagerReducer,
-} from "./workspace-window-manager-contract.js?v=20260826.rebuild-clean.31";
+} from "./workspace-window-manager-contract.js?v=20260826.rebuild-clean.32";
 import {
   WORKSPACE_DOCK_PIN_HOVER_MS,
   WORKSPACE_DOCK_PREFERENCE_VERSION,
@@ -21,27 +21,27 @@ import {
   normalizeWorkspaceDockExternalTarget,
   selectWorkspaceDockShortcut,
   workspaceDockReducer,
-} from "./workspace-dock-contract.js?v=20260826.rebuild-clean.31";
+} from "./workspace-dock-contract.js?v=20260826.rebuild-clean.32";
 import {
   WORKSPACE_INTERNAL_APP_TABS,
   WORKSPACE_INTERNAL_SPACES,
   resolveWorkspaceCommand,
-} from "./workspace-command-registry.js?v=20260826.rebuild-clean.31";
+} from "./workspace-command-registry.js?v=20260826.rebuild-clean.32";
 import {
   countWorkspaceNotificationItems,
   evaluateWorkspaceNotificationAction,
   filterWorkspaceNotificationItems,
   formatWorkspaceNotificationBadge,
   normalizeWorkspaceNotificationFeed,
-} from "./workspace-notification-contract.js?v=20260826.rebuild-clean.31";
+} from "./workspace-notification-contract.js?v=20260826.rebuild-clean.32";
 import {
   CONTENTENGINE_EMBEDDED_WINDOW_MESSAGE,
   CONTENTENGINE_EMBEDDED_WINDOW_VERSION,
   createContentEngineEmbeddedWindowUrl,
   readContentEngineEmbeddedWindowEvent,
-} from "./workspace-embedded-window-contract.js?v=20260826.rebuild-clean.31";
+} from "./workspace-embedded-window-contract.js?v=20260826.rebuild-clean.32";
 
-const BUILD = "20260826.rebuild-clean.31";
+const BUILD = "20260826.rebuild-clean.32";
 const STORAGE_KEY = "contentengine.desktop-v4.v1";
 const FINDER_QUERY_KEY = "contentengine.desktop-v4.finder-query";
 const PROJECT_CONTEXT_KEY = "contentengine.desktop-v4.project";
@@ -62,7 +62,7 @@ const IS_EMBEDDED_WORKSPACE_WINDOW = window.CONTENTENGINE_EMBEDDED_WINDOW === tr
   || document.documentElement.dataset.ceWindowChild === "true";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const XLINK_NS = "http://www.w3.org/1999/xlink";
-const DOCK_SPRITE = new URL("./assets/workspace_dock_icon_sprite_v4_7_1.svg?v=20260826.rebuild-clean.31", import.meta.url).href;
+const DOCK_SPRITE = new URL("./assets/workspace_dock_icon_sprite_v4_7_1.svg?v=20260826.rebuild-clean.32", import.meta.url).href;
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
 const SPRING = "cubic-bezier(0.16, 1, 0.3, 1)";
 const DOCK_INTERNAL_POLICY = Object.freeze({
@@ -3711,40 +3711,13 @@ function defaultWorkspaceWindowGeometry(route = routePath()) {
 }
 
 /*
- * The second app should make the desktop feel multi-window immediately. On a
- * wide workspace, place the first two untouched windows side by side once;
- * after the operator drags or resizes either window, its geometry is theirs
- * and is never auto-arranged again.
+ * A new window opens as a cascade ON TOP of the previous one: the ordinal
+ * offset in defaultWorkspaceWindowGeometry keeps the older window's titlebar
+ * peeking out at the top-left, so the operator sees where they came from.
+ * The old auto-tiling of the first two windows (side-by-side 50/50) squeezed
+ * both surfaces and was removed by the owner's decision on 27.08.2026 —
+ * windows are never auto-arranged; their geometry belongs to the operator.
  */
-function arrangeInitialWorkspaceWindows(spaceId = runtime.windowManagerState.activeSpaceId) {
-  const windows = runtime.windowManagerState.windows
-    .filter((item) => item.spaceId === spaceId && !item.minimized)
-    .sort((left, right) => left.zIndex - right.zIndex);
-  const bounds = workspaceWindowBounds();
-  if (
-    windows.length !== 2
-    || bounds.width < 1500
-    || bounds.height < 680
-    || windows.some((item) => runtime.windowGeometryTouched.has(item.windowId))
-  ) return false;
-
-  const marginX = bounds.width >= 2400 ? 28 : 18;
-  const gap = bounds.width >= 2400 ? 24 : 18;
-  const marginY = bounds.height >= 1080 ? 42 : 24;
-  const width = Math.floor((bounds.width - marginX * 2 - gap) / 2);
-  const height = Math.min(1080, Math.max(420, bounds.height - marginY * 2));
-
-  windows.forEach((item, index) => {
-    reduceWorkspaceWindow({ type: "resize", windowId: item.windowId, size: { width, height } });
-    reduceWorkspaceWindow({
-      type: "move",
-      windowId: item.windowId,
-      position: { x: marginX + index * (width + gap), y: marginY },
-    });
-  });
-  return true;
-}
-
 function reduceWorkspaceWindow(action) {
   runtime.windowManagerState = workspaceWindowManagerReducer(runtime.windowManagerState, {
     ...action,
@@ -4879,7 +4852,6 @@ function updateWorkspaceWindow() {
         ...defaultWorkspaceWindowGeometry(route),
       },
     });
-    arrangeInitialWorkspaceWindows(spaceId);
     shouldActivateRouteWindow = true;
   } else {
     const existingWindow = runtime.windowManagerState.windows.find((item) => item.windowId === windowId);

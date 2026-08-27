@@ -1060,6 +1060,15 @@ function folderTreeMarkup(board, selectedFolderId, busy) {
                   title="Действия с папкой"
                   ${busy ? "disabled" : ""}>⋯</button>
         </li>
+        <li class="workspace-board__folder-row workspace-board__folder-row--system">
+          <a class="workspace-board__folder-button"
+             style="text-decoration:none"
+             href="#/workspace/media?view=recent"
+             title="Список загруженных фото и видео: загрузка, забор по ссылке и подготовка исходников">
+            <span class="workspace-board__folder-icon" aria-hidden="true">▧</span>
+            <span>Материалы</span>
+          </a>
+        </li>
         ${smartFolders.map((folder) => `
           <li class="workspace-board__folder-row workspace-board__folder-row--system ${selectedFolderId === folder.id ? "is-selected" : ""}"
               data-folder-id="${escapeHtml(folder.id)}"
@@ -1273,8 +1282,8 @@ function workspaceBoardOverviewMarkup(board, busy) {
     {
       key: "source",
       icon: "↙",
-      eyebrow: "Входящие материалы",
-      title: "Источники",
+      eyebrow: "Входящие исходники",
+      title: "Материалы",
       copy: "Фото, видео и документы, которые загрузили люди и подключённые источники.",
       count: boardLoadedCount(board, sourceCount, { authoritative: Boolean(sourceFolder) }),
       action: sourceFolder ? "select-workspace-folder" : "select-workspace-provenance",

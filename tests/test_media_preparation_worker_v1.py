@@ -130,3 +130,18 @@ def test_media_cards_offer_preparation_and_show_facts() -> None:
     assert "creator_enqueue_media_preparation" in PORTAL
     assert "enqueueMediaPreparation" in PORTAL
     assert ".media-preparation" in CSS
+
+
+def test_materials_are_findable_from_finder() -> None:
+    """Фидбек владельца 27.08: «ищу материалы — очень не интуитивно».
+    Список файлов с кнопками подготовки живёт во вкладке «Мои материалы»
+    (бывшие «Недавние»), вкладка загрузки подсказывает дорогу, плитка
+    обзора и быстрый доступ Finder называют раздел тем же словом."""
+    board = (ROOT / "web" / "app" / "workspace-board-view.js").read_text(
+        encoding="utf-8"
+    )
+    assert ">Мои материалы</a>" in PORTAL
+    assert "во вкладке «Мои материалы»" in PORTAL
+    assert 'title: "Материалы"' in board
+    assert 'href="#/workspace/media?view=recent"' in board
+    assert ">Материалы</span>" in board

@@ -15,7 +15,7 @@ import {
   resolveGenerationAiResearchProductIdentity,
   resolveGenerationExpectedProductMatch,
   saveGenerationAiResearchWorkingDraft,
-} from "./generation-ai-research-working-draft.js?v=20260826.rebuild-clean.31";
+} from "./generation-ai-research-working-draft.js?v=20260826.rebuild-clean.32";
 
 const ROUTE = "/workspace/generation";
 const RPC_RECOMMENDATIONS = "contentengine_generation_research_recommendations";

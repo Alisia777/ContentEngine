@@ -26,8 +26,8 @@ def test_productivity_assets_load_after_existing_workspace_memory_layers() -> No
         assert marker in INDEX
     assert INDEX.index("./workspace-desk-drafts.css") < INDEX.index("./workspace-task-productivity.css")
     assert INDEX.index("./workspace-desk-drafts.js") < INDEX.index("./workspace-task-productivity.js")
-    assert 'from "./workspace-task-productivity-core.js?v=20260826.rebuild-clean.31"' in SCRIPT
-    assert 'from "./workspace-task-productivity-panel.js?v=20260826.rebuild-clean.31"' in SCRIPT
+    assert 'from "./workspace-task-productivity-core.js?v=20260826.rebuild-clean.32"' in SCRIPT
+    assert 'from "./workspace-task-productivity-panel.js?v=20260826.rebuild-clean.32"' in SCRIPT
 
 
 def test_task_productivity_is_progressive_and_has_no_backend_side_effects() -> None:
