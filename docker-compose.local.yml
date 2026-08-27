@@ -69,7 +69,9 @@ services:
   # мастер вне браузера и вне edge. Ключ service-роли добавляет владелец в
   # .env (SUPABASE_SERVICE_ROLE_KEY) - в репозитории его нет и не будет.
   media-preparation-worker:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.local
     command:
       - python
       - scripts/media_preparation_worker.py
