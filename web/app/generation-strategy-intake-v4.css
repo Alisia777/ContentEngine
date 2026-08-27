@@ -2936,3 +2936,9 @@
   gap: 6px;
   align-items: flex-start;
 }
+
+.gi-hypothesis-statement {
+  border-left: 2px solid color-mix(in srgb, currentColor 25%, transparent);
+  padding-left: 10px;
+  font-style: italic;
+}

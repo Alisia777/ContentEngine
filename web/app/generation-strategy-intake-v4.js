@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.35",
+  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.36",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260826.rebuild-clean.35"
+  "./generation-engine-advisor.js?v=20260826.rebuild-clean.36"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -2791,10 +2791,20 @@ function hypothesisPickerCard(route) {
   select.dataset.generationIntakeHypothesis = route;
   const status = el("p", "muted tiny", "");
   status.dataset.generationIntakeHypothesisStatus = route;
+  // Формулировка выбранной гипотезы — прямо в форме: исполнитель должен
+  // понимать «если — то — потому что», а не просто видеть код (27.08).
+  const statement = el("p", "muted tiny gi-hypothesis-statement", "");
+  statement.dataset.generationIntakeHypothesisStatement = route;
+  statement.hidden = true;
+  const open = document.createElement("a");
+  open.dataset.generationIntakeHypothesisLink = route;
+  open.className = "tiny";
+  open.textContent = "Открыть гипотезу — источники, варианты и обсуждение";
+  open.hidden = true;
   select.addEventListener("change", () => {
     void commitHypothesisSelection(select, status);
   });
-  card.append(title, hint, select, status);
+  card.append(title, hint, select, status, statement, open);
   return card;
 }
 
@@ -2818,6 +2828,25 @@ async function commitHypothesisSelection(select, status) {
         ? `Следующий запуск привяжется к ${chosen.code} (утверждённая версия v${chosen.approvedVersion}).`
         : "Запуск пойдёт без гипотезы.",
     );
+    const card = select.closest("[data-generation-intake-hypothesis-card]");
+    const statement = card
+      ? q("[data-generation-intake-hypothesis-statement]", card)
+      : null;
+    if (statement instanceof HTMLElement) {
+      statement.hidden = !chosen || !chosen.statement;
+      if (chosen && chosen.statement) {
+        setNodeText(statement, `Проверяем: ${chosen.statement}`);
+      }
+    }
+    const open = card
+      ? q("[data-generation-intake-hypothesis-link]", card)
+      : null;
+    if (open instanceof HTMLAnchorElement) {
+      open.hidden = !chosen;
+      if (chosen) {
+        open.href = `#/workspace/hypotheses?project_id=${encodeURIComponent(projectId())}&hypothesis=${encodeURIComponent(chosen.id)}`;
+      }
+    }
   } catch {
     setNodeText(status, "Выбор не сохранился. Попробуйте ещё раз.");
   }
@@ -2846,6 +2875,7 @@ async function ensureHypothesisPicker(form, state) {
           code: String(row.code || ""),
           title: String(row.title || ""),
           approvedVersion: Number(row.approved.version || 0),
+          statement: String(row.approved.statement || ""),
         }));
       hypothesisPickerState.selectedId = String(
         data?.operator_selection?.hypothesis_id || "",
@@ -2897,12 +2927,39 @@ function renderHypothesisPickers(state) {
   qa("[data-generation-intake-hypothesis-card]", shell).forEach((card) => {
     const select = q("select[data-generation-intake-hypothesis]", card);
     if (!(select instanceof HTMLSelectElement)) return;
-    const empty = hypothesisPickerState.status !== "ready"
-      || !hypothesisPickerState.items.length;
-    if (card.hidden !== empty) card.hidden = empty;
-    if (empty) return;
+    // Карточка видима и без утверждённых гипотез: пункт должен находиться,
+    // а пустота — объяснять себя (фидбек владельца 27.08: «не видела этого
+    // пункта»). Прячемся только до первого ответа сервера.
+    const settled = hypothesisPickerState.status === "ready"
+      || hypothesisPickerState.status === "error";
+    const empty = !hypothesisPickerState.items.length;
+    if (card.hidden !== !settled) card.hidden = !settled;
+    if (!settled) return;
     if (card.dataset.hypothesisFingerprint === fingerprint) return;
     card.dataset.hypothesisFingerprint = fingerprint;
+    const status = q(
+      "[data-generation-intake-hypothesis-status]",
+      card,
+    );
+    const statement = q(
+      "[data-generation-intake-hypothesis-statement]",
+      card,
+    );
+    const open = q("[data-generation-intake-hypothesis-link]", card);
+    if (select.hidden !== empty) select.hidden = empty;
+    if (empty) {
+      if (status) {
+        setNodeText(
+          status,
+          hypothesisPickerState.status === "error"
+            ? "Список гипотез не загрузился — запуск пойдёт без гипотезы. Обновите страницу, чтобы попробовать ещё раз."
+            : "Утверждённых гипотез в проекте пока нет — запуск пойдёт без гипотезы. Их создают и утверждают в папке «Гипотезы» (∴ в Dock).",
+        );
+      }
+      if (statement instanceof HTMLElement) statement.hidden = true;
+      if (open instanceof HTMLElement) open.hidden = true;
+      return;
+    }
     select.replaceChildren(
       new Option("Без гипотезы", ""),
       ...hypothesisPickerState.items.map((item) =>
@@ -2910,14 +2967,10 @@ function renderHypothesisPickers(state) {
       ),
     );
     select.value = hypothesisPickerState.selectedId;
-    const status = q(
-      "[data-generation-intake-hypothesis-status]",
-      card,
+    const chosen = hypothesisPickerState.items.find(
+      (item) => item.id === hypothesisPickerState.selectedId,
     );
     if (status) {
-      const chosen = hypothesisPickerState.items.find(
-        (item) => item.id === hypothesisPickerState.selectedId,
-      );
       setNodeText(
         status,
         chosen
@@ -2928,6 +2981,18 @@ function renderHypothesisPickers(state) {
           }.`
           : "Запуск пойдёт без гипотезы.",
       );
+    }
+    if (statement instanceof HTMLElement) {
+      statement.hidden = !chosen || !chosen.statement;
+      if (chosen && chosen.statement) {
+        setNodeText(statement, `Проверяем: ${chosen.statement}`);
+      }
+    }
+    if (open instanceof HTMLAnchorElement) {
+      open.hidden = !chosen;
+      if (chosen) {
+        open.href = `#/workspace/hypotheses?project_id=${encodeURIComponent(projectId())}&hypothesis=${encodeURIComponent(chosen.id)}`;
+      }
     }
   });
 }
@@ -3109,6 +3174,7 @@ function avatarPanel() {
     engineCascadeCard("avatar_video"),
     compactCampaignChoice(),
     recommendationSlot("avatar_video"),
+    hypothesisPickerCard("avatar_video"),
     rightsConfirmation("avatar_video"),
     el(
       "p",

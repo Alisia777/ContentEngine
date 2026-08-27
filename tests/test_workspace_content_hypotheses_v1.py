@@ -119,10 +119,16 @@ def test_hypothesis_launch_link_flows_through_operator_selection() -> None:
     assert "s.profile_id = new.bound_by" in binding
     assert "'hypothesis_version_id', selection_row.hypothesis_version_id" in binding
     intake = (APP / "generation-strategy-intake-v4.js").read_text(encoding="utf-8")
-    # Пикер в обеих формах, DOM — только по отпечатку, выбор уходит в RPC.
-    assert intake.count("hypothesisPickerCard(") >= 3  # def + два вызова
+    # Пикер во всех трёх формах, DOM — только по отпечатку, выбор уходит в RPC.
+    assert intake.count("hypothesisPickerCard(") >= 4  # def + три вызова
     assert 'hypothesisPickerCard("copy_video")' in intake
     assert 'hypothesisPickerCard("strategy_video")' in intake
+    assert 'hypothesisPickerCard("avatar_video")' in intake
+    # Пункт находим всегда: пустой список объясняет себя, а не прячет карточку;
+    # выбранная гипотеза показывает исполнителю формулировку и ссылку в срез.
+    assert "Утверждённых гипотез в проекте пока нет" in intake
+    assert "Проверяем: ${chosen.statement}" in intake
+    assert "Открыть гипотезу — источники, варианты и обсуждение" in intake
     assert "creator_select_content_hypothesis" in intake
     assert "hypothesisFingerprint" in intake
     assert "Гипотеза запуска" in intake
