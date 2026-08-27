@@ -187,3 +187,20 @@ def test_hypothesis_sources_and_variant_results() -> None:
     assert "bindContentHypothesisSource" in PORTAL
     assert "contentengine_exact_youtube_source_queue" in PORTAL
     assert "Источники-доказательства" in PORTAL
+
+
+def test_team_people_show_assigned_hypotheses_and_docs_exist() -> None:
+    """«В админке людей закреплять за гипотезой»: таблица «Команда → Люди»
+    несёт колонку «Гипотезы» — коды закреплённых, ссылками в срез; данные —
+    экранный джойн двух существующих ответов, отказ дозапроса таблицу не
+    ломает. Документация трёх контуров (ТЗ раздел 10) существует."""
+    assert "<th>Гипотезы</th>" in PORTAL
+    assert "teamMemberHypothesesMarkup" in PORTAL
+    assert "_hypotheses" in PORTAL
+    for name in (
+        "CONTENT_SOURCE_INTAKE_V1.md",
+        "CONTENT_RESULT_PASSPORT_V1.md",
+        "CONTENT_HYPOTHESES_WORKSPACE_V1.md",
+    ):
+        doc = (ROOT / "docs" / name).read_text(encoding="utf-8")
+        assert len(doc) > 800, name

@@ -165,8 +165,8 @@ def test_browser_trusts_explicit_waiver_instead_of_fake_completion() -> None:
         "trainingCatalogReady()"
     )
     assert "exam.passed = true" not in APP
-    assert BUILD == "20260826.rebuild-clean.29"
-    assert "app.js?v=20260826.rebuild-clean.29" in INDEX
+    assert BUILD == "20260826.rebuild-clean.30"
+    assert "app.js?v=20260826.rebuild-clean.30" in INDEX
 
 
 def test_bootstrap_waiver_branch_accepts_admin_role() -> None:

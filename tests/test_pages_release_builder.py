@@ -36,7 +36,7 @@ def test_pages_release_is_complete_version_bound_and_deterministic(
     output, manifest = _build(tmp_path)
 
     assert manifest["app_script"] == (
-        "./app.js?v=20260826.rebuild-clean.29"
+        "./app.js?v=20260826.rebuild-clean.30"
     )
     assert manifest["learning_gate_version"] == "2026-07-29.v8"
     assert manifest["artifact_file_count"] == len(manifest["sha256"])
