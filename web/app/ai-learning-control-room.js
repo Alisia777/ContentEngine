@@ -1760,10 +1760,38 @@ function teachingDecisionMarkup(card) {
   </div>`;
 }
 
+// Сервер пишет журнал техническими формулами («Use trust building in this
+// category», «operator_confirmed»). Человеку показываем русскую расшифровку,
+// а серверную формулировку оставляем мелкой строкой — журнал append-only,
+// его смысл нельзя терять (фидбек владельца 27.08: «не всегда понятен смысл»).
+const ANGLE_TITLE_ALIASES = Object.freeze({
+  trust_building: "trust_builder",
+});
+
+const ACTIVITY_DESCRIPTION_LABELS = Object.freeze({
+  operator_confirmed: "Человек подтвердил: ИИ может использовать этот приём в категории.",
+  operator_rejected: "Человек отклонил: ИИ не использует этот приём в категории.",
+});
+
+function humanizeActivityTitle(rawTitle) {
+  const title = String(rawTitle || "");
+  const use = /^use\s+(.+?)\s+in\s+this\s+category$/iu.exec(title.trim());
+  if (!use) return null;
+  const slug = use[1].toLowerCase().replace(/[\s-]+/gu, "_");
+  const key = Object.hasOwn(CREATIVE_ANGLE_LABELS, slug)
+    ? slug
+    : ANGLE_TITLE_ALIASES[slug] || "";
+  const angle = key ? CREATIVE_ANGLE_LABELS[key] : use[1];
+  return `Приём «${angle}» — использовать в этой категории`;
+}
+
 function activityMarkup(item) {
+  const humanTitle = humanizeActivityTitle(item.title);
+  const description = ACTIVITY_DESCRIPTION_LABELS[String(item.description || "").trim()]
+    || item.description;
   return `<li data-ce-patch-key="ai-activity-${escapeHtml(item.id)}">
     <span class="is-${escapeHtml(item.tone)}" aria-hidden="true"></span>
-    <div><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.description)}</p><small>${item.actor ? `${escapeHtml(item.actor)} · ` : ""}${escapeHtml(formatDateTime(item.createdAt) || "Время не указано")}${item.stateVersion ? ` · state ${item.stateVersion}` : ""}</small></div>
+    <div><strong>${escapeHtml(humanTitle || item.title)}</strong><p>${escapeHtml(description)}</p><small>${humanTitle ? `${escapeHtml(item.title)} · ` : ""}${item.actor ? `${escapeHtml(item.actor)} · ` : ""}${escapeHtml(formatDateTime(item.createdAt) || "Время не указано")}${item.stateVersion ? ` · state ${item.stateVersion}` : ""}</small></div>
   </li>`;
 }
 

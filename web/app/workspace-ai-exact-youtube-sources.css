@@ -136,3 +136,10 @@
     justify-content: center;
   }
 }
+.ai-exact-youtube-source__hints {
+  display: block;
+  margin-top: 8px;
+  opacity: 0.62;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}

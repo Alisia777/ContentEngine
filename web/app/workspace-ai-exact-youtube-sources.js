@@ -6,7 +6,7 @@
  * separate analysis receipt exists.
  */
 
-import { writeExactYoutubeMediaHandoff } from "./exact-youtube-media-handoff.js?v=20260826.rebuild-clean.32";
+import { writeExactYoutubeMediaHandoff } from "./exact-youtube-media-handoff.js?v=20260826.rebuild-clean.33";
 
 const ROUTE = "/workspace/ai";
 const ROOT_ATTRIBUTE = "data-ai-exact-youtube-sources-root";
@@ -216,6 +216,23 @@ function exactReviewHash(source, attachedMediaId) {
     purpose: "exact_youtube_research",
   });
 }
+
+// «Что произойдёт при нажатии» — расшифровка каждой кнопки карточки простыми
+// словами (фидбек владельца 27.08: «что такое создать рекомендации, что такое
+// открыть исследование»). Ключ — точная подпись кнопки.
+const ACTION_HINTS = Object.freeze({
+  "Создать с рекомендациями": "откроется форма «Создать», выводы и сценарии этого разбора уже подставлены в запуск.",
+  "Открыть исследование": "откроется сам разбор ролика: факты, сценарии и решения человека.",
+  "Открыть Исследования": "откроется раздел разборов этого проекта.",
+  "Подготовить кадры для исследования": "выберете пять контрольных кадров из MP4 — без них разбор не начинается.",
+  "Отобрать для обучения": "отметите полезные выводы и сценарии — только они станут рекомендациями для запусков.",
+  "Открыть текущий запуск": "откроется сохранённый запуск разбора и его статус.",
+  "Проверить исследование": "откроется сохранённый запуск — там видно, на чём он остановился.",
+  "Открыть завершённый запуск": "откроется готовый результат разбора.",
+  "Открыть ИИ-центр": "вернётесь к категориям обучения ИИ.",
+  "Загрузить MP4 и продолжить": "выберете файл ролика — он привяжется к этому источнику для разбора.",
+  "Проверить сохранённый файл": "откроются файлы проекта на сохранённом MP4 этого источника.",
+});
 
 export function lifecyclePresentation(source, attachedMediaId) {
   const lifecycle = researchLifecycle(source);
@@ -489,6 +506,8 @@ function sourceCard(source) {
     presentation.primaryLabel,
   );
   primary.href = presentation.primaryHref;
+  const primaryHint = ACTION_HINTS[presentation.primaryLabel] || "";
+  if (primaryHint) primary.title = primaryHint;
   if (!attached && !restore) {
     primary.dataset.exactYoutubeQueueUpload = "true";
     primary.addEventListener("click", (event) => {
@@ -501,6 +520,7 @@ function sourceCard(source) {
     });
   }
   actions.append(primary);
+  let secondaryHint = "";
   if (
     presentation.secondaryLabel
     && presentation.secondaryHref
@@ -512,10 +532,19 @@ function sourceCard(source) {
       presentation.secondaryLabel,
     );
     secondary.href = presentation.secondaryHref;
+    secondaryHint = ACTION_HINTS[presentation.secondaryLabel] || "";
+    if (secondaryHint) secondary.title = secondaryHint;
     actions.append(secondary);
   }
 
   card.append(head, link, explanation, meta, actions);
+  const hintParts = [
+    primaryHint ? `«${presentation.primaryLabel}» — ${primaryHint}` : "",
+    secondaryHint ? `«${presentation.secondaryLabel}» — ${secondaryHint}` : "",
+  ].filter(Boolean);
+  if (hintParts.length) {
+    card.append(el("small", "ai-exact-youtube-source__hints", hintParts.join(" ")));
+  }
   return card;
 }
 
