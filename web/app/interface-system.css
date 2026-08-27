@@ -1384,3 +1384,16 @@ html[data-portal-theme="obsidian"] .alert-info {
 [data-video-intake-status][data-state="ok"] {
   color: var(--success, #4ade80);
 }
+
+.media-preparation {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.media-preparation .inline-actions {
+  gap: 6px;
+}

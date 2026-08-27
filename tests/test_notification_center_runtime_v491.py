@@ -162,7 +162,7 @@ def test_app_bridge_uses_registry_then_existing_router_then_exact_read() -> None
     )
     open_flow = handler[handler.index("const validation =") :]
 
-    assert 'from "./workspace-command-registry.js?v=20260826.rebuild-clean.30"' in source
+    assert 'from "./workspace-command-registry.js?v=20260826.rebuild-clean.31"' in source
     assert "resolveWorkspaceCommand({" in source
     assert "source: \"notification\"" in source
     assert "policy?.dispatchCount !== 1" in source
@@ -228,9 +228,9 @@ def test_release_literals_are_not_changed_by_notification_integration() -> None:
     registry = _read(REGISTRY)
     # 25.08: живые пины импортов переведены на единый текущий штамп сборки —
     # эпоха os4.41 в app.js закончилась вместе с кэш-ловушкой F5.
-    assert "20260826.rebuild-clean.30" in app
+    assert "20260826.rebuild-clean.31" in app
     assert "20260814.os4.41" not in app
-    assert 'const BUILD = "20260826.rebuild-clean.30"' in shell
+    assert 'const BUILD = "20260826.rebuild-clean.31"' in shell
     assert 'WORKSPACE_COMMAND_REGISTRY_CONTRACT_VERSION = "4.9.1"' in registry
     assert "os4.40" not in app
     assert "os4.40" not in shell

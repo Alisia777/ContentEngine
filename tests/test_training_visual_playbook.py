@@ -543,9 +543,9 @@ def test_spa_consumes_the_v2_schema_without_raw_markup_or_hash_router_regression
     assert 'aria-current="page"' in APP
     assert 'aria-controls="mobile-navigation"' in APP
 
-    assert './styles.css?v=20260826.rebuild-clean.30' in INDEX
-    assert './config.js?v=20260826.rebuild-clean.30' in INDEX
-    assert BUILD == "20260826.rebuild-clean.30"
-    assert './app.js?v=20260826.rebuild-clean.30' in INDEX
-    assert './supabase-api.js?v=20260826.rebuild-clean.30' in APP
-    assert './catalog.js?v=20260826.rebuild-clean.30' in APP
+    assert './styles.css?v=20260826.rebuild-clean.31' in INDEX
+    assert './config.js?v=20260826.rebuild-clean.31' in INDEX
+    assert BUILD == "20260826.rebuild-clean.31"
+    assert './app.js?v=20260826.rebuild-clean.31' in INDEX
+    assert './supabase-api.js?v=20260826.rebuild-clean.31' in APP
+    assert './catalog.js?v=20260826.rebuild-clean.31' in APP

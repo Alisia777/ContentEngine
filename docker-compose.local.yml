@@ -64,3 +64,21 @@ services:
     volumes:
       - ./.local/site:/usr/share/nginx/html:ro
       - ./dev/nginx.local.conf:/etc/nginx/conf.d/default.conf:ro
+
+  # Provider-free воркер подготовки видео (ТЗ 3.8-3.9): анализ MP4 и чистый
+  # мастер вне браузера и вне edge. Ключ service-роли добавляет владелец в
+  # .env (SUPABASE_SERVICE_ROLE_KEY) - в репозитории его нет и не будет.
+  media-preparation-worker:
+    build: .
+    command:
+      - python
+      - scripts/media_preparation_worker.py
+    restart: unless-stopped
+    environment:
+      SUPABASE_URL: "https://iyckwryrucqrxwlowxow.supabase.co"
+      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-}"
+      MEDIA_WORKER_POLL_SECONDS: "3"
+      QVF_FFMPEG_PATH: ffmpeg
+      QVF_FFPROBE_PATH: ffprobe
+    volumes:
+      - .:/app
