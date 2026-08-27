@@ -197,6 +197,12 @@ def test_team_people_show_assigned_hypotheses_and_docs_exist() -> None:
     assert "<th>Гипотезы</th>" in PORTAL
     assert "teamMemberHypothesesMarkup" in PORTAL
     assert "_hypotheses" in PORTAL
+    # Выдача прямо из таблицы («где гипотезу выдать», 27.08): селект в ячейке
+    # зовёт тот же RPC закрепления, право проверяет сервер.
+    assert "data-team-hypothesis-assign" in PORTAL
+    assert "Выдать гипотезу…" in PORTAL
+    assert "assignHypothesisFromTeam" in PORTAL
+    assert PORTAL.count('"creator_assign_content_hypothesis_owner"') == 2
     for name in (
         "CONTENT_SOURCE_INTAKE_V1.md",
         "CONTENT_RESULT_PASSPORT_V1.md",
