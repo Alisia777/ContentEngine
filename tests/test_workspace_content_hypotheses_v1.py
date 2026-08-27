@@ -158,3 +158,32 @@ def test_hypothesis_owner_and_passport_hypothesis() -> None:
     assert "assignedId" in intake
     assert "autoAppliedFor" in intake
     assert "назначена вам" in intake
+
+
+def test_hypothesis_sources_and_variant_results() -> None:
+    """Источники-доказательства и сравнение вариантов (202608270001, живая
+    проба: привязка идемпотентна тем же binding_id, delete отбит guard'ом,
+    evidence_sources и launches читаются; откатано)."""
+    sources = (
+        ROOT / "supabase/migrations/202608270001_hypothesis_sources_and_results_v1.sql"
+    ).read_text(encoding="utf-8")
+    assert "content_hypothesis_source_bindings" in sources
+    assert "content_hypothesis_source_binding_append_only" in sources
+    assert "creator_bind_content_hypothesis_source" in sources
+    assert "canonical_url_snapshot" in sources
+    assert "on conflict on constraint content_hypothesis_source_bindings_uq" in sources
+    # Варианты: результат, движок и последний снимок метрик по каждому запуску.
+    assert "'result_media_id', (" in sources.replace("''", "'")
+    assert "'metrics', (" in sources.replace("''", "'")
+    assert "interval '72 hours'" in sources.replace("''", "'")
+    # Экран: буквы вариантов, основная метрика гипотезы, лучший только среди
+    # зрелых и только по основной метрике; человеческий вывод остаётся внизу.
+    assert "Вариант ${letter}" in PORTAL
+    assert "metricValueOf" in PORTAL
+    assert "content-hypothesis-variant--best" in PORTAL
+    assert "лучшее значение основной метрики среди зрелых данных" in PORTAL
+    # Привязка ссылки: та же нормализация, реестр источников один.
+    assert "hypothesis-bind-source" in PORTAL
+    assert "bindContentHypothesisSource" in PORTAL
+    assert "contentengine_exact_youtube_source_queue" in PORTAL
+    assert "Источники-доказательства" in PORTAL

@@ -103,7 +103,7 @@ process.stdout.write(JSON.stringify({{
 
 
 def test_generation_repair_and_recurring_learning_surface_targeted_training() -> None:
-    assert 'from "./generation-quality-training.js?v=20260826.rebuild-clean.27"' in APP
+    assert 'from "./generation-quality-training.js?v=20260826.rebuild-clean.28"' in APP
     assert APP.count("generationQualityTrainingRecommendation(policy)") >= 2
     assert "generation-quality-training-link" in APP
     assert "Точечное повторение после QA" in APP
@@ -113,5 +113,5 @@ def test_generation_repair_and_recurring_learning_surface_targeted_training() ->
     assert ".quality-training-arrival" in STYLES
     assert "@media (max-width: 760px)" in STYLES
     assert "min-width: 0;" in STYLES
-    assert "app.js?v=20260826.rebuild-clean.27" in INDEX
-    assert "styles.css?v=20260826.rebuild-clean.27" in INDEX
+    assert "app.js?v=20260826.rebuild-clean.28" in INDEX
+    assert "styles.css?v=20260826.rebuild-clean.28" in INDEX
