@@ -203,6 +203,8 @@ def test_team_people_show_assigned_hypotheses_and_docs_exist() -> None:
     assert "Выдать гипотезу…" in PORTAL
     assert "assignHypothesisFromTeam" in PORTAL
     assert PORTAL.count('"creator_assign_content_hypothesis_owner"') == 2
+    # Пустой проект объясняет себя: подсказка со ссылкой в папку «Гипотезы».
+    assert "потому что в проекте ещё нет ни одной гипотезы" in PORTAL
     for name in (
         "CONTENT_SOURCE_INTAKE_V1.md",
         "CONTENT_RESULT_PASSPORT_V1.md",

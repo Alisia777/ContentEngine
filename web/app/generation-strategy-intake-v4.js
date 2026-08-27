@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.34",
+  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.35",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260826.rebuild-clean.34"
+  "./generation-engine-advisor.js?v=20260826.rebuild-clean.35"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
