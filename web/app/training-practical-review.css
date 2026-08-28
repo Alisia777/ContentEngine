@@ -3,9 +3,9 @@
   overflow: hidden;
   margin: 22px 0;
   padding: clamp(22px, 4vw, 40px);
-  border-color: color-mix(in srgb, var(--accent, #b88a35) 24%, var(--line));
+  border-color: color-mix(in srgb, var(--accent, #c9a44a) 24%, var(--line));
   background:
-    radial-gradient(circle at 92% 6%, color-mix(in srgb, var(--accent, #b88a35) 13%, transparent), transparent 25%),
+    radial-gradient(circle at 92% 6%, color-mix(in srgb, var(--accent, #c9a44a) 13%, transparent), transparent 25%),
     var(--surface, #fff);
 }
 
@@ -15,9 +15,9 @@
   bottom: -54px;
   width: 180px;
   height: 180px;
-  border: 1px solid color-mix(in srgb, var(--accent, #b88a35) 22%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent, #c9a44a) 22%, transparent);
   border-radius: 50%;
-  box-shadow: 0 0 0 22px color-mix(in srgb, var(--accent, #b88a35) 5%, transparent);
+  box-shadow: 0 0 0 22px color-mix(in srgb, var(--accent, #c9a44a) 5%, transparent);
   content: "";
   pointer-events: none;
 }
@@ -58,10 +58,10 @@
   width: 68px;
   height: 68px;
   place-items: center;
-  border: 1px solid color-mix(in srgb, var(--accent, #b88a35) 32%, var(--line));
+  border: 1px solid color-mix(in srgb, var(--accent, #c9a44a) 32%, var(--line));
   border-radius: 50%;
-  background: color-mix(in srgb, var(--accent, #b88a35) 8%, var(--surface));
-  color: var(--accent-strong, #7f5b1b);
+  background: color-mix(in srgb, var(--accent, #c9a44a) 8%, var(--surface));
+  color: var(--accent-strong, #a98a3a);
   font: 700 1.45rem/1 Georgia, serif;
 }
 
@@ -74,7 +74,7 @@
   padding: 16px 18px;
   border: 1px solid var(--line);
   border-radius: 16px;
-  background: color-mix(in srgb, var(--surface) 91%, var(--accent, #b88a35));
+  background: color-mix(in srgb, var(--surface) 91%, var(--accent, #c9a44a));
 }
 
 .training-practical__review-note strong,
@@ -170,14 +170,14 @@
   padding: 13px 14px;
   border: 1px solid var(--line);
   border-radius: 14px;
-  background: color-mix(in srgb, var(--surface) 96%, var(--accent, #b88a35));
+  background: color-mix(in srgb, var(--surface) 96%, var(--accent, #c9a44a));
   cursor: pointer;
 }
 
 .training-practical__source label:has(input:checked),
 .training-practical__checks label:has(input:checked) {
-  border-color: color-mix(in srgb, var(--accent, #b88a35) 55%, var(--line));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #b88a35) 8%, transparent);
+  border-color: color-mix(in srgb, var(--accent, #c9a44a) 55%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #c9a44a) 8%, transparent);
 }
 
 .training-practical__source input,
@@ -200,8 +200,8 @@
 .training-practical__waiting > span {
   width: 13px;
   height: 13px;
-  border: 2px solid color-mix(in srgb, var(--accent, #b88a35) 24%, transparent);
-  border-top-color: var(--accent, #b88a35);
+  border: 2px solid color-mix(in srgb, var(--accent, #c9a44a) 24%, transparent);
+  border-top-color: var(--accent, #c9a44a);
   border-radius: 50%;
   animation: practical-spin .9s linear infinite;
 }
@@ -243,7 +243,7 @@
   padding: 18px;
   border: 1px solid var(--line);
   border-radius: 18px;
-  background: color-mix(in srgb, var(--surface) 97%, var(--accent, #b88a35));
+  background: color-mix(in srgb, var(--surface) 97%, var(--accent, #c9a44a));
 }
 
 .training-practical-review__identity {
@@ -258,7 +258,7 @@
   height: 38px;
   place-items: center;
   border-radius: 50%;
-  background: var(--accent, #b88a35);
+  background: var(--accent, #c9a44a);
   color: #fff;
   font-weight: 700;
 }
@@ -281,7 +281,7 @@
 .training-practical-review__immutable-note {
   margin: 0;
   padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, #b7791f 42%, var(--line));
+  border: 1px solid color-mix(in srgb, #c9a44a 42%, var(--line));
   border-radius: 12px;
   background: color-mix(in srgb, #f6c453 12%, var(--surface));
   color: var(--text);

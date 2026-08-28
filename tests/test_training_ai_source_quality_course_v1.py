@@ -54,3 +54,47 @@ def test_seed_is_idempotent_and_active_between_neighbours() -> None:
     assert "'ai_source_quality'" in MIGRATION
     assert "35," in MIGRATION  # между video_quality (30) и publishing_funnel (40)
     assert "updated_at = now()" in MIGRATION
+
+
+def test_old_courses_no_longer_teach_july_modes() -> None:
+    """Актуализация 28.08 (202608280002/0003, применено в прод, проверено
+    SQL-сверкой: ни 2K, ни Gen-4/Seedance, ни июльских цен в уроках): уроки
+    описывают стратегии «Копия»/«Создание»/«Дуэт» и ползунок качества."""
+    refresh = (
+        ROOT / "supabase/migrations/202608280002_training_courses_refresh_strategies.sql"
+    ).read_text(encoding="utf-8")
+    visual = (
+        ROOT / "supabase/migrations/202608280003_training_factory_basics_decision_visual.sql"
+    ).read_text(encoding="utf-8")
+    for text, name in ((refresh, "refresh"), (visual, "visual")):
+        assert "«Копия»" in text, name
+        assert "Дуэт" in text, name
+        assert "ползунок" in text.lower(), name
+        # Fail-closed: без старого текста миграция падает, а не молчит.
+        assert "raise exception" in text, name
+        assert "not like '%2K%'" in text or "not ilike '%2K%'" in text, name
+
+
+def test_academy_palette_is_cold_not_copper_brown() -> None:
+    """Перекраска академии (фидбек владельца 28.08: «коричневый — это
+    старый»): холст и акценты #/learn приведены к рабочему столу. Старые
+    медно-коричневые литералы в learn-CSS запрещены."""
+    app = ROOT / "web" / "app"
+    banned = (
+        "#e78345", "#ffad73", "#a94c20", "#0c0a09", "#191512", "#fff8ef",
+        "#8c6722", "#a67820", "rgba(231, 131, 69", "rgba(240, 154, 96",
+        "rgba(24, 21, 18", "rgba(244, 226, 202",
+    )
+    for name in (
+        "learning-premium.css", "learning-premium-components.css",
+        "learning-premium-motion.css", "training-journey.css",
+        "training-media-cards.css", "training-interactive.css",
+        "training-platform-simulators.css", "training-practical-review.css",
+        "workspace-academy-lab-v3.css", "workspace-academy-os-v2.css",
+    ):
+        css = (app / name).read_text(encoding="utf-8").lower()
+        for literal in banned:
+            assert literal not in css, (name, literal)
+    premium = (app / "learning-premium.css").read_text(encoding="utf-8")
+    assert "--learn-canvas: #070b12" in premium
+    assert "--learn-copper: #d7ad59" in premium

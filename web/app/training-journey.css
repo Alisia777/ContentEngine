@@ -96,7 +96,7 @@
   width: 54px;
   height: 54px;
   border-radius: 17px;
-  color: var(--gold-ink, #8c6722);
+  color: var(--gold-ink, #caa64e);
   background: color-mix(in srgb, var(--gold, #c9a45f) 20%, var(--surface));
   font-family: Georgia, serif;
   font-size: 1.35rem;
@@ -162,7 +162,7 @@
   padding: 10px 14px;
   border: 1px solid color-mix(in srgb, var(--gold, #c9a45f) 42%, var(--line));
   border-radius: 999px;
-  color: var(--gold-ink, #8c6722);
+  color: var(--gold-ink, #caa64e);
   background: color-mix(in srgb, var(--gold, #c9a45f) 12%, var(--surface));
   font-weight: 850;
   white-space: nowrap;
@@ -205,7 +205,7 @@
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--gold, #c9a45f) 42%, var(--line));
   border-radius: 50%;
-  color: var(--gold-ink, #8c6722);
+  color: var(--gold-ink, #caa64e);
   background: color-mix(in srgb, var(--gold, #c9a45f) 14%, var(--surface));
   font-family: Georgia, serif;
   font-size: 1.35rem;
@@ -414,7 +414,7 @@
   height: 38px;
   border: 1px solid color-mix(in srgb, var(--gold) 46%, var(--line));
   border-radius: 12px;
-  color: var(--gold-ink, #8c6722);
+  color: var(--gold-ink, #caa64e);
   background: var(--gold-pale);
   flex: 0 0 auto;
   font-family: Georgia, serif;
@@ -896,7 +896,7 @@
   margin: 12px auto 20px;
   border: 1px solid color-mix(in srgb, var(--gold, #d6b26a) 70%, #fff);
   border-radius: 34px 34px 46px 34px;
-  color: #fff9e9;
+  color: #f3f7fb;
   background: linear-gradient(145deg, var(--forest), color-mix(in srgb, var(--forest) 62%, #000));
   box-shadow: 0 0 36px color-mix(in srgb, var(--gold, #d6b26a) 42%, transparent);
   animation: achievement-glow 1.7s ease-in-out 420ms 2 alternate;

@@ -15,37 +15,37 @@
 .learning-page.learning-premium-v3 .learning-now {
   margin-top: 0;
   padding: clamp(24px, 3vw, 38px);
-  border: 1px solid rgba(240, 154, 96, 0.2);
+  border: 1px solid rgba(226, 189, 107, 0.2);
   border-radius: 24px;
   grid-template-columns: auto minmax(0, 1fr) auto;
   background:
-    radial-gradient(circle at 94% 0%, rgba(231, 131, 69, 0.15), transparent 20rem),
-    linear-gradient(135deg, #1b1613, #12100e);
+    radial-gradient(circle at 94% 0%, rgba(215, 173, 89, 0.15), transparent 20rem),
+    linear-gradient(135deg, #161c26, #0f141d);
 }
 
 .learning-page.learning-premium-v3 .learning-now::after {
   right: auto;
   width: min(44%, 620px);
   height: 2px;
-  background: linear-gradient(90deg, #e78345, transparent);
+  background: linear-gradient(90deg, #d7ad59, transparent);
 }
 
 .learning-page.learning-premium-v3 .learning-now-step {
   width: 90px;
   height: 90px;
-  border: 1px solid rgba(240, 154, 96, 0.28);
+  border: 1px solid rgba(226, 189, 107, 0.28);
   border-radius: 22px;
-  color: #fff4e9;
-  background: linear-gradient(145deg, #2c1b13, #130e0b);
+  color: #f0f5fa;
+  background: linear-gradient(145deg, #1d2735, #0f141d);
   box-shadow: 0 20px 46px rgba(0, 0, 0, 0.28);
 }
 
 .learning-page.learning-premium-v3 .learning-now-step small {
-  color: #df9463;
+  color: #e2bd6b;
 }
 
 .learning-page.learning-premium-v3 .learning-now-copy h2 {
-  color: #fff8ef;
+  color: #f2f6fb;
   font-family: var(--font-ui, Inter, sans-serif);
   font-weight: 730;
   letter-spacing: -0.035em;
@@ -66,10 +66,10 @@
 }
 
 .learning-page.learning-premium-v3 .learning-track-picker {
-  border-color: rgba(240, 154, 96, 0.15);
+  border-color: rgba(226, 189, 107, 0.15);
   background:
-    radial-gradient(circle at 93% 12%, rgba(231, 131, 69, 0.12), transparent 24rem),
-    linear-gradient(145deg, #181411, #12100e);
+    radial-gradient(circle at 93% 12%, rgba(215, 173, 89, 0.12), transparent 24rem),
+    linear-gradient(145deg, #151b25, #0f141d);
 }
 
 .learning-page.learning-premium-v3 .learning-track-picker::after {
@@ -77,9 +77,9 @@
   bottom: -90px;
   width: 260px;
   height: 260px;
-  border-color: rgba(240, 154, 96, 0.12);
+  border-color: rgba(226, 189, 107, 0.12);
   border-radius: 50%;
-  box-shadow: 0 0 0 48px rgba(240, 154, 96, 0.018);
+  box-shadow: 0 0 0 48px rgba(226, 189, 107, 0.018);
 }
 
 .learning-page.learning-premium-v3 .learning-track-picker__head h2,
@@ -88,7 +88,7 @@
 .learning-page.learning-premium-v3 .learning-safety-gate h2,
 .learning-page.learning-premium-v3 .section-heading h2,
 .learning-page.learning-premium-v3 .learning-section-heading h2 {
-  color: #fff7ee;
+  color: #f2f6fb;
   font-family: var(--font-ui, Inter, sans-serif);
   font-weight: 720;
   letter-spacing: -0.04em;
@@ -121,14 +121,14 @@
 
 .learning-page.learning-premium-v3 .learning-track-picker__choices button:hover {
   border-color: rgba(255, 255, 255, 0.07);
-  color: #fff7ee;
+  color: #f2f6fb;
   background: rgba(255, 255, 255, 0.035);
 }
 
 .learning-page.learning-premium-v3 .learning-track-picker__choices button[aria-pressed="true"] {
-  border-color: rgba(240, 154, 96, 0.2);
-  color: #fff8ef;
-  background: linear-gradient(135deg, rgba(231, 131, 69, 0.24), rgba(255, 255, 255, 0.04));
+  border-color: rgba(226, 189, 107, 0.2);
+  color: #f2f6fb;
+  background: linear-gradient(135deg, rgba(215, 173, 89, 0.24), rgba(255, 255, 255, 0.04));
   box-shadow: 0 14px 32px rgba(0, 0, 0, 0.2);
 }
 
@@ -139,26 +139,26 @@
 }
 
 .learning-page.learning-premium-v3 .learning-track-picker__number {
-  color: #ffad76;
-  background: rgba(231, 131, 69, 0.12);
+  color: #ffe9ad;
+  background: rgba(215, 173, 89, 0.12);
 }
 
 .learning-page.learning-premium-v3 .learning-track-picker__focus::before {
-  color: #130c08;
-  background: #e88749;
+  color: #0e131c;
+  background: #d7ad59;
 }
 
 .learning-page.learning-premium-v3 .training-achievement-shelf {
   background:
     radial-gradient(circle at 100% 0%, rgba(231, 189, 114, 0.08), transparent 22rem),
-    #151310;
+    #121821;
 }
 
 .learning-page.learning-premium-v3 .training-achievement-shelf__count,
 .learning-page.learning-premium-v3 .learning-section-heading > span {
-  border-color: rgba(240, 154, 96, 0.18);
-  color: #eaa06d;
-  background: rgba(231, 131, 69, 0.08);
+  border-color: rgba(226, 189, 107, 0.18);
+  color: #e2bd6b;
+  background: rgba(215, 173, 89, 0.08);
 }
 
 .learning-page.learning-premium-v3 .training-achievement-shelf__grid li {
@@ -168,7 +168,7 @@
 }
 
 .learning-page.learning-premium-v3 .training-achievement-shelf__grid li:hover {
-  border-color: rgba(240, 154, 96, 0.18);
+  border-color: rgba(226, 189, 107, 0.18);
   background: rgba(255, 255, 255, 0.042);
   transform: translateY(-3px);
 }
@@ -180,7 +180,7 @@
 
 .learning-page.learning-premium-v3 .training-achievement-shelf__badge {
   border-color: rgba(231, 189, 114, 0.25);
-  color: #f0c57b;
+  color: #ecd28e;
   background: rgba(231, 189, 114, 0.08);
 }
 
@@ -190,15 +190,15 @@
 }
 
 .learning-page.learning-premium-v3 .learning-safety-gate {
-  border-color: rgba(240, 154, 96, 0.17);
+  border-color: rgba(226, 189, 107, 0.17);
   background:
-    radial-gradient(circle at 0 0, rgba(240, 154, 96, 0.1), transparent 20rem),
-    linear-gradient(145deg, #1b1511, #13100e);
+    radial-gradient(circle at 0 0, rgba(226, 189, 107, 0.1), transparent 20rem),
+    linear-gradient(145deg, #161c26, #10151e);
 }
 
 .learning-page.learning-premium-v3 .learning-safety-gate__intro > span {
-  color: #1b0e07;
-  background: linear-gradient(135deg, #f1b278, #de7137);
+  color: #141b28;
+  background: linear-gradient(135deg, #ffe2a1, #d7ad59);
 }
 
 .learning-page.learning-premium-v3 .learning-safety-gate details {
@@ -208,17 +208,17 @@
 }
 
 .learning-page.learning-premium-v3 .learning-safety-gate details[open] {
-  border-color: rgba(240, 154, 96, 0.2);
-  background: rgba(231, 131, 69, 0.055);
+  border-color: rgba(226, 189, 107, 0.2);
+  background: rgba(215, 173, 89, 0.055);
 }
 
 .learning-page.learning-premium-v3 .learning-safety-gate summary {
-  color: #efe5dc;
+  color: #e2e9f1;
 }
 
 .learning-page.learning-premium-v3 .learning-safety-gate summary span {
-  color: #f0a16b;
-  background: rgba(231, 131, 69, 0.1);
+  color: #e2bd6b;
+  background: rgba(215, 173, 89, 0.1);
 }
 
 .learning-page.learning-premium-v3 .learning-safety-gate details p {
@@ -232,7 +232,7 @@
   overflow: hidden;
   background:
     radial-gradient(circle at 12% 0%, rgba(118, 187, 160, 0.07), transparent 25rem),
-    #141210;
+    #111720;
 }
 
 .learning-page.learning-premium-v3 .portal-workflow {
@@ -247,7 +247,7 @@
   right: 4%;
   left: 4%;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(240, 154, 96, 0.32), rgba(137, 200, 178, 0.2), transparent);
+  background: linear-gradient(90deg, transparent, rgba(226, 189, 107, 0.32), rgba(137, 200, 178, 0.2), transparent);
   content: "";
 }
 
@@ -270,25 +270,25 @@
   z-index: 1;
   width: 50px;
   height: 50px;
-  border-color: rgba(240, 154, 96, 0.23);
+  border-color: rgba(226, 189, 107, 0.23);
   border-radius: 16px;
-  color: #ffad76;
+  color: #ffe9ad;
   background:
-    linear-gradient(145deg, rgba(231, 131, 69, 0.12), rgba(255, 255, 255, 0.025)),
-    #171310;
+    linear-gradient(145deg, rgba(215, 173, 89, 0.12), rgba(255, 255, 255, 0.025)),
+    #141a24;
   box-shadow: 0 13px 28px rgba(0, 0, 0, 0.24);
   transition: transform 260ms var(--learn-ease), border-color 200ms ease, box-shadow 260ms var(--learn-ease);
 }
 
 .learning-page.learning-premium-v3 .portal-workflow li:hover .workflow-node > span {
-  border-color: rgba(240, 154, 96, 0.48);
-  box-shadow: 0 17px 34px rgba(0, 0, 0, 0.3), 0 0 24px rgba(231, 131, 69, 0.08);
+  border-color: rgba(226, 189, 107, 0.48);
+  box-shadow: 0 17px 34px rgba(0, 0, 0, 0.3), 0 0 24px rgba(215, 173, 89, 0.08);
   transform: translateY(-4px) scale(1.035);
 }
 
 .learning-page.learning-premium-v3 .portal-workflow li > strong {
   margin-top: 15px;
-  color: #f6eee6;
+  color: #eaf0f6;
   font-family: var(--font-ui, Inter, sans-serif);
   font-size: 0.88rem;
   font-weight: 760;
@@ -340,9 +340,9 @@
   border-color: rgba(255, 255, 255, 0.075);
   border-radius: 24px;
   background:
-    radial-gradient(circle at var(--pointer-x) var(--pointer-y), rgba(240, 154, 96, 0.1), transparent 16rem),
+    radial-gradient(circle at var(--pointer-x) var(--pointer-y), rgba(226, 189, 107, 0.1), transparent 16rem),
     linear-gradient(145deg, rgba(255, 255, 255, 0.028), transparent 58%),
-    #161310;
+    #131922;
   box-shadow: 0 20px 54px rgba(0, 0, 0, 0.22);
   transform: perspective(1100px) rotateX(var(--tilt-x)) rotateY(var(--tilt-y)) translateZ(0);
   transform-style: preserve-3d;
@@ -358,7 +358,7 @@
   left: 0;
   width: 42%;
   height: 2px;
-  background: linear-gradient(90deg, #e57e42, transparent);
+  background: linear-gradient(90deg, #d7ad59, transparent);
 }
 
 .learning-page.learning-premium-v3 .course-card.course-tone-2::before {
@@ -387,20 +387,20 @@
 }
 
 .learning-page.learning-premium-v3 .course-card:hover {
-  border-color: rgba(240, 154, 96, 0.2);
+  border-color: rgba(226, 189, 107, 0.2);
   box-shadow: 0 30px 72px rgba(0, 0, 0, 0.34);
 }
 
 .learning-page.learning-premium-v3 .course-card.current {
-  border-color: rgba(240, 154, 96, 0.34);
-  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(240, 154, 96, 0.06);
+  border-color: rgba(226, 189, 107, 0.34);
+  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(226, 189, 107, 0.06);
 }
 
 .learning-page.learning-premium-v3 .course-card.complete {
   background:
     radial-gradient(circle at var(--pointer-x) var(--pointer-y), rgba(137, 200, 178, 0.1), transparent 16rem),
     linear-gradient(145deg, rgba(137, 200, 178, 0.035), transparent 58%),
-    #151411;
+    #121821;
 }
 
 .learning-page.learning-premium-v3 .course-card-top,
@@ -414,9 +414,9 @@
 .learning-page.learning-premium-v3 .course-card .course-number {
   width: 58px;
   height: 58px;
-  border-color: rgba(240, 154, 96, 0.18);
-  color: #f4a16b;
-  background: rgba(231, 131, 69, 0.07);
+  border-color: rgba(226, 189, 107, 0.18);
+  color: #e2bd6b;
+  background: rgba(215, 173, 89, 0.07);
   font-family: var(--font-ui, Inter, sans-serif);
   font-size: 0.82rem;
 }
@@ -426,11 +426,11 @@
 }
 
 .learning-page.learning-premium-v3 .course-card > .course-block-label {
-  color: #e7935d;
+  color: #e2bd6b;
 }
 
 .learning-page.learning-premium-v3 .course-card h2 {
-  color: #fff8ef;
+  color: #f2f6fb;
   font-family: var(--font-ui, Inter, sans-serif);
   font-size: clamp(1.55rem, 2vw, 2.1rem);
   font-weight: 720;
@@ -443,8 +443,8 @@
 }
 
 .learning-page.learning-premium-v3 .course-outcome {
-  border-left-color: rgba(240, 154, 96, 0.48);
-  background: rgba(231, 131, 69, 0.055);
+  border-left-color: rgba(226, 189, 107, 0.48);
+  background: rgba(215, 173, 89, 0.055);
 }
 
 .learning-page.learning-premium-v3 .course-outcome span {
@@ -464,8 +464,8 @@
 }
 
 .learning-page.learning-premium-v3 .course-status-dot i {
-  background: #e78345;
-  box-shadow: 0 0 0 4px rgba(231, 131, 69, 0.08), 0 0 16px rgba(231, 131, 69, 0.2);
+  background: #d7ad59;
+  box-shadow: 0 0 0 4px rgba(215, 173, 89, 0.08), 0 0 16px rgba(215, 173, 89, 0.2);
 }
 
 .learning-page.learning-premium-v3 .platform-pills span {
@@ -513,14 +513,14 @@
 .learning-page.learning-premium-v3 .first-shift-invite-mark {
   width: 94px;
   height: 94px;
-  border-color: rgba(240, 154, 96, 0.23);
-  color: #f7bd8f;
-  background: linear-gradient(145deg, rgba(231, 131, 69, 0.13), #120d0a);
+  border-color: rgba(226, 189, 107, 0.23);
+  color: #ffe2a1;
+  background: linear-gradient(145deg, rgba(215, 173, 89, 0.13), #0e131c);
 }
 
 .learning-page.learning-premium-v3 .exam-card-copy h2,
 .learning-page.learning-premium-v3 .first-shift-invite h2 {
-  color: #fff8ef;
+  color: #f2f6fb;
   font-family: var(--font-ui, Inter, sans-serif);
   font-weight: 710;
   letter-spacing: -0.035em;
@@ -542,9 +542,9 @@
 /* Buttons and small states ------------------------------------------- */
 
 .learning-page.learning-premium-v3 .btn:not(.btn-light):not(.btn-ghost-light):not(.btn-secondary) {
-  color: #180e08;
-  background: linear-gradient(135deg, #efaa72, #e47638);
-  box-shadow: 0 12px 28px rgba(192, 78, 28, 0.18);
+  color: #121826;
+  background: linear-gradient(135deg, #e2bd6b, #d7ad59);
+  box-shadow: 0 12px 28px rgba(215, 173, 89, 0.18);
 }
 
 .learning-page.learning-premium-v3 .btn-secondary {
@@ -560,9 +560,9 @@
 }
 
 .learning-page.learning-premium-v3 .badge-info {
-  border-color: rgba(240, 154, 96, 0.17);
-  color: #f0a16b;
-  background: rgba(231, 131, 69, 0.08);
+  border-color: rgba(226, 189, 107, 0.17);
+  color: #e2bd6b;
+  background: rgba(215, 173, 89, 0.08);
 }
 
 .learning-page.learning-premium-v3 .badge-success {

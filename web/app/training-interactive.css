@@ -5,8 +5,8 @@
   --ti-forest-deep: var(--portal-primary-deep, var(--forest-deep, #102d29));
   --ti-forest-pale: var(--portal-primary-soft, var(--forest-pale, #e9f2ef));
   --ti-gold: var(--gold, #d6b46c);
-  --ti-gold-deep: var(--portal-accent-ink, #8a5a13);
-  --ti-gold-pale: var(--gold-pale, #f7eedb);
+  --ti-gold-deep: var(--portal-accent-ink, #b8933f);
+  --ti-gold-pale: var(--gold-pale, #e9eff6);
   --ti-paper: var(--portal-surface-soft, var(--paper, #f7f6f1));
   --ti-white: var(--portal-surface, var(--white, #ffffff));
   --ti-on-primary: var(--portal-action-ink, #ffffff);
@@ -150,7 +150,7 @@
   display: grid;
   gap: 14px;
   padding: 18px;
-  border: 1px solid rgba(138, 90, 19, 0.24);
+  border: 1px solid rgba(184, 147, 63, 0.24);
   border-radius: 20px;
   background: var(--ti-gold-pale);
 }
@@ -192,7 +192,7 @@
 
 .training-interactive__audience-result {
   padding-top: 10px;
-  border-top: 1px solid rgba(138, 90, 19, 0.2);
+  border-top: 1px solid rgba(184, 147, 63, 0.2);
   font-size: 0.8rem;
 }
 
@@ -267,7 +267,7 @@
 
 .training-walkthrough__meta .training-walkthrough__status {
   color: var(--ti-gold-deep);
-  border: 1px solid rgba(138, 90, 19, 0.22);
+  border: 1px solid rgba(184, 147, 63, 0.22);
   background: var(--ti-gold-pale);
 }
 
@@ -711,7 +711,7 @@
 
 .training-walkthrough__practice-feedback[data-training-feedback-status="error"] {
   color: #7d332f;
-  background: #f9e9e7;
+  background: #edf1f7;
 }
 
 .training-walkthrough__checklist {
@@ -719,7 +719,7 @@
   gap: 8px;
   margin: 0;
   padding: 14px;
-  border: 1px solid rgba(138, 90, 19, 0.22);
+  border: 1px solid rgba(184, 147, 63, 0.22);
   border-radius: 16px;
   background: var(--ti-gold-pale);
 }

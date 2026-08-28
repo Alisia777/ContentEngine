@@ -25,7 +25,7 @@
   .learning-page.learning-premium-v3 .workflow-node > span::after {
     position: absolute;
     inset: -5px;
-    border: 1px solid rgba(240, 154, 96, 0.08);
+    border: 1px solid rgba(226, 189, 107, 0.08);
     border-radius: 20px;
     content: "";
     animation: learning-node-breathe 3.6s ease-in-out infinite;
@@ -49,7 +49,7 @@
 }
 
 @keyframes learning-current-pulse {
-  50% { box-shadow: 0 0 0 8px rgba(231, 131, 69, 0.045), 0 0 25px rgba(231, 131, 69, 0.16); }
+  50% { box-shadow: 0 0 0 8px rgba(215, 173, 89, 0.045), 0 0 25px rgba(215, 173, 89, 0.16); }
 }
 
 @keyframes learning-node-breathe {

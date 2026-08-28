@@ -5,10 +5,10 @@
   --tps-primary-deep: var(--portal-primary-deep, #0d2d28);
   --tps-soft: var(--portal-primary-soft, #eaf3ef);
   --tps-surface: var(--portal-surface, #fff);
-  --tps-surface-soft: var(--portal-surface-soft, #f6f5ef);
+  --tps-surface-soft: var(--portal-surface-soft, #eef2f7);
   --tps-line: var(--portal-line, #dce3df);
   --tps-gold: var(--portal-accent, #d5b26a);
-  --tps-gold-ink: var(--portal-accent-ink, #795318);
+  --tps-gold-ink: var(--portal-accent-ink, #a98a3a);
   --tps-danger: var(--danger, #a34136);
   --tps-success: var(--success, #24745f);
   display: grid;

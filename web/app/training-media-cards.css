@@ -1,13 +1,13 @@
 .training-media-cards {
   --tm-ink: var(--ink, #17372f);
   --tm-muted: var(--muted, #61726d);
-  --tm-surface: var(--paper, #fffdf8);
+  --tm-surface: var(--paper, #f8fafd);
   --tm-line: color-mix(in srgb, var(--tm-ink) 16%, transparent);
   --tm-good: #147451;
   --tm-good-soft: #e6f5ee;
   --tm-risk: #a93732;
-  --tm-risk-soft: #fff0ec;
-  --tm-gold: #a67820;
+  --tm-risk-soft: #eff4fa;
+  --tm-gold: #d7ad59;
   color: var(--tm-ink);
   display: grid;
   gap: 24px;

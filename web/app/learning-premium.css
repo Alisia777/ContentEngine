@@ -5,19 +5,22 @@
  */
 
 .learning-page.learning-premium-v3 {
-  --learn-canvas: #0c0a09;
-  --learn-panel: rgba(24, 21, 18, 0.9);
-  --learn-panel-strong: #191512;
+  /* Палитра приведена к рабочему столу (workspace-os-v4): холодный тёмно-
+     синий холст и золотой акцент. Прежняя медно-коричневая гамма читалась
+     как «старый интерфейс» (фидбек владельца 28.08.2026). */
+  --learn-canvas: #070b12;
+  --learn-panel: rgba(15, 22, 32, 0.9);
+  --learn-panel-strong: #0e1621;
   --learn-panel-soft: rgba(255, 255, 255, 0.035);
-  --learn-line: rgba(244, 226, 202, 0.12);
-  --learn-line-strong: rgba(240, 154, 96, 0.34);
-  --learn-ink: #fff8ef;
-  --learn-muted: #b9ada4;
-  --learn-copper: #e78345;
-  --learn-copper-bright: #ffad73;
-  --learn-gold: #e7bd72;
-  --learn-mint: #89c8b2;
-  --learn-danger: #f1b07a;
+  --learn-line: rgba(203, 222, 244, 0.12);
+  --learn-line-strong: rgba(215, 173, 89, 0.38);
+  --learn-ink: #edf2f7;
+  --learn-muted: #9aa6b4;
+  --learn-copper: #d7ad59;
+  --learn-copper-bright: #ffe9ad;
+  --learn-gold: #e4c979;
+  --learn-mint: #63d6ae;
+  --learn-danger: #e78a95;
   --learn-ease: cubic-bezier(0.16, 1, 0.3, 1);
   position: relative;
   isolation: isolate;
@@ -32,7 +35,7 @@
   inset: -44px -7vw auto;
   height: 760px;
   background:
-    radial-gradient(circle at 11% 12%, rgba(227, 114, 53, 0.13), transparent 28rem),
+    radial-gradient(circle at 11% 12%, rgba(215, 173, 89, 0.13), transparent 28rem),
     radial-gradient(circle at 88% 18%, rgba(231, 189, 114, 0.08), transparent 30rem);
   content: "";
   pointer-events: none;
@@ -54,8 +57,8 @@
   display: block;
   width: 100%;
   height: 100%;
-  background: linear-gradient(90deg, #a94c20, var(--learn-copper-bright), #f3c77c);
-  box-shadow: 0 0 18px rgba(240, 154, 96, 0.52);
+  background: linear-gradient(90deg, #8a6f2a, var(--learn-copper-bright), #ecd28e);
+  box-shadow: 0 0 18px rgba(226, 189, 107, 0.52);
   transform: scaleX(var(--learning-scroll, 0));
   transform-origin: left center;
 }
@@ -82,15 +85,15 @@
   position: relative;
   min-height: clamp(610px, 69vh, 760px);
   padding: clamp(34px, 5.2vw, 78px);
-  border: 1px solid rgba(240, 154, 96, 0.22);
+  border: 1px solid rgba(226, 189, 107, 0.22);
   border-radius: clamp(26px, 2.5vw, 40px);
   grid-template-columns: minmax(0, 1.18fr) minmax(350px, 0.68fr);
   gap: clamp(36px, 6vw, 96px);
   color: var(--learn-ink);
   background:
-    radial-gradient(circle at var(--pointer-x) var(--pointer-y), rgba(239, 139, 76, 0.17), transparent 25rem),
+    radial-gradient(circle at var(--pointer-x) var(--pointer-y), rgba(215, 173, 89, 0.17), transparent 25rem),
     radial-gradient(circle at 4% 92%, rgba(123, 182, 159, 0.09), transparent 28rem),
-    linear-gradient(138deg, #17110e 0%, #0d0b09 48%, #11100e 100%);
+    linear-gradient(138deg, #131a24 0%, #0a0e15 48%, #11100e 100%);
   box-shadow:
     0 34px 90px rgba(0, 0, 0, 0.46),
     inset 0 1px 0 rgba(255, 255, 255, 0.055);
@@ -119,10 +122,10 @@
   bottom: -48%;
   width: min(58vw, 760px);
   height: min(58vw, 760px);
-  border-color: rgba(240, 154, 96, 0.1);
+  border-color: rgba(226, 189, 107, 0.1);
   box-shadow:
     0 0 0 72px rgba(231, 189, 114, 0.018),
-    0 0 0 148px rgba(240, 154, 96, 0.012);
+    0 0 0 148px rgba(226, 189, 107, 0.012);
 }
 
 .learning-page.learning-premium-v3 .learning-hero-copy,
@@ -139,12 +142,12 @@
   min-height: 30px;
   margin-bottom: 14px;
   padding: 7px 11px;
-  border: 1px solid rgba(239, 139, 76, 0.23);
+  border: 1px solid rgba(215, 173, 89, 0.23);
   border-radius: 999px;
   align-items: center;
   gap: 8px;
-  color: #f0a36d;
-  background: rgba(229, 112, 49, 0.07);
+  color: #e2bd6b;
+  background: rgba(215, 173, 89, 0.07);
   backdrop-filter: blur(10px);
   letter-spacing: 0.14em;
 }
@@ -153,15 +156,15 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #f2a06a;
-  box-shadow: 0 0 0 5px rgba(242, 160, 106, 0.08);
+  background: #e2bd6b;
+  box-shadow: 0 0 0 5px rgba(224, 184, 100, 0.08);
   content: "";
 }
 
 .learning-page.learning-premium-v3 .learning-hero h1 {
   max-width: 980px;
   margin: 0 0 24px;
-  color: #fffaf4;
+  color: #f5f8fc;
   font-family: var(--font-ui, Inter, sans-serif);
   font-size: clamp(3.15rem, 5.5vw, 6.7rem);
   font-weight: 760;
@@ -172,7 +175,7 @@
 
 .learning-page.learning-premium-v3 .learning-hero-copy > p:not(.eyebrow) {
   max-width: 760px;
-  color: rgba(244, 239, 231, 0.65);
+  color: rgba(226, 233, 242, 0.65);
   font-size: clamp(1rem, 1.25vw, 1.25rem);
   line-height: 1.62;
 }
@@ -192,7 +195,7 @@
   border-radius: 999px;
   align-items: center;
   gap: 8px;
-  color: rgba(255, 248, 239, 0.72);
+  color: rgba(237, 242, 247, 0.72);
   background: rgba(255, 255, 255, 0.035);
   font-size: 0.72rem;
   font-weight: 720;
@@ -205,7 +208,7 @@
   height: 7px;
   border-radius: 50%;
   background: var(--learn-copper);
-  box-shadow: 0 0 14px rgba(231, 131, 69, 0.65);
+  box-shadow: 0 0 14px rgba(215, 173, 89, 0.65);
   content: "";
 }
 
@@ -222,9 +225,9 @@
 }
 
 .learning-page.learning-premium-v3 .learning-hero-actions .btn-light {
-  color: #1a0f09;
-  background: linear-gradient(135deg, #f2b178, #e77c3d 68%, #ca5b25);
-  box-shadow: 0 18px 36px rgba(190, 79, 31, 0.24);
+  color: #141b28;
+  background: linear-gradient(135deg, #ffe2a1, #d7ad59 68%, #9c7a30);
+  box-shadow: 0 18px 36px rgba(215, 173, 89, 0.24);
 }
 
 .learning-page.learning-premium-v3 .learning-hero-actions .btn-ghost-light {
@@ -248,14 +251,14 @@
   left: 57%;
   width: 220px;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(240, 154, 96, 0.42), transparent);
+  background: linear-gradient(90deg, transparent, rgba(226, 189, 107, 0.42), transparent);
   content: "";
   transform: rotate(-14deg);
 }
 
 .learning-premium-orbit {
   position: absolute;
-  border: 1px solid rgba(240, 154, 96, 0.11);
+  border: 1px solid rgba(226, 189, 107, 0.11);
   border-radius: 50%;
 }
 
@@ -266,8 +269,8 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #f29c62;
-  box-shadow: 0 0 20px rgba(242, 156, 98, 0.75);
+  background: #e2bd6b;
+  box-shadow: 0 0 20px rgba(224, 184, 100, 0.75);
   content: "";
 }
 
@@ -292,7 +295,7 @@
   left: 58%;
   width: 1px;
   height: 170%;
-  background: linear-gradient(180deg, transparent, rgba(240, 154, 96, 0.18), transparent);
+  background: linear-gradient(180deg, transparent, rgba(226, 189, 107, 0.18), transparent);
   transform: rotate(18deg);
   transform-origin: center;
 }
@@ -306,7 +309,7 @@
   border-radius: 26px;
   background:
     linear-gradient(145deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.025)),
-    rgba(16, 13, 11, 0.6);
+    rgba(13, 17, 25, 0.6);
   box-shadow:
     0 34px 70px rgba(0, 0, 0, 0.28),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
@@ -321,7 +324,7 @@
   inset: -1px;
   padding: 1px;
   border-radius: inherit;
-  background: linear-gradient(140deg, rgba(255, 255, 255, 0.15), transparent 44%, rgba(240, 154, 96, 0.24));
+  background: linear-gradient(140deg, rgba(255, 255, 255, 0.15), transparent 44%, rgba(226, 189, 107, 0.24));
   content: "";
   mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   mask-composite: exclude;
@@ -329,7 +332,7 @@
 }
 
 .learning-page.learning-premium-v3 .learning-passport-head strong {
-  color: #fff7ed;
+  color: #f2f6fb;
   font-family: var(--font-ui, Inter, sans-serif);
   font-size: clamp(2rem, 3vw, 3.25rem);
   font-weight: 760;
@@ -339,10 +342,10 @@
 .learning-page.learning-premium-v3 .learning-passport .learning-passport-mark {
   width: 52px;
   height: 52px;
-  border-color: rgba(240, 154, 96, 0.35);
+  border-color: rgba(226, 189, 107, 0.35);
   border-radius: 16px;
-  color: #ffb07b;
-  background: linear-gradient(145deg, rgba(231, 131, 69, 0.18), rgba(255, 255, 255, 0.02));
+  color: #ffe2a1;
+  background: linear-gradient(145deg, rgba(215, 173, 89, 0.18), rgba(255, 255, 255, 0.02));
   font-family: var(--font-ui, Inter, sans-serif);
   font-weight: 860;
 }
@@ -355,8 +358,8 @@
 
 .learning-page.learning-premium-v3 .progress-bar-gold > span {
   position: relative;
-  background: linear-gradient(90deg, #c45b25, #f09959, #efc477);
-  box-shadow: 0 0 22px rgba(240, 153, 89, 0.35);
+  background: linear-gradient(90deg, #9c7a30, #e2bd6b, #ecd28e);
+  box-shadow: 0 0 22px rgba(224, 184, 100, 0.35);
 }
 
 .learning-page.learning-premium-v3 .progress-bar-gold > span::after {
@@ -366,8 +369,8 @@
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: #ffd39d;
-  box-shadow: 0 0 18px rgba(255, 184, 116, 0.92);
+  background: #ffe2a1;
+  box-shadow: 0 0 18px rgba(255, 226, 161, 0.92);
   content: "";
   transform: translateY(-50%);
 }
@@ -384,15 +387,15 @@
 }
 
 .learning-page.learning-premium-v3 .passport-steps li.current {
-  border-color: rgba(240, 154, 96, 0.16);
-  background: linear-gradient(90deg, rgba(231, 131, 69, 0.14), rgba(255, 255, 255, 0.025));
-  box-shadow: inset 2px 0 0 #e78345;
+  border-color: rgba(226, 189, 107, 0.16);
+  background: linear-gradient(90deg, rgba(215, 173, 89, 0.14), rgba(255, 255, 255, 0.025));
+  box-shadow: inset 2px 0 0 #d7ad59;
 }
 
 .learning-page.learning-premium-v3 .passport-steps li.current > span {
-  border-color: #f09158;
-  color: #1a0f09;
-  background: linear-gradient(135deg, #f5b681, #e67e42);
+  border-color: #e2bd6b;
+  color: #141b28;
+  background: linear-gradient(135deg, #ffe2a1, #d7ad59);
 }
 
 /* On-page command bar ------------------------------------------------- */
@@ -409,7 +412,7 @@
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  background: rgba(15, 12, 10, 0.84);
+  background: rgba(12, 16, 24, 0.84);
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.3);
   backdrop-filter: blur(22px) saturate(1.15);
 }
@@ -425,7 +428,7 @@
   border-radius: 17px;
   place-content: center;
   background:
-    radial-gradient(circle at center, #14110f 58%, transparent 59%),
+    radial-gradient(circle at center, #10161f 58%, transparent 59%),
     conic-gradient(var(--learn-copper) calc(var(--progress, 0) * 1%), rgba(255, 255, 255, 0.08) 0);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
   text-align: center;
@@ -437,7 +440,7 @@
 }
 
 .learning-command-progress strong {
-  color: #fff8ef;
+  color: #f2f6fb;
   font-size: 0.87rem;
   line-height: 1;
 }
@@ -482,15 +485,15 @@
 }
 
 .learning-command-link:hover {
-  color: #fff6ec;
+  color: #f1f6fb;
   background: rgba(255, 255, 255, 0.045);
   transform: translateY(-1px);
 }
 
 .learning-command-link.is-active {
-  border-color: rgba(239, 139, 76, 0.2);
-  color: #ffad77;
-  background: linear-gradient(135deg, rgba(231, 131, 69, 0.15), rgba(255, 255, 255, 0.025));
+  border-color: rgba(215, 173, 89, 0.2);
+  color: #ffe9ad;
+  background: linear-gradient(135deg, rgba(215, 173, 89, 0.15), rgba(255, 255, 255, 0.025));
 }
 
 .learning-command-status {
