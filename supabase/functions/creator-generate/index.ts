@@ -10351,7 +10351,10 @@ async function handleCreatorGenerate(
           PROVIDER_TIMEOUT_MS,
         );
       } catch {
-        return null;
+        // Тихий null здесь 28.08 оставил задачу 1a0d350a невидимой в логах:
+        // воркер получал 503 с пустым trail («not_instrumented»), и место
+        // обрыва было неотличимо от четырёх других. Код обязателен.
+        return recoveryExit("provider_status_get_failed");
       }
     }
     if (response === null || !response.ok) {
@@ -10749,12 +10752,29 @@ async function handleCreatorGenerate(
           },
         },
       );
-      if (recorded.error !== null) return null;
+      if (recorded.error !== null) {
+        // SQLSTATE/код PostgREST сводится к замкнутому машинному виду: до
+        // 28.08 отказ записи глотался молча и был неотличим от сетевого.
+        const rpcCode = String(
+          (isRecord(recorded.error) && typeof recorded.error.code === "string"
+            ? recorded.error.code
+            : "unknown"),
+        ).toLowerCase().replace(/[^a-z0-9]/gu, "_")
+          // Сегменты закрытого словаря кодов: буквы и цифры порознь
+          // («p0001» → «p_0001»), иначе код не пройдёт паттерн и отказ
+          // снова станет безымянным.
+          .replace(/([a-z])([0-9])/gu, "$1_$2")
+          .replace(/([0-9])([a-z])/gu, "$1_$2")
+          .replace(/_{2,}/gu, "_")
+          .replace(/^_|_$/gu, "")
+          .slice(0, 24);
+        return recoveryExit(`record_rpc_rejected_${rpcCode || "unknown"}`);
+      }
       const parsed = readGenerationStrategyProviderStatusResult(recorded.data, {
         generationJobId: identity.generationJobId,
         providerTaskId: identity.providerTaskId,
       });
-      if (parsed === null) return null;
+      if (parsed === null) return recoveryExit("record_response_invalid");
       const event = parsed.event as Record<string, unknown>;
       return event.provider_status === "succeeded"
         ? "succeeded"
@@ -10764,7 +10784,7 @@ async function handleCreatorGenerate(
         ? "cancelled"
         : "processing";
     } catch {
-      return null;
+      return recoveryExit("record_rpc_thrown");
     }
   };
 

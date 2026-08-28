@@ -1169,15 +1169,20 @@ export function readGenerationStrategyProviderStatusResult(value, expected) {
     value.event.generation_job_id !== expected.generationJobId ||
     value.event.provider_task_id !== expected.providerTaskId ||
     !integer(value.event.transition_ordinal, 1, 1_000_000) ||
+    // «submitted» — законный статус обеих граф: первый переход задачи это
+    // null→submitted, а реплей processing-полла несёт previous_status =
+    // «submitted». Его отсутствие здесь 28.08 хоронило КАЖДЫЙ воркерный
+    // опрос Runway-задачи 1a0d350a (record_response_invalid → 503), и
+    // оплаченный ролик не принимался, пока Runway честно его держал.
     !(value.event.previous_status === null || new Set([
+      "submitted",
       "processing",
       "succeeded",
       "failed",
       "cancelled",
     ]).has(value.event.previous_status)) ||
-    !new Set(["processing", "succeeded", "failed", "cancelled"]).has(
-      value.event.provider_status,
-    ) ||
+    !new Set(["submitted", "processing", "succeeded", "failed", "cancelled"])
+      .has(value.event.provider_status) ||
     !(value.event.failure_code === null ||
       SAFE_CODE.test(value.event.failure_code)) ||
     !timestamp(value.event.occurred_at) ||

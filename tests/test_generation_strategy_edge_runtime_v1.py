@@ -390,3 +390,31 @@ def test_worker_uses_exact_claim_ledger_and_dispatch_unknown_never_posts() -> No
     assert "classifyRunwayRecipeCreateOutcome({" in unknown
     assert "fetchProviderJsonWithDeadline(" not in unknown
     assert "buildGenerationStrategyProviderRequest(" not in unknown
+
+
+def test_provider_status_parser_accepts_submitted_and_poll_is_instrumented() -> None:
+    """Боевой урок 28.08.2026 (Runway-задача 1a0d350a, v692/v693): реплей
+    processing-полла несёт previous_status="submitted", а парсер ответа его
+    не знал — каждый воркерный опрос умирал record_response_invalid → 503 с
+    пустым trail («not_instrumented»), и оплаченный запуск не принимался.
+    Закрепляем: «submitted» в обеих графах статусов, а тихие null-точки
+    полла инструментированы именованными кодами."""
+    contract = (
+        ROOT / "supabase/functions/_shared/generation-strategy-edge-contract.js"
+    ).read_text(encoding="utf-8")
+    parser = contract.split(
+        "export function readGenerationStrategyProviderStatusResult", 1
+    )[1].split("export function", 1)[0]
+    assert parser.count('"submitted"') == 2
+    edge = EDGE.read_text(encoding="utf-8")
+    for marker in (
+        'recoveryExit("provider_status_get_failed")',
+        "record_rpc_rejected_",
+        'recoveryExit("record_response_invalid")',
+        'recoveryExit("record_rpc_thrown")',
+    ):
+        assert marker in edge
+    poll = edge.split("const pollGenerationStrategyProvider", 1)[1].split(
+        "const handleGenerationStrategyStatus", 1
+    )[0]
+    assert "return null;\n      }\n    }" not in poll.split("catch {")[0]
