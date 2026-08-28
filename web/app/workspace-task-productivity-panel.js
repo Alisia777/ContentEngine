@@ -20,7 +20,7 @@ import {
   taskTone,
   touchOrder,
   unparkTask,
-} from "./workspace-task-productivity-core.js?v=20260826.rebuild-clean.36";
+} from "./workspace-task-productivity-core.js?v=20260826.rebuild-clean.37";
 
 const ui = {
   panel: null,

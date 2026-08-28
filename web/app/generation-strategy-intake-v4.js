@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.36",
+  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.37",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260826.rebuild-clean.36"
+  "./generation-engine-advisor.js?v=20260826.rebuild-clean.37"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -2578,9 +2578,74 @@ function engineCascadeCard(route = "copy_video") {
   const routeNote = el("p", "gi-card__hint", "");
   routeNote.dataset.generationIntakeRouteNote = "";
 
+  // Простой режим (решение владельца 28.08): вместо витрины моделей — ползунок
+  // «Быстрее ↔ Качественнее». Он ничего не решает сам: двигая его, человек
+  // кликает те же радио-чипы модели, так что советчик, цена и резерв денег
+  // работают как раньше. Точный список моделей остаётся под спойлером.
+  const slider = el("div", "gi-engine-slider");
+  slider.dataset.generationIntakeEngineSlider = "";
+  slider.hidden = true;
+  const scale = el("div", "gi-engine-slider__scale");
+  scale.append(
+    el("span", "", "Быстрее и дешевле"),
+    el("span", "", "Качественнее и дороже"),
+  );
+  const engineRange = document.createElement("input");
+  engineRange.type = "range";
+  engineRange.min = "0";
+  engineRange.step = "1";
+  engineRange.dataset.generationIntakeEngineRange = "";
+  engineRange.setAttribute("aria-label", "Баланс скорости и качества генерации");
+  const engineCaption = el("p", "gi-engine-slider__caption", "");
+  engineCaption.dataset.generationIntakeEngineSliderCaption = "";
+  const engineAdvice = el("p", "muted tiny", "");
+  engineAdvice.dataset.generationIntakeEngineSliderAdvice = "";
+  engineAdvice.hidden = true;
+  engineRange.addEventListener("input", () => {
+    const ids = String(engineRange.dataset.engineIds || "").split("|").filter(Boolean);
+    const targetId = ids[Number(engineRange.value)] || "";
+    if (!targetId) return;
+    const radio = qa(
+      'input[type="radio"]',
+      q('[data-generation-intake-choice="model"]', section) || section,
+    ).find((input) => input.value === targetId && !input.disabled);
+    if (radio && !radio.checked) radio.click();
+  });
+  slider.append(scale, engineRange, engineCaption, engineAdvice);
+
+  const modelStep = cascadeStep("model", "1", "Модель", "generation_intake_generator");
+  const manual = document.createElement("details");
+  manual.className = "gi-engine-manual";
+  manual.dataset.generationIntakeChoiceBlock = "manual";
+  const manualSummary = document.createElement("summary");
+  manualSummary.textContent = "Выбрать модель вручную — весь список с ценами";
+  manual.append(manualSummary, modelStep);
+
+  // Второй ползунок — длительность: те же секунды-чипы, только компактнее.
+  const durationSlider = el("div", "gi-engine-slider gi-engine-slider--duration");
+  durationSlider.dataset.generationIntakeDurationSlider = "";
+  durationSlider.hidden = true;
+  const durationRange = document.createElement("input");
+  durationRange.type = "range";
+  durationRange.step = "1";
+  durationRange.dataset.generationIntakeDurationRange = "";
+  durationRange.setAttribute("aria-label", "Длительность ролика в секундах");
+  const durationCaption = el("p", "gi-engine-slider__caption", "");
+  durationCaption.dataset.generationIntakeDurationSliderCaption = "";
+  durationRange.addEventListener("input", () => {
+    const radio = qa(
+      'input[type="radio"]',
+      q('[data-generation-intake-choice="duration"]', section) || section,
+    ).find((input) => input.value === String(durationRange.value) && !input.disabled);
+    if (radio && !radio.checked) radio.click();
+  });
+  durationSlider.append(durationRange, durationCaption);
+  durationStep.insertBefore(durationSlider, durationStep.children[1] || null);
+
   section.append(
     el("h4", "gi-card__title", "Чем генерируем, как сложно и как долго"),
-    cascadeStep("model", "1", "Модель", "generation_intake_generator"),
+    slider,
+    manual,
     qualityStep,
     durationStep,
     price,
@@ -4370,6 +4435,109 @@ function cascadeEventRoute(target) {
   return ROUTE_AUTHORITY_STRATEGY[route] ? route : "copy_video";
 }
 
+// Синхронизация ползунков с состоянием каскада. Ползунок — зеркало выбора:
+// DOM трогается только при смене отпечатка (панели под MutationObserver), и
+// программное обновление value не рождает input-событий — цикла нет.
+function syncCascadeSliders(section, context) {
+  const {
+    orderedEngines, selectedEngine, advisedEngine, durations, chosen,
+    measuredSeconds,
+  } = context;
+  const wrap = q("[data-generation-intake-engine-slider]", section);
+  const range = q("[data-generation-intake-engine-range]", section);
+  if (wrap && range instanceof HTMLInputElement) {
+    const usable = orderedEngines.filter((engine) => engine.enabled);
+    if (usable.length < 2) {
+      // Один движок — двигать нечего: остаётся ручной список с его подписями.
+      if (!wrap.hidden) wrap.hidden = true;
+    } else {
+      if (wrap.hidden) wrap.hidden = false;
+      const ids = usable.map((engine) => engine.id).join("|");
+      const index = Math.max(
+        0,
+        usable.findIndex((engine) => engine.id === selectedEngine?.id),
+      );
+      const advisedId = advisedEngine?.id || "";
+      const stamp = JSON.stringify([ids, index, advisedId]);
+      if (range.dataset.stamp !== stamp) {
+        range.dataset.stamp = stamp;
+        range.dataset.engineIds = ids;
+        range.max = String(usable.length - 1);
+        range.value = String(index);
+        const current = usable[index];
+        const caption = q(
+          "[data-generation-intake-engine-slider-caption]",
+          section,
+        );
+        if (caption && current) {
+          setNodeText(
+            caption,
+            `${current.label} · ${tierPublicLabel(current.tier)} · ${routePriceNote(current)}${
+              current.id === advisedId ? " · ИИ-центр советует" : ""
+            }`,
+          );
+        }
+        const adviceLine = q(
+          "[data-generation-intake-engine-slider-advice]",
+          section,
+        );
+        if (adviceLine instanceof HTMLElement) {
+          const showAdvice = Boolean(advisedId) && advisedId !== current?.id;
+          if (showAdvice) {
+            setNodeText(
+              adviceLine,
+              `Совет ИИ-центра под этот запуск: «${advisedEngine.label}».`,
+            );
+          }
+          if (adviceLine.hidden === showAdvice) adviceLine.hidden = !showAdvice;
+        }
+      }
+    }
+  }
+  const durationWrap = q("[data-generation-intake-duration-slider]", section);
+  const durationRange = q("[data-generation-intake-duration-range]", section);
+  const durationChips = q(
+    '[data-generation-intake-choice="duration"]',
+    section,
+  );
+  if (durationWrap && durationRange instanceof HTMLInputElement) {
+    // Ползунок секунд — только когда секунды выбираются подряд; у маршрутов
+    // «длина от исходника» и пустых окон остаются прежние подписи-чипы.
+    const continuous = durations.length > 1
+      && durations[durations.length - 1] - durations[0] === durations.length - 1;
+    if (!continuous) {
+      if (!durationWrap.hidden) durationWrap.hidden = true;
+      if (durationChips instanceof HTMLElement && durationChips.hidden) {
+        durationChips.hidden = false;
+      }
+    } else {
+      if (durationWrap.hidden) durationWrap.hidden = false;
+      if (durationChips instanceof HTMLElement && !durationChips.hidden) {
+        durationChips.hidden = true;
+      }
+      const stamp = JSON.stringify([durations[0], durations.length, chosen]);
+      if (durationRange.dataset.stamp !== stamp) {
+        durationRange.dataset.stamp = stamp;
+        durationRange.min = String(durations[0]);
+        durationRange.max = String(durations[durations.length - 1]);
+        if (chosen !== null) durationRange.value = String(chosen);
+        const caption = q(
+          "[data-generation-intake-duration-slider-caption]",
+          section,
+        );
+        if (caption) {
+          setNodeText(
+            caption,
+            chosen === null
+              ? ""
+              : `${chosen} с${measuredSeconds === chosen ? " — как в исходнике" : ""}`,
+          );
+        }
+      }
+    }
+  }
+}
+
 function refreshEngineChoice(form, state, routeKey = "copy_video") {
   const strategyId = ROUTE_AUTHORITY_STRATEGY[routeKey];
   if (!strategyId) return;
@@ -4625,6 +4793,14 @@ function renderEngineChoice(form, state, section, strategyId) {
     })),
     chosen === null ? "" : String(chosen),
   );
+  syncCascadeSliders(section, {
+    orderedEngines,
+    selectedEngine,
+    advisedEngine,
+    durations,
+    chosen,
+    measuredSeconds,
+  });
   const durationNotice = q("[data-generation-intake-duration-notice]", section);
   if (durationNotice) {
     const fittingNames = fittingEngines.map((engine) => `«${engine.label}»`).join(", ");

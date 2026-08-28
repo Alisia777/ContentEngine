@@ -13,7 +13,7 @@ import {
   generationStrategyRuntimeSafeProjection,
   invalidateGenerationStrategyRuntimeState,
   reduceGenerationStrategyRuntimeState,
-} from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.36";
+} from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.37";
 
 export const GENERATION_STRATEGY_QUEUE_VERSION = "2026-08-14.v1";
 export const GENERATION_STRATEGY_QUEUE_SIZE = 10;

@@ -12,8 +12,8 @@ BUILD_ID = json.loads((ROOT / "web" / "app" / "build.json").read_text(encoding="
 
 
 def test_account_launch_center_is_reachable_from_the_live_portal() -> None:
-    assert 'from "./account-launch-view.js?v=20260826.rebuild-clean.36"' in APP
-    assert 'from "./account-launch-guides.js?v=20260826.rebuild-clean.36"' in (
+    assert 'from "./account-launch-view.js?v=20260826.rebuild-clean.37"' in APP
+    assert 'from "./account-launch-guides.js?v=20260826.rebuild-clean.37"' in (
         ROOT / "web" / "app" / "account-launch-view.js"
     ).read_text(encoding="utf-8")
     route_dispatch = APP[APP.index("function render() {") : APP.index("function renderLogin")]
@@ -28,15 +28,15 @@ def test_account_launch_center_is_reachable_from_the_live_portal() -> None:
     assert "purchase_focus" not in APP
     assert 'event.target.matches("[data-account-check]")' in APP
     assert "clearAccountLaunchChecks(state.user?.id);" in APP
-    assert './account-launch.css?v=20260826.rebuild-clean.36' in INDEX
-    assert 'const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260826.rebuild-clean.36"' in APP
+    assert './account-launch.css?v=20260826.rebuild-clean.37' in INDEX
+    assert 'const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260826.rebuild-clean.37"' in APP
     assert "await import(ACCOUNT_VISUAL_MODULE_URL)" in APP
     assert "visualModule.mountAccountLaunchVisualExamples(visualRoot" in APP
     assert "lockPlatform: true" in APP
     assert "state.accountVisualStates.set(current.slug, current.instance.getState())" in APP
     assert "Account launch visual examples failed" in APP
-    assert './account-launch-visual-examples.css?v=20260826.rebuild-clean.36' in INDEX
-    assert './first-shift-full-scenario.css?v=20260826.rebuild-clean.36' in INDEX
+    assert './account-launch-visual-examples.css?v=20260826.rebuild-clean.37' in INDEX
+    assert './first-shift-full-scenario.css?v=20260826.rebuild-clean.37' in INDEX
 
 
 def test_manager_dashboard_uses_the_scoped_rpc_and_live_handlers() -> None:
@@ -45,8 +45,8 @@ def test_manager_dashboard_uses_the_scoped_rpc_and_live_handlers() -> None:
         r"managerDashboard\(\)\s*\{\s*return this\.call\(RPC\.managerDashboard, this\.withOrganization\(\{\}\)\);\s*\}",
         API,
     )
-    assert 'from "./manager-dashboard-view.js?v=20260826.rebuild-clean.36"' in APP
-    assert 'from "./access-center-view.js?v=20260826.rebuild-clean.36"' in APP
+    assert 'from "./manager-dashboard-view.js?v=20260826.rebuild-clean.37"' in APP
+    assert 'from "./access-center-view.js?v=20260826.rebuild-clean.37"' in APP
     assert "state.api.managerDashboard()" in APP
     assert "managerDashboardMarkup(dashboard.data || {}, state.operationalHealth)" in APP
     for action in (
@@ -56,7 +56,7 @@ def test_manager_dashboard_uses_the_scoped_rpc_and_live_handlers() -> None:
         "copy-manager-reminder",
     ):
         assert f'action === "{action}"' in APP
-    assert './manager-dashboard.css?v=20260826.rebuild-clean.36' in INDEX
+    assert './manager-dashboard.css?v=20260826.rebuild-clean.37' in INDEX
     assert "MANAGER_DASHBOARD_MAX_AGE_MS" in APP
     assert "state.managerDashboard.updatedAt" in APP
     assert 'const ACCESS_FUNCTION = "creator-access"' in API
@@ -86,13 +86,13 @@ def test_manager_dashboard_uses_the_scoped_rpc_and_live_handlers() -> None:
 
 
 def test_release_entry_assets_use_current_cache_versions() -> None:
-    assert './styles.css?v=20260826.rebuild-clean.36' in INDEX
-    assert './config.js?v=20260826.rebuild-clean.36' in INDEX
+    assert './styles.css?v=20260826.rebuild-clean.37' in INDEX
+    assert './config.js?v=20260826.rebuild-clean.37' in INDEX
     assert f'<meta name="contentengine-build" content="{BUILD_ID}"' in INDEX
-    assert './app.js?v=20260826.rebuild-clean.36' in INDEX
-    assert './workspace-os-v4-loader.js?v=20260826.rebuild-clean.36' in INDEX
+    assert './app.js?v=20260826.rebuild-clean.37' in INDEX
+    assert './workspace-os-v4-loader.js?v=20260826.rebuild-clean.37' in INDEX
     assert f'./interface-system.css?v={BUILD_ID}' in INDEX
-    assert './workspace-os-v4.css?v=20260826.rebuild-clean.36' in INDEX
+    assert './workspace-os-v4.css?v=20260826.rebuild-clean.37' in INDEX
     assert f'./workspace-build-guard.js?v={BUILD_ID}' in INDEX
-    assert './supabase-api.js?v=20260826.rebuild-clean.36' in APP
-    assert './catalog.js?v=20260826.rebuild-clean.36' in APP
+    assert './supabase-api.js?v=20260826.rebuild-clean.37' in APP
+    assert './catalog.js?v=20260826.rebuild-clean.37' in APP
