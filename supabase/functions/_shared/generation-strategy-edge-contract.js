@@ -341,8 +341,16 @@ function recipeContext(value, expectedStrategy) {
       !(legacyProduct || approvedProduct)
     ) return null;
   } else {
+    // «Создание» ходило только на Runway, чей снимок цены разрешения не несёт —
+    // отсюда требование null. Фал-реестр 23.08 пишет в снимок реальные
+    // «720p»/«1080p», и это же значение уходит в строку подтверждения расхода
+    // (…_720P_…): отвергать его значило валить КАЖДЫЙ платный старт «Создания»
+    // уже после резерва денег (claim_not_bindable и pre_dispatch_claim_lost —
+    // одна и эта строка). Сборщик запроса fal/product_ad разрешение не читает.
     if (
-      value.resolution !== null || !text(value.ratio, 3, 16) ||
+      !(value.resolution === null ||
+        new Set(["720p", "1080p"]).has(value.resolution)) ||
+      !text(value.ratio, 3, 16) ||
       !text(value.productInfo, 1, 2_500) || !hash(value.productInfoHash) ||
       !text(value.userConcept, 1, 3_500) || !hash(value.userConceptHash)
     ) return null;

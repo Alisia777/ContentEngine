@@ -8,7 +8,7 @@ import {
   generationIntakeStrategy,
   generationIntakeStrategyForAuthority,
   validateGenerationIntakeDraft,
-} from "./generation-strategy-intake-contract-v2.js?v=20260826.rebuild-clean.40";
+} from "./generation-strategy-intake-contract-v2.js?v=20260826.rebuild-clean.43";
 
 /*
  * Three separate operator forms for one generation workspace.
@@ -23,7 +23,7 @@ const RPC_SOURCE = "contentengine_register_exact_youtube_source";
 const RPC_INTAKE = "contentengine_save_generation_intake_v2";
 const SESSION_PREFIX = "contentengine.generation.intake-v2";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v3.css?v=20260826.rebuild-clean.40",
+  "./generation-strategy-intake-v3.css?v=20260826.rebuild-clean.43",
   import.meta.url,
 ).href;
 const UUID_PATTERN =

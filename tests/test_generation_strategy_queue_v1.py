@@ -396,7 +396,7 @@ def test_queue_imports_frozen_runtime_and_is_pure_planning_only() -> None:
         "b1a7f6a96ee575dc632d737a1f9436877f473a7c38861c27154fc26040a5393b"
     )
     assert (
-        'from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.40";'
+        'from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.43";'
         in QUEUE_SOURCE
     )
     for forbidden in (
@@ -436,6 +436,9 @@ def test_queue_imports_frozen_runtime_and_is_pure_planning_only() -> None:
                 "GENERATION_STRATEGY_QUEUE_FREE_MAX_CONCURRENCY",
                 "GENERATION_STRATEGY_QUEUE_PAID_MAX_CONCURRENCY",
                 "GENERATION_STRATEGY_QUEUE_SIZE",
+                # «Создание» ходит одним референсом: контракт принимает {1, 10}
+                # (боевой прогон 29.08), десятка осталась массовым режимом.
+                "GENERATION_STRATEGY_QUEUE_SIZES",
                 "GENERATION_STRATEGY_QUEUE_VERSION",
                 "advanceGenerationStrategyQueueSequentialStarts",
                 "createGenerationStrategyQueue",

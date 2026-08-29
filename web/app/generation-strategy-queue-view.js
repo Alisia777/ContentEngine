@@ -9,11 +9,12 @@
 import {
   GENERATION_STRATEGY_SOURCE_COUNT,
   GENERATION_STRATEGY_SOURCE_PICKER_VERSION,
-} from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.40";
+} from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.43";
 import {
   GENERATION_STRATEGY_QUEUE_SIZE,
+  GENERATION_STRATEGY_QUEUE_SIZES,
   GENERATION_STRATEGY_QUEUE_VERSION,
-} from "./generation-strategy-queue.js?v=20260826.rebuild-clean.40";
+} from "./generation-strategy-queue.js?v=20260826.rebuild-clean.43";
 
 export const GENERATION_STRATEGY_QUEUE_VIEW_VERSION =
   "generation-strategy-queue-view-v1";
@@ -390,9 +391,9 @@ function normalizeQueueProjection(raw) {
   const queue = exactObject(raw, QUEUE_TOP_KEYS);
   if (
     queue.version !== GENERATION_STRATEGY_QUEUE_VERSION ||
-    queue.row_count !== GENERATION_STRATEGY_QUEUE_SIZE ||
+    !GENERATION_STRATEGY_QUEUE_SIZES.has(queue.row_count) ||
     !Array.isArray(queue.rows) ||
-    queue.rows.length !== GENERATION_STRATEGY_QUEUE_SIZE
+    queue.rows.length !== queue.row_count
   ) throw new ViewContractError("queue_projection_invalid");
   const rows = queue.rows.map(normalizeQueueRow);
   if (new Set(rows.map((row) => row.source_media_id)).size !== rows.length) {
@@ -409,8 +410,8 @@ function normalizeReview(raw) {
   if (
     review.version !== GENERATION_STRATEGY_QUEUE_VERSION ||
     !Array.isArray(review.rows) ||
-    review.rows.length !== GENERATION_STRATEGY_QUEUE_SIZE ||
-    review.row_count !== GENERATION_STRATEGY_QUEUE_SIZE
+    !GENERATION_STRATEGY_QUEUE_SIZES.has(review.row_count) ||
+    review.rows.length !== review.row_count
   ) throw new ViewContractError("review_invalid");
   const rows = review.rows.map(normalizeQueueRow);
   const unique = new Set(rows.map((row) => row.source_media_id)).size === rows.length;
@@ -663,7 +664,7 @@ export function createGenerationStrategyQueueViewModel(
   const paidStartBlocked = queueRuntimes.some((runtime) =>
     runtime.start_reserved || runtime.reconciliation_required
   );
-  const paidPhasesSafe = queueRuntimes.length === GENERATION_STRATEGY_QUEUE_SIZE &&
+  const paidPhasesSafe = GENERATION_STRATEGY_QUEUE_SIZES.has(queueRuntimes.length) &&
     queueRuntimes.every((runtime) => [
       "human_confirmed",
       "status",

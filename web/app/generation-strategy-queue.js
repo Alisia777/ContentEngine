@@ -13,10 +13,15 @@ import {
   generationStrategyRuntimeSafeProjection,
   invalidateGenerationStrategyRuntimeState,
   reduceGenerationStrategyRuntimeState,
-} from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.40";
+} from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.43";
 
 export const GENERATION_STRATEGY_QUEUE_VERSION = "2026-08-14.v1";
 export const GENERATION_STRATEGY_QUEUE_SIZE = 10;
+// «Создание» с 26.08 идёт с ОДНИМ референсом, «десятка хитов» осталась для
+// массового режима. Жёсткий размер 10 делал очередь одного ролика
+// непостроимой (боевой прогон 29.08): контракт принимает оба размера, а
+// согласованность внутри одного значения по-прежнему обязательна.
+export const GENERATION_STRATEGY_QUEUE_SIZES = Object.freeze(new Set([1, 10]));
 export const GENERATION_STRATEGY_QUEUE_FREE_MAX_CONCURRENCY = 3;
 export const GENERATION_STRATEGY_QUEUE_PAID_MAX_CONCURRENCY = 1;
 
@@ -195,10 +200,10 @@ function validQueue(value) {
     !Number.isSafeInteger(value.revision) ||
     value.revision < 0 ||
     !Array.isArray(value.source_order) ||
-    value.source_order.length !== GENERATION_STRATEGY_QUEUE_SIZE ||
-    new Set(value.source_order).size !== GENERATION_STRATEGY_QUEUE_SIZE ||
+    !GENERATION_STRATEGY_QUEUE_SIZES.has(value.source_order.length) ||
+    new Set(value.source_order).size !== value.source_order.length ||
     !(value.rows instanceof Map) ||
-    value.rows.size !== GENERATION_STRATEGY_QUEUE_SIZE ||
+    value.rows.size !== value.source_order.length ||
     !Object.isFrozen(value) ||
     !Object.isFrozen(value.source_order) ||
     !Object.isFrozen(value.rows)
@@ -273,7 +278,7 @@ export function createGenerationStrategyQueue(entries) {
   try {
     if (
       !Array.isArray(entries) ||
-      entries.length !== GENERATION_STRATEGY_QUEUE_SIZE
+      !GENERATION_STRATEGY_QUEUE_SIZES.has(entries.length)
     ) {
       throw new QueueContractError("queue_size_invalid", "entries");
     }
@@ -484,7 +489,7 @@ export function generationStrategyQueueSafeProjection(queue) {
   return deepFreeze({
     version: GENERATION_STRATEGY_QUEUE_VERSION,
     revision: queue.revision,
-    row_count: GENERATION_STRATEGY_QUEUE_SIZE,
+    row_count: queue.source_order.length,
     rows: queue.source_order.map((sourceMediaId) => ({
       source_media_id: sourceMediaId,
       runtime: sanitizedRuntimeProjection(
@@ -502,7 +507,7 @@ function reviewMatches(priorReview, currentProjection) {
     priorReview.confirmation !== false ||
     priorReview.queue_revision !== currentProjection.revision ||
     !Array.isArray(priorReview.rows) ||
-    priorReview.rows.length !== GENERATION_STRATEGY_QUEUE_SIZE
+    priorReview.rows.length !== currentProjection.rows.length
   ) return false;
   return priorReview.rows.every((priorRow, index) => {
     const currentRow = currentProjection.rows[index];
@@ -553,7 +558,7 @@ export function generationStrategyQueueAggregateReview(queue, priorReview = null
       prior_review_current: ready && reviewMatches(priorReview, projection),
       ready: ready && oneCurrency,
       server_priced: ready && oneCurrency,
-      row_count: GENERATION_STRATEGY_QUEUE_SIZE,
+      row_count: projection.rows.length,
       currency: oneCurrency ? [...currencies][0] : null,
       total_estimated_cost_minor: oneCurrency ? total : null,
       rows: projection.rows,
