@@ -418,3 +418,29 @@ def test_provider_status_parser_accepts_submitted_and_poll_is_instrumented() -> 
         "const handleGenerationStrategyStatus", 1
     )[0]
     assert "return null;\n      }\n    }" not in poll.split("catch {")[0]
+
+
+def test_fal_readiness_guards_balance_lock_before_paid_button() -> None:
+    """Боевой урок 29.08.2026: баланс fal кончился ПОСЛЕ submit — задача
+    COMPLETED, а выдача заперта 403 «User is locked. Reason: TOP_UP», при этом
+    статусный маршрут очереди лок не гейтит, и прежний пробник /status
+    пропускал залоченный аккаунт к платной кнопке. Закрепляем двухступенчатый
+    сторож: биллинг-API как первичный источник, пробник ЗАПЕРТОСТИ на маршруте
+    выдачи (без /status) как фолбэк, и именованный отказ
+    provider_balance_insufficient, который словарь портала уже умеет
+    объяснять человеку."""
+    edge = EDGE.read_text(encoding="utf-8")
+    guard = edge.split("async function checkFalStrategyReadiness", 1)[1].split(
+        "async function checkRunwayStrategyReadiness", 1
+    )[0]
+    assert "/v1/account/billing?expand=credits" in guard
+    assert "FAL_LOCK_TEXT.test(" in guard
+    assert '"provider_balance_insufficient"' in guard
+    # Пробник указывает на выдачу результата, а не на /status.
+    assert "/requests/${crypto.randomUUID()}`" in guard
+    assert "/requests/${crypto.randomUUID()}/status" not in guard
+    # 403 без текста лока остаётся отказом авторизации.
+    assert '"provider_authentication_failed"' in guard
+    assert "const FAL_LOCK_TEXT = /User is locked|TOP_UP/i;" in edge
+    portal = (ROOT / "web/app/supabase-api.js").read_text(encoding="utf-8")
+    assert "provider_balance_insufficient" in portal

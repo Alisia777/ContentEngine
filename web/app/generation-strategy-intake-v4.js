@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.46",
+  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.47",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260826.rebuild-clean.46"
+  "./generation-engine-advisor.js?v=20260826.rebuild-clean.47"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -817,6 +817,16 @@ function productSlot() {
   pendingClear.hidden = true;
   section.append(
     el("p", "gi-card__hint", `Добавьте 1–${MAX_PRODUCT_IMAGES} фото одного товара — новые файлы или уже проверенные фотографии проекта.`),
+    // Правило выстрадано боевым запуском 29.08: модерация видео-провайдера
+    // (ByteDance) отклоняет фото с людьми и наложениями камеры, задача умирает
+    // через секунды ПОСЛЕ резерва денег. Дешевле сказать это до загрузки.
+    el(
+      "p",
+      "gi-card__hint",
+      "Только чистые фото: без рук и лиц в кадре, без вотермарок камеры и "
+        + "штампов даты — такие снимки модерация нейросети отклоняет, и "
+        + "запуск обрывается.",
+    ),
     upload,
     count,
     pending,

@@ -115,6 +115,19 @@ const SEEDANCE_RUSSIAN_DICTION_GUARD =
   "Русская дикция: чётко, без акцента/лишних гласных; все слова/окончания; числа/градусы/названия точно; чёткие паузы.";
 const RUNWAY_OUTPUT_HOST = "dnznrvs05pmza.cloudfront.net";
 const FAL_QUEUE_ORIGIN = "https://queue.fal.run";
+// Платформенный API fal: там живёт биллинг (GET /v1/account/billing).
+// Тот же origin уже используется recovery-путём результатов в
+// generation-strategy-edge-contract.js.
+const FAL_BILLING_ORIGIN = "https://api.fal.ai";
+// Лок аккаунта fal «User is locked. Reason: TOP_UP.» — боевой текст 29.08.
+const FAL_LOCK_TEXT = /User is locked|TOP_UP/i;
+// Кеш готовности per-isolate, best-effort: бережёт fal от запроса на каждый
+// preflight очереди и даёт окно не дольше минуты в обе стороны.
+const FAL_READINESS_CACHE_TTL_MS = 60_000;
+let falReadinessCache:
+  | { atMs: number; kind: "balance_minor"; balanceMinor: number }
+  | { atMs: number; kind: "locked" }
+  | null = null;
 // Ведущий для «Дуэта». Отправка и опрос идут по одному origin: генерация
 // отвечает data.video_id, а статус забирается GET /v3/videos/{video_id}.
 // Проверено 22.08.2026 по https://developers.heygen.com/transparent-background-videos
@@ -5598,7 +5611,9 @@ async function checkStrategyReadiness(
   provider: string,
   estimatedCredits: number,
 ): Promise<GenerationStrategyReadinessCheck> {
-  if (provider === "fal") return await checkFalStrategyReadiness(falSecret());
+  if (provider === "fal") {
+    return await checkFalStrategyReadiness(falSecret(), estimatedCredits);
+  }
   if (provider === "runway") {
     return await checkRunwayStrategyReadiness(runwaySecret(), estimatedCredits);
   }
@@ -5670,12 +5685,24 @@ async function checkHeygenStrategyReadiness(
   };
 }
 
-// fal не публикует баланс, поэтому подтверждаем то, что реально проверяемо:
-// ключ настроен и принят провайдером. Достаточность средств проверить нечем —
-// её честно сообщит сам провайдер отказом при создании задачи, и резерв тогда
-// вернётся обычной сверкой.
+// Сторож баланса fal — двухступенчатый (боевой урок 29.08: баланс кончился
+// после submit, задача COMPLETED, а выдача заперта 403 «User is locked.
+// Reason: TOP_UP» — статусный маршрут очереди лок при этом НЕ гейтит, и
+// прежний пробник /status пропускал залоченный аккаунт как здоровый).
+//
+// Ступень 1 — платформенный биллинг GET /v1/account/billing?expand=credits:
+// точное сравнение current_balance (USD) с оценкой запуска. В доке fal
+// эндпоинт назван под admin-ключом, поэтому любой непригодный ответ (нет
+// скоупа, не-USD, кривой JSON) честно уводит в ступень 2, а не в отказ.
+//
+// Ступень 2 — пробник ЗАПЕРТОСТИ: GET выдачи результата несуществующего
+// запроса (маршрут БЕЗ /status — именно его гейтит лок-middleware, проверено
+// боем на реальном COMPLETED-запросе). Здоровый аккаунт отвечает 404 «не
+// нашлось», залоченный — 403 с текстом лока, негодный ключ — 401/403 без
+// текста лока.
 async function checkFalStrategyReadiness(
   secret: string | null,
+  estimatedCredits: number,
 ): Promise<GenerationStrategyReadinessCheck> {
   if (secret === null) {
     return {
@@ -5685,13 +5712,70 @@ async function checkFalStrategyReadiness(
       failureCode: "provider_configuration_error",
     };
   }
+  // Для fal-строк оценка запуска в центах USD (spend_confirmation
+  // FAL_..._USD_X.YY), поэтому сравнение с балансом — в minor-единицах.
+  const requiredMinor = Number.isSafeInteger(estimatedCredits) &&
+      estimatedCredits > 0
+    ? estimatedCredits
+    : null;
+  const insufficient: GenerationStrategyReadinessCheck = {
+    credentialConfigured: true,
+    providerAuthenticationConfirmed: true,
+    balanceSufficient: false,
+    failureCode: "provider_balance_insufficient",
+  };
+  const ready: GenerationStrategyReadinessCheck = {
+    credentialConfigured: true,
+    providerAuthenticationConfirmed: true,
+    balanceSufficient: true,
+    failureCode: null,
+  };
+  const cached = falReadinessCache;
+  if (cached !== null && Date.now() - cached.atMs < FAL_READINESS_CACHE_TTL_MS) {
+    if (cached.kind === "locked") return insufficient;
+    return requiredMinor !== null && cached.balanceMinor < requiredMinor
+      ? insufficient
+      : ready;
+  }
+  // Ступень 1: биллинг.
+  try {
+    const billing = await fetchProviderJsonWithDeadline(
+      `${FAL_BILLING_ORIGIN}/v1/account/billing?expand=credits`,
+      {
+        method: "GET",
+        redirect: "manual",
+        headers: { authorization: `Key ${secret}` },
+      },
+      PROVIDER_TIMEOUT_MS,
+    );
+    if (billing.ok && isRecord(billing.value)) {
+      const credits = (billing.value as Record<string, unknown>).credits;
+      if (isRecord(credits) && credits.currency === "USD") {
+        const balance = Number(credits.current_balance);
+        if (Number.isFinite(balance)) {
+          const balanceMinor = Math.round(balance * 100);
+          falReadinessCache = {
+            atMs: Date.now(),
+            kind: "balance_minor",
+            balanceMinor,
+          };
+          return requiredMinor !== null && balanceMinor < requiredMinor
+            ? insufficient
+            : ready;
+        }
+      }
+    }
+    // Любой непригодный ответ биллинга — не приговор ключу очереди:
+    // возможно, у него просто нет платформенного скоупа. Идём в пробник.
+  } catch {
+    // Сеть до биллинга — тоже не приговор: решает пробник очереди.
+  }
+  // Ступень 2: пробник запертости на маршруте выдачи.
   let response: ProviderJsonResult;
   try {
     response = await fetchProviderJsonWithDeadline(
-      // Адрес берётся от корня приложения: очередь отвечает именно по нему,
-      // а по полному пути модели вернулось бы «не найдено» ещё до проверки
-      // ключа — и негодный ключ прошёл бы готовность незамеченным.
-      `${FAL_QUEUE_ORIGIN}/fal-ai/pika/requests/${crypto.randomUUID()}/status`,
+      // Корень приложения, БЕЗ /status: лок-middleware гейтит именно выдачу.
+      `${FAL_QUEUE_ORIGIN}/fal-ai/pika/requests/${crypto.randomUUID()}`,
       {
         method: "GET",
         redirect: "manual",
@@ -5707,8 +5791,16 @@ async function checkFalStrategyReadiness(
       failureCode: "provider_readiness_unavailable",
     };
   }
-  // Несуществующая задача — ожидаемый ответ: важно лишь, что ключ приняли.
-  // Отказ по авторизации отличается от «не нашлось» и означает плохой ключ.
+  if (response.status === 403) {
+    const bodyText = typeof response.value === "string"
+      ? response.value
+      : JSON.stringify(response.value ?? "");
+    if (FAL_LOCK_TEXT.test(bodyText)) {
+      falReadinessCache = { atMs: Date.now(), kind: "locked" };
+      return insufficient;
+    }
+  }
+  // Отказ по авторизации без текста лока означает плохой ключ.
   if (response.status === 401 || response.status === 403) {
     return {
       credentialConfigured: true,
@@ -5717,12 +5809,9 @@ async function checkFalStrategyReadiness(
       failureCode: "provider_authentication_failed",
     };
   }
-  return {
-    credentialConfigured: true,
-    providerAuthenticationConfirmed: true,
-    balanceSufficient: true,
-    failureCode: null,
-  };
+  // Несуществующий запрос — ожидаемый ответ здорового аккаунта (404): ключ
+  // приняли, лока нет. Точного баланса пробник не знает — пропускаем.
+  return ready;
 }
 
 async function checkRunwayStrategyReadiness(
