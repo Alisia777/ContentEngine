@@ -70,7 +70,7 @@ process.stdout.write(JSON.stringify(value));
 def test_rebuild_exact_ten_order_and_limit_are_deterministic() -> None:
     result = _run(
         """
-let state=createGenerationStrategySourcePicker('viral_rebuild',candidates.map((item, index) => candidate(index + 1, 'viral_rebuild')));
+let state=createGenerationStrategySourcePicker('viral_rebuild',candidates.map((item, index) => candidate(index + 1, 'viral_rebuild')),{requiredCount:10});
 for(let i=0;i<10;i+=1) state=reduceGenerationStrategySourcePicker(state,{type:A.toggle,source_media_id:uuid(i+1)});
 const ten=generationStrategySourcePickerProjection(state);
 state=reduceGenerationStrategySourcePicker(state,{type:A.toggle,source_media_id:uuid(11)});
@@ -158,7 +158,7 @@ def test_candidate_refresh_preserves_order_and_drops_only_missing_source() -> No
     result = _run(
         """
 const rebuildCandidates=candidates.map((item,index)=>candidate(index+1,'viral_rebuild'));
-let state=createGenerationStrategySourcePicker('viral_rebuild',rebuildCandidates);
+let state=createGenerationStrategySourcePicker('viral_rebuild',rebuildCandidates,{requiredCount:10});
 for(let i=0;i<10;i+=1) state=reduceGenerationStrategySourcePicker(state,{type:A.toggle,source_media_id:uuid(i+1)});
 const before=state.revision;
 state=reduceGenerationStrategySourcePicker(state,{type:A.replaceCandidates,strategy_id:'viral_rebuild',candidates:rebuildCandidates.filter((_,index)=>index!==4)});
@@ -227,3 +227,39 @@ def test_module_is_syntax_valid() -> None:
         check=False,
     )
     assert completed.returncode == 0, completed.stderr or completed.stdout
+
+
+def test_rebuild_defaults_to_single_and_batch_mode_is_explicit_state() -> None:
+    """M1 (29.08.2026): требование — состояние пикера. Дефолт «Создания» —
+    один референс-хит (боевой режим 26-29.08); пакет из десяти включается
+    только явным SET_REQUIRED_COUNT и запрещён «Копии»/«Дуэту». Сжатие
+    пакета до одиночного режима оставляет первый выбранный ролик."""
+    result = _run(
+        """
+let state=createGenerationStrategySourcePicker('viral_rebuild',candidates.map((item, index) => candidate(index + 1, 'viral_rebuild')));
+const single=generationStrategySourcePickerProjection(state);
+state=reduceGenerationStrategySourcePicker(state,{type:A.setRequiredCount,required_count:10});
+state=reduceGenerationStrategySourcePicker(state,{type:A.toggle,source_media_id:uuid(1)});
+state=reduceGenerationStrategySourcePicker(state,{type:A.toggle,source_media_id:uuid(2)});
+state=reduceGenerationStrategySourcePicker(state,{type:A.toggle,source_media_id:uuid(3)});
+const batch=generationStrategySourcePickerProjection(state);
+state=reduceGenerationStrategySourcePicker(state,{type:A.replaceCandidates,strategy_id:'viral_rebuild',candidates:candidates.map((item, index) => candidate(index + 1, 'viral_rebuild'))});
+const afterRefresh=generationStrategySourcePickerProjection(state);
+state=reduceGenerationStrategySourcePicker(state,{type:A.setRequiredCount,required_count:1});
+const shrunk=generationStrategySourcePickerProjection(state);
+const invalidMode=reduceGenerationStrategySourcePicker(state,{type:A.setRequiredCount,required_count:7});
+const swap=createGenerationStrategySourcePicker('viral_product_swap',[candidate(1,'viral_product_swap')],{requiredCount:10});
+return {single,batch,afterRefresh,shrunk,invalidError:generationStrategySourcePickerProjection(invalidMode).error,swapIsNull:swap===null};
+"""
+    )
+    assert result["single"]["required_count"] == 1
+    assert result["batch"]["required_count"] == 10
+    assert result["batch"]["selected_count"] == 3
+    assert result["afterRefresh"]["required_count"] == 10
+    assert result["afterRefresh"]["selected_count"] == 3
+    assert result["shrunk"]["required_count"] == 1
+    assert result["shrunk"]["selected_count"] == 1
+    assert result["shrunk"]["exact_required_selected"] is True
+    assert result["shrunk"]["selected"][0]["source_media_id"].startswith("00000001")
+    assert result["invalidError"] == "required_count_unsupported"
+    assert result["swapIsNull"] is True

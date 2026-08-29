@@ -15,14 +15,23 @@ export const GENERATION_STRATEGY_SOURCE_PICKER_VERSION =
   "generation-strategy-source-picker-v1";
 
 export const GENERATION_STRATEGY_SOURCE_COUNT = 10;
-// «Создание» с 26.08.2026 — ОДИН референс-хит, а не десять: владелец просил
+// «Создание» с 26.08.2026 — ОДИН референс-хит по умолчанию: владелец просил
 // форму «как Копия, только без загрузки видео». Референс провайдеру не уходит
 // (forwarded_to_provider = false, buildProductAd отвергает source_video) — он
-// смысловой якорь механики. Пакет из десяти вернётся отдельным режимом M1.
+// смысловой якорь механики.
 export const GENERATION_STRATEGY_SOURCE_REQUIREMENTS = Object.freeze({
   viral_avatar_ugc: 1,
   viral_product_swap: 1,
   viral_rebuild: 1,
+});
+// Массовый режим M1 (29.08.2026): требование — СОСТОЯНИЕ пикера, а не
+// свойство стратегии. Карта режимов перечисляет допустимые размеры на
+// стратегию; дефолт остаётся одиночным, пакет включается только явным
+// переключателем оператора. «Копия» и «Дуэт» пакетов не имеют.
+export const GENERATION_STRATEGY_SOURCE_COUNT_MODES = Object.freeze({
+  viral_avatar_ugc: Object.freeze([1]),
+  viral_product_swap: Object.freeze([1]),
+  viral_rebuild: Object.freeze([1, GENERATION_STRATEGY_SOURCE_COUNT]),
 });
 
 export function generationStrategyRequiredSourceCount(strategyId) {
@@ -30,10 +39,16 @@ export function generationStrategyRequiredSourceCount(strategyId) {
   return strategy ? GENERATION_STRATEGY_SOURCE_REQUIREMENTS[strategy] : 0;
 }
 
+export function generationStrategySourceCountModes(strategyId) {
+  const strategy = cleanStrategyId(strategyId);
+  return strategy ? GENERATION_STRATEGY_SOURCE_COUNT_MODES[strategy] : Object.freeze([]);
+}
+
 export const GENERATION_STRATEGY_SOURCE_PICKER_ACTIONS = Object.freeze({
   replaceCandidates: "REPLACE_CANDIDATES",
   toggle: "TOGGLE",
   reset: "RESET",
+  setRequiredCount: "SET_REQUIRED_COUNT",
 });
 
 const UUID_PATTERN =
@@ -145,11 +160,12 @@ function normalizeCandidates(candidates, strategyId) {
   return order.map((filename) => byFilename.get(filename));
 }
 
-function pristine(strategyId, candidates = []) {
+function pristine(strategyId, candidates = [], requiredCount) {
   return deepFreeze({
     version: GENERATION_STRATEGY_SOURCE_PICKER_VERSION,
     strategy_id: strategyId,
     revision: 0,
+    required_count: requiredCount,
     candidates: Object.freeze(candidates),
     selected_source_ids: Object.freeze([]),
     error: null,
@@ -166,8 +182,9 @@ function validState(value) {
     || value.revision < 0
     || !Array.isArray(value.candidates)
     || !Array.isArray(value.selected_source_ids)
-    || value.selected_source_ids.length >
-      generationStrategyRequiredSourceCount(value.strategy_id)
+    || !generationStrategySourceCountModes(value.strategy_id)
+      .includes(value.required_count)
+    || value.selected_source_ids.length > value.required_count
     || new Set(value.selected_source_ids).size !== value.selected_source_ids.length
     || !Object.isFrozen(value)
   ) return false;
@@ -184,10 +201,16 @@ function withError(state, code) {
 export function createGenerationStrategySourcePicker(
   strategyId,
   candidates = [],
+  options = {},
 ) {
   const strategy = cleanStrategyId(strategyId);
   if (!strategy) return null;
-  return pristine(strategy, normalizeCandidates(candidates, strategy));
+  const modes = generationStrategySourceCountModes(strategy);
+  const requested = options?.requiredCount === undefined
+    ? generationStrategyRequiredSourceCount(strategy)
+    : options.requiredCount;
+  if (!modes.includes(requested)) return null;
+  return pristine(strategy, normalizeCandidates(candidates, strategy), requested);
 }
 
 export function reduceGenerationStrategySourcePicker(state, action) {
@@ -212,6 +235,11 @@ export function reduceGenerationStrategySourcePicker(state, action) {
     const selected = strategy === state.strategy_id
       ? state.selected_source_ids.filter((id) => candidateIds.has(id))
       : [];
+    // Требование живёт в состоянии: обновление каталога кандидатов не
+    // выключает выбранный режим. Смена стратегии возвращает её дефолт.
+    const requiredCount = strategy === state.strategy_id
+      ? state.required_count
+      : generationStrategyRequiredSourceCount(strategy);
     const changed = strategy !== state.strategy_id
       || selected.length !== state.selected_source_ids.length
       || JSON.stringify(candidates) !== JSON.stringify(state.candidates);
@@ -219,7 +247,28 @@ export function reduceGenerationStrategySourcePicker(state, action) {
       version: GENERATION_STRATEGY_SOURCE_PICKER_VERSION,
       strategy_id: strategy,
       revision: state.revision + (changed ? 1 : 0),
+      required_count: requiredCount,
       candidates: Object.freeze(candidates),
+      selected_source_ids: Object.freeze(selected),
+      error: null,
+    });
+  }
+  if (action.type === GENERATION_STRATEGY_SOURCE_PICKER_ACTIONS.setRequiredCount) {
+    if (
+      Object.keys(action).sort().join(",") !== "required_count,type"
+    ) return withError(state, "action_invalid");
+    const modes = generationStrategySourceCountModes(state.strategy_id);
+    if (!modes.includes(action.required_count)) {
+      return withError(state, "required_count_unsupported");
+    }
+    if (action.required_count === state.required_count) return state;
+    // Сжатие пакета до одиночного режима оставляет ПЕРВЫЙ выбранный ролик:
+    // порядок выбора — часть контракта, и первый хит — самый осознанный.
+    const selected = state.selected_source_ids.slice(0, action.required_count);
+    return deepFreeze({
+      ...state,
+      revision: state.revision + 1,
+      required_count: action.required_count,
       selected_source_ids: Object.freeze(selected),
       error: null,
     });
@@ -235,9 +284,7 @@ export function reduceGenerationStrategySourcePicker(state, action) {
     const selected = [...state.selected_source_ids];
     if (currentIndex >= 0) {
       selected.splice(currentIndex, 1);
-    } else if (
-      selected.length >= generationStrategyRequiredSourceCount(state.strategy_id)
-    ) {
+    } else if (selected.length >= state.required_count) {
       return withError(state, "source_limit_reached");
     } else {
       selected.push(id);
@@ -270,7 +317,7 @@ export function generationStrategySourcePickerProjection(state) {
   const probeIds = selected
     .filter((entry) => entry.probe_required)
     .map((entry) => entry.source_media_id);
-  const requiredCount = generationStrategyRequiredSourceCount(state.strategy_id);
+  const requiredCount = state.required_count;
   const exactRequired = selected.length === requiredCount;
   return deepFreeze({
     version: state.version,

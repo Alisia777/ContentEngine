@@ -32343,7 +32343,7 @@ function syncGenerationStrategyFormReadiness(form) {
   const serverReviewReady = Boolean(
     review?.ready
     && review.prior_review_current === true
-    && approvedCount === (sourceProjection?.required_count || 10)
+    && approvedCount === (sourceProjection?.required_count || 1)
   );
   const confirmationReady = Boolean(
     serverReviewReady
@@ -32677,7 +32677,7 @@ async function submitGenerationStrategyExactTen(
     toast(
       sourceProjection?.required_count === 1
         ? "Выберите и проверьте ролик-референс, затем заполните ассеты и механику."
-        : `Выберите и проверьте ровно ${sourceProjection?.required_count || 10} MP4, затем заполните ассеты и механику.`,
+        : `Выберите и проверьте ровно ${sourceProjection?.required_count || 1} MP4, затем заполните ассеты и механику.`,
       "error",
     );
     return;
@@ -32714,7 +32714,7 @@ async function submitGenerationStrategyExactTen(
     // Пороги считают от требования пикера, не от жёсткой десятки: «Создание»
     // с 26.08 идёт с одним референсом, и литерал 10 зацикливал мастера на
     // вечной переподготовке единственного ТЗ (боевой прогон 29.08).
-    const requiredSpecCount = Number(sourceProjection.required_count) || 10;
+    const requiredSpecCount = Number(sourceProjection.required_count) || 1;
     const preparedCount = selections.filter((entry) => (
       state.generationStrategySpecs.get(entry.source_media_id)?.draft
     )).length;

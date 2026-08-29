@@ -276,6 +276,12 @@ def test_view_pins_all_frozen_authorities_and_has_no_side_effect_channel() -> No
     # `.40`–`.43` в строке импорта — cache-bust после починки зависания вкладки при
     # выборе MP4 (состояние каскада стало пострaтегийным, списки «Дуэта»
     # перестраиваются лишь при смене набора). Поведение очереди не менялось.
+    # Запись 29.08.2026: пин пикера сдвинут ОСОЗНАННО, и это правка поведения.
+    # Массовый режим M1: требование стало СОСТОЯНИЕМ пикера (required_count в
+    # state, карта режимов GENERATION_STRATEGY_SOURCE_COUNT_MODES {1,10} для
+    # viral_rebuild, действие SET_REQUIRED_COUNT). Дефолт остаётся одиночным —
+    # боевой режим 26–29.08 не менялся; пакет включается только явным
+    # переключателем оператора.
     # Запись 26.08.2026: пин пикера сдвинут ОСОЗНАННО, и это правка поведения.
     # «Создание» требует ОДИН референс-хит вместо десяти (владелец: «форма как
     # Копия, только без загрузки видео»); referencing MP4 провайдеру по-прежнему
@@ -286,7 +292,7 @@ def test_view_pins_all_frozen_authorities_and_has_no_side_effect_channel() -> No
     expected_hashes = {
         RUNTIME_MODULE: "b1a7f6a96ee575dc632d737a1f9436877f473a7c38861c27154fc26040a5393b",
         QUEUE_MODULE: "8fd48ca9e89cf1c78f37d1566c311d0bcfe99560090b58ad5e28339be0b451d4",
-        SOURCE_PICKER_MODULE: "a00b040483ad806d3492e712c6391d594ca08b29fc70f5f22c1d114dbf3378b8",
+        SOURCE_PICKER_MODULE: "a7cd10d44c0399a88538f5bfd6fde580c227ff549c86028f602373113bf406b5",
     }
     for path, expected in expected_hashes.items():
         canonical_bytes = path.read_bytes().replace(b"\r\n", b"\n")
