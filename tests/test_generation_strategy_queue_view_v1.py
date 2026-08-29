@@ -39,6 +39,7 @@ const hash = (kind, index) =>
 const sourceId = (index) => uuid(10, index);
 
 const sourceProjection = (count = 10, options = {}) => {
+  const required = options.requiredCount || 10;
   const selected = Array.from({length: count}, (_, index) => {
     const needsProbe = index === options.probeIndex;
     return {
@@ -63,9 +64,10 @@ const sourceProjection = (count = 10, options = {}) => {
     strategy_id: 'viral_rebuild',
     revision: 12,
     selected_count: count,
-    required_count: 10,
-    exactly_ten_selected: count === 10,
-    all_selected_ready: count === 10 && probeIds.length === 0,
+    required_count: required,
+    exact_required_selected: count === required,
+    exactly_ten_selected: required === 10 && count === required,
+    all_selected_ready: count === required && probeIds.length === 0,
     selected,
     probe_required_source_ids: probeIds,
     error: null,
@@ -168,7 +170,7 @@ const runtimeFor = (index, phase = 'preflight_ready', options = {}) => {
 const queueProjection = (phases = Array(10).fill('preflight_ready'), options = {}) => ({
   version: '2026-08-14.v1',
   revision: options.revision || 30,
-  row_count: 10,
+  row_count: phases.length,
   rows: phases.map((phase, index) => ({
     source_media_id: sourceId(index),
     runtime: runtimeFor(index, phase, {
@@ -179,7 +181,8 @@ const queueProjection = (phases = Array(10).fill('preflight_ready'), options = {
 });
 
 const aggregateReview = (options = {}) => {
-  const rows = Array.from({length: 10}, (_, index) => ({
+  const count = options.count || 10;
+  const rows = Array.from({length: count}, (_, index) => ({
     source_media_id: sourceId(index),
     runtime: runtimeFor(index, 'preflight_ready'),
   }));
@@ -197,7 +200,7 @@ const aggregateReview = (options = {}) => {
     prior_review_current: false,
     ready,
     server_priced: serverPriced,
-    row_count: 10,
+    row_count: count,
     currency: ready && serverPriced ? 'USD' : null,
     total_estimated_cost_minor: ready && serverPriced ? total : null,
     rows,
@@ -282,18 +285,18 @@ def test_view_pins_all_frozen_authorities_and_has_no_side_effect_channel() -> No
     # штампом сборки login-rain.4.
     expected_hashes = {
         RUNTIME_MODULE: "b1a7f6a96ee575dc632d737a1f9436877f473a7c38861c27154fc26040a5393b",
-        QUEUE_MODULE: "007ea84178aa6326181041b25b5068cb0d8f5516b51d685e7428c74b119a88dd",
-        SOURCE_PICKER_MODULE: "52e868b4333ead61aa5da88093c1bd91240affb4e0e0c603e56191d8febfacff",
+        QUEUE_MODULE: "79c642fbeab6e519ade97ef419dc1cffb2fae74f3f0307df6fb409670fbee627",
+        SOURCE_PICKER_MODULE: "e9edf4e158d92c9212d1962367276617fa3a12dba9ac102db11e46cdd6faf14c",
     }
     for path, expected in expected_hashes.items():
         canonical_bytes = path.read_bytes().replace(b"\r\n", b"\n")
         assert hashlib.sha256(canonical_bytes).hexdigest() == expected
     assert (
-        'from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.45";'
+        'from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.46";'
         in VIEW_SOURCE
     )
     assert (
-        'from "./generation-strategy-queue.js?v=20260826.rebuild-clean.45";'
+        'from "./generation-strategy-queue.js?v=20260826.rebuild-clean.46";'
         in VIEW_SOURCE
     )
     for forbidden in (
@@ -714,3 +717,94 @@ def test_stale_queue_is_not_mixed_with_new_selection_and_invalid_source_fails_cl
     )
     assert result["invalidModel"] is None
     assert result["invalidMarkup"] == ""
+
+
+@pytest.mark.parametrize("count", [0, 1])
+def test_view_single_required_source_renders_one_row_queue(count: int) -> None:
+    # С 26.08 «Создание» ходит одним референс-хитом: контракт вью обязан
+    # принимать required_count=1 и рендерить честные тексты единственного
+    # ролика — прежняя жёсткая десятка молча роняла модель в None, и mount
+    # оставался пустым на живом пути.
+    result = _evaluate(
+        f"""
+        (() => {{
+          const source = sourceProjection({count}, {{requiredCount: 1}});
+          const model = viewContract.createGenerationStrategyQueueViewModel(source);
+          const markup = viewContract.renderGenerationStrategyQueueView(source);
+          return {{model, markup}};
+        }})()
+        """
+    )
+    model = result["model"]
+    markup = result["markup"]
+    assert model["required_count"] == 1
+    assert model["selection_count_text"] == f"{count} из 1"
+    assert model["exact_required_selected"] is (count == 1)
+    assert model["exactly_ten_selected"] is False
+    assert len(model["rows"]) == 1
+    assert markup.count('class="generation-strategy-queue-view__row"') == 1
+    assert f"Выбрано: {count} из 1" in markup
+    assert "Очередь из одного ролика" in markup
+    assert "Одна копия выбранной механики" in markup
+    assert "Проверить единственный ролик" in markup
+    assert "десят" not in markup
+    assert "из 10" not in markup
+    if count == 1:
+        assert 'aria-label="Убрать ролик 1 из 1' in markup
+        assert "Убрать из очереди" in markup
+
+
+def test_view_single_required_full_queue_review_and_sequential_copy() -> None:
+    # Полный конвейер размера 1: очередь из одной строки совпадает с выбором,
+    # обзор цены виден, sequential-текст говорит об одном ролике. Плюс мина
+    # префиксного совпадения: очередь из 1 строки НЕ должна «совпадать» с
+    # выбором из 10 (раньше это давало TypeError на rows[1].runtime).
+    result = _evaluate(
+        """
+        (() => {
+          const source = sourceProjection(1, {requiredCount: 1});
+          const queue = queueProjection(['preflight_ready']);
+          const review = aggregateReview({count: 1});
+          const model = viewContract.createGenerationStrategyQueueViewModel(
+            source, queue, review,
+          );
+          const markup = viewContract.renderGenerationStrategyQueueView(
+            source, queue, review,
+          );
+          const tenSource = sourceProjection(10);
+          const prefixModel = viewContract.createGenerationStrategyQueueViewModel(
+            tenSource, queueProjection(['preflight_ready']), null,
+          );
+          return {model, markup, prefixModel};
+        })()
+        """
+    )
+    model = result["model"]
+    assert model["queue_matches_selection"] is True
+    assert model["aggregate"]["visible"] is True
+    assert model["controls"]["can_review_exact_ten"] is True
+    assert "Единственный ролик запускается отдельным платным запросом" in (
+        model["scope_copy"]["sequential"]
+    )
+    assert "Обзор единственного ролика" in result["markup"]
+    prefix = result["prefixModel"]
+    assert prefix is not None
+    assert prefix["queue_matches_selection"] is False
+
+
+def test_view_rejects_unknown_required_count_closed() -> None:
+    # Размеры очереди — ровно {1, 10}: неизвестный размер обязан ронять модель
+    # в None и разметку в пустую строку, а не рендерить полу-правду.
+    result = _evaluate(
+        """
+        (() => {
+          const source = sourceProjection(3, {requiredCount: 3});
+          return {
+            model: viewContract.createGenerationStrategyQueueViewModel(source),
+            markup: viewContract.renderGenerationStrategyQueueView(source),
+          };
+        })()
+        """
+    )
+    assert result["model"] is None
+    assert result["markup"] == ""

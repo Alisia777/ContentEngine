@@ -2,8 +2,8 @@ import {
   GENERATION_MODEL_RECOMMENDATION_ACTIONS,
   createGenerationModelRecommendationState,
   generationModelRecommendationReducer,
-} from "./generation-model-recommendation.js?v=20260826.rebuild-clean.45";
-import { normalizeGenerationModelAcceptance } from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.45";
+} from "./generation-model-recommendation.js?v=20260826.rebuild-clean.46";
+import { normalizeGenerationModelAcceptance } from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.46";
 import {
   GENERATION_STRATEGY_SELECT_ACTION,
   createGenerationStrategyViewState,
@@ -11,20 +11,20 @@ import {
   reduceGenerationStrategyViewState,
   selectedGenerationStrategySummary,
   validateSelectedGenerationStrategyDraft,
-} from "./generation-strategy-view.js?v=20260826.rebuild-clean.45";
+} from "./generation-strategy-view.js?v=20260826.rebuild-clean.46";
 import {
   generationStrategyAssetEligibility,
   mergeGenerationStrategyAssetPages,
   normalizeGenerationStrategyAssetCandidates,
-} from "./generation-strategy-assets.js?v=20260826.rebuild-clean.45";
+} from "./generation-strategy-assets.js?v=20260826.rebuild-clean.46";
 import {
   GENERATION_STRATEGY_SOURCE_PICKER_ACTIONS,
   createGenerationStrategySourcePicker,
   generationStrategyRequiredSourceCount,
   generationStrategySourcePickerProjection,
   reduceGenerationStrategySourcePicker,
-} from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.45";
-import { resolveGenerationModelVisual } from "./generation-model-visuals-v1.js?v=20260826.rebuild-clean.45";
+} from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.46";
+import { resolveGenerationModelVisual } from "./generation-model-visuals-v1.js?v=20260826.rebuild-clean.46";
 
 /*
  * ContentEngine Desktop v4 · guided generation.
@@ -45,7 +45,7 @@ const FORM_BINDING_KEY = Symbol.for(
 // Эпоха модуля — литерал текущего штампа: массовый рестамп обновляет её вместе
 // со всеми пинами. По ней стражи отличают легитимный ремоунт того же кода от
 // второго экземпляра из смешанного кэша (боевой случай 25.08.2026).
-const GUIDED_EPOCH = "20260826.rebuild-clean.45";
+const GUIDED_EPOCH = "20260826.rebuild-clean.46";
 const STRATEGY_REPEAT_MEDIA_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const PRODUCT_SWAP_REPEAT_MEDIA_LIMIT = 10;
@@ -2762,12 +2762,26 @@ function syncStrategyEngineField(form, fieldset, row) {
   }
   const select = q("select[data-ce-v4-generation-engine-select]", field);
   if (!(select instanceof HTMLSelectElement)) return;
+  const paidLocked = form.dataset.generationStrategyPaidLocked === "true";
   field.hidden = false;
-  select.disabled = false;
+  // Под платным замком селект — витрина подписанного значения, не орган
+  // управления: свип syncGenerationStrategyPaidControlLock (app.js) глушит его
+  // вместе с остальными контролами fieldset, и этот sync обязан не
+  // перевключать его обратно — иначе живой селект писал бы в hidden и ронял
+  // подписанную цену.
+  select.disabled = paidLocked;
   // Опции перестраиваются только по смене отпечатка: панели под
   // MutationObserver, безусловная перестройка замкнула бы mount-цикл.
+  // Отпечаток включает всё, из чего собирается лейбл (цена, тир), и дефолт
+  // (recommended): смена цены при том же составе обязана перерисовать опции.
   const fingerprint = `${row.strategy_id}|${
-    routes.map((route) => `${route.provider}:${route.model_key}`).join(",")
+    routes.map((route) => [
+      `${route.provider}:${route.model_key}`,
+      route.price_kind,
+      route.price_rate_minor,
+      route.tier,
+      route.recommended === true ? "rec" : "",
+    ].join("~")).join(",")
   }`;
   if (select.dataset.engineFingerprint !== fingerprint) {
     select.replaceChildren(...routes.map((route) => {
@@ -2784,6 +2798,32 @@ function syncStrategyEngineField(form, fieldset, row) {
     (route) => `${route.provider}:${route.model_key}` === value,
   );
   const currentValid = validValue(current);
+  // Под замком селект отражает ПОДПИСАННОЕ hidden-значение, а не desired:
+  // маршрут мог выпасть из каталога после привязки, и показ fallback врал бы
+  // о том, что реально оплачено. Выпавшему значению добавляется призрачная
+  // option — disabled, чтобы после разблокировки её нельзя было выбрать.
+  const ghost = select.querySelector("option[data-engine-ghost]");
+  if (paidLocked && current && !currentValid) {
+    if (!ghost || ghost.value !== current) {
+      ghost?.remove();
+      const option = document.createElement("option");
+      option.value = current;
+      option.disabled = true;
+      option.dataset.engineGhost = "";
+      const name = GUIDED_ENGINE_LABELS[current]
+        || current.split(":").pop().split("/").filter(Boolean).pop()
+        || current;
+      option.textContent =
+        `${name} · зафиксирован платной привязкой, в каталоге отсутствует`;
+      select.append(option);
+    }
+  } else if (ghost) {
+    ghost.remove();
+  }
+  if (paidLocked) {
+    if (current && select.value !== current) select.value = current;
+    return;
+  }
   // Пересозданная форма теряет hidden вместе с DOM; человеческий выбор для
   // этой стратегии живёт в runtime и восстанавливается раньше дефолта.
   const remembered = runtime.guidedEngineChoice?.strategyId === row.strategy_id
@@ -2795,9 +2835,7 @@ function syncStrategyEngineField(form, fieldset, row) {
   const desired = currentValid
     ? current
     : remembered || `${fallback.provider}:${fallback.model_key}`;
-  // Дефолт — рекомендованный маршрут реестра; при платной блокировке значение
-  // не трогаем (оно уже подписано привязкой).
-  if (!currentValid && form.dataset.generationStrategyPaidLocked !== "true") {
+  if (!currentValid) {
     writeStrategyEngineValue(form, desired, { pinRatioSync: true });
   }
   if (select.value !== desired) select.value = desired;
@@ -5100,6 +5138,10 @@ function handleFormEdit(event) {
     control instanceof HTMLSelectElement
     && control.matches?.("[data-ce-v4-generation-engine-select]")
   ) {
+    // Под замком селект и так disabled нашим sync'ом, но guided-перерендер
+    // между свипом и sync'ом не должен оставлять окно, в котором человеческий
+    // change долетает до writeStrategyEngineValue и роняет подписанный runtime.
+    if (form.dataset.generationStrategyPaidLocked === "true") return;
     // Человеческий выбор переживает пересоздание формы: скрытый input умирает
     // вместе с DOM, и без памяти sync молча вернул бы рекомендованный дефолт —
     // то есть сменил бы цену без действия оператора.

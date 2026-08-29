@@ -91,9 +91,14 @@ def test_paid_launch_status_follows_the_job_to_its_end() -> None:
 def test_queue_rerender_is_scroll_neutral() -> None:
     """Поллинг статуса перерисовывал очередь запусков каждые ~5 с; замена
     innerHTML утягивала прокрутку к списку — «скидывает в середину списка», к
-    «Замыслу результата» было не спуститься, пока шёл платный запуск."""
+    «Замыслу результата» было не спуститься, пока шёл платный запуск.
+
+    С 29.08 мемо-ключ включает отпечаток ожидающих ретраев (memoKey): раньше
+    после «"" === ""» кнопка «Повторить тот же платный старт» не появлялась
+    вовсе. Прокруткосбережение обязано пережить и этот ключ."""
     app = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
-    assert "mount.__ceQueueMarkup === nextMarkup" in app
+    assert "mount.__ceQueueMarkup === memoKey" in app
+    assert "const memoKey = `${nextMarkup} ${retryFingerprint}`;" in app
     assert "const keepScrollTop = scroller ? scroller.scrollTop : 0;" in app
     assert "scroller.scrollTop = keepScrollTop;" in app
 

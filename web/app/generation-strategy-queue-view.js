@@ -1,5 +1,8 @@
 /*
- * Pure accessible view contract for the exact-ten generation queue.
+ * Pure accessible view contract for the exact-count generation queue.
+ *
+ * Размер очереди берётся из GENERATION_STRATEGY_QUEUE_SIZES ({1, 10}): с 26.08
+ * «Создание» ходит одним референс-хитом, десятка осталась массовым режимом.
  *
  * Inputs are already-safe projections. This module normalizes them into a
  * compact display model and deterministic escaped markup. It has no DOM,
@@ -9,12 +12,12 @@
 import {
   GENERATION_STRATEGY_SOURCE_COUNT,
   GENERATION_STRATEGY_SOURCE_PICKER_VERSION,
-} from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.45";
+} from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.46";
 import {
   GENERATION_STRATEGY_QUEUE_SIZE,
   GENERATION_STRATEGY_QUEUE_SIZES,
   GENERATION_STRATEGY_QUEUE_VERSION,
-} from "./generation-strategy-queue.js?v=20260826.rebuild-clean.45";
+} from "./generation-strategy-queue.js?v=20260826.rebuild-clean.46";
 
 export const GENERATION_STRATEGY_QUEUE_VIEW_VERSION =
   "generation-strategy-queue-view-v1";
@@ -52,6 +55,7 @@ const SOURCE_TOP_KEYS = Object.freeze([
   "revision",
   "selected_count",
   "required_count",
+  "exact_required_selected",
   "exactly_ten_selected",
   "all_selected_ready",
   "selected",
@@ -130,6 +134,39 @@ const JOB_LABELS = Object.freeze({
   failed: "Завершилось с ошибкой",
   cancelled: "Отменено",
 });
+// Тексты, зависящие от размера очереди. Ветка 10 — байт-в-байт прежние
+// строки: при десятке вывод обязан не измениться ни на символ.
+const QUEUE_SIZE_COPY = Object.freeze({
+  10: Object.freeze({
+    eyebrow: "10 копий выбранных механик",
+    heading: "Очередь из десяти роликов",
+    review_title: "Обзор точных десяти",
+    review_button: "Проверить точные десять",
+    remove_button: "Убрать из десяти",
+    total_pending:
+      "появится, когда бесплатная проверка будет готова для всех десяти роликов",
+    stale_notice:
+      "Состав выбранных роликов изменился. Бесплатно подготовьте точные десять заново.",
+    stale_readiness: "Подготовьте обновлённый состав из десяти роликов",
+    sequential:
+      "Каждый из 10 роликов запускается отдельным платным запросом; старты выполняются последовательно.",
+  }),
+  1: Object.freeze({
+    eyebrow: "Одна копия выбранной механики",
+    heading: "Очередь из одного ролика",
+    review_title: "Обзор единственного ролика",
+    review_button: "Проверить единственный ролик",
+    remove_button: "Убрать из очереди",
+    total_pending:
+      "появится, когда бесплатная проверка будет готова для этого ролика",
+    stale_notice:
+      "Выбранный ролик изменился. Бесплатно подготовьте его заново.",
+    stale_readiness: "Подготовьте обновлённый ролик заново",
+    sequential:
+      "Единственный ролик запускается отдельным платным запросом; старт выполняется один раз.",
+  }),
+});
+
 const BUTTON_CLASS =
   "generation-strategy-queue-view__action generation-strategy-queue-view__min-44";
 
@@ -207,13 +244,22 @@ function normalizeSourceProjection(raw) {
     !STRATEGY_IDS.has(source.strategy_id)
   ) throw new ViewContractError("source_projection_invalid");
   const revision = safeInteger(source.revision);
+  // Размер валиден только когда он есть и в контракте очереди, и в таблице
+  // текстов: расхождение SIZES и QUEUE_SIZE_COPY обязано закрываться отказом
+  // модели, а не TypeError на copy.* посреди рендера.
+  if (
+    !GENERATION_STRATEGY_QUEUE_SIZES.has(source.required_count) ||
+    !Object.hasOwn(QUEUE_SIZE_COPY, source.required_count)
+  ) {
+    throw new ViewContractError("source_count_invalid");
+  }
+  const requiredCount = source.required_count;
   const selectedCount = safeInteger(
     source.selected_count,
     0,
-    GENERATION_STRATEGY_SOURCE_COUNT,
+    requiredCount,
   );
   if (
-    source.required_count !== GENERATION_STRATEGY_SOURCE_COUNT ||
     !Array.isArray(source.selected) ||
     source.selected.length !== selectedCount ||
     !Array.isArray(source.probe_required_source_ids)
@@ -264,10 +310,13 @@ function normalizeSourceProjection(raw) {
     .map((row) => row.source_media_id);
   if (
     JSON.stringify(probeIds) !== JSON.stringify(expectedProbeIds) ||
-    source.exactly_ten_selected !==
-      (selectedCount === GENERATION_STRATEGY_SOURCE_COUNT) ||
+    source.exact_required_selected !== (selectedCount === requiredCount) ||
+    source.exactly_ten_selected !== (
+      requiredCount === GENERATION_STRATEGY_SOURCE_COUNT &&
+      selectedCount === requiredCount
+    ) ||
     source.all_selected_ready !== (
-      selectedCount === GENERATION_STRATEGY_SOURCE_COUNT &&
+      selectedCount === requiredCount &&
       expectedProbeIds.length === 0
     )
   ) throw new ViewContractError("source_projection_mismatch");
@@ -275,6 +324,8 @@ function normalizeSourceProjection(raw) {
     strategy_id: source.strategy_id,
     revision,
     selected_count: selectedCount,
+    required_count: requiredCount,
+    exact_required_selected: source.exact_required_selected,
     exactly_ten_selected: source.exactly_ten_selected,
     all_selected_ready: source.all_selected_ready,
     selected,
@@ -484,12 +535,12 @@ function durationText(source) {
     : `Проверено сервером: ${duration} с`;
 }
 
-function freeReadinessText(source, runtime, queueMatchesSelection) {
+function freeReadinessText(source, runtime, queueMatchesSelection, copy) {
   if (source.probe_required) {
     return "Сначала бесплатно проверьте точный MP4";
   }
   if (!queueMatchesSelection) {
-    return "Подготовьте обновлённый состав из десяти роликов";
+    return copy.stale_readiness;
   }
   if (runtime === null) return "Готов к бесплатной подготовке";
   if (runtime.phase === "idle") return "Ожидает выбора параметров";
@@ -539,7 +590,7 @@ function emptyRow(position) {
   });
 }
 
-function selectedRow(source, runtime, queueMatchesSelection) {
+function selectedRow(source, runtime, queueMatchesSelection, copy) {
   const phase = selectedPhase(source, runtime, queueMatchesSelection);
   const toggleLocked = runtime !== null && [
     "human_confirmed",
@@ -559,6 +610,7 @@ function selectedRow(source, runtime, queueMatchesSelection) {
       source,
       runtime,
       queueMatchesSelection,
+      copy,
     ),
     price_text: runtime?.price
       ? formatMoney(
@@ -579,7 +631,7 @@ function selectedRow(source, runtime, queueMatchesSelection) {
 function reviewMatchesSources(review, source, queue) {
   if (
     !review?.eligible ||
-    !source.exactly_ten_selected ||
+    !source.exact_required_selected ||
     !source.all_selected_ready
   ) return false;
   const sourceIds = source.selected.map((row) => row.source_media_id);
@@ -608,6 +660,8 @@ export function createGenerationStrategyQueueViewModel(
   } catch {
     return null;
   }
+  // normalizeSourceProjection гарантирует размер из GENERATION_STRATEGY_QUEUE_SIZES.
+  const copy = QUEUE_SIZE_COPY[source.required_count];
   const queueResult = optionalProjection(
     queueSafeProjection,
     normalizeQueueProjection,
@@ -616,17 +670,18 @@ export function createGenerationStrategyQueueViewModel(
   const queue = queueResult.value;
   const review = reviewResult.value;
   const queueMatchesSelection = queue !== null &&
-    source.exactly_ten_selected &&
+    source.exact_required_selected &&
+    queue.rows.length === source.selected.length &&
     queue.rows.every((row, index) =>
       row.source_media_id === source.selected[index]?.source_media_id
     );
   const rows = Array.from(
-    { length: GENERATION_STRATEGY_SOURCE_COUNT },
+    { length: source.required_count },
     (_, index) => {
       const selected = source.selected[index];
       if (!selected) return emptyRow(index + 1);
       const runtime = queueMatchesSelection ? queue.rows[index].runtime : null;
-      return selectedRow(selected, runtime, queueMatchesSelection || queue === null);
+      return selectedRow(selected, runtime, queueMatchesSelection || queue === null, copy);
     },
   );
   const queueAllowsReview = queueSafeProjection === null ||
@@ -645,7 +700,7 @@ export function createGenerationStrategyQueueViewModel(
     "start_once",
     "status",
   ].includes(runtime.phase));
-  const canPrepareFree = source.exactly_ten_selected &&
+  const canPrepareFree = source.exact_required_selected &&
     source.all_selected_ready &&
     !paidStatePresent && (
       queue === null ||
@@ -681,16 +736,17 @@ export function createGenerationStrategyQueueViewModel(
   } else if (queueResult.invalid) {
     notice = "Безопасные данные очереди не прошли проверку. Обновите экран.";
   } else if (queue !== null && !queueMatchesSelection) {
-    notice = "Состав выбранных роликов изменился. Бесплатно подготовьте точные десять заново.";
+    notice = copy.stale_notice;
   } else if (reviewResult.invalid) {
     notice = "Обзор стоимости устарел или повреждён. Получите новый бесплатный обзор.";
   }
   return deepFreeze({
     version: GENERATION_STRATEGY_QUEUE_VIEW_VERSION,
     strategy_id: source.strategy_id,
-    selection_count_text: `${source.selected_count} из ${GENERATION_STRATEGY_SOURCE_COUNT}`,
+    selection_count_text: `${source.selected_count} из ${source.required_count}`,
     selected_count: source.selected_count,
-    required_count: GENERATION_STRATEGY_SOURCE_COUNT,
+    required_count: source.required_count,
+    exact_required_selected: source.exact_required_selected,
     exactly_ten_selected: source.exactly_ten_selected,
     all_selected_ready: source.all_selected_ready,
     queue_matches_selection: queueMatchesSelection,
@@ -710,8 +766,7 @@ export function createGenerationStrategyQueueViewModel(
     },
     notice,
     scope_copy: {
-      sequential:
-        "Каждый из 10 роликов запускается отдельным платным запросом; старты выполняются последовательно.",
+      sequential: copy.sequential,
       isolation:
         "Ошибка одного ролика не останавливает статусы и результаты остальных.",
       advisory:
@@ -735,7 +790,7 @@ function buttonDisabled(enabled) {
   return enabled ? ' aria-disabled="false"' : ' disabled aria-disabled="true"';
 }
 
-function rowMarkup(row) {
+function rowMarkup(row, requiredCount, copy) {
   const rowId = `generation-strategy-queue-row-${row.position}`;
   const sourceAttribute = row.source_media_id === null
     ? ""
@@ -753,17 +808,17 @@ function rowMarkup(row) {
     }</p>`;
   const actions = row.selected
     ? `<div class="generation-strategy-queue-view__row-actions">
-        <button type="button" class="${BUTTON_CLASS}" data-action="toggle-generation-strategy-source" aria-label="Убрать ролик ${row.position} из 10: ${escapeHtml(row.filename)}"${
+        <button type="button" class="${BUTTON_CLASS}" data-action="toggle-generation-strategy-source" aria-label="Убрать ролик ${row.position} из ${requiredCount}: ${escapeHtml(row.filename)}"${
           sourceAttribute
-        }${buttonDisabled(row.can_toggle)}>Убрать из десяти</button>
-        <button type="button" class="${BUTTON_CLASS}" data-action="probe-generation-strategy-media" aria-label="Проверить MP4 для ролика ${row.position} из 10: ${escapeHtml(row.filename)}"${
+        }${buttonDisabled(row.can_toggle)}>${copy.remove_button}</button>
+        <button type="button" class="${BUTTON_CLASS}" data-action="probe-generation-strategy-media" aria-label="Проверить MP4 для ролика ${row.position} из ${requiredCount}: ${escapeHtml(row.filename)}"${
           sourceAttribute
         }${buttonDisabled(row.can_probe)}>Проверить MP4 бесплатно</button>
       </div>`
     : "";
   return `<li class="generation-strategy-queue-view__row" data-position="${row.position}">
     <article aria-labelledby="${rowId}">
-      <p class="generation-strategy-queue-view__position">Ролик ${row.position} из 10</p>
+      <p class="generation-strategy-queue-view__position">Ролик ${row.position} из ${requiredCount}</p>
       <h3 id="${rowId}">${escapeHtml(row.filename)}</h3>
       <p>${escapeHtml(row.duration_text)}</p>
       <dl>
@@ -788,6 +843,7 @@ export function renderGenerationStrategyQueueView(
     aggregateReview,
   );
   if (!view) return "";
+  const copy = QUEUE_SIZE_COPY[view.required_count];
   const notice = view.notice === null
     ? ""
     : `<p class="generation-strategy-queue-view__notice" role="alert">${
@@ -795,19 +851,19 @@ export function renderGenerationStrategyQueueView(
     }</p>`;
   const total = view.aggregate.visible
     ? `<strong>${escapeHtml(view.aggregate.total_text)}</strong>`
-    : "появится, когда бесплатная проверка будет готова для всех десяти роликов";
+    : copy.total_pending;
   return `<section class="generation-strategy-queue-view" aria-labelledby="generation-strategy-queue-title">
   <header>
-    <p class="generation-strategy-queue-view__eyebrow">10 копий выбранных механик</p>
-    <h2 id="generation-strategy-queue-title">Очередь из десяти роликов</h2>
+    <p class="generation-strategy-queue-view__eyebrow">${copy.eyebrow}</p>
+    <h2 id="generation-strategy-queue-title">${copy.heading}</h2>
     <p role="status" aria-live="polite">Выбрано: ${escapeHtml(view.selection_count_text)}</p>
     ${notice}
   </header>
   <ol class="generation-strategy-queue-view__rows">
-    ${view.rows.map(rowMarkup).join("\n    ")}
+    ${view.rows.map((row) => rowMarkup(row, view.required_count, copy)).join("\n    ")}
   </ol>
   <section class="generation-strategy-queue-view__review" aria-labelledby="generation-strategy-queue-review-title">
-    <h3 id="generation-strategy-queue-review-title">Обзор точных десяти</h3>
+    <h3 id="generation-strategy-queue-review-title">${copy.review_title}</h3>
     <p>Итоговая серверная стоимость: ${total}.</p>
     <p>Обзор показывает цену и не является подтверждением платного запуска.</p>
   </section>
@@ -817,7 +873,7 @@ export function renderGenerationStrategyQueueView(
     }>Подготовить бесплатно</button>
     <button type="button" class="${BUTTON_CLASS}" data-action="review-generation-strategy-exact-ten"${
       buttonDisabled(view.controls.can_review_exact_ten)
-    }>Проверить точные десять</button>
+    }>${copy.review_button}</button>
     <button type="button" class="${BUTTON_CLASS}" data-action="start-generation-strategy-sequentially"${
       buttonDisabled(view.controls.can_start_sequentially)
     }>Запускать последовательно</button>
