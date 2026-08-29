@@ -44,9 +44,10 @@ select is(
     {"provider":"runway","model":"gemini_omni_flash"},
     {"provider":"runway","model":"veo3.1"},
     {"provider":"runway","model":"seedance2"},
-    {"provider":"google","model":"veo-3.1-lite-generate-preview"}
+    {"provider":"google","model":"veo-3.1-lite-generate-preview"},
+    {"provider":"fal","model":"product_ad"}
   ]'::jsonb,
-  'acceptance uses all ten canonical provider plus model identities in order'
+  'acceptance uses all eleven canonical provider plus model identities in order'
 );
 
 insert into auth.users (
@@ -570,7 +571,7 @@ reset role;
 select is(
   (select jsonb_array_length(payload -> 'models')
    from acceptance_v4_public_result),
-  10,
+  11,
   'the single public owner returns the complete canonical catalog'
 );
 

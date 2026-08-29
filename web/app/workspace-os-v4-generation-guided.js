@@ -143,6 +143,8 @@ const MODEL_COPY = Object.freeze({
   organization_feature_disabled: "Нужен доступ организации",
   sql_authority_parity_pending: "Серверный безопасный запуск этой модели ещё проходит проверку",
   premium_model_launch_unsupported: "Премиальная модель пока доступна только для сравнения",
+  strategy_contour_launch_only:
+    "Запускается из форм стратегий («Создание»), а не из этой формы",
   direct_google_disabled: "Прямой запуск Google пока отключён; модель доступна только для сравнения",
   model_disabled: "Модель пока отключена",
   content_kind_mismatch: "Не подходит для выбранного результата",
