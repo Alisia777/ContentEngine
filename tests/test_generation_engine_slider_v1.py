@@ -52,3 +52,18 @@ def test_duration_slider_respects_source_bound_routes() -> None:
     assert "как в исходнике" in INTAKE
     assert ".gi-engine-slider" in CSS
     assert ".gi-engine-manual > summary" in CSS
+
+
+def test_identity_fields_follow_the_active_panel_and_hint_tells_truth() -> None:
+    """Боевой скрин 29.08: на «Создании» подсказка требовала артикул «в
+    технических деталях», а полей там нет — refreshIdentityVisibility искал
+    файлы только в панели «Копии» и прятал SKU/название. Поля следуют за
+    активной панелью, рендер-цикл «Создания» держит их честными, подсказка
+    ведёт в карточку «1. Ваш товар» и открывает поля сама."""
+    assert 'state?.route === "strategy_video" ? "strategy_video" : "copy_video"' in INTAKE
+    strategy_branch = INTAKE.split(
+        'syncCompactCampaignControl(form, state, "strategy_video");', 1
+    )[1].split("refreshVideoSelects(form, state);", 1)[0]
+    assert "refreshIdentityVisibility(form, state);" in strategy_branch
+    assert "поля открылись в карточке «1. Ваш товар»" in INTAKE
+    assert "заполните артикул и название товара в технических деталях" not in INTAKE

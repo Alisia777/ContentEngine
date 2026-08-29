@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.38",
+  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.39",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260826.rebuild-clean.38"
+  "./generation-engine-advisor.js?v=20260826.rebuild-clean.39"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -5022,7 +5022,14 @@ function selectedProductIdentityFromCheckboxes(form) {
 }
 
 function refreshIdentityVisibility(form, state) {
-  const panel = panelFor(state, "copy_video");
+  // Файловый инпут товара один на форму и ПЕРЕЕЗЖАЕТ вместе со слотом в
+  // панель «Создания» (relocateProductSlot). Смотреть очередь файлов надо в
+  // активной панели: взгляд только в «Копию» прятал поля SKU/названия на
+  // «Создании», и человек упирался в подсказку без самих полей (29.08).
+  const panel = panelFor(
+    state,
+    state?.route === "strategy_video" ? "strategy_video" : "copy_video",
+  ) || panelFor(state, "copy_video");
   const wrap = q("[data-generation-intake-identity]", state.shell);
   if (!panel || !wrap) return;
   const derived = selectedProductIdentityFromCheckboxes(form);
@@ -8383,11 +8390,28 @@ async function continueStrategyFromZero(form) {
   applyConsolidatedRights(form, panel);
   const identity = currentProductIdentity(form);
   if (files.length && !identity) {
-    const tech = q("[data-generation-intake-strategy-tech]", panel);
-    if (tech instanceof HTMLDetailsElement) tech.open = true;
+    // Поля живут в карточке «1. Ваш товар» — показать, довести и поставить
+    // курсор. Прежняя подсказка отправляла в «технические детали», где этих
+    // полей давно нет (боевой скрин 29.08: человек искал и не находил).
+    const identityBlock = q("[data-generation-intake-identity]", state.shell);
+    if (identityBlock instanceof HTMLElement) {
+      identityBlock.hidden = false;
+      ["sku", "product_name"].forEach((itemName) => {
+        const item = q(
+          `[data-generation-intake-identity-item="${CSS.escape(itemName)}"]`,
+          identityBlock,
+        );
+        if (item instanceof HTMLElement) item.hidden = false;
+      });
+      identityBlock.scrollIntoView({ behavior: "smooth", block: "center" });
+      const skuControl = q("input", identityBlock);
+      if (skuControl instanceof HTMLElement) {
+        skuControl.focus({ preventScroll: true });
+      }
+    }
     setStatus(
       panel,
-      "Для новых фото заполните артикул и название товара в технических деталях.",
+      "Заполните артикул и название товара — поля открылись в карточке «1. Ваш товар», над категорией.",
       "error",
     );
     return;
@@ -9286,6 +9310,9 @@ function setRoute(form, state, route) {
   if (route === "strategy_video") {
     syncCompactCampaignControl(form, state, "strategy_video");
     syncStrategyLaunchButton(form, state);
+    // Поля SKU/названия обязаны появляться при новых фото и на «Создании»,
+    // не только по change-событию инпута — рендер-цикл держит их честными.
+    refreshIdentityVisibility(form, state);
   }
   refreshVideoSelects(form, state);
   refreshAvatarSelect(form, state);
