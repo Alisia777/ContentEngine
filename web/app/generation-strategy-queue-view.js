@@ -9,12 +9,12 @@
 import {
   GENERATION_STRATEGY_SOURCE_COUNT,
   GENERATION_STRATEGY_SOURCE_PICKER_VERSION,
-} from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.44";
+} from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.45";
 import {
   GENERATION_STRATEGY_QUEUE_SIZE,
   GENERATION_STRATEGY_QUEUE_SIZES,
   GENERATION_STRATEGY_QUEUE_VERSION,
-} from "./generation-strategy-queue.js?v=20260826.rebuild-clean.44";
+} from "./generation-strategy-queue.js?v=20260826.rebuild-clean.45";
 
 export const GENERATION_STRATEGY_QUEUE_VIEW_VERSION =
   "generation-strategy-queue-view-v1";

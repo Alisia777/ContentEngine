@@ -171,7 +171,7 @@ def _run_fixture(width: int, height: int = 900) -> dict[str, object]:
 
 
 def test_picker_reuses_one_form_and_keeps_recommendation_advisory() -> None:
-    assert 'from "./generation-model-recommendation.js?v=20260826.rebuild-clean.44"' in SUBJECT
+    assert 'from "./generation-model-recommendation.js?v=20260826.rebuild-clean.45"' in SUBJECT
     assert SUBJECT.count("function createModelAdvisor()") == 1
     assert SUBJECT.count('name = "generation_model"') == 1
     assert "modelCanUseExistingLaunch" in SUBJECT
@@ -200,7 +200,7 @@ def test_picker_reuses_one_form_and_keeps_recommendation_advisory() -> None:
 
 
 def test_model_visuals_are_local_presentation_only_and_cover_the_catalog() -> None:
-    assert 'from "./generation-model-visuals-v1.js?v=20260826.rebuild-clean.44"' in SUBJECT
+    assert 'from "./generation-model-visuals-v1.js?v=20260826.rebuild-clean.45"' in SUBJECT
     assert "function modelVisualNode(" in SUBJECT
     assert "ce-v4-model-card__visual--featured" in SUBJECT
     assert "ce-v4-model-card__image" in CSS

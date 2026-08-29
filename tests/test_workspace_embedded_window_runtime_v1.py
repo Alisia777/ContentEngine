@@ -289,4 +289,4 @@ def test_csp_allows_only_same_origin_live_children() -> None:
     assert "frame-ancestors 'self'" in INDEX
     assert "frame-src 'none'" not in INDEX
     assert "frame-ancestors 'none'" not in INDEX
-    assert "workspace-os-v4-loader.js?v=20260826.rebuild-clean.44" in INDEX
+    assert "workspace-os-v4-loader.js?v=20260826.rebuild-clean.45" in INDEX
