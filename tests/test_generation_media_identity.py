@@ -144,9 +144,9 @@ def test_generation_form_autofills_and_locks_exact_product_for_paid_runs() -> No
         assert token in ADAPTER or token in APP
     assert ".generation-product-identity" in STYLES
     assert ".generation-media-option:has(input:disabled)" in STYLES
-    assert './styles.css?v=20260826.rebuild-clean.39' in INDEX
-    assert './app.js?v=20260826.rebuild-clean.39' in INDEX
-    assert './supabase-api.js?v=20260826.rebuild-clean.39' in APP
+    assert './styles.css?v=20260826.rebuild-clean.40' in INDEX
+    assert './app.js?v=20260826.rebuild-clean.40' in INDEX
+    assert './supabase-api.js?v=20260826.rebuild-clean.40' in APP
 
 
 def test_primary_generation_photo_is_first_in_paid_payload() -> None:

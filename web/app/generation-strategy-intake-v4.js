@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.39",
+  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.40",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260826.rebuild-clean.39"
+  "./generation-engine-advisor.js?v=20260826.rebuild-clean.40"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -2637,7 +2637,21 @@ function engineCascadeCard(route = "copy_video") {
       'input[type="radio"]',
       q('[data-generation-intake-choice="duration"]', section) || section,
     ).find((input) => input.value === String(durationRange.value) && !input.disabled);
-    if (radio && !radio.checked) radio.click();
+    if (radio && !radio.checked) {
+      radio.click();
+      return;
+    }
+    // Чипы секунд могли перестроиться под другой движок в момент движения —
+    // клик по несуществующему radio молча терялся, и выбранная длительность
+    // «слетала» обратно к авто-подстановке (боевой скрин 29.08: 15 → 8).
+    // Пишем значение напрямую в поле мастера: каскад его уважает.
+    if (!radio) {
+      const host = section.closest("form");
+      const seconds = Number(durationRange.value);
+      if (host && Number.isFinite(seconds)) {
+        applyCopyDuration(host, seconds);
+      }
+    }
   });
   durationSlider.append(durationRange, durationCaption);
   durationStep.insertBefore(durationSlider, durationStep.children[1] || null);
@@ -8475,11 +8489,34 @@ async function continueStrategyFromZero(form) {
       if (state !== live.state) finishRouteBusy(state);
     }
   } catch (error) {
+    // Сырой машинный код в статусе («express_preflight_blocked» без причины,
+    // боевой скрин 29.08) — не ответ человеку: причина лежит в error.blocker
+    // и обязана печататься рядом с кодом.
+    const fromZeroMessages = {
+      express_preflight_blocked: `Мастер заблокирован: ${
+        error?.blocker || "причина не названа"
+      } Ничего не запущено и не оплачено.`,
+      express_preflight_stalled: `Мастер не отвечает${
+        error?.step ? `: шаг «${error.step}» не сдвигается` : ""
+      }.${
+        error?.invalidFields?.length
+          ? ` Форму держит незаполненное поле: ${error.invalidFields.join(", ")}.`
+          : ""
+      } Ничего не запущено и не оплачено.`,
+      express_preflight_rejected: `Сервер отказал на шаге «${
+        error?.step || "бесплатная проверка"
+      }»: ${error?.serverMessage || ""} Ничего не запущено и не оплачено.`,
+      express_preflight_timeout:
+        "Бесплатная проверка не завершилась за отведённое время. Ничего не списано — нажмите «Подготовить ролик» ещё раз.",
+      express_attestations_unavailable:
+        "Нативные подтверждения прав не подключились. Обновите страницу (F5) и повторите подготовку.",
+    };
     setStatus(
       panel,
-      error instanceof Error && error.message
-        ? error.message
-        : "Не удалось продолжить. Попробуйте ещё раз.",
+      fromZeroMessages[error?.message]
+        || (error instanceof Error && error.message
+          ? error.message
+          : "Не удалось продолжить. Попробуйте ещё раз."),
       "error",
     );
   }

@@ -67,3 +67,17 @@ def test_identity_fields_follow_the_active_panel_and_hint_tells_truth() -> None:
     assert "refreshIdentityVisibility(form, state);" in strategy_branch
     assert "поля открылись в карточке «1. Ваш товар»" in INTAKE
     assert "заполните артикул и название товара в технических деталях" not in INTAKE
+
+
+def test_from_zero_failures_speak_human_and_duration_slider_never_drops() -> None:
+    """Боевой скрин 29.08: «Создание» печатало сырой код
+    express_preflight_blocked без причины, а выбранная ползунком длительность
+    «слетала», если чипы секунд перестроились в момент движения (клик по
+    несуществующему radio молча терялся)."""
+    from_zero = INTAKE.split("async function continueStrategyFromZero", 1)[1]
+    catch_block = from_zero.split("} catch (error) {", 1)[1]
+    assert "fromZeroMessages" in catch_block
+    assert "Мастер заблокирован: ${" in catch_block
+    assert "Ничего не запущено и не оплачено" in catch_block
+    # Ползунок секунд: потерянный radio → прямое applyCopyDuration в мастер.
+    assert "applyCopyDuration(host, seconds)" in INTAKE

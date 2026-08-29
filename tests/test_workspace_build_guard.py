@@ -13,7 +13,7 @@ ROOT_INDEX = (ROOT / "index.html").read_text(encoding="utf-8")
 SCRIPT = (APP_DIR / "workspace-build-guard.js").read_text(encoding="utf-8")
 CSS = (APP_DIR / "workspace-build-guard.css").read_text(encoding="utf-8")
 MANIFEST = json.loads((APP_DIR / "build.json").read_text(encoding="utf-8"))
-DESKTOP_ASSET_BUILD = "20260826.rebuild-clean.39"
+DESKTOP_ASSET_BUILD = "20260826.rebuild-clean.40"
 APP_SCRIPT = (APP_DIR / "app.js").read_text(encoding="utf-8")
 LOADER = (APP_DIR / "workspace-os-v4-loader.js").read_text(encoding="utf-8")
 INTAKE_ENTRY = (APP_DIR / "generation-strategy-intake-v2.js").read_text(
@@ -30,7 +30,7 @@ QUEUE = (APP_DIR / "generation-strategy-queue.js").read_text(encoding="utf-8")
 
 def test_build_id_is_consistent_across_entrypoints() -> None:
     build_id = MANIFEST["id"]
-    assert build_id == "20260826.rebuild-clean.39"
+    assert build_id == "20260826.rebuild-clean.40"
     assert f'content="{build_id}"' in APP_INDEX
     assert f'content="{build_id}"' in ROOT_INDEX
     assert f'const CURRENT_BUILD = "{build_id}"' in SCRIPT
