@@ -707,15 +707,15 @@ def test_archiving_a_project_uses_its_dedicated_path_and_clears_stale_scope() ->
 
 
 def test_v47_assets_share_one_release_key() -> None:
-    build = "20260826.rebuild-clean.47"
+    build = "20260826.rebuild-clean.48"
     assert f'const BUILD = "{build}"' in LOADER
     assert f'const BUILD = "{build}"' in CORE
-    assert './workspace-os-v4-loader.js?v=20260826.rebuild-clean.47' in INDEX
-    assert './app.js?v=20260826.rebuild-clean.47' in INDEX
-    assert './workspace-os-v4.css?v=20260826.rebuild-clean.47' in INDEX
+    assert './workspace-os-v4-loader.js?v=20260826.rebuild-clean.48' in INDEX
+    assert './app.js?v=20260826.rebuild-clean.48' in INDEX
+    assert './workspace-os-v4.css?v=20260826.rebuild-clean.48' in INDEX
     assert f'./training-journey.css?v={build}' in INDEX
     assert (
-        './workspace-build-guard.js?v=20260826.rebuild-clean.47'
+        './workspace-build-guard.js?v=20260826.rebuild-clean.48'
         in INDEX
     )
     for asset in (
@@ -727,11 +727,11 @@ def test_v47_assets_share_one_release_key() -> None:
     ):
         assert f'./{asset}?v={build}' in APP
     assert (
-        './supabase-api.js?v=20260826.rebuild-clean.47'
+        './supabase-api.js?v=20260826.rebuild-clean.48'
         in APP
     )
     assert (
-        './generation-form-draft.js?v=20260826.rebuild-clean.47'
+        './generation-form-draft.js?v=20260826.rebuild-clean.48'
         in APP
     )
 
@@ -957,7 +957,10 @@ def test_route_loader_failure_is_an_inline_retryable_state() -> None:
 def test_same_route_handoff_replaces_the_completed_item_from_the_top() -> None:
     handoff = _function(APP, "async function flowHandoff(")
     reset = _function(CORE, "function resetActionScroll(")
-    exported = CORE[CORE.index("window.ContentEngineDesktopV4 = Object.freeze") :]
+    # Запись 29.08.2026: якорь сдвинут ОСОЗНАННО — публичный API теперь за
+    # стражем эпохи (коммит 88dcae02): глобалом владеет ПЕРВАЯ загрузившаяся
+    # сборка. Хвост от нового якоря по-прежнему накрывает Object.freeze({...}).
+    exported = CORE[CORE.index("window.ContentEngineDesktopV4 = desktopEpochHeld") :]
 
     assert "sameDestination" in handoff
     assert "resetActionScroll?.(destination)" in handoff

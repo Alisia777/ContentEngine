@@ -2,8 +2,8 @@ import {
   GENERATION_MODEL_RECOMMENDATION_ACTIONS,
   createGenerationModelRecommendationState,
   generationModelRecommendationReducer,
-} from "./generation-model-recommendation.js?v=20260826.rebuild-clean.47";
-import { normalizeGenerationModelAcceptance } from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.47";
+} from "./generation-model-recommendation.js?v=20260826.rebuild-clean.48";
+import { normalizeGenerationModelAcceptance } from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.48";
 import {
   GENERATION_STRATEGY_SELECT_ACTION,
   createGenerationStrategyViewState,
@@ -11,20 +11,21 @@ import {
   reduceGenerationStrategyViewState,
   selectedGenerationStrategySummary,
   validateSelectedGenerationStrategyDraft,
-} from "./generation-strategy-view.js?v=20260826.rebuild-clean.47";
+} from "./generation-strategy-view.js?v=20260826.rebuild-clean.48";
 import {
   generationStrategyAssetEligibility,
   mergeGenerationStrategyAssetPages,
   normalizeGenerationStrategyAssetCandidates,
-} from "./generation-strategy-assets.js?v=20260826.rebuild-clean.47";
+} from "./generation-strategy-assets.js?v=20260826.rebuild-clean.48";
 import {
   GENERATION_STRATEGY_SOURCE_PICKER_ACTIONS,
   createGenerationStrategySourcePicker,
   generationStrategyRequiredSourceCount,
+  generationStrategySourceCountModes,
   generationStrategySourcePickerProjection,
   reduceGenerationStrategySourcePicker,
-} from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.47";
-import { resolveGenerationModelVisual } from "./generation-model-visuals-v1.js?v=20260826.rebuild-clean.47";
+} from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.48";
+import { resolveGenerationModelVisual } from "./generation-model-visuals-v1.js?v=20260826.rebuild-clean.48";
 
 /*
  * ContentEngine Desktop v4 · guided generation.
@@ -45,7 +46,7 @@ const FORM_BINDING_KEY = Symbol.for(
 // Эпоха модуля — литерал текущего штампа: массовый рестамп обновляет её вместе
 // со всеми пинами. По ней стражи отличают легитимный ремоунт того же кода от
 // второго экземпляра из смешанного кэша (боевой случай 25.08.2026).
-const GUIDED_EPOCH = "20260826.rebuild-clean.47";
+const GUIDED_EPOCH = "20260826.rebuild-clean.48";
 const STRATEGY_REPEAT_MEDIA_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const PRODUCT_SWAP_REPEAT_MEDIA_LIMIT = 10;
@@ -1690,6 +1691,45 @@ function renderStrategySourcePicker(form, { reset = false } = {}) {
     ),
     element("span", "muted tiny", sourceCopy),
   );
+  // Массовый режим M1 — только у «Создания»: требование живёт в состоянии
+  // пикера, дефолт одиночный (боевой режим 26–29.08), пакет включается этим
+  // явным переключателем. Под платным замком режим не меняется: смена
+  // ревизии пикера снесла бы очередь с живой платной историей.
+  const batchModes = generationStrategySourceCountModes(row.strategy_id);
+  if (batchModes.length > 1) {
+    const modeBlock = element(
+      "div",
+      "generation-strategy-source-picker__batch-mode",
+    );
+    const paidLocked = form.dataset.generationStrategyPaidLocked === "true";
+    batchModes.forEach((mode) => {
+      const label = element("label", "option");
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = "generation_strategy_batch_mode";
+      input.value = String(mode);
+      input.checked = projection.required_count === mode;
+      input.disabled = paidLocked;
+      input.dataset.generationStrategyBatchMode = String(mode);
+      const caption = mode === 1
+        ? "Один ролик"
+        : `Пакет из ${mode} референс-хитов`;
+      const hint = mode === 1
+        ? "Одно ТЗ, одна цена, один платный запуск."
+        : `${mode} отдельных ТЗ и цен; старты идут строго по одному, каждый со своим подтверждением сервера.`;
+      // Тот же паттерн, что у чекбоксов кандидатов ниже: подсказка живёт
+      // ВНУТРИ текстового span — три ребёнка в строке label распирали форму
+      // на 320/390 (геометрический контракт трёх стратегий).
+      const text = element("span", "");
+      text.append(
+        element("strong", "", caption),
+        element("small", "muted", hint),
+      );
+      label.append(input, text);
+      modeBlock.append(label);
+    });
+    header.append(modeBlock);
+  }
   const options = element("div", "generation-strategy-source-picker__options");
   const selectedIds = new Set(projection.selected.map((item) => item.source_media_id));
   picker.candidates.forEach((candidate) => {
@@ -4954,6 +4994,49 @@ function handleStrategyRestore(event) {
 function handleFormClick(event) {
   if (!(event.target instanceof Element)) return;
   const form = event.currentTarget;
+  // Переключатель массового режима «Создания»: требование — состояние пикера.
+  // Идёт ПЕРЕД sourceToggle: у обоих есть data-атрибуты, и радио не должно
+  // проваливаться в чужую ветку. Под платным замком режим не меняется.
+  const batchMode = event.target.closest(
+    "[data-generation-strategy-batch-mode]",
+  );
+  if (batchMode instanceof HTMLInputElement) {
+    if (form.dataset.generationStrategyPaidLocked === "true") {
+      event.preventDefault();
+      return;
+    }
+    const requiredCount = Number(
+      batchMode.dataset.generationStrategyBatchMode,
+    );
+    const previous = generationStrategySourcePickerProjection(
+      runtime.strategySourcePicker,
+    );
+    if (previous?.required_count === requiredCount) return;
+    runtime.strategySourcePicker = reduceGenerationStrategySourcePicker(
+      runtime.strategySourcePicker,
+      {
+        type: GENERATION_STRATEGY_SOURCE_PICKER_ACTIONS.setRequiredCount,
+        required_count: requiredCount,
+      },
+    );
+    const next = renderStrategySourcePicker(form);
+    // Смена размера пакета — смена платного контекста: подтверждения и
+    // черновики механики лишних роликов не переживают сжатие.
+    clearStrategyAttestations(form);
+    const retained = new Set(
+      (next?.selected || []).map((item) => item.source_media_id),
+    );
+    for (const mediaId of runtime.strategyMechanicsDrafts.keys()) {
+      if (!retained.has(mediaId)) runtime.strategyMechanicsDrafts.delete(mediaId);
+    }
+    syncStrategyAssetCandidates(form);
+    form.dispatchEvent(new CustomEvent(
+      "contentengine:generation-strategy-sources-changed",
+      { bubbles: true, detail: next },
+    ));
+    scheduleSync(form);
+    return;
+  }
   const sourceToggle = event.target.closest(
     "[data-generation-strategy-source-toggle], [data-action=\"toggle-generation-strategy-source\"]",
   );

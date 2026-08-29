@@ -164,6 +164,10 @@ def test_canonical_factory_flow_is_five_actions_beneath_the_project_chooser() ->
         "const ROUTES = Object.freeze([",
         "\n]);\n\nconst SECONDARY_ROUTES",
     )
+    # Запись 29.08.2026: пин сдвинут ОСОЗНАННО, и это правка поведения.
+    # Решения владельца (штампы .18/.33–.36) добавили в Dock «Паспорта» и
+    # «Гипотезы»: паспорт ролика и цикл гипотез встают между «Результатами»
+    # и «Исследованиями» — это продолжение производственного потока.
     assert re.findall(r'route:\s*"([^"]+)"', dock) == [
         "/workspace/home",
         "/workspace/board",
@@ -171,6 +175,8 @@ def test_canonical_factory_flow_is_five_actions_beneath_the_project_chooser() ->
         "/workspace/review",
         "/workspace/placement",
         "/workspace/stats",
+        "/workspace/passports",
+        "/workspace/hypotheses",
         "/workspace/research",
         "/workspace/ai",
     ]
@@ -212,7 +218,11 @@ def test_review_decision_hands_the_user_to_the_only_logical_next_screen() -> Non
     )
 
 
-def test_dock_adds_research_and_ai_after_the_six_primary_workflow_routes() -> None:
+def test_dock_adds_research_and_ai_after_the_eight_primary_workflow_routes() -> None:
+    # Запись 29.08.2026: пин сдвинут ОСОЗНАННО, и это правка поведения.
+    # Первичных маршрутов теперь восемь: «Паспорта» и «Гипотезы» (решения
+    # владельца, штампы .18/.33–.36) встали после «Результатов», а Research
+    # и ИИ-центр по-прежнему замыкают список. Имя теста обновлено с «шести».
     dock_source = _source_between(
         CORE,
         "const ROUTES = Object.freeze([",
@@ -227,6 +237,8 @@ def test_dock_adds_research_and_ai_after_the_six_primary_workflow_routes() -> No
         "/workspace/review",
         "/workspace/placement",
         "/workspace/stats",
+        "/workspace/passports",
+        "/workspace/hypotheses",
         "/workspace/research",
         "/workspace/ai",
     ]
@@ -391,6 +403,10 @@ def test_secondary_and_context_routes_stay_outside_the_primary_dock() -> None:
         "const DOCK_APPS = Object.freeze([",
         "\n]);\nconst DOCK_CANONICAL_ORDER",
     )
+    # Запись 29.08.2026: пин сдвинут ОСОЗНАННО, и это правка поведения.
+    # В DOCK_APPS добавлены ключи passports и hypotheses (штампы .18/.33–.36):
+    # приложения «Паспорта» и «Гипотезы» стоят между «Результатами» и
+    # «Процессами», зеркально пину ROUTES выше.
     assert re.findall(r'key:\s*"([^"]+)"', dock_apps) == [
         "finder",
         "research",
@@ -399,6 +415,8 @@ def test_secondary_and_context_routes_stay_outside_the_primary_dock() -> None:
         "review",
         "publish",
         "results",
+        "passports",
+        "hypotheses",
         "processes",
         "settings",
     ]

@@ -652,9 +652,14 @@ def test_remote_auth_configuration_is_cloud_only_and_versioned() -> None:
     config = tomllib.loads(_text("supabase/config.toml"))
     auth = config["auth"]
 
-    assert auth["site_url"] == "https://alisia777.github.io/ContentEngine/"
+    # Запись 29.08.2026: пин сдвинут ОСОЗНАННО — портал переехал на аккаунт
+    # hardliver1, site_url теперь ведёт туда. Старый origin alisia777 оставлен
+    # в additional_redirect_urls честно, как переходный: живые ссылки из писем
+    # ещё ходят через него. Пин двойного origin — снимок реального config.toml.
+    assert auth["site_url"] == "https://hardliver1.github.io/ContentEngine/"
     assert auth["additional_redirect_urls"] == [
-        "https://alisia777.github.io/ContentEngine/**"
+        "https://hardliver1.github.io/ContentEngine/**",
+        "https://alisia777.github.io/ContentEngine/**",
     ]
     assert auth["enable_signup"] is False
     assert config["auth"]["email"]["enable_signup"] is True

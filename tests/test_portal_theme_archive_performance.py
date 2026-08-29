@@ -340,7 +340,26 @@ def test_generation_archive_avoids_eager_video_work_and_caps_status_polling() ->
     }
     assert 'preload="none"' in APP
     assert APP.count('preload="none"') >= 2
-    assert 'preload="metadata"' not in APP
+    # Запись 29.08.2026: пин сдвинут ОСОЗНАННО, и это правка поведения.
+    # «Паспорта контента» показывают кадр-постер видео через preload="metadata" —
+    # это их продуктовое требование, а не жадная загрузка архива. Поэтому бан
+    # metadata скоупирован на архивный срез генераций, а глобальный счётчик
+    # обязан совпадать с паспортным: любое новое вхождение вне паспортных
+    # карточек снова уронит этот тест.
+    archive_slice = APP[
+        APP.index("function generationTable") : APP.index(
+            "function strategyReviewInboxMarkup"
+        )
+    ]
+    passports_slice = APP[
+        APP.index("function passportRegistryCardMarkup") : APP.index(
+            "function mediaCard"
+        )
+    ]
+    assert 'preload="metadata"' not in archive_slice
+    assert APP.count('preload="metadata"') == passports_slice.count(
+        'preload="metadata"'
+    )
 
 
 def test_workspace_api_scopes_pagination_and_rejects_bad_options_before_rpc() -> None:
@@ -537,7 +556,7 @@ def test_theme_archive_motion_and_interface_hooks_are_wired_into_the_spa() -> No
         r'from "\./portal-experience\.js\?v=([^"]+)";',
         APP,
     )
-    assert portal_experience_imports == ["20260826.rebuild-clean.47"]
+    assert portal_experience_imports == ["20260826.rebuild-clean.48"]
     for hook in (
         "PORTAL_THEMES",
         "themePickerMarkup",
@@ -573,7 +592,7 @@ def test_theme_archive_motion_and_interface_hooks_are_wired_into_the_spa() -> No
     # а не только числовые эпохи — форма якоря прежняя, значение единое.
     assert re.search(r'<script src="\./theme-bootstrap\.js\?v=[\w.-]+"></script>', INDEX)
     assert (
-        '<link rel="stylesheet" href="./portal-experience.css?v=20260826.rebuild-clean.47"'
+        '<link rel="stylesheet" href="./portal-experience.css?v=20260826.rebuild-clean.48"'
         in INDEX
     )
     assert "try" in THEME_BOOTSTRAP and "catch" in THEME_BOOTSTRAP

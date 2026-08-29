@@ -114,6 +114,9 @@ const pageHeader = (title, copy, action) => `<header><h1>${{title}}</h1><p>${{co
 const formatBytes = () => "50 МБ";
 const escapeHtml = (value) => String(value ?? "");
 const mediaCard = () => "";
+// Запись 29.08.2026: «Забор видео v2» добавил в renderMediaSection вызов
+// videoIntakeCardMarkup(); харнесу карточка забора не важна — глушим заглушкой.
+const videoIntakeCardMarkup = () => "";
 const emptyState = (_icon, title, message) => `<div class="empty-state"><h3>${{title}}</h3><p>${{message}}</p></div>`;
 {section_body}
 {media_renderer}

@@ -10,8 +10,8 @@
 import {
   exactYoutubeResearchEvidenceRoute,
   writeExactYoutubeMediaHandoff,
-} from "./exact-youtube-media-handoff.js?v=20260826.rebuild-clean.47";
-import { writeExactYoutubeResearchDraft } from "./exact-youtube-research-draft.js?v=20260826.rebuild-clean.47";
+} from "./exact-youtube-media-handoff.js?v=20260826.rebuild-clean.48";
+import { writeExactYoutubeResearchDraft } from "./exact-youtube-research-draft.js?v=20260826.rebuild-clean.48";
 
 const ROUTE = "/workspace/research";
 const FORM_ID = "product-research-start-form";

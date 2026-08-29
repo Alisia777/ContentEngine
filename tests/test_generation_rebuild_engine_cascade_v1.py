@@ -22,10 +22,21 @@ def text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def between(source: str, start: str, end: str) -> str:
+    return source.split(start, 1)[1].split(end, 1)[0]
+
+
 def test_strategy_panel_carries_the_registry_cascade() -> None:
     source = text(INTAKE)
     panel = source[source.index("function strategyPanel()"):source.index("function placeGuidedShell(")]
-    assert 'panel.append(engineCascadeCard("strategy_video"), host);' in panel
+    # Запись 29.08.2026: пин сдвинут ОСОЗНАННО — панель «Создания» переехала на
+    # компактную раскладку (main/rail): каскад больше не пришивается напрямую к
+    # panel, а живёт видимой картой внутри main. Инвариант прежний — каскад
+    # реестра присутствует и не скрыт.
+    assert 'const engines = engineCascadeCard("strategy_video");' in panel
+    assert "engines.hidden = false;" in panel
+    main_append = between(panel, "main.append(", ");")
+    assert "engines," in main_append
     assert 'refreshEngineChoice(form, state, "strategy_video");' in source
 
 

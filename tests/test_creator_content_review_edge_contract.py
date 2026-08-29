@@ -25,7 +25,9 @@ def test_content_review_edge_is_authenticated_origin_bound_and_durable() -> None
     assert EDGE.is_file()
     assert config["functions"]["creator-content-review"]["verify_jwt"] is True
     assert 'auth: "user"' in source
-    assert 'const PUBLIC_APP_ORIGIN = "https://alisia777.github.io"' in source
+    # Запись 29.08.2026: пин сдвинут ОСОЗНАННО — портал переехал на аккаунт
+    # hardliver1, и edge-функция привязана к новому origin (сверено с index.ts).
+    assert 'const PUBLIC_APP_ORIGIN = "https://hardliver1.github.io"' in source
     assert 'request.headers.get("origin") !== PUBLIC_APP_ORIGIN' in source
     assert 'request.method !== "POST"' in source
     assert "readBoundedStream(request.body, MAX_BODY_BYTES)" in source

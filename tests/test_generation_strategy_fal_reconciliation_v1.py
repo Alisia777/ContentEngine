@@ -115,13 +115,18 @@ def test_browser_unknown_provider_has_no_reconciliation_form_or_runway_fallback(
         "function generationActionsMarkup(details)",
         "function generationCostMarkup(details)",
     )
+    # Запись 29.08.2026: харнесс сдвинут ОСОЗНАННО — generationActionsMarkup
+    # теперь дописывает ссылку «Открыть паспорт» через внешнюю
+    # generationPassportLinkMarkup; тесту паспорт не нужен, поэтому подаём
+    # заглушку () => ''.
     script = f"""
 import assert from 'node:assert/strict';
 const factory = new Function(
   'escapeHtml',
+  'generationPassportLinkMarkup',
   {json.dumps(function_source + '; return generationActionsMarkup;')}
 );
-const render = factory((value) => String(value));
+const render = factory((value) => String(value), () => '');
 const base = {{
   jobId: '44444444-4444-4444-8444-444444444444',
   reconciliationRequired: true,

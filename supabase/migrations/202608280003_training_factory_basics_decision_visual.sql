@@ -1,3 +1,5 @@
+begin;
+
 -- Хвост актуализации factory_basics (28.08.2026): visual-«решалка» урока
 -- generation_modes всё ещё предлагала июльские режимы прямым текстом
 -- («Фото 2K ≈ $0.04», «Gen-4 · 5 секунд ≈ $0.25», «Seedance · 8 секунд
@@ -62,3 +64,5 @@ begin
   where m.code = 'factory_basics';
 end;
 $fix$;
+
+commit;

@@ -49,8 +49,15 @@ def test_copy_is_single_mp4_first_without_remote_source_dependency() -> None:
     assert copy_panel.count('sourceChooser("copy_video"') == 1
     assert "optionalSourceUrl()" not in copy_panel
     assert "canonicalGenerationIntakeSourceUrl" not in source
-    assert "contentengine_register_exact_youtube_source" not in source
-    assert "youtube.com/watch" not in source
+    # Запись 29.08.2026: пин сдвинут ОСОЗНАННО — баны RPC
+    # contentengine_register_exact_youtube_source и youtube.com/watch сняты:
+    # интейк v2 «Оригинал по ссылке» (коммит 0d1c83f3, решение владельца 26.08)
+    # законно вернул регистрацию источника по ссылке. Файл система по-прежнему
+    # не скачивает — пины ниже закрепляют именно этот контракт.
+    assert "copyOriginLinkBlock()," in copy_panel
+    assert "Оригинал по ссылке (необязательно)" in source
+    assert "Сам файл система не скачивает" in source
+    assert "canonical: `https://youtube.com/watch?v=${videoId}`" in source
 
 
 def test_copy_builds_complete_product_swap_handoff() -> None:
@@ -1298,7 +1305,19 @@ def test_express_price_button_is_two_phase_and_never_skips_human_launch_click() 
         "function priceButtonFor",
     )
     assert 'form.dataset.generationStrategyConfirmationReady === "true"' in drive
-    assert "EXPRESS_FREE_SUBMIT_PHASES.includes(phase)" in drive
+    # Запись 29.08.2026: пин сдвинут ОСОЗНАННО — список бесплатных фаз стал
+    # параметром freePhases (очередь «Создания» переиспользует драйвер со своим
+    # REBUILD_FREE_SUBMIT_PHASES); по умолчанию это те же EXPRESS-фазы, и страж
+    # ниже держит rebuild-список бесплатным.
+    assert "freePhases = EXPRESS_FREE_SUBMIT_PHASES," in drive
+    assert "freePhases.includes(phase)" in drive
+    rebuild_phases = between(
+        source,
+        "const REBUILD_FREE_SUBMIT_PHASES = Object.freeze([",
+        "]);",
+    )
+    assert "paid" not in rebuild_phases
+    assert "free_preflight" in rebuild_phases
     assert "express_preflight_blocked" in drive
     launch = between(
         source,
@@ -2312,7 +2331,9 @@ def test_express_preflight_cannot_be_silently_blocked_by_hidden_required_fields(
     assert "revealIdentityCategory(state);" in prepare
     assert prepare.index("currentProductCategory(form, state)") < prepare.index("beginRouteBusy(")
 
-    driver = between(source, "async function driveStrategyPreflight(initialForm, panel)", "function priceButtonFor(panel)")
+    # Запись 29.08.2026: якорь сдвинут ОСОЗНАННО — драйвер получил параметр
+    # options (freePhases и др.) для переиспользования очередью «Создания».
+    driver = between(source, "async function driveStrategyPreflight(initialForm, panel, options = {})", "function priceButtonFor(panel)")
     assert "form.dataset.generationStrategyLastFailureAt" in driver
     assert 'new Error("express_preflight_rejected")' in driver
     assert "Сервер отказал на шаге" in source

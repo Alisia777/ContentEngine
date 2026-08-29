@@ -23,7 +23,9 @@ def test_research_edge_is_authenticated_origin_bound_and_claims_before_openai() 
 
     assert config["functions"]["creator-product-research"]["verify_jwt"] is True
     assert 'auth: "user"' in source
-    assert 'const PUBLIC_APP_ORIGIN = "https://alisia777.github.io"' in source
+    # Запись 29.08.2026: пин сдвинут ОСОЗНАННО — портал переехал на аккаунт
+    # hardliver1, и edge-функция привязана к новому origin (сверено с index.ts).
+    assert 'const PUBLIC_APP_ORIGIN = "https://hardliver1.github.io"' in source
     assert 'const allowed = new Set(["action", "research_id", "project_id"])' in source
     assert 'Object.keys(value).length !== 3' in source
     assert '!isUuid(value.project_id)' in source

@@ -143,6 +143,9 @@ def test_primary_navigation_keeps_six_step_flow_then_adds_research_and_ai() -> N
     )
     dock = _between(WORKSPACE_OS, "function ensureDock()", "function updateDock()")
 
+    # Запись 29.08.2026: пин сдвинут ОСОЗНАННО, и это правка поведения.
+    # После шага «Результаты» добавлены «Паспорта» и «Гипотезы» (решения
+    # владельца, штампы .18/.33–.36); Research и ИИ-центр по-прежнему замыкают.
     assert re.findall(r'route: "([^"]+)"', routes) == [
         "/workspace/home",
         "/workspace/board",
@@ -150,6 +153,8 @@ def test_primary_navigation_keeps_six_step_flow_then_adds_research_and_ai() -> N
         "/workspace/review",
         "/workspace/placement",
         "/workspace/stats",
+        "/workspace/passports",
+        "/workspace/hypotheses",
         "/workspace/research",
         "/workspace/ai",
     ]
@@ -316,7 +321,24 @@ def test_error_states_never_render_raw_service_messages() -> None:
     fatal = _between(APP, "function renderFatal", "function parseRoute")
 
     assert "console.error(sectionState.error)" in section_body
-    assert "sectionState.error?.message" not in APP
+    # Запись 29.08.2026: пин сдвинут ОСОЗНАННО, и это правка поведения.
+    # Полный бан sectionState.error?.message снят: «Паспорта» и «Гипотезы»
+    # печатают техподробность РЯДОМ с человеческим текстом — generic «не
+    # удалось выполнить действие» без причины уже стоил владельцу вечера
+    # догадок (боевой скрин 26.08 20:56). Вместо запрета проверяем по существу:
+    # каждая площадка режет сырой текст до 200 символов, экранирует его и
+    # подписывает «Техподробность», чтобы он не выглядел основным сообщением.
+    sites = [
+        m.start()
+        for m in re.finditer(
+            r"sectionState\.error\?\.message \|\| sectionState\.error", APP
+        )
+    ]
+    assert len(sites) == 2 == APP.count("sectionState.error?.message")
+    for site in sites:
+        seg = APP[site : site + 700]
+        assert ".slice(0, 200)" in APP[site : site + 200]
+        assert "escapeHtml(rawDetail)" in seg and "Техподробность" in seg
     assert "sectionState.error.message" not in APP
     assert "error?.message" not in fatal
     assert "error.message" not in fatal

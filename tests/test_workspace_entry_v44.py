@@ -29,8 +29,8 @@ def _function_source(source: str, name: str, next_name: str) -> str:
 
 
 def test_v44_preserves_mandatory_learning_and_normalizes_only_the_obsolete_alias() -> None:
-    assert 'content="20260826.rebuild-clean.47"' in INDEX
-    assert './startup-route.js?v=20260826.rebuild-clean.47' in INDEX
+    assert 'content="20260826.rebuild-clean.48"' in INDEX
+    assert './startup-route.js?v=20260826.rebuild-clean.48' in INDEX
     assert INDEX.index("./startup-route.js") < INDEX.index("./app.js")
     assert '/^#\\/academy' in STARTUP
     assert 'hash.replace(/^#\\/academy/u, "#/learn")' in STARTUP
@@ -504,7 +504,11 @@ def test_visible_menubar_search_opens_finder_and_keeps_multiwindow_controls() ->
         "\nfunction syncWorkspaceWindowState()",
     )
     search = _between(CORE, "function focusFinderSearch(", "\n}\n\nfunction fullscreenElement")
-    public_api = CORE[CORE.index("window.ContentEngineDesktopV4 = Object.freeze({") :]
+    # Запись 29.08.2026: якорь сдвинут ОСОЗНАННО — публичный API теперь за
+    # стражем эпохи (коммит 88dcae02): глобалом владеет ПЕРВАЯ загрузившаяся
+    # сборка, вторая лишь объявляет смесь. Object.freeze({...}) живёт в ветке
+    # присваивания, поэтому хвост от нового якоря содержит те же экспорты.
+    public_api = CORE[CORE.index("window.ContentEngineDesktopV4 = desktopEpochHeld") :]
     assert 'create("form", "ce-v4-menubar__search")' in menubar
     assert 'globalSearch.setAttribute("role", "search")' in menubar
     assert 'globalSearchInput.type = "search"' in menubar

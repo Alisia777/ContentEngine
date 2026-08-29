@@ -350,7 +350,10 @@ def test_dock_promotes_research_and_ai_while_tools_stay_compact_and_gated() -> N
     menubar = _between(CORE, "function ensureMenubar() {", "function updateClock()")
     tools_keyboard = _between(CORE, "function handleToolsMenuKeydown(event) {", "async function toggleFullscreen()")
 
-    assert routes.count("Object.freeze({ route:") == 8
+    # Запись 29.08.2026: пин сдвинут ОСОЗНАННО, и это правка поведения.
+    # Состав Dock вырос с 8 до 10: «Паспорта» и «Гипотезы» (решения владельца,
+    # штампы .18/.33–.36) встали между «Результатами» и «Исследованиями».
+    assert routes.count("Object.freeze({ route:") == 10
     assert secondary.count("Object.freeze({ route:") == 2
     assert context.count("Object.freeze({ route:") == 2
     assert re.findall(r'route: "([^"]+)"', routes) == [
@@ -360,6 +363,8 @@ def test_dock_promotes_research_and_ai_while_tools_stay_compact_and_gated() -> N
         "/workspace/review",
         "/workspace/placement",
         "/workspace/stats",
+        "/workspace/passports",
+        "/workspace/hypotheses",
         "/workspace/research",
         "/workspace/ai",
     ]
