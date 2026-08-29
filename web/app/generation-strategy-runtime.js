@@ -60,6 +60,9 @@ const PRICING_VERSIONS = Object.freeze([
   "fal-usd-per-second-minimax-h3-2026-08-23.v1",
   "fal-usd-per-second-grok-imagine-2026-08-23.v1",
   "fal-usd-per-second-happy-horse-reference-2026-08-23.v1",
+  // «Создание» на Runway Gen-4 Turbo (29.08.2026): посекундная ставка
+  // официального API (5 кредитов/с = $0.05/с), длительность только 5 или 10 с.
+  "runway-usd-per-second-gen4-turbo-2026-08-29.v1",
 ]);
 
 function knownPricingVersion(value) {
@@ -1193,13 +1196,19 @@ function normalizePrice(value, identity, selection) {
   }S_${String(source.resolution).toUpperCase()}_${
     identity.audio ? "AUDIO" : "SILENT"
   }_USD_${costUsd}`;
-  // Ступени кредитов есть только у Runway, и для него сверка с канонической
-  // арифметикой остаётся обязательной. У маршрутов с ценой за ролик сверять
-  // нечего с чем: там другой прайс, и проверяется внутренняя согласованность
-  // снимка — она уже обеспечена равенствами ниже.
-  const creditsMatchRoute = priceProvider === "runway"
+  // Ступени кредитов принадлежат ПРАЙСУ, а не провайдеру: у Runway их два
+  // способа счёта (aleph2 — ступени рецепта, gen4_turbo «Создания» — ставка
+  // за секунду), и ветвление по провайдеру отвергало бы честный посекундный
+  // снимок сверкой с чужой арифметикой ступеней — bind_price_mismatch на
+  // валидной привязке. Перекрёстную подмену (runway с чужим прайсом) ловит
+  // префикс: каждая версия прайса начинается именем своего провайдера — та
+  // же пара инвариантов, что в edge safeStatusPrice.
+  const recipeCredits =
+    source.pricing_version === "runway-recipe-credits-2026-08-14.v1";
+  const creditsMatchRoute = (recipeCredits
     ? estimatedCredits === expectedCredits
-    : true;
+    : true) &&
+    String(source.pricing_version || "").startsWith(`${priceProvider}-`);
   if (
     source.version !== "generation-strategy-price-snapshot-v1" ||
     source.strategy_id !== identity.strategy_id ||

@@ -75,6 +75,7 @@ export const RPC = Object.freeze({
   adminMutate: "creator_admin_mutate",
   adminAccountOwnership: "creator_admin_account_ownership",
   publishingAccounts: "creator_publishing_accounts",
+  enqueuePublishingJob: "creator_enqueue_publishing_job",
   publishGenerationResult: "creator_publish_generation_result",
   rejectGenerationResult: "creator_reject_generation_result",
   teamAccounts: "creator_team_accounts",
@@ -6714,6 +6715,60 @@ export class CreatorApi {
     return data.accounts;
   }
 
+  // «Запланировать публикацию»: наряд очереди авторазмещения (фаза 1).
+  // Нарочно НЕ через mutate(): у creator_enqueue_publishing_job строгий
+  // список ключей payload (лишний idempotency_key — отказ
+  // publishing_enqueue_payload_invalid), а идемпотентность живёт на сервере:
+  // unique (organization_id, placement_id), повтор возвращает существующий
+  // наряд с already_enqueued: true. Аккаунт и ролик сервер выводит из самого
+  // размещения — клиент их не передаёт.
+  async enqueuePublishingJob(input) {
+    const projectId = requiredProjectId(input?.project_id ?? input?.projectId);
+    const placementId = String(input?.placement_id || "").trim();
+    const scheduledAt = String(input?.scheduled_at || "").trim();
+    const erid = String(input?.erid || "").trim().toUpperCase();
+    if (!placementId || !scheduledAt || !/^[A-Z0-9-]{4,64}$/.test(erid)) {
+      throw new CreatorApiError(
+        "Для постановки в очередь нужны размещение, время выхода и ERID (или ORGANIC).",
+        { code: "publishing_enqueue_payload_invalid" },
+      );
+    }
+    const payload = {
+      organization_id: String(this.organizationId || ""),
+      project_id: projectId,
+      placement_id: placementId,
+      scheduled_at: scheduledAt,
+      erid,
+    };
+    if (erid !== "ORGANIC") {
+      const advertiser = String(input?.advertiser || "").trim();
+      if (advertiser.length < 2) {
+        throw new CreatorApiError(
+          "Для рекламы обязателен рекламодатель — он войдёт в автоподпись маркировки.",
+          { code: "publishing_enqueue_payload_invalid" },
+        );
+      }
+      payload.advertiser = advertiser;
+      const ordProvider = String(input?.ord_provider || "").trim();
+      if (ordProvider) payload.ord_provider = ordProvider;
+      const contractRef = String(input?.contract_ref || "").trim();
+      if (contractRef) payload.contract_ref = contractRef;
+    }
+    const caption = String(input?.caption || "").trim();
+    if (caption) payload.caption = caption;
+    const hashtags = String(input?.hashtags || "").trim();
+    if (hashtags) payload.hashtags = hashtags;
+    const data = await this.call(RPC.enqueuePublishingJob, payload);
+    if (
+      !data || data.ok !== true
+      || data.version !== "publishing-enqueue-v1"
+      || !data.job || typeof data.job !== "object"
+    ) {
+      throw new CreatorApiError("Очередь публикаций ответила в неизвестной форме.");
+    }
+    return data;
+  }
+
   // «Одобрить и разместить» готовый результат: явное подтверждение полного
   // просмотра + выданный аккаунт + ERID. Создаёт задачу размещения и строку
   // placements; финальную ссылку подтверждает confirmPlacement.
@@ -9241,6 +9296,26 @@ function toFriendlyMessage(error) {
     research_run_project_scope_mismatch: "Исследование относится к другому проекту. Откройте исходный проект и обновите снимок этапов.",
     research_stage_recompute_child_project_scope_mismatch: "Сохранённый пересчёт не привязан к этому проекту. Платный запуск остановлен; обновите статус без повтора.",
     project_members_payload_invalid: "Параметры списка доступа устарели. Выберите проект заново.",
+    publishing_enqueue_placement_not_found: "Размещение не найдено. Обновите раздел публикаций.",
+    publishing_enqueue_placement_not_open: "Это размещение уже закрыто — в очередь ставятся только открытые задачи.",
+    publishing_enqueue_placement_foreign: "Задача назначена другому исполнителю. Ставить её в очередь может он, продюсер или администратор.",
+    publishing_enqueue_account_missing: "У размещения не указан аккаунт компании — очередь не знает, куда публиковать.",
+    publishing_enqueue_account_unavailable: "Аккаунт размещения отключён или удалён из реестра. Проверьте «Люди → Аккаунты».",
+    publishing_enqueue_account_posting_disabled: "У аккаунта выключен режим размещения. Включите его в реестре «Люди → Аккаунты».",
+    publishing_enqueue_account_not_assigned: "Аккаунт не выдан вам. Попросите владельца выдать доступ в «Люди → Аккаунты».",
+    publishing_enqueue_media_required: "У размещения нет привязанного ролика — очередь не знает, что публиковать.",
+    publishing_enqueue_media_not_found: "Привязанный ролик не найден или ещё не готов.",
+    publishing_enqueue_media_not_generated_video: "В очередь публикаций ставятся только готовые ролики генерации.",
+    publishing_enqueue_scheduled_at_invalid: "Время выхода не прочиталось. Укажите дату и время публикации.",
+    publishing_enqueue_scheduled_at_out_of_range: "Время выхода — от текущего момента до 90 дней вперёд.",
+    publishing_enqueue_erid_invalid: "ERID — 4–64 знака: латиница, цифры, дефис. Для органики — ORGANIC.",
+    publishing_enqueue_organic_with_advertiser: "У органики не бывает рекламодателя. Уберите рекламные реквизиты или укажите ERID рекламы.",
+    publishing_enqueue_caption_required: "Для органики подпись обязательна: без маркировки текст поста не собирается сам.",
+    publishing_enqueue_caption_too_long: "Подпись с хэштегами и маркировкой длиннее 4000 знаков. Сократите текст.",
+    publishing_enqueue_project_mismatch: "Размещение относится к другому проекту. Откройте его исходный проект.",
+    publishing_enqueue_media_mismatch: "Указанный ролик не совпадает с привязанным к размещению.",
+    ord_provider_invalid: "Название ОРД — от 2 до 80 знаков.",
+    contract_ref_invalid: "Реквизит договора — от 2 до 180 знаков.",
     project_member_grant_payload_invalid: "Не удалось безопасно выдать доступ. Обновите список проекта.",
     project_member_revoke_payload_invalid: "Не удалось безопасно отозвать доступ. Обновите список проекта.",
     project_member_profile_id_invalid: "Не удалось определить участника команды. Обновите список.",

@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.48",
+  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.50",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260826.rebuild-clean.48"
+  "./generation-engine-advisor.js?v=20260826.rebuild-clean.50"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -2222,6 +2222,9 @@ const MODEL_PUBLIC_LABELS = Object.freeze({
   // Движки «Создания» (миграция 202608230021).
   "fal:xai/grok-imagine-video/reference-to-video": "Grok Imagine",
   "fal:alibaba/happy-horse/reference-to-video": "Happy Horse",
+  // «Создание» на Runway (29.08.2026): настоящий image_to_video, а не
+  // несуществующий рецепт.
+  "runway:gen4_turbo": "Runway Gen-4 Turbo",
 });
 
 // Что движок делает с роликом — словами человека. Приходит из реестра
@@ -2325,6 +2328,20 @@ function engineInputNote(engine) {
   return parts.join(" · ");
 }
 
+// Решётка секунд движка — свойство модели, как форма тела запроса: у Runway
+// Gen-4 Turbo параметр duration принимает РОВНО 5 или 10. Окно min/max
+// реестра дискретность не выражает; та же решётка стоит в цене маршрута
+// (gen4_turbo_duration_lattice) и в адаптере отправки — три слоя обязаны
+// двигаться вместе.
+const ENGINE_DURATION_CHOICES = Object.freeze({
+  "runway:gen4_turbo": Object.freeze([5, 10]),
+});
+
+function engineDurationLattice(engine) {
+  const lattice = ENGINE_DURATION_CHOICES[String(engine?.id || "")];
+  return Array.isArray(lattice) ? lattice : null;
+}
+
 function engineDurationNote(engine) {
   const minimum = Number(engine?.minDurationSeconds);
   const maximum = Number(engine?.maxDurationSeconds);
@@ -2338,6 +2355,8 @@ function engineDurationNote(engine) {
       : "как в проверенном MP4";
   }
   if (!hasWindow) return "диапазон подтвердит сервер";
+  const lattice = engineDurationLattice(engine);
+  if (lattice) return `${lattice.join(" или ")} с`;
   return minimum === maximum ? `${minimum} с` : `${minimum}–${maximum} с`;
 }
 
@@ -4775,11 +4794,19 @@ function renderEngineChoice(form, state, section, strategyId) {
   if (sourceSeconds !== null) {
     durations.push(sourceSeconds);
   } else if (!bySource) {
+    // Решётка секунд модели: промежуточные значения (у Gen-4 Turbo — 6–9)
+    // провайдер отверг бы уже ПОСЛЕ резерва, а цена откажет им до резерва.
+    // Список чипов обязан совпадать с тем, что подпишет цена.
+    const lattice = engineDurationLattice(selectedEngine);
     for (
       let seconds = durationWindow.min;
       seconds <= durationWindow.max;
       seconds += 1
-    ) durations.push(seconds);
+    ) {
+      if (lattice === null || lattice.includes(seconds)) {
+        durations.push(seconds);
+      }
+    }
   }
   // Модели, которые взяли бы этот ролик целиком. Нужны, когда выбранная не
   // берёт: человеку показывают не тупик, а выход.
@@ -4808,6 +4835,14 @@ function renderEngineChoice(form, state, section, strategyId) {
       : Number.isFinite(current) && current > 0
       ? Math.min(durationWindow.max, Math.max(durationWindow.min, Math.round(current)))
       : durations[0];
+    // Приведение к окну может дать значение, которого нет в списке (между 5
+    // и 10 у Gen-4 Turbo пусто) — берётся ближайшая допустимая ступень, а не
+    // молчаливо неверная.
+    if (!durations.includes(chosen)) {
+      chosen = durations.reduce((best, seconds) => (
+        Math.abs(seconds - chosen) < Math.abs(best - chosen) ? seconds : best
+      ), durations[0]);
+    }
     if (
       Number.isFinite(current) && current > 0 && current !== chosen
       && writesShared && applyCopyDuration(form, chosen)

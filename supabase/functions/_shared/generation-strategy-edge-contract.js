@@ -29,6 +29,7 @@ import {
   HEYGEN_PER_SECOND_PRICING_VERSION,
   isKnownStrategyPricingVersion,
   isKnownStrategyProvider,
+  RUNWAY_GEN4_TURBO_PER_SECOND_PRICING_VERSION,
   RUNWAY_RECIPE_PRICING_VERSION,
   RUNWAY_RECIPE_VERSION,
   validateGenerationStrategySelection,
@@ -124,10 +125,15 @@ const PROVIDER_POLICY_ROUTES = Object.freeze({
     }),
   }),
   viral_rebuild: Object.freeze({
+    // Настоящий маршрут Gen-4 Turbo (29.08.2026): /v1/recipes/product_ad у
+    // провайдера не существует, «Создание» на Runway идёт через
+    // /v1/image_to_video с посекундным прайсом официального API. Значения
+    // обязаны совпадать со строкой реестра — policy сверяет их по подписи
+    // (provider, pricing_version) квитанции.
     "runway:gen4_turbo": Object.freeze({
-      providerPath: "/v1/recipes/product_ad",
+      providerPath: "/v1/image_to_video",
       pollKind: "runway_task",
-      pricingVersion: RUNWAY_RECIPE_PRICING_VERSION,
+      pricingVersion: RUNWAY_GEN4_TURBO_PER_SECOND_PRICING_VERSION,
     }),
     // Движки «Создания» на fal, заведены 23.08.2026 (миграция 202608230021).
     [`fal:${FAL_MINIMAX_H3_REFERENCE_MODEL}`]: Object.freeze({
@@ -1318,7 +1324,13 @@ function safeStatusPrice(value, strategy, selection) {
   // описывать одни и те же деньги (проверки ниже), а сам снимок обязан совпасть
   // с подписанным price_hash квитанции. Ослаблением это не является:
   // расхождение по-прежнему отвергается.
-  const runwayCredits = value.provider === "runway";
+  // Ступени кредитов принадлежат ПРАЙСУ, а не провайдеру: у Runway их два
+  // способа счёта (aleph2 — ступени рецепта, gen4_turbo — ставка за
+  // секунду), и ветвление по провайдеру сверяло бы честный посекундный
+  // снимок gen4_turbo с чужой арифметикой — статус оплаченной задачи
+  // отвечал бы отказом при уже зарезервированных деньгах.
+  const runwayCredits =
+    value.pricing_version === RUNWAY_RECIPE_PRICING_VERSION;
   if (
     runwayCredits && value.estimated_credits !== selection.estimated_credits
   ) return null;
@@ -1329,8 +1341,12 @@ function safeStatusPrice(value, strategy, selection) {
   // Runway, чужой маршрут не может ими считаться.
   if (
     value.pricing_version !== strategy.pricing_version ||
-    runwayCredits !==
-      (value.pricing_version === RUNWAY_RECIPE_PRICING_VERSION)
+    // Версия прайса принадлежит своему провайдеру: каждое имя версии
+    // начинается с имени провайдера (runway-…, fal-…, heygen-…), и снимок с
+    // чужой версией — подделка цены (runway, оценённый прайсом fal за ролик,
+    // стоил бы 47 центов вместо 428). Прежний жёсткий инвариант «runway ⇒
+    // ступени рецепта» снят сознательно: gen4_turbo считается посекундно.
+    !String(value.pricing_version).startsWith(`${value.provider}-`)
   ) return null;
   if (
     !exact(value, [

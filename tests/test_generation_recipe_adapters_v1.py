@@ -118,6 +118,9 @@ def test_recipe_adapter_is_pure_inert_and_exports_no_dispatch_capability() -> No
             # Ведущий для «Дуэта». С 23.08.2026 исходник уходит провайдеру
             # фоном (v2), ведущий встаёт в угол кружком/вырезом.
             "buildHeygenRecipeRequest",
+            # «Создание» на Runway Gen-4 Turbo (29.08.2026): настоящий
+            # /v1/image_to_video, первое фото товара — стартовый кадр.
+            "buildRunwayGen4ProductAdRequest",
             "buildRunwayProductSwapPrompt",
             "buildRunwayRecipeRequest",
             # Раскладка врезки → масштаб и смещение провайдера; чистая

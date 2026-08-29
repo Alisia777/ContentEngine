@@ -3,12 +3,12 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260826.rebuild-clean.48";
+} from "./supabase-api.js?v=20260826.rebuild-clean.50";
 import {
   adminPeopleMarkup,
   normalizeAdminSnapshot,
   normalizeAdminView,
-} from "./admin-people-view.js?v=20260826.rebuild-clean.48";
+} from "./admin-people-view.js?v=20260826.rebuild-clean.50";
 import {
   clearExactYoutubeMediaHandoff,
   exactYoutubeRegisteredMediaId,
@@ -16,12 +16,12 @@ import {
   isExactYoutubeMp4,
   readExactYoutubeMediaHandoff,
   updateExactYoutubeMediaHandoffProgress,
-} from "./exact-youtube-media-handoff.js?v=20260826.rebuild-clean.48";
+} from "./exact-youtube-media-handoff.js?v=20260826.rebuild-clean.50";
 import {
   captureVerifiedPrivateVideoBlob,
   exactYoutubeResearchFailureRecovery,
   resolveExactYoutubeResearchCaptureMedia,
-} from "./exact-youtube-research-capture.js?v=20260826.rebuild-clean.48";
+} from "./exact-youtube-research-capture.js?v=20260826.rebuild-clean.50";
 import {
   approvedGenerationSpecContext,
   generationSpecApprovalReviewDecision,
@@ -34,21 +34,21 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
-} from "./generation-spec.js?v=20260826.rebuild-clean.48";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260826.rebuild-clean.48";
-import { generationStrategyRequiredSourceCount } from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.48";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.48";
+} from "./generation-spec.js?v=20260826.rebuild-clean.50";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260826.rebuild-clean.50";
+import { generationStrategyRequiredSourceCount } from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.50";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.50";
 import {
   normalizeWorkspaceInternalTarget,
   resolveWorkspaceCommand,
-} from "./workspace-command-registry.js?v=20260826.rebuild-clean.48";
+} from "./workspace-command-registry.js?v=20260826.rebuild-clean.50";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
   mergeMediaFileSelection,
   mediaFileValidationError as mediaUploadFileValidationError,
   mediaUploadWorkerCount,
-} from "./media-upload-queue.js?v=20260826.rebuild-clean.48";
+} from "./media-upload-queue.js?v=20260826.rebuild-clean.50";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -56,39 +56,39 @@ import {
   REQUIRED_MODULE_CODES,
   SIMPLE_WORKSPACE_TAB_KEYS,
   WORKSPACE_TABS,
-} from "./catalog.js?v=20260826.rebuild-clean.48";
+} from "./catalog.js?v=20260826.rebuild-clean.50";
 import {
   ACCOUNT_LAUNCH_PATH,
   accountLaunchCenterMarkup,
   accountLaunchGuideMarkup,
   accountLaunchSlugFromPath,
   evaluateAdvertisingAnswers,
-} from "./account-launch-view.js?v=20260826.rebuild-clean.48";
+} from "./account-launch-view.js?v=20260826.rebuild-clean.50";
 import {
   managerDashboardMarkup,
   managerOperationalHealthMarkup,
-} from "./manager-dashboard-view.js?v=20260826.rebuild-clean.48";
+} from "./manager-dashboard-view.js?v=20260826.rebuild-clean.50";
 import {
   generationCampaignSelectionState,
   generationSpendAllowsMinor,
   generationSpendSnapshotMarkup,
   managerGenerationSpendMarkup,
   normalizeGenerationSpendOverview,
-} from "./generation-spend-view.js?v=20260826.rebuild-clean.48";
+} from "./generation-spend-view.js?v=20260826.rebuild-clean.50";
 import {
   generationProviderReadinessPreflights,
   normalizeGenerationProviderPreflight,
-} from "./generation-provider-readiness.js?v=20260826.rebuild-clean.48";
+} from "./generation-provider-readiness.js?v=20260826.rebuild-clean.50";
 import {
   generationModelAcceptanceMarkup,
   normalizeGenerationModelAcceptance,
-} from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.48";
+} from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.50";
 import {
   accessCenterMarkup,
   ensureAccessCenterStyles,
   normalizeAccessCenterEmail,
   normalizeAccessCenterResult,
-} from "./access-center-view.js?v=20260826.rebuild-clean.48";
+} from "./access-center-view.js?v=20260826.rebuild-clean.50";
 import {
   applyResearchMarketCategoryResolution,
   applyResearchOutcomeLearningMutation,
@@ -110,7 +110,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260826.rebuild-clean.48";
+} from "./product-research-view.js?v=20260826.rebuild-clean.50";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -121,7 +121,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260826.rebuild-clean.48";
+} from "./ai-learning-control-room.js?v=20260826.rebuild-clean.50";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -137,15 +137,15 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260826.rebuild-clean.48";
+} from "./content-generation-handoff.js?v=20260826.rebuild-clean.50";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
-} from "./generation-quality-training.js?v=20260826.rebuild-clean.48";
+} from "./generation-quality-training.js?v=20260826.rebuild-clean.50";
 import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,
-} from "./generation-form-readiness.js?v=20260826.rebuild-clean.48";
+} from "./generation-form-readiness.js?v=20260826.rebuild-clean.50";
 import {
   GENERATION_STRATEGY_RUNTIME_ACTIONS,
   createGenerationStrategyRuntimeFingerprint,
@@ -159,7 +159,7 @@ import {
   invalidateGenerationStrategyRuntimeState,
   normalizeGenerationStrategyProbeResponse,
   reduceGenerationStrategyRuntimeState,
-} from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.48";
+} from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.50";
 import {
   createGenerationStrategyQueue,
   generationStrategyQueueAggregateReview,
@@ -168,33 +168,33 @@ import {
   planGenerationStrategyQueueFreeWork,
   planGenerationStrategyQueueSequentialStarts,
   updateGenerationStrategyQueueRow,
-} from "./generation-strategy-queue.js?v=20260826.rebuild-clean.48";
+} from "./generation-strategy-queue.js?v=20260826.rebuild-clean.50";
 import {
   renderGenerationStrategyQueueView,
-} from "./generation-strategy-queue-view.js?v=20260826.rebuild-clean.48";
+} from "./generation-strategy-queue-view.js?v=20260826.rebuild-clean.50";
 import {
   buildGenerationStrategySpecApprovalRequest,
   buildGenerationStrategySpecPrepareRequest,
   generationStrategySpecSafeProjection,
   normalizeGenerationStrategySpecControlResponse,
   normalizeGenerationStrategySpecPrepareResponse,
-} from "./generation-strategy-spec.js?v=20260826.rebuild-clean.48";
+} from "./generation-strategy-spec.js?v=20260826.rebuild-clean.50";
 import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
   normalizeGenerationVideoReferenceContext,
-} from "./generation-video-reference.js?v=20260826.rebuild-clean.48";
+} from "./generation-video-reference.js?v=20260826.rebuild-clean.50";
 import {
   buildGenerationFormDraft,
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260826.rebuild-clean.48";
+} from "./generation-form-draft.js?v=20260826.rebuild-clean.50";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
   resolveGenerationExpectedProductMatch,
-} from "./generation-ai-research-working-draft.js?v=20260826.rebuild-clean.48";
+} from "./generation-ai-research-working-draft.js?v=20260826.rebuild-clean.50";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -206,7 +206,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260826.rebuild-clean.48";
+} from "./generation-autopilot.js?v=20260826.rebuild-clean.50";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -228,14 +228,14 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260826.rebuild-clean.48";
+} from "./content-review-view.js?v=20260826.rebuild-clean.50";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
   createFirstShiftFullState,
   firstShiftFullScenarioMarkup,
   reduceFirstShiftFullState,
-} from "./first-shift-full-scenario.js?v=20260826.rebuild-clean.48";
+} from "./first-shift-full-scenario.js?v=20260826.rebuild-clean.50";
 import {
   GENERATION_ARCHIVE_PAGE_SIZE,
   GENERATION_VISIBLE_CAP,
@@ -250,7 +250,7 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260826.rebuild-clean.48";
+} from "./portal-experience.js?v=20260826.rebuild-clean.50";
 import {
   isWorkspaceSmartFolderId,
   normalizeWorkspaceBoard,
@@ -258,7 +258,7 @@ import {
   workspaceBoardItemKey,
   workspaceBoardPaginationState,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260826.rebuild-clean.48";
+} from "./workspace-board-view.js?v=20260826.rebuild-clean.50";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -270,7 +270,7 @@ import {
   syncTrainingWalkthroughStatus,
   trainingInteractiveMarkup,
   trainingWalkthroughStorageKey,
-} from "./training-interactive.js?v=20260826.rebuild-clean.48";
+} from "./training-interactive.js?v=20260826.rebuild-clean.50";
 import {
   LEARNING_TRACKS,
   achievementMarkup,
@@ -287,16 +287,16 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260826.rebuild-clean.48";
+} from "./training-journey.js?v=20260826.rebuild-clean.50";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
   trainingPlatformSimulatorsMarkup,
-} from "./training-platform-simulators.js?v=20260826.rebuild-clean.48";
+} from "./training-platform-simulators.js?v=20260826.rebuild-clean.50";
 import {
   bindTrainingMediaCards,
   trainingMediaCardsMarkup,
-} from "./training-media-cards.js?v=20260826.rebuild-clean.48";
+} from "./training-media-cards.js?v=20260826.rebuild-clean.50";
 import {
   normalizeTrainingPracticalProject,
   normalizeTrainingPracticalReviews,
@@ -306,7 +306,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260826.rebuild-clean.48";
+} from "./training-practical-review.js?v=20260826.rebuild-clean.50";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -325,7 +325,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260826.rebuild-clean.48";
+} from "./my-work-view.js?v=20260826.rebuild-clean.50";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -336,8 +336,8 @@ const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
   ),
 );
 const MEDIA_UPLOAD_CONCURRENCY = DEFAULT_MEDIA_UPLOAD_CONCURRENCY;
-const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260826.rebuild-clean.48";
-const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260826.rebuild-clean.48";
+const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260826.rebuild-clean.50";
+const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260826.rebuild-clean.50";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
 const MAX_MOCK_BATCH_SIZE = Math.min(50, Math.max(1, Number(CONFIG.MAX_BATCH_SIZE) || 50));
@@ -9172,6 +9172,158 @@ function openRejectResultDialog({ projectId, mediaId, mediaTitle = "" }) {
   dialog.showModal();
 }
 
+// «Запланировать публикацию»: наряд очереди авторазмещения (фаза 1).
+// Аккаунт и ролик очередь выводит из самого размещения — форма спрашивает
+// только время выхода, маркировку и подпись. Диалог императивный (<dialog>
+// вне цикла render), чтобы перерисовки раздела не стирали недописанную
+// форму. Автоподпись маркировки собирает СЕРВЕР: «Реклама. ‹рекламодатель›.
+// erid: ‹токен›» — предпросмотр обязан совпадать с этой сборкой.
+function openPublishingScheduleDialog({
+  projectId,
+  placementId,
+  placementTitle = "",
+  placementPlatform = "",
+}) {
+  document.querySelector("dialog[data-workspace-publishing-schedule-dialog]")?.remove();
+  const dialog = document.createElement("dialog");
+  dialog.dataset.workspacePublishingScheduleDialog = "";
+  dialog.className = "workspace-publish-dialog";
+  // Значение по умолчанию — через час, в местном времени поля datetime-local.
+  const toLocalInput = (date) => {
+    const pad = (part) => String(part).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  };
+  const defaultAt = new Date(Date.now() + 60 * 60 * 1000);
+  dialog.innerHTML = `
+    <form method="dialog" class="workspace-publish-dialog__form" data-publishing-schedule-form>
+      <h3>Запланировать публикацию</h3>
+      <p class="muted">${escapeHtml(placementTitle || "Размещение")}${placementPlatform ? ` — ${escapeHtml(placementPlatform)}` : ""}. Аккаунт и ролик возьмутся из самой задачи; очередь проверит их при постановке.</p>
+      <label class="field">
+        <span>Время выхода *</span>
+        <input name="scheduled_at" type="datetime-local" required value="${toLocalInput(defaultAt)}" />
+        <small class="field-hint">От текущего момента до 90 дней вперёд.</small>
+      </label>
+      <fieldset class="field">
+        <span>Маркировка *</span>
+        <label class="option"><input type="radio" name="marking_mode" value="erid" checked /><span>Реклама с ERID</span></label>
+        <label class="option"><input type="radio" name="marking_mode" value="organic" /><span>Органика без маркировки (ORGANIC)</span></label>
+      </fieldset>
+      <div data-publishing-erid-fields>
+        <label class="field">
+          <span>ERID маркировки *</span>
+          <input name="erid" required minlength="4" maxlength="64" pattern="[A-Za-z0-9-]{4,64}" placeholder="Например: 2VTZQXXXXXX" autocomplete="off" />
+        </label>
+        <label class="field">
+          <span>Рекламодатель *</span>
+          <input name="advertiser" required minlength="2" maxlength="180" placeholder="Юрлицо или ИП из договора" autocomplete="off" />
+          <small class="field-hint">Войдёт в автоподпись маркировки.</small>
+        </label>
+        <label class="field">
+          <span>ОРД (необязательно)</span>
+          <input name="ord_provider" minlength="2" maxlength="80" autocomplete="off" />
+        </label>
+        <label class="field">
+          <span>Договор (необязательно)</span>
+          <input name="contract_ref" minlength="2" maxlength="180" autocomplete="off" />
+        </label>
+        <p class="tiny muted" data-marking-preview></p>
+      </div>
+      <label class="field">
+        <span>Подпись к посту</span>
+        <textarea name="caption" maxlength="3000" rows="3" placeholder="Текст поста. Для органики обязателен."></textarea>
+      </label>
+      <label class="field">
+        <span>Хэштеги</span>
+        <input name="hashtags" maxlength="500" placeholder="#пример #ещё" autocomplete="off" />
+      </label>
+      <div class="inline-actions">
+        <button class="btn btn-primary" type="submit" value="enqueue">Поставить в очередь</button>
+        <button class="btn btn-secondary" type="submit" value="cancel" formnovalidate>Отмена</button>
+      </div>
+    </form>`;
+  document.body.append(dialog);
+  const form = dialog.querySelector("[data-publishing-schedule-form]");
+  const eridFields = form.querySelector("[data-publishing-erid-fields]");
+  const preview = form.querySelector("[data-marking-preview]");
+  const isOrganic = () => form.elements.marking_mode?.value === "organic";
+  const syncMarkingMode = () => {
+    const organic = isOrganic();
+    eridFields.hidden = organic;
+    // Скрытые поля отключаются ЦЕЛИКОМ: недописанный ERID («2V») иначе
+    // остаётся невалидным по pattern/minlength, reportValidity молчит на
+    // скрытом поле, и «Поставить в очередь» перестаёт отвечать — та же
+    // мина, что была у destination_ref/product_category.
+    for (const fieldName of ["erid", "advertiser", "ord_provider", "contract_ref"]) {
+      const field = form.elements[fieldName];
+      if (!field) continue;
+      field.disabled = organic;
+      if (fieldName === "erid" || fieldName === "advertiser") {
+        field.required = !organic;
+      }
+    }
+    // Для органики маркировочной строки нет, и пустая подпись — отказ
+    // сервера publishing_enqueue_caption_required; требование видно сразу.
+    if (form.elements.caption) form.elements.caption.required = organic;
+  };
+  const syncPreview = () => {
+    const advertiser = String(form.elements.advertiser?.value || "").trim() || "‹рекламодатель›";
+    const erid = String(form.elements.erid?.value || "").trim().toUpperCase() || "‹токен›";
+    preview.textContent = `Автоподпись: Реклама. ${advertiser}. erid: ${erid}`;
+  };
+  form.addEventListener("input", syncPreview);
+  form.addEventListener("change", () => {
+    syncMarkingMode();
+    syncPreview();
+  });
+  syncMarkingMode();
+  syncPreview();
+  form.addEventListener("submit", async (event) => {
+    const submitter = event.submitter;
+    if (!submitter || submitter.value !== "enqueue") return;
+    event.preventDefault();
+    if (!form.reportValidity()) return;
+    const scheduledLocal = String(form.elements.scheduled_at?.value || "");
+    const scheduledDate = new Date(scheduledLocal);
+    if (!scheduledLocal || Number.isNaN(scheduledDate.getTime())) {
+      toast("Время выхода не прочиталось. Укажите дату и время публикации.", "error");
+      return;
+    }
+    submitter.disabled = true;
+    try {
+      const organic = isOrganic();
+      const result = await state.api.enqueuePublishingJob({
+        project_id: projectId,
+        placement_id: placementId,
+        scheduled_at: scheduledDate.toISOString(),
+        erid: organic ? "ORGANIC" : String(form.elements.erid?.value || ""),
+        advertiser: organic ? "" : String(form.elements.advertiser?.value || ""),
+        ord_provider: organic ? "" : String(form.elements.ord_provider?.value || ""),
+        contract_ref: organic ? "" : String(form.elements.contract_ref?.value || ""),
+        caption: String(form.elements.caption?.value || ""),
+        hashtags: String(form.elements.hashtags?.value || ""),
+      });
+      dialog.close();
+      dialog.remove();
+      const when = result?.job?.scheduled_at
+        ? formatDate(result.job.scheduled_at, true)
+        : "выбранное время";
+      toast(
+        result?.already_enqueued
+          ? `Это размещение уже в очереди публикаций (${when}).`
+          : `Публикация поставлена в очередь на ${when}. Задача перешла в «Запланировано».`,
+        "success",
+      );
+      state.sections.placement.status = "idle";
+      await loadSection("placement", { silent: true });
+    } catch (error) {
+      submitter.disabled = false;
+      toast(`Публикация не поставлена в очередь: ${actionErrorMessage(error)}`, "error");
+    }
+  });
+  dialog.addEventListener("close", () => dialog.remove());
+  dialog.showModal();
+}
+
 async function moveWorkspaceBoardItem({
   entityType,
   entityId,
@@ -15146,7 +15298,12 @@ function generationStrategyExecutionArchiveDetails(item, strategy) {
   const pricingVersion = String(price?.pricing_version || "").trim();
   const routePriceMatches = (
     provider === "runway"
-      ? pricingVersion === "runway-recipe-credits-2026-08-14.v1"
+      ? new Set([
+        "runway-recipe-credits-2026-08-14.v1",
+        // Gen-4 Turbo «Создания» (29.08.2026): посекундный прайс. Жёсткое
+        // «runway = только ступени» прятало бы карточку оплаченного запуска.
+        "runway-usd-per-second-gen4-turbo-2026-08-29.v1",
+      ]).has(pricingVersion)
       : provider === "fal"
         ? new Set([
           "fal-usd-per-run-2026-08-18.v1",
@@ -15171,7 +15328,13 @@ function generationStrategyExecutionArchiveDetails(item, strategy) {
   const dimensionMatches = sourceFramedStrategy
     ? ["720p", "1080p"].includes(resolution)
       && (ratio === "" || ratio === "source")
-    : ["720:1280", "1080:1920"].includes(ratio) && resolution === "";
+    // Полная решётка кадров «Создания» (та же, что в спеке и рантайме):
+    // список из двух вертикалей прятал карточки оплаченных запусков с
+    // квадратом или горизонталью.
+    : [
+      "1280:720", "720:1280", "960:960", "834:1112",
+      "1920:1080", "1080:1920", "1440:1440", "1248:1664",
+    ].includes(ratio) && resolution === "";
   if (
     selection?.version !== "2026-08-14.v1"
     || selection.strategy_id !== strategy.strategyId
@@ -15193,6 +15356,7 @@ function generationStrategyExecutionArchiveDetails(item, strategy) {
       "fal-usd-per-second-minimax-h3-2026-08-23.v1",
       "fal-usd-per-second-grok-imagine-2026-08-23.v1",
       "fal-usd-per-second-happy-horse-reference-2026-08-23.v1",
+      "runway-usd-per-second-gen4-turbo-2026-08-29.v1",
     ].includes(price.pricing_version)
     || price.display_only !== true
     || price.requires_fresh_server_price !== true
@@ -15239,6 +15403,15 @@ function generationStrategyExecutionPublicLabel(execution) {
     })[execution.pricingVersion] || "";
   }
   if (execution.provider !== "runway") return "";
+  // Подпись (provider, pricing_version) различает движки Runway так же, как
+  // движки fal: gen4_turbo «Создания» считается посекундно и не является
+  // рецептным Product Ad.
+  if (
+    execution.pricingVersion ===
+      "runway-usd-per-second-gen4-turbo-2026-08-29.v1"
+  ) {
+    return "Runway Gen-4 Turbo";
+  }
   return ({
     product_ugc: "Runway Product UGC",
     product_swap: "Runway Product Swap",
@@ -17622,7 +17795,12 @@ function normalizeGenerationStrategyRepeatEnvelope(raw, expectedJobId) {
   // подложкой. Соотношение сторон выбирает только «Создание».
   const dimensionValid = ["viral_product_swap", "viral_avatar_ugc"].includes(strategyId)
     ? ["720p", "1080p"].includes(resolution) && ratio === ""
-    : ["720:1280", "1080:1920"].includes(ratio) && resolution === "";
+    // Полная решётка кадров «Создания»: иначе «Повторить стратегию»
+    // отказывал запускам с квадратом или горизонталью.
+    : [
+      "1280:720", "720:1280", "960:960", "834:1112",
+      "1920:1080", "1080:1920", "1440:1440", "1248:1664",
+    ].includes(ratio) && resolution === "";
   if (!dimensionValid) return null;
   const firstAssetId = (role) => String(
     assets.find((asset) => asset.role === role)?.media_id || "",
@@ -18885,6 +19063,15 @@ function placementCard(item) {
       </ul>
       ${alertMarkup("Если в задаче нет решения по рекламе или обязательных реквизитов, не публикуйте и верните её руководителю. Бирка соцсети не заменяет правовую проверку.", "warning")}
       <p class="tiny"><a href="#/workspace/review?view=history">Открыть историю проверки контента →</a></p>
+      ${actionable ? `
+        <div class="callout">
+          <strong>Публикация по расписанию</strong>
+          <p class="tiny muted">Портал поставит ролик в очередь авторазмещения и соберёт подпись с маркировкой сам. ${item.scheduled_at ? `Сейчас в расписании: ${formatDate(item.scheduled_at, true)}.` : "Время выхода выберете в форме."}</p>
+          <div class="inline-actions">
+            <button class="btn btn-secondary btn-small" type="button" data-action="open-publishing-schedule" data-placement-id="${escapeHtml(item.id || item.placement_id || "")}" data-placement-title="${escapeHtml(item.title || item.product_name || "")}" data-placement-platform="${escapeHtml(item.platform || item.destination || "")}">Запланировать публикацию</button>
+          </div>
+        </div>
+      ` : ""}
       ${complete ? alertMarkup(`Публикация подтверждена: ${item.final_url || "ссылка сохранена"}`, "success") : actionable && trackingReady ? `
         <form class="inline-actions placement-form" data-placement-id="${escapeHtml(item.id)}" novalidate>
           <label class="field" style="flex:1; min-width:250px"><span>Ссылка на опубликованный пост</span><input name="final_url" type="url" required inputmode="url" placeholder="https://…/ваш-пост" /></label>
@@ -23714,6 +23901,18 @@ async function handleClick(event) {
     } catch {
       toast(value, "info");
     }
+    return;
+  }
+
+  if (action === "open-publishing-schedule") {
+    const projectId = requireWorkspaceProjectId();
+    if (!projectId) return;
+    openPublishingScheduleDialog({
+      projectId,
+      placementId: String(control.dataset.placementId || ""),
+      placementTitle: String(control.dataset.placementTitle || ""),
+      placementPlatform: String(control.dataset.placementPlatform || ""),
+    });
     return;
   }
 
@@ -40645,6 +40844,7 @@ function statusBadge(status) {
     new: "Новый",
     reviewing: "На рассмотрении",
     planned: "Запланировано",
+    scheduled: "Запланировано",
   };
   return `<span class="status-badge status-${normalized}">${escapeHtml(labels[normalized] || status || "—")}</span>`;
 }

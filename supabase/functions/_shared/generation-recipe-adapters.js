@@ -1405,6 +1405,93 @@ function buildFalProductSwapBody(shape, selection, assets) {
   }
 }
 
+// -------------------------------------------------------------------------
+// «Создание» на Runway: Gen-4 Turbo image_to_video (29.08.2026).
+// Настоящий эндпоинт /v1/image_to_video (x-runway-version 2024-11-06);
+// рецептного /v1/recipes/product_ad у провайдера не существует (17.08.2026).
+// Тело: model/promptImage/promptText/ratio/duration. ПЕРВОЕ фото товара
+// становится ПЕРВЫМ КАДРОМ ролика; остальные фото и стилевые референсы
+// остаются проверочными ассетами спенд-контура — модель принимает одно
+// изображение. seed и contentModeration намеренно не передаются.
+// -------------------------------------------------------------------------
+const PRODUCT_AD_GEN4_MODEL = "gen4_turbo";
+const PRODUCT_AD_GEN4_PATH = "/v1/image_to_video";
+// Решётка длительности — свойство модели: duration принимает РОВНО 5 или 10
+// секунд. Другое значение здесь — отказ ДО платного запроса; та же решётка
+// стоит в цене маршрута (gen4_turbo_duration_lattice) и в панели секунд.
+const PRODUCT_AD_GEN4_DURATIONS = new Set([5, 10]);
+// Кадры Gen-4 Turbo. Решётка «Создания» при 720p сводится к четырём
+// значениям; кадра 834:1112 у провайдера нет — ближайший его 3:4 это
+// 832:1104. 1080p-решётка сюда не доходит: у строки реестра один уровень
+// качества 720p, и цена отказывает раньше (route_quality_mode_missing).
+const PRODUCT_AD_GEN4_RATIOS = Object.freeze({
+  "1280:720": "1280:720",
+  "720:1280": "720:1280",
+  "960:960": "960:960",
+  "834:1112": "832:1104",
+});
+const PRODUCT_AD_GEN4_PROMPT_LIMIT = 1_000;
+
+// Указание в лимит 1000 знаков: рамка (что снять, точный товар, что не
+// делать) обязательна, замысел оператора укладывается в остаток бюджета.
+// productInfo (контрактом до 2 500 знаков) режется до 320 — иначе рамка
+// сама вытеснила бы замысел и запрос падал бы после резерва.
+function buildRunwayGen4ProductAdPrompt(selection) {
+  const head = normalizedPromptPiece(
+    "Create a product advertising video that animates from the supplied start frame; the exact product shown there stays the hero.",
+  );
+  const guard = normalizedPromptPiece(
+    "Keep the product identity, shape, colors and logo exact in every frame; add no text or watermark.",
+  );
+  const product = normalizedPromptPiece(selection.productInfo);
+  const concept = normalizedPromptPiece(selection.userConcept);
+  if (!head || !guard || !product || !concept) {
+    fail("product_ad_prompt_invalid");
+  }
+  const productPiece = `Product: ${unicodeSlice(product, 320).trimEnd()}.`;
+  const budget = PRODUCT_AD_GEN4_PROMPT_LIMIT - unicodeLength(head) -
+    unicodeLength(productPiece) - unicodeLength(guard) - 3;
+  if (budget < 40) fail("product_ad_prompt_invalid");
+  const promptText = `${head} ${
+    unicodeSlice(concept, budget).trimEnd()
+  } ${productPiece} ${guard}`;
+  if (unicodeLength(promptText) > PRODUCT_AD_GEN4_PROMPT_LIMIT) {
+    fail("product_ad_prompt_invalid");
+  }
+  return promptText;
+}
+
+export function buildRunwayGen4ProductAdRequest(
+  selectionValue,
+  signedAssetsValue,
+) {
+  const selection = exactSelection(
+    selectionValue,
+    PRODUCT_SWAP_RUNWAY_PROMPT_LIMIT,
+  );
+  const assets = exactSignedAssets(signedAssetsValue);
+  if (selection.recipe !== "product_ad") fail("runway_recipe_unsupported");
+  if (!PRODUCT_AD_GEN4_DURATIONS.has(selection.durationSeconds)) {
+    fail("duration_invalid");
+  }
+  const ratio = PRODUCT_AD_GEN4_RATIOS[selection.ratio];
+  if (typeof ratio !== "string") fail("ratio_invalid");
+  const images = falProductAdInputs(assets, 1);
+  return deepFreeze({
+    provider: "runway",
+    endpointPath: PRODUCT_AD_GEN4_PATH,
+    method: "POST",
+    body: {
+      model: PRODUCT_AD_GEN4_MODEL,
+      promptImage: images[0],
+      promptText: buildRunwayGen4ProductAdPrompt(selection),
+      ratio,
+      duration: selection.durationSeconds,
+    },
+    pollKind: "runway_task",
+  });
+}
+
 export function buildRunwayRecipeRequest(selectionValue, signedAssetsValue) {
   const selection = exactSelection(
     selectionValue,

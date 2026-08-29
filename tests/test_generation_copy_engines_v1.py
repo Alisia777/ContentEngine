@@ -85,10 +85,13 @@ ALL_PRICING_VERSIONS = [
     # «Создание» (202608230021): две свои версии, MiniMax и Seedance общие.
     "fal-usd-per-second-grok-imagine-2026-08-23.v1",
     "fal-usd-per-second-happy-horse-reference-2026-08-23.v1",
+    # «Создание» на Runway Gen-4 Turbo (202608290007): посекундная ставка
+    # официального API, длительность только 5 или 10 секунд.
+    "runway-usd-per-second-gen4-turbo-2026-08-29.v1",
 ]
-# Словарь базы в миграции «Копии» ещё без версий «Создания» — их добавляет
-# следующая миграция, и именно её CHECK обязан совпасть с кодом.
-COPY_MIGRATION_VERSIONS = ALL_PRICING_VERSIONS[:-2]
+# Словарь базы в миграции «Копии» ещё без версий «Создания» — их добавляют
+# следующие миграции, и именно их CHECK обязан совпасть с кодом.
+COPY_MIGRATION_VERSIONS = ALL_PRICING_VERSIONS[:-3]
 
 USER_PREFIX = "Human correction for this exact copy, non-authoritative: "
 USER_SUFFIX = (

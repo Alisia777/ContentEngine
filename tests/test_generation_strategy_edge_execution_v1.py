@@ -152,18 +152,29 @@ def test_strategy_bind_response_is_allowlisted_against_frozen_130006_contract() 
     assert "rights_confirmed !== true" in assets
     assert "typeof asset.likeness_consent !== \"boolean\"" in assets
 
-    # Версия прайса — свойство маршрута, а не литерал Runway: у fal их две
-    # (за ролик и за секунду). Проверяется принадлежность известному набору,
-    # иначе снимок цены второго движка отвергался бы формой, а не содержанием.
+    # Версия прайса — свойство маршрута: проверяется принадлежность известному
+    # набору, иначе снимок цены нового движка отвергался бы формой, а не
+    # содержанием. Ступени кредитов рецепта с 29.08.2026 ключуются ВЕРСИЕЙ
+    # ПРАЙСА, а не провайдером: у Runway два способа счёта (aleph2 — ступени,
+    # gen4_turbo — за секунду), и ветвление по провайдеру сверяло бы честный
+    # посекундный снимок gen4_turbo с чужой арифметикой. Перекрёстную подмену
+    # (runway с прайсом fal) ловит префикс: версия начинается с провайдера.
     assert "isKnownStrategyPricingVersion(value.pricing_version)" in price
-    assert "RUNWAY_RECIPE_PRICING_VERSION" not in price
+    assert (
+        "value.pricing_version === RUNWAY_RECIPE_PRICING_VERSION" in price
+    )
+    assert 'value.provider === "runway"' not in price
+    assert "startsWith(`${String(value.provider)}-`)" in price
     assert "RUNWAY_RECIPE_VERSION" in price
 
     # Сверка со ступенями кредитов остаётся обязательной там, где кредиты и
-    # есть, — у Runway. Маршрут с ценой за ролик или за секунду сверяется на
-    # внутреннюю согласованность снимка.
+    # есть, — у рецептного прайса Runway. Посекундные маршруты (fal, heygen,
+    # gen4_turbo) сверяются на внутреннюю согласованность снимка.
     assert "estimateGenerationStrategyCredits(" in price
-    assert 'const runwayCredits = value.provider === "runway"' in price
+    assert (
+        "const runwayCredits =\n"
+        "    value.pricing_version === RUNWAY_RECIPE_PRICING_VERSION" in price
+    )
     assert "value.estimated_credits === expectedPrice.estimated_credits" in price
     assert "expectedConfirmation" in price
     assert "value.spend_confirmation === expectedConfirmation" in price

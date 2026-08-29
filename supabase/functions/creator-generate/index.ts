@@ -32,6 +32,7 @@ import {
   isKnownStrategyPricingVersion,
   isKnownStrategyProvider,
   publicGenerationStrategyCatalog,
+  RUNWAY_RECIPE_PRICING_VERSION,
   RUNWAY_RECIPE_VERSION,
   validateGenerationStrategySelection,
 } from "../_shared/generation-strategy-catalog.js";
@@ -40,6 +41,7 @@ import {
   buildFalProductSwapSelection,
   buildFalRecipeRequest,
   buildHeygenRecipeRequest,
+  buildRunwayGen4ProductAdRequest,
   buildRunwayProductSwapPrompt,
   buildRunwayRecipeRequest,
 } from "../_shared/generation-recipe-adapters.js";
@@ -3382,7 +3384,19 @@ function generationStrategyPriceValid(
   // Поэтому для остальных маршрутов проверяется внутренняя согласованность
   // снимка — что сумма, доналоговая сумма и «кредиты» описывают одни и те же
   // деньги. Ослаблением это не является: расхождение по-прежнему отвергается.
-  const runwayCredits = value.provider === "runway";
+  // Ступени кредитов принадлежат ПРАЙСУ, а не провайдеру: gen4_turbo
+  // «Создания» ездит на посекундной ставке официального API, и ветвление по
+  // провайдеру отвергло бы его честный снимок сверкой с кредитным
+  // калькулятором каталога (200/216 + 36/40).
+  const runwayCredits =
+    value.pricing_version === RUNWAY_RECIPE_PRICING_VERSION;
+  // Версия прайса принадлежит своему провайдеру: каждое имя версии
+  // начинается с имени провайдера (runway-…, fal-…, heygen-…), и снимок с
+  // чужой версией — подделка цены. Это покрывает и прежний инвариант
+  // «ступени рецепта — только Runway».
+  if (
+    !String(value.pricing_version).startsWith(`${String(value.provider)}-`)
+  ) return false;
   const creditsConsistent = runwayCredits
     ? (isRecord(expectedPrice) && expectedPrice.ok === true &&
       value.estimated_credits === expectedPrice.estimated_credits &&
@@ -5078,6 +5092,36 @@ export function buildGenerationStrategyProviderRequest(
       if (
         envelope?.provider !== "fal" || envelope.method !== "POST" ||
         envelope.pollKind !== "fal_request" || !isRecord(envelope.body)
+      ) return null;
+      return envelope as ProviderRequestEnvelope;
+    } catch {
+      return null;
+    }
+  }
+
+  // «Создание» на Runway (Gen-4 Turbo, 29.08.2026): ролик по первому фото
+  // товара как стартовому кадру. Настоящий адрес — /v1/image_to_video:
+  // рецептного /v1/recipes/product_ad у провайдера не существует (проверено
+  // 17.08.2026), и прежняя общая ветка отправила бы платный запрос в 404.
+  // Идентичность стратегии (entry.server.provider_path) при этом не
+  // трогается — её сверяют каталог и SQL между собой.
+  if (routeProvider === "runway" && context.recipe === "product_ad") {
+    try {
+      const envelope = buildRunwayGen4ProductAdRequest(
+        {
+          ...commonSelection,
+          ratio: context.ratio,
+          productInfo: context.productInfo,
+          userConcept: context.userConcept,
+        },
+        mappedAssets,
+      );
+      if (
+        envelope?.provider !== "runway" || envelope.method !== "POST" ||
+        envelope.pollKind !== "runway_task" ||
+        envelope.endpointPath !== "/v1/image_to_video" ||
+        !RUNWAY_PROVIDER_ENDPOINTS.has(envelope.endpointPath) ||
+        !isRecord(envelope.body)
       ) return null;
       return envelope as ProviderRequestEnvelope;
     } catch {

@@ -51,6 +51,13 @@ export const FAL_GROK_IMAGINE_PER_SECOND_PRICING_VERSION =
   "fal-usd-per-second-grok-imagine-2026-08-23.v1";
 export const FAL_HAPPY_HORSE_REFERENCE_PER_SECOND_PRICING_VERSION =
   "fal-usd-per-second-happy-horse-reference-2026-08-23.v1";
+// «Создание» на Runway (Gen-4 Turbo, 29.08.2026). Официальный API считает
+// 5 кредитов за секунду (25/50 кредитов за 5/10 с, 1 кредит = $0.01) — это
+// ПОСЕКУНДНАЯ ставка, а не ступени кредитов рецепта. Имя версии называет
+// способ счёта и движок: подпись (provider, pricing_version) обязана
+// отличать gen4_turbo от aleph2 с его runway-recipe-credits.
+export const RUNWAY_GEN4_TURBO_PER_SECOND_PRICING_VERSION =
+  "runway-usd-per-second-gen4-turbo-2026-08-29.v1";
 
 // Версия прайса — свойство маршрута, а не константа стратегии: у Runway она
 // считается ступенями кредитов, у fal — фиксированной ценой за ролик либо
@@ -67,6 +74,7 @@ export const GENERATION_STRATEGY_PRICING_VERSIONS = Object.freeze([
   FAL_MINIMAX_H3_PER_SECOND_PRICING_VERSION,
   FAL_GROK_IMAGINE_PER_SECOND_PRICING_VERSION,
   FAL_HAPPY_HORSE_REFERENCE_PER_SECOND_PRICING_VERSION,
+  RUNWAY_GEN4_TURBO_PER_SECOND_PRICING_VERSION,
 ]);
 
 export function isKnownStrategyPricingVersion(value) {
