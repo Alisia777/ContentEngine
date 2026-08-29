@@ -1785,7 +1785,7 @@ def test_portal_connects_approved_scenario_to_paid_generation_readiness() -> Non
     )
     assert "generation_job_id: jobId" in APP
     assert "creative_brief_draft_id: generationHandoff?.draftId" in APP
-    assert "./content-generation-handoff.js?v=20260826.rebuild-clean.43" in APP
-    assert "./app.js?v=20260826.rebuild-clean.43" in INDEX
+    assert "./content-generation-handoff.js?v=20260826.rebuild-clean.44" in APP
+    assert "./app.js?v=20260826.rebuild-clean.44" in INDEX
     handoff_header = STYLES.split(".generation-handoff__header {", 1)[1].split("}", 1)[0]
     assert "flex-direction: column;" in handoff_header

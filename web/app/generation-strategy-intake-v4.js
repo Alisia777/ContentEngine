@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.43",
+  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.44",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260826.rebuild-clean.43"
+  "./generation-engine-advisor.js?v=20260826.rebuild-clean.44"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -4568,6 +4568,24 @@ function refreshEngineChoice(form, state, routeKey = "copy_video") {
 
 function renderEngineChoice(form, state, section, strategyId) {
   engineRenderContexts.set(strategyId, { form, state, section });
+  // Общие поля мастера (длительность, разрешение, движок) пишет только панель
+  // АКТИВНОГО маршрута: остальные панели рисуются, но чужой платный контекст
+  // не трогают. Иначе перерисовка всех трёх панелей заводит пинг-понг записей:
+  // скрытая «Копия» утверждала длительность СВОЕГО исходника (8 с) поверх 15 с
+  // «Создания», change будил sync-проходы, те — MutationObserver → mount →
+  // снова запись; ~700 затираний в секунду на боевом прогоне 29.08.
+  //
+  // Второе слагаемое гейта — стратегия, выбранная В ФОРМЕ: после handoff в
+  // конструктор generation_strategy_id держит чужую стратегию, а state.route
+  // может остаться копийным — активная по маршруту панель всё равно не пишет
+  // в чужую привязку. При пустом id (обычное редактирование компакт-панелей)
+  // запись сохраняется.
+  const routeActive = ROUTE_AUTHORITY_STRATEGY[state?.route] === strategyId;
+  const formStrategyId = String(
+    form?.elements?.generation_strategy_id?.value || "",
+  ).trim();
+  const writesShared = routeActive
+    && (!formStrategyId || formStrategyId === strategyId);
   // Модель, которой нечего показать, недоступна — и сказать об этом надо ЗДЕСЬ,
   // на экране выбора, а не отказом после резервирования денег.
   const photoMissing = strategyId === AVATAR_AUTHORITY_STRATEGY
@@ -4707,7 +4725,9 @@ function renderEngineChoice(form, state, section, strategyId) {
     })),
     selectedQuality?.code || "",
   );
-  if (selectedQuality) applyCopyResolution(form, selectedQuality.resolution);
+  if (selectedQuality && writesShared) {
+    applyCopyResolution(form, selectedQuality.resolution);
+  }
   const qualityNotice = q("[data-generation-intake-quality-notice]", section);
   if (qualityNotice) {
     setNodeText(
@@ -4780,7 +4800,7 @@ function renderEngineChoice(form, state, section, strategyId) {
       : durations[0];
     if (
       Number.isFinite(current) && current > 0 && current !== chosen
-      && applyCopyDuration(form, chosen)
+      && writesShared && applyCopyDuration(form, chosen)
     ) {
       // Причина замены называется честно: у маршрута с длительностью от
       // исходника дело не в «недопустимом окне», а в том, что выбора нет
@@ -4789,7 +4809,7 @@ function renderEngineChoice(form, state, section, strategyId) {
         ? `Длительность задаёт исходник: ${chosen} с. Прежнее значение ${current} с заменено.`
         : `${current} с не подходит для «${selectedEngine.label}»: допустимо `
           + `${durationWindow.min}–${durationWindow.max} с. Оставили ${chosen} с.`;
-    } else {
+    } else if (writesShared) {
       applyCopyDuration(form, chosen);
     }
   }
@@ -4874,8 +4894,7 @@ function renderEngineChoice(form, state, section, strategyId) {
   // панель АКТИВНОГО маршрута: иначе две панели по очереди ставили бы свои
   // значения, каждая запись рождала change, наблюдатель перерисовывал панели
   // снова — и вкладка зависала в бесконечном пинг-понге.
-  const activeStrategyId = ROUTE_AUTHORITY_STRATEGY[state?.route] || null;
-  if (activeStrategyId === strategyId) {
+  if (writesShared) {
     assignPaidContextValue(
       form?.elements?.generation_intake_engine,
       selectedEngine?.enabled ? selectedEngine.id : "",
@@ -9321,7 +9340,15 @@ function setRoute(form, state, route) {
       ? "compact"
       : "strategy";
   restoreBriefDraft(form, state, route);
-  moveProductNodes(form, state, route === "copy_video");
+  // Карточки фото товара живут в видимом слоте и у «Копии», и у «Создания»:
+  // прежний copy_video-only оставлял чекбоксы «Создания» внутри закрытого
+  // details «Технические детали» — required-логика их считала, а человек
+  // отметить не мог (невидимые чекбоксы, боевой прогон 29.08).
+  moveProductNodes(
+    form,
+    state,
+    route === "copy_video" || route === "strategy_video",
+  );
   moveSharedBrief(form, state, route);
   qa("[data-generation-intake-panel]", state.shell).forEach((panel) => {
     setPanelControlsActive(panel, panel.dataset.generationIntakePanel === route);
@@ -9820,6 +9847,12 @@ function mount(form) {
       }
     } else if (existing.route === "strategy_video") {
       moveSharedBrief(form, existing, "strategy_video");
+      // Перерисовка каталога app.js создаёт серверные карточки фото у их
+      // маркеров в закрытом details конструктора — возвращаем их в видимый
+      // слот, как copy-ветка выше. (Фазы review на этом маршруте не бывает:
+      // экспресс-handoff повторного запуска всегда идёт компактным route.)
+      relocateProductSlot(existing, "strategy_video");
+      moveProductNodes(form, existing, true);
       refreshRecommendationUi(form, existing);
       syncCompactCampaignControl(form, existing, "strategy_video");
       syncStrategyLaunchButton(form, existing);

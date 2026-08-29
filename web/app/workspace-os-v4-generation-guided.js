@@ -2,8 +2,8 @@ import {
   GENERATION_MODEL_RECOMMENDATION_ACTIONS,
   createGenerationModelRecommendationState,
   generationModelRecommendationReducer,
-} from "./generation-model-recommendation.js?v=20260826.rebuild-clean.43";
-import { normalizeGenerationModelAcceptance } from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.43";
+} from "./generation-model-recommendation.js?v=20260826.rebuild-clean.44";
+import { normalizeGenerationModelAcceptance } from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.44";
 import {
   GENERATION_STRATEGY_SELECT_ACTION,
   createGenerationStrategyViewState,
@@ -11,20 +11,20 @@ import {
   reduceGenerationStrategyViewState,
   selectedGenerationStrategySummary,
   validateSelectedGenerationStrategyDraft,
-} from "./generation-strategy-view.js?v=20260826.rebuild-clean.43";
+} from "./generation-strategy-view.js?v=20260826.rebuild-clean.44";
 import {
   generationStrategyAssetEligibility,
   mergeGenerationStrategyAssetPages,
   normalizeGenerationStrategyAssetCandidates,
-} from "./generation-strategy-assets.js?v=20260826.rebuild-clean.43";
+} from "./generation-strategy-assets.js?v=20260826.rebuild-clean.44";
 import {
   GENERATION_STRATEGY_SOURCE_PICKER_ACTIONS,
   createGenerationStrategySourcePicker,
   generationStrategyRequiredSourceCount,
   generationStrategySourcePickerProjection,
   reduceGenerationStrategySourcePicker,
-} from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.43";
-import { resolveGenerationModelVisual } from "./generation-model-visuals-v1.js?v=20260826.rebuild-clean.43";
+} from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.44";
+import { resolveGenerationModelVisual } from "./generation-model-visuals-v1.js?v=20260826.rebuild-clean.44";
 
 /*
  * ContentEngine Desktop v4 · guided generation.
@@ -45,7 +45,7 @@ const FORM_BINDING_KEY = Symbol.for(
 // Эпоха модуля — литерал текущего штампа: массовый рестамп обновляет её вместе
 // со всеми пинами. По ней стражи отличают легитимный ремоунт того же кода от
 // второго экземпляра из смешанного кэша (боевой случай 25.08.2026).
-const GUIDED_EPOCH = "20260826.rebuild-clean.43";
+const GUIDED_EPOCH = "20260826.rebuild-clean.44";
 const STRATEGY_REPEAT_MEDIA_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const PRODUCT_SWAP_REPEAT_MEDIA_LIMIT = 10;
@@ -2636,6 +2636,171 @@ function syncLegacyModelVisibility(form, strategySelected) {
   }
 }
 
+// Видимый выбор движка стратегийных маршрутов в конструкторе. Поле
+// generation_intake_engine создаёт экспресс-панель; когда её каскад обслуживает
+// другую стратегию (или панели нет вовсе), конструктор обязан дать выбор сам —
+// иначе привязка молча уходит дефолтным маршрутом реестра.
+// Зеркало ROUTE_AUTHORITY_STRATEGY интейка (generation-strategy-intake-v4.js).
+const EXPRESS_ROUTE_STRATEGY = Object.freeze({
+  copy_video: "viral_product_swap",
+  avatar_video: "viral_avatar_ugc",
+  strategy_video: "viral_rebuild",
+});
+// Имена как в MODEL_PUBLIC_LABELS интейка — держать в ногу при новых движках.
+const GUIDED_ENGINE_LABELS = Object.freeze({
+  "fal:fal-ai/pika/v2/pikaswaps": "Pika Swaps",
+  "runway:aleph2": "Runway Aleph",
+  "fal:fal-ai/kling-video/o3/pro/video-to-video/edit": "Kling O3 Pro",
+  "fal:fal-ai/kling-video/o3/standard/video-to-video/edit": "Kling O3 Standard",
+  "fal:alibaba/happy-horse/video-edit": "Happy Horse Edit",
+  "fal:bytedance/seedance-2.5/reference-to-video": "Seedance 2.5",
+  "fal:minimax/h3/reference-to-video": "MiniMax H3",
+  "fal:xai/grok-imagine-video/reference-to-video": "Grok Imagine",
+  "fal:alibaba/happy-horse/reference-to-video": "Happy Horse",
+});
+const GUIDED_ENGINE_TIERS = Object.freeze({
+  cheap: "Дёшево",
+  medium: "Средне",
+  premium: "Дорого",
+});
+
+function guidedEngineOptionLabel(route) {
+  const id = `${route.provider}:${route.model_key}`;
+  const name = GUIDED_ENGINE_LABELS[id]
+    || String(route.model_key || "").split("/").filter(Boolean).pop()
+    || id;
+  const rate = Number(route.price_rate_minor);
+  const price = route.price_kind === "usd_minor_per_second" && rate > 0
+    ? `$${(rate / 100).toFixed(2)}/с`
+    : route.price_kind === "usd_minor_per_run" && rate > 0
+    ? `$${(rate / 100).toFixed(2)} за ролик`
+    : "цену подтвердит сервер";
+  const tier =
+    GUIDED_ENGINE_TIERS[String(route.tier || "").trim().toLowerCase()] || "";
+  return [name, price, tier].filter(Boolean).join(" · ");
+}
+
+// Тот же контракт, что у ensureHidden интейка: один input на форму, в корне
+// формы (НЕ в fieldset — иначе disabled fieldset глушил бы поле).
+function ensureStrategyEngineHidden(form) {
+  const existing = form.elements?.namedItem?.("generation_intake_engine");
+  if (existing instanceof HTMLInputElement) return existing;
+  const input = document.createElement("input");
+  input.type = "hidden";
+  input.name = "generation_intake_engine";
+  input.dataset.ceV4GenerationEngineHidden = "";
+  form.append(input);
+  return input;
+}
+
+// Запись платного контекста: события input+change ОБЯЗАНЫ пройти путь
+// инвалидации app.js (handleFormActivity по имени generation_intake_engine
+// сбрасывает подписанную цену и очередь). pinRatioSync=true — для программной
+// записи ИЗНУТРИ syncStrategyForm: пин runtime.lastEngineForRatioSync гасит
+// повторный вход handleFormEdit, потому что перефильтровку ratio сделает
+// текущий же проход.
+function writeStrategyEngineValue(form, value, { pinRatioSync = false } = {}) {
+  const hidden = ensureStrategyEngineHidden(form);
+  const next = String(value ?? "");
+  if (hidden.disabled || hidden.value === next) return false;
+  hidden.value = next;
+  if (pinRatioSync) runtime.lastEngineForRatioSync = next;
+  hidden.dispatchEvent(new Event("input", { bubbles: true }));
+  hidden.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+}
+
+function syncStrategyEngineField(form, fieldset, row) {
+  const output = q("[data-generation-strategy-output]", fieldset);
+  if (!(output instanceof HTMLElement)) return;
+  let field = q("[data-ce-v4-generation-engine-field]", output);
+  const routes =
+    (runtime.strategyCatalog?.strategyProviderRoutes?.[row.strategy_id] || [])
+      .filter((route) => route?.enabled === true
+        && String(route.provider || "").trim()
+        && String(route.model_key || "").trim());
+  // Каскад активной экспресс-панели — единственный видимый писатель поля на
+  // своём экране; второй селект спорил бы с ним за одно значение. В компакт-
+  // режимах интейка (вкладки «Копии»/«Дуэта», отдельный copy-экран) шелл
+  // конструктора скрыт CSS — скрытый селект обязан молчать целиком: запись
+  // дефолта отсюда воевала бы с applyExpressDefaults компакт-панели за одно
+  // поле и на каждом раунде сбрасывала бы подписанную цену.
+  const expressStrategy = EXPRESS_ROUTE_STRATEGY[
+    String(form.dataset.generationIntakeV4Route || "")
+  ] || null;
+  const intakeCompact = ["compact", "copy"].includes(
+    String(form.dataset.generationIntakeV4Mode || ""),
+  );
+  if (!routes.length || expressStrategy === row.strategy_id || intakeCompact) {
+    if (field instanceof HTMLElement) {
+      field.hidden = true;
+      const select = q("select", field);
+      if (select) select.disabled = true;
+    }
+    return;
+  }
+  if (!field) {
+    field = element("label", "field");
+    field.dataset.ceV4GenerationEngineField = "";
+    const select = document.createElement("select");
+    // НЕ name="generation_intake_engine": вместе со скрытым input namedItem()
+    // вернул бы RadioNodeList с пустым .value — сломались бы и
+    // getStrategyEngineChoice, и ensureHidden интейка.
+    select.dataset.ceV4GenerationEngineSelect = "";
+    field.append(
+      element("span", "", "Движок генерации *"),
+      select,
+      element(
+        "small",
+        "field-hint",
+        "Определяет цену и доступные форматы. Точную сумму подтвердит бесплатная серверная проверка.",
+      ),
+    );
+    output.prepend(field);
+  }
+  const select = q("select[data-ce-v4-generation-engine-select]", field);
+  if (!(select instanceof HTMLSelectElement)) return;
+  field.hidden = false;
+  select.disabled = false;
+  // Опции перестраиваются только по смене отпечатка: панели под
+  // MutationObserver, безусловная перестройка замкнула бы mount-цикл.
+  const fingerprint = `${row.strategy_id}|${
+    routes.map((route) => `${route.provider}:${route.model_key}`).join(",")
+  }`;
+  if (select.dataset.engineFingerprint !== fingerprint) {
+    select.replaceChildren(...routes.map((route) => {
+      const option = document.createElement("option");
+      option.value = `${route.provider}:${route.model_key}`;
+      option.textContent = guidedEngineOptionLabel(route);
+      return option;
+    }));
+    select.dataset.engineFingerprint = fingerprint;
+  }
+  const hidden = ensureStrategyEngineHidden(form);
+  const current = String(hidden.value || "").trim();
+  const validValue = (value) => routes.some(
+    (route) => `${route.provider}:${route.model_key}` === value,
+  );
+  const currentValid = validValue(current);
+  // Пересозданная форма теряет hidden вместе с DOM; человеческий выбор для
+  // этой стратегии живёт в runtime и восстанавливается раньше дефолта.
+  const remembered = runtime.guidedEngineChoice?.strategyId === row.strategy_id
+      && validValue(runtime.guidedEngineChoice.value)
+    ? runtime.guidedEngineChoice.value
+    : null;
+  const fallback = routes.find((route) => route.recommended === true)
+    || routes[0];
+  const desired = currentValid
+    ? current
+    : remembered || `${fallback.provider}:${fallback.model_key}`;
+  // Дефолт — рекомендованный маршрут реестра; при платной блокировке значение
+  // не трогаем (оно уже подписано привязкой).
+  if (!currentValid && form.dataset.generationStrategyPaidLocked !== "true") {
+    writeStrategyEngineValue(form, desired, { pinRatioSync: true });
+  }
+  if (select.value !== desired) select.value = desired;
+}
+
 // Разрешения, которые умеет выбранный в каскаде движок, по его уровням
 // качества из реестра; null — движок не выбран или режимы неизвестны.
 function strategyEngineResolutions(form, strategyId) {
@@ -2696,6 +2861,10 @@ function syncStrategyForm(form, { reset = false } = {}) {
 
   const output = q("[data-generation-strategy-output]", fieldset);
   if (output instanceof HTMLElement) output.hidden = false;
+  // Движок — первым полем грида результата: он задаёт цену и фильтр форматов.
+  // Вызов до strategyEngineResolutions, чтобы дефолт успел записаться и список
+  // форматов сразу фильтровался под выбранный движок.
+  syncStrategyEngineField(form, fieldset, row);
   const duration = form.elements?.generation_strategy_duration_seconds;
   if (duration instanceof HTMLInputElement) {
     duration.disabled = false;
@@ -4921,6 +5090,23 @@ function handleFormEdit(event) {
   }
   if (mechanicsControl?.name === "brief" && selectedStrategyRow()) {
     syncStrategyBriefValidity(form, true);
+  }
+  // Человеческий выбор в селекте конструктора уезжает в каноничное поле
+  // generation_intake_engine; события на скрытом input дальше сами запускают
+  // и перефильтровку ratio (ветка ниже), и сброс подписанной цены в app.js.
+  if (
+    control instanceof HTMLSelectElement
+    && control.matches?.("[data-ce-v4-generation-engine-select]")
+  ) {
+    // Человеческий выбор переживает пересоздание формы: скрытый input умирает
+    // вместе с DOM, и без памяти sync молча вернул бы рекомендованный дефолт —
+    // то есть сменил бы цену без действия оператора.
+    runtime.guidedEngineChoice = {
+      strategyId: selectedStrategyRow()?.strategy_id || "",
+      value: String(control.value || ""),
+    };
+    writeStrategyEngineValue(form, control.value);
+    return;
   }
   // Смена движка в каскаде меняет набор кадров «Создания». Перерисовка идёт
   // только при НАСТОЯЩЕЙ смене значения и только для стратегии с выбором

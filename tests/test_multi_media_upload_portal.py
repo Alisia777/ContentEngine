@@ -30,7 +30,7 @@ def test_media_picker_accepts_a_real_multi_file_batch() -> None:
     assert "перетащите их сюда" in markup
     assert 'id="selected-file-summary"' in markup
     assert "MAX_MEDIA_BATCH_FILES: 20" in CONFIG
-    assert "config.js?v=20260826.rebuild-clean.43" in INDEX
+    assert "config.js?v=20260826.rebuild-clean.44" in INDEX
 
 
 def test_media_picker_button_opens_the_native_multi_file_chooser_synchronously() -> None:

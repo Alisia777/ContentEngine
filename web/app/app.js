@@ -3,12 +3,12 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260826.rebuild-clean.43";
+} from "./supabase-api.js?v=20260826.rebuild-clean.44";
 import {
   adminPeopleMarkup,
   normalizeAdminSnapshot,
   normalizeAdminView,
-} from "./admin-people-view.js?v=20260826.rebuild-clean.43";
+} from "./admin-people-view.js?v=20260826.rebuild-clean.44";
 import {
   clearExactYoutubeMediaHandoff,
   exactYoutubeRegisteredMediaId,
@@ -16,12 +16,12 @@ import {
   isExactYoutubeMp4,
   readExactYoutubeMediaHandoff,
   updateExactYoutubeMediaHandoffProgress,
-} from "./exact-youtube-media-handoff.js?v=20260826.rebuild-clean.43";
+} from "./exact-youtube-media-handoff.js?v=20260826.rebuild-clean.44";
 import {
   captureVerifiedPrivateVideoBlob,
   exactYoutubeResearchFailureRecovery,
   resolveExactYoutubeResearchCaptureMedia,
-} from "./exact-youtube-research-capture.js?v=20260826.rebuild-clean.43";
+} from "./exact-youtube-research-capture.js?v=20260826.rebuild-clean.44";
 import {
   approvedGenerationSpecContext,
   generationSpecApprovalReviewDecision,
@@ -34,21 +34,21 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
-} from "./generation-spec.js?v=20260826.rebuild-clean.43";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260826.rebuild-clean.43";
-import { generationStrategyRequiredSourceCount } from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.43";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.43";
+} from "./generation-spec.js?v=20260826.rebuild-clean.44";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260826.rebuild-clean.44";
+import { generationStrategyRequiredSourceCount } from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.44";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.44";
 import {
   normalizeWorkspaceInternalTarget,
   resolveWorkspaceCommand,
-} from "./workspace-command-registry.js?v=20260826.rebuild-clean.43";
+} from "./workspace-command-registry.js?v=20260826.rebuild-clean.44";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
   mergeMediaFileSelection,
   mediaFileValidationError as mediaUploadFileValidationError,
   mediaUploadWorkerCount,
-} from "./media-upload-queue.js?v=20260826.rebuild-clean.43";
+} from "./media-upload-queue.js?v=20260826.rebuild-clean.44";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -56,39 +56,39 @@ import {
   REQUIRED_MODULE_CODES,
   SIMPLE_WORKSPACE_TAB_KEYS,
   WORKSPACE_TABS,
-} from "./catalog.js?v=20260826.rebuild-clean.43";
+} from "./catalog.js?v=20260826.rebuild-clean.44";
 import {
   ACCOUNT_LAUNCH_PATH,
   accountLaunchCenterMarkup,
   accountLaunchGuideMarkup,
   accountLaunchSlugFromPath,
   evaluateAdvertisingAnswers,
-} from "./account-launch-view.js?v=20260826.rebuild-clean.43";
+} from "./account-launch-view.js?v=20260826.rebuild-clean.44";
 import {
   managerDashboardMarkup,
   managerOperationalHealthMarkup,
-} from "./manager-dashboard-view.js?v=20260826.rebuild-clean.43";
+} from "./manager-dashboard-view.js?v=20260826.rebuild-clean.44";
 import {
   generationCampaignSelectionState,
   generationSpendAllowsMinor,
   generationSpendSnapshotMarkup,
   managerGenerationSpendMarkup,
   normalizeGenerationSpendOverview,
-} from "./generation-spend-view.js?v=20260826.rebuild-clean.43";
+} from "./generation-spend-view.js?v=20260826.rebuild-clean.44";
 import {
   generationProviderReadinessPreflights,
   normalizeGenerationProviderPreflight,
-} from "./generation-provider-readiness.js?v=20260826.rebuild-clean.43";
+} from "./generation-provider-readiness.js?v=20260826.rebuild-clean.44";
 import {
   generationModelAcceptanceMarkup,
   normalizeGenerationModelAcceptance,
-} from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.43";
+} from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.44";
 import {
   accessCenterMarkup,
   ensureAccessCenterStyles,
   normalizeAccessCenterEmail,
   normalizeAccessCenterResult,
-} from "./access-center-view.js?v=20260826.rebuild-clean.43";
+} from "./access-center-view.js?v=20260826.rebuild-clean.44";
 import {
   applyResearchMarketCategoryResolution,
   applyResearchOutcomeLearningMutation,
@@ -110,7 +110,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260826.rebuild-clean.43";
+} from "./product-research-view.js?v=20260826.rebuild-clean.44";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -121,7 +121,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260826.rebuild-clean.43";
+} from "./ai-learning-control-room.js?v=20260826.rebuild-clean.44";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -137,15 +137,15 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260826.rebuild-clean.43";
+} from "./content-generation-handoff.js?v=20260826.rebuild-clean.44";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
-} from "./generation-quality-training.js?v=20260826.rebuild-clean.43";
+} from "./generation-quality-training.js?v=20260826.rebuild-clean.44";
 import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,
-} from "./generation-form-readiness.js?v=20260826.rebuild-clean.43";
+} from "./generation-form-readiness.js?v=20260826.rebuild-clean.44";
 import {
   GENERATION_STRATEGY_RUNTIME_ACTIONS,
   createGenerationStrategyRuntimeFingerprint,
@@ -159,7 +159,7 @@ import {
   invalidateGenerationStrategyRuntimeState,
   normalizeGenerationStrategyProbeResponse,
   reduceGenerationStrategyRuntimeState,
-} from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.43";
+} from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.44";
 import {
   createGenerationStrategyQueue,
   generationStrategyQueueAggregateReview,
@@ -168,33 +168,33 @@ import {
   planGenerationStrategyQueueFreeWork,
   planGenerationStrategyQueueSequentialStarts,
   updateGenerationStrategyQueueRow,
-} from "./generation-strategy-queue.js?v=20260826.rebuild-clean.43";
+} from "./generation-strategy-queue.js?v=20260826.rebuild-clean.44";
 import {
   renderGenerationStrategyQueueView,
-} from "./generation-strategy-queue-view.js?v=20260826.rebuild-clean.43";
+} from "./generation-strategy-queue-view.js?v=20260826.rebuild-clean.44";
 import {
   buildGenerationStrategySpecApprovalRequest,
   buildGenerationStrategySpecPrepareRequest,
   generationStrategySpecSafeProjection,
   normalizeGenerationStrategySpecControlResponse,
   normalizeGenerationStrategySpecPrepareResponse,
-} from "./generation-strategy-spec.js?v=20260826.rebuild-clean.43";
+} from "./generation-strategy-spec.js?v=20260826.rebuild-clean.44";
 import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
   normalizeGenerationVideoReferenceContext,
-} from "./generation-video-reference.js?v=20260826.rebuild-clean.43";
+} from "./generation-video-reference.js?v=20260826.rebuild-clean.44";
 import {
   buildGenerationFormDraft,
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260826.rebuild-clean.43";
+} from "./generation-form-draft.js?v=20260826.rebuild-clean.44";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
   resolveGenerationExpectedProductMatch,
-} from "./generation-ai-research-working-draft.js?v=20260826.rebuild-clean.43";
+} from "./generation-ai-research-working-draft.js?v=20260826.rebuild-clean.44";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -206,7 +206,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260826.rebuild-clean.43";
+} from "./generation-autopilot.js?v=20260826.rebuild-clean.44";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -228,14 +228,14 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260826.rebuild-clean.43";
+} from "./content-review-view.js?v=20260826.rebuild-clean.44";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
   createFirstShiftFullState,
   firstShiftFullScenarioMarkup,
   reduceFirstShiftFullState,
-} from "./first-shift-full-scenario.js?v=20260826.rebuild-clean.43";
+} from "./first-shift-full-scenario.js?v=20260826.rebuild-clean.44";
 import {
   GENERATION_ARCHIVE_PAGE_SIZE,
   GENERATION_VISIBLE_CAP,
@@ -250,7 +250,7 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260826.rebuild-clean.43";
+} from "./portal-experience.js?v=20260826.rebuild-clean.44";
 import {
   isWorkspaceSmartFolderId,
   normalizeWorkspaceBoard,
@@ -258,7 +258,7 @@ import {
   workspaceBoardItemKey,
   workspaceBoardPaginationState,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260826.rebuild-clean.43";
+} from "./workspace-board-view.js?v=20260826.rebuild-clean.44";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -270,7 +270,7 @@ import {
   syncTrainingWalkthroughStatus,
   trainingInteractiveMarkup,
   trainingWalkthroughStorageKey,
-} from "./training-interactive.js?v=20260826.rebuild-clean.43";
+} from "./training-interactive.js?v=20260826.rebuild-clean.44";
 import {
   LEARNING_TRACKS,
   achievementMarkup,
@@ -287,16 +287,16 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260826.rebuild-clean.43";
+} from "./training-journey.js?v=20260826.rebuild-clean.44";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
   trainingPlatformSimulatorsMarkup,
-} from "./training-platform-simulators.js?v=20260826.rebuild-clean.43";
+} from "./training-platform-simulators.js?v=20260826.rebuild-clean.44";
 import {
   bindTrainingMediaCards,
   trainingMediaCardsMarkup,
-} from "./training-media-cards.js?v=20260826.rebuild-clean.43";
+} from "./training-media-cards.js?v=20260826.rebuild-clean.44";
 import {
   normalizeTrainingPracticalProject,
   normalizeTrainingPracticalReviews,
@@ -306,7 +306,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260826.rebuild-clean.43";
+} from "./training-practical-review.js?v=20260826.rebuild-clean.44";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -325,7 +325,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260826.rebuild-clean.43";
+} from "./my-work-view.js?v=20260826.rebuild-clean.44";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -336,8 +336,8 @@ const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
   ),
 );
 const MEDIA_UPLOAD_CONCURRENCY = DEFAULT_MEDIA_UPLOAD_CONCURRENCY;
-const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260826.rebuild-clean.43";
-const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260826.rebuild-clean.43";
+const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260826.rebuild-clean.44";
+const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260826.rebuild-clean.44";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
 const MAX_MOCK_BATCH_SIZE = Math.min(50, Math.max(1, Number(CONFIG.MAX_BATCH_SIZE) || 50));
@@ -14565,7 +14565,7 @@ function renderGenerationSection(sectionState) {
               <section class="generation-strategy-source-picker" aria-labelledby="generation-strategy-source-picker-title">
                 <div class="generation-strategy-source-picker__title">
                   <span class="field-label" id="generation-strategy-source-picker-title">Ролики-референсы *</span>
-                  <p class="muted tiny">Выберите ровно десять MP4. Для UGC и пересборки мы берём их механику; для замены товара сервер передаёт сам подтверждённый MP4.</p>
+                  <p class="muted tiny">Выберите MP4-референсы — сколько именно, покажет счётчик «Выбрано … из …» ниже. Для UGC и пересборки мы берём их механику; для замены товара сервер передаёт сам подтверждённый MP4.</p>
                 </div>
                 <div data-generation-strategy-source-picker role="group" aria-labelledby="generation-strategy-source-picker-title"></div>
               </section>
@@ -14582,7 +14582,7 @@ function renderGenerationSection(sectionState) {
                 </select>
               </label>
               <div class="option-list generation-strategy-assets__attestations" data-generation-strategy-attestations></div>
-              <section class="generation-strategy-source-reviews" data-generation-strategy-source-reviews aria-label="Разбор десяти исходных роликов"></section>
+              <section class="generation-strategy-source-reviews" data-generation-strategy-source-reviews aria-label="Разбор исходных роликов"></section>
               <section class="generation-strategy-spec-review" data-generation-strategy-spec-review aria-live="polite"></section>
               <section class="generation-strategy-queue-mount" data-generation-strategy-queue-mount aria-live="polite"></section>
               <p class="muted tiny" data-generation-strategy-assets-status role="status">Ни один источник не отправлен и платный запуск не выполнялся.</p>
@@ -31152,7 +31152,7 @@ async function prepareGenerationStrategySpecs(form, selections, projectId) {
         : {}),
       confirmation: true,
       reason: exactTen
-        ? `Пользователь подготовил отдельное ТЗ для исходника ${entry.position} из 10.`
+        ? `Пользователь подготовил отдельное ТЗ для исходника ${entry.position} из ${selections.length}.`
         : "Пользователь подготовил точное ТЗ для одного Product Swap.",
       idempotency_key: generationStrategySpecRequestKey(entry.source_media_id),
     });
@@ -31162,7 +31162,7 @@ async function prepareGenerationStrategySpecs(form, selections, projectId) {
       const detail = [plan.error?.code, plan.error?.field].filter(Boolean).join(" · ");
       throw new CreatorApiError(
         (exactTen
-          ? "Проверьте замысел и разбор механики для каждого из 10 роликов."
+          ? `Проверьте замысел и разбор механики для каждого из ${selections.length} роликов.`
           : "Проверьте замысел и точный набор ассетов стратегии.")
         + (detail ? ` Контракт ТЗ: ${detail}.` : ""),
         { code: plan.error?.code || "generation_strategy_spec_prepare_invalid" },
@@ -31275,7 +31275,9 @@ async function prepareGenerationStrategyQueueFree(form, selections, projectId) {
   const queue = ensureGenerationStrategyQueue(form, selections, projectId);
   if (!queue) {
     throw new CreatorApiError(
-      "Не удалось собрать 10 независимых одобренных контекстов.",
+      selections.length === 1
+        ? "Не удалось собрать одобренный контекст запуска."
+        : `Не удалось собрать ${selections.length} независимых одобренных контекстов.`,
       { code: "generation_strategy_queue_context_invalid" },
     );
   }
@@ -31374,7 +31376,9 @@ async function prepareGenerationStrategyQueueFree(form, selections, projectId) {
   );
   if (!reviewed.ok || !reviewed.review?.ready) {
     throw new CreatorApiError(
-      "Не все 10 строк получили свежую точную цену.",
+      selections.length === 1
+        ? "Строка очереди не получила свежую точную цену."
+        : `Не все ${selections.length} строк получили свежую точную цену.`,
       { code: reviewed.error?.code || "generation_strategy_queue_review_not_ready" },
     );
   }
@@ -32477,7 +32481,11 @@ function syncGenerationStrategyFormReadiness(form) {
       ? `Запустить ролик · ${priceCopy}`
       : `Запустить ${requiredSourceCount} роликов последовательно · ${priceCopy}`;
     if (!campaignReady) blocker = "Выберите активную кампанию.";
-    else if (!confirmationMatches) blocker = "Проверьте общую точную сумму и явно подтвердите 10 отдельных платных стартов.";
+    else if (!confirmationMatches) {
+    blocker = requiredSourceCount === 1
+      ? "Проверьте точную сумму и явно подтвердите платный старт."
+      : `Проверьте общую точную сумму и явно подтвердите ${requiredSourceCount} отдельных платных стартов.`;
+  }
   }
   submit.disabled = busy || Boolean(blocker);
   submit.dataset.launchBlocker = blocker;
@@ -32729,7 +32737,9 @@ async function submitGenerationStrategyExactTen(
       }
       if (paidPlan.plan.state === "complete") {
         toast(
-          "Все 10 независимых задач уже созданы или безопасно остановлены; статусы продолжают обновляться.",
+          requiredSpecCount === 1
+            ? "Задача уже создана или безопасно остановлена; статус продолжает обновляться."
+            : `Все ${requiredSpecCount} независимых задач уже созданы или безопасно остановлены; статусы продолжают обновляться.`,
           "info",
         );
         return;
@@ -32807,7 +32817,9 @@ async function submitGenerationStrategyExactTen(
         form.elements.real_spend_confirmation.checked = false;
         form.elements.real_spend_confirmation.value = "";
       }
-      setFormBusy(form, true, "Обновляем 10 точных цен и проверок без списания…");
+      setFormBusy(form, true, requiredSpecCount === 1
+      ? "Обновляем точную цену и проверки без списания…"
+      : `Обновляем ${requiredSpecCount} точных цен и проверок без списания…`);
       const refreshed = await refreshGenerationStrategyQueuePreflights(
         form,
         projectId,
@@ -32819,7 +32831,9 @@ async function submitGenerationStrategyExactTen(
       );
       if (!refreshedReview.ok || !refreshedReview.review?.ready) {
         throw new CreatorApiError(
-          "Не все 10 строк получили свежую точную цену.",
+          requiredSpecCount === 1
+            ? "Строка очереди не получила свежую точную цену."
+            : `Не все ${requiredSpecCount} строк получили свежую точную цену.`,
           {
             code: refreshedReview.error?.code
               || "generation_strategy_queue_review_not_ready",
@@ -32829,16 +32843,20 @@ async function submitGenerationStrategyExactTen(
       state.generationStrategyQueueReview = refreshedReview.review;
       syncGenerationStrategyQueueUi(form);
       toast(
-        `Обновлены ${refreshed} серверных проверок и цен без новой привязки исходников. Снова сверьте сумму и подтвердите десять запусков.`,
+        `Обновлены ${refreshed} серверных проверок и цен без новой привязки исходников. Снова сверьте сумму и подтвердите ${requiredSpecCount === 1 ? "запуск" : `${requiredSpecCount} запусков`}.`,
         "info",
       );
       return;
     }
     if (!currentReview?.ok || !currentReview.review?.prior_review_current) {
-      setFormBusy(form, true, "Проверяем 10 ассетов и цен без списания…");
+      setFormBusy(form, true, requiredSpecCount === 1
+      ? "Проверяем ассеты и цену без списания…"
+      : `Проверяем ассеты и цены ${requiredSpecCount} роликов без списания…`);
       await prepareGenerationStrategyQueueFree(form, selections, projectId);
       toast(
-        "Бесплатная проверка готова для всех 10 роликов. Сверьте общую сумму, кампанию и отдельно подтвердите десять запусков.",
+        requiredSpecCount === 1
+          ? "Бесплатная проверка ролика готова. Сверьте сумму и кампанию, затем отдельно подтвердите запуск."
+          : `Бесплатная проверка готова для всех ${requiredSpecCount} роликов. Сверьте общую сумму, кампанию и отдельно подтвердите ${requiredSpecCount} запусков.`,
         "success",
       );
       return;
@@ -32852,7 +32870,9 @@ async function submitGenerationStrategyExactTen(
       });
     }
     if (!contentReviewUuid(campaignId)) {
-      throw new CreatorApiError("Выберите активную кампанию для всех 10 роликов.", {
+      throw new CreatorApiError(requiredSpecCount === 1
+        ? "Выберите активную кампанию для запуска ролика."
+        : `Выберите активную кампанию для всех ${requiredSpecCount} роликов.`, {
         code: "generation_strategy_queue_campaign_required",
       });
     }
@@ -32862,7 +32882,9 @@ async function submitGenerationStrategyExactTen(
       || confirmation.value !== `GENERATION_STRATEGY_EXACT_10_${state.generationStrategyQueue.revision}`
     ) {
       throw new CreatorApiError(
-        "Сверьте точную сумму и явно подтвердите 10 отдельных платных стартов.",
+        requiredSpecCount === 1
+          ? "Сверьте точную сумму и явно подтвердите платный старт."
+          : `Сверьте точную сумму и явно подтвердите ${requiredSpecCount} отдельных платных стартов.`,
         { code: "generation_strategy_queue_human_confirmation_required" },
       );
     }
@@ -32873,7 +32895,9 @@ async function submitGenerationStrategyExactTen(
       );
     }
     state.generationStrategyStartInFlight = true;
-    setFormBusy(form, true, "Запускаем 10 роликов строго по одному…");
+    setFormBusy(form, true, requiredSpecCount === 1
+      ? "Запускаем ролик…"
+      : `Запускаем ${requiredSpecCount} роликов строго по одному…`);
     const started = await startGenerationStrategyQueueSequentially(
       form,
       selections,
