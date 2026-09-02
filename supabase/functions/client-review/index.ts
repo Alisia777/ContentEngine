@@ -329,6 +329,10 @@ const clientReview = withSupabase<ContentEngineDatabase>({
       campaign_name: stringOrNull(data.campaign_name, 256) ?? "",
       expires_at: stringOrNull(data.expires_at, 64),
       signed_url_ttl_seconds: SIGNED_URL_TTL_SECONDS,
+      intake_enabled: data.intake_enabled === true,
+      intake_briefs: Array.isArray(data.intake_briefs)
+        ? data.intake_briefs.filter(isRecord)
+        : [],
       items,
     });
   }
