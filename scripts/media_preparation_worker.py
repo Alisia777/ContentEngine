@@ -267,6 +267,19 @@ FINALIZE_FONT = os.environ.get(
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
 )
 CAPTION_WINDOWS = ((0.3, 3.2, "top"), (3.6, 7.0, "bottom"), (7.3, 9.9, "bottom"))
+# Словарь голосов сквозной с RPC-whitelist (202609020003) и select диалога.
+# minimax_* требуют FAL_KEY; без ключа или при отказе fal — фолбэк на
+# бесплатный edge-голос того же пола.
+FINALIZE_VOICES = {
+    "minimax_lovely_girl": ("minimax", "Lovely_Girl", "ru-RU-SvetlanaNeural"),
+    "minimax_lively_girl": ("minimax", "Lively_Girl", "ru-RU-SvetlanaNeural"),
+    "minimax_calm_woman": ("minimax", "Calm_Woman", "ru-RU-SvetlanaNeural"),
+    "minimax_wise_woman": ("minimax", "Wise_Woman", "ru-RU-SvetlanaNeural"),
+    "minimax_deep_voice_man": ("minimax", "Deep_Voice_Man", "ru-RU-DmitryNeural"),
+    "minimax_friendly_person": ("minimax", "Friendly_Person", "ru-RU-DmitryNeural"),
+    "edge_svetlana": ("edge", "ru-RU-SvetlanaNeural", "ru-RU-SvetlanaNeural"),
+    "edge_dmitry": ("edge", "ru-RU-DmitryNeural", "ru-RU-DmitryNeural"),
+}
 
 
 def synthesize_tts(text: str, voice: str, workdir: str) -> tuple[str, str]:
@@ -274,11 +287,14 @@ def synthesize_tts(text: str, voice: str, workdir: str) -> tuple[str, str]:
     fal — только по явному выбору голоса и при наличии ключа; любой его отказ
     (включая боевой лок TOP_UP) тихо откатывается на бесплатный edge-tts."""
     raw_path = os.path.join(workdir, "voice-raw.mp3")
-    if voice == "minimax_lovely_girl" and FAL_KEY:
+    provider, voice_id, edge_fallback = FINALIZE_VOICES.get(
+        voice, FINALIZE_VOICES["edge_svetlana"]
+    )
+    if provider == "minimax" and FAL_KEY:
         try:
             body = json.dumps({
                 "text": text,
-                "voice_setting": {"voice_id": "Lovely_Girl", "speed": 1.05},
+                "voice_setting": {"voice_id": voice_id, "speed": 1.05},
                 "language_boost": "Russian",
             }).encode("utf-8")
             request = urllib.request.Request(
@@ -316,19 +332,20 @@ def synthesize_tts(text: str, voice: str, workdir: str) -> tuple[str, str]:
                 raw_path, "wb"
             ) as target:
                 target.write(audio.read())
-            return raw_path, "minimax_lovely_girl"
+            return raw_path, voice
         except Exception as error:  # noqa: BLE001 — платный путь не обязателен
             log(f"minimax tts failed, falling back to edge-tts: {error}")
+    edge_voice = voice_id if provider == "edge" else edge_fallback
     completed = run_tool([
         sys.executable, "-m", "edge_tts",
-        "--voice", "ru-RU-SvetlanaNeural",
+        "--voice", edge_voice,
         "--rate", "+10%",
         "--text", text,
         "--write-media", raw_path,
     ], timeout=180)
     if completed.returncode != 0 or not os.path.exists(raw_path):
         raise RuntimeError(f"edge_tts_failed: {completed.stderr[:300]}")
-    return raw_path, "edge_svetlana"
+    return raw_path, f"edge:{edge_voice}"
 
 
 def fit_voice(raw_path: str, workdir: str, target_seconds: float) -> str:
@@ -367,14 +384,38 @@ def probe_audio_seconds(path: str) -> float:
     return float(data.get("format", {}).get("duration", 0) or 0)
 
 
-def build_drawtext(captions: list[str], duration: float, height: int,
-                   workdir: str) -> str:
-    """Три плашки через textfile= (никакого экранирования кавычек в -vf);
-    окна масштабируются k = duration / 10."""
+def caption_windows_from_params(params: dict, duration: float) -> list[tuple]:
+    """Окна показа: заданные оператором абсолютные секунды (уже под конкретный
+    ролик, масштабировать нельзя) либо дефолт k = duration / 10. Конец окна
+    клампится к длительности, вырожденное окно выбрасывает задание в fail."""
+    custom = params.get("caption_windows")
+    if isinstance(custom, list) and len(custom) == 3:
+        windows = []
+        for index, pair in enumerate(custom):
+            try:
+                start = float(pair[0])
+                end = float(pair[1])
+            except (TypeError, ValueError, IndexError):
+                raise RuntimeError("finalize_caption_windows_invalid")
+            end = min(end, max(0.1, duration - 0.05))
+            if not (0 <= start < end):
+                raise RuntimeError("finalize_caption_windows_invalid")
+            windows.append((start, end, CAPTION_WINDOWS[index][2]))
+        return windows
     scale = max(0.5, duration / 10.0)
+    return [
+        (start * scale, end * scale, position)
+        for start, end, position in CAPTION_WINDOWS
+    ]
+
+
+def build_drawtext(captions: list[str], duration: float, height: int,
+                   workdir: str, params: dict) -> str:
+    """Три плашки через textfile= (никакого экранирования кавычек в -vf)."""
     font_size = max(24, int(height * 0.042))
     filters = []
-    for index, (start, end, position) in enumerate(CAPTION_WINDOWS):
+    windows = caption_windows_from_params(params, duration)
+    for index, (start, end, position) in enumerate(windows):
         text_path = os.path.join(workdir, f"caption{index}.txt")
         with open(text_path, "w", encoding="utf-8") as target:
             target.write(captions[index])
@@ -384,7 +425,7 @@ def build_drawtext(captions: list[str], duration: float, height: int,
             f":fontsize={font_size}:fontcolor=white"
             ":box=1:boxcolor=black@0.5:boxborderw=14"
             f":x=(w-text_w)/2:y={y_expr}"
-            f":enable='between(t,{start * scale:.2f},{end * scale:.2f})'"
+            f":enable='between(t,{start:.2f},{end:.2f})'"
         )
     return ",".join(filters)
 
@@ -406,7 +447,7 @@ def finalize_video(source_path: str, output_path: str, job: dict,
     raw_voice, tts_provider = synthesize_tts(narration, voice, workdir)
     voice_path = fit_voice(raw_voice, workdir, max(1.0, duration - 0.2))
     drawtext_chain = build_drawtext(
-        captions, duration, facts["height"], workdir
+        captions, duration, facts["height"], workdir, params
     )
     completed = run_tool([
         FFMPEG, "-hide_banner", "-y",
@@ -429,7 +470,12 @@ def finalize_video(source_path: str, output_path: str, job: dict,
             "captions": captions,
             "voice": voice,
             "tts_provider": tts_provider,
-            "caption_scale": round(max(0.5, duration / 10.0), 3),
+            "caption_windows": [
+                [round(start, 2), round(end, 2)]
+                for start, end, _position in caption_windows_from_params(
+                    params, duration
+                )
+            ],
         },
         **out_facts,
     }

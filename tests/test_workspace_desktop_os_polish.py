@@ -19,15 +19,15 @@ def test_legacy_desktop_polish_is_not_an_active_runtime_layer() -> None:
         flags=re.MULTILINE,
     )
     assert not any("workspace-desktop-os-polish" in asset for asset in active_assets)
-    assert "./workspace-os-v4.css?v=20260826.rebuild-clean.53" in active_assets
+    assert "./workspace-os-v4.css?v=20260826.rebuild-clean.54" in active_assets
     assert (
-        "./workspace-os-v4-loader.js?v=20260826.rebuild-clean.53"
+        "./workspace-os-v4-loader.js?v=20260826.rebuild-clean.54"
         in active_assets
     )
     assert active_assets.index(
-        "./workspace-os-v4-loader.js?v=20260826.rebuild-clean.53"
+        "./workspace-os-v4-loader.js?v=20260826.rebuild-clean.54"
     ) < active_assets.index(
-        "./workspace-build-guard.js?v=20260826.rebuild-clean.53"
+        "./workspace-build-guard.js?v=20260826.rebuild-clean.54"
     )
 
 

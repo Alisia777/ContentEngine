@@ -137,7 +137,7 @@ def _run_exact_viewport(
 
 def test_shell_is_the_single_notification_surface_and_has_no_business_transport() -> None:
     harness = HARNESS.read_text(encoding="utf-8")
-    assert 'from "./workspace-notification-contract.js?v=20260826.rebuild-clean.53"' in CORE
+    assert 'from "./workspace-notification-contract.js?v=20260826.rebuild-clean.54"' in CORE
     assert CORE.count('const panel = create("aside", "ce-v4-notification-panel")') == 1
     assert 'panel.setAttribute("aria-modal", "false")' in CORE
     assert 'panel.setAttribute("role", "dialog")' in CORE

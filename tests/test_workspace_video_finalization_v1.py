@@ -36,9 +36,17 @@ def test_rpc_registry_and_api_method_shape() -> None:
     # отдаёт output_media_id) — сервер требует ровно один из ключей.
     assert "(!mediaId && !generationJobId)" in method
     assert "generation_job_id: generationJobId" in method
-    # Словарь голосов сквозной: форма, метод и plpgsql-whitelist обязаны
-    # называть одни и те же значения.
-    assert '["minimax_lovely_girl", "edge_svetlana"].includes(voice)' in method
+    # Словарь голосов сквозной: форма, метод, plpgsql-whitelist и
+    # FINALIZE_VOICES воркера обязаны называть одни и те же значения.
+    for voice in (
+        "minimax_lovely_girl", "minimax_lively_girl", "minimax_calm_woman",
+        "minimax_wise_woman", "minimax_deep_voice_man",
+        "minimax_friendly_person", "edge_svetlana", "edge_dmitry",
+    ):
+        assert f'"{voice}"' in method, voice
+    # Тайминги плашек: либо не заданы (авто), либо три честные пары.
+    assert "caption_windows" in method
+    assert "pair[1] > pair[0]" in method
 
 
 def test_archive_card_offers_finalization_for_ready_video_only() -> None:
@@ -79,8 +87,14 @@ def test_dialog_has_no_hidden_required_fields_and_clean_names() -> None:
     names = set(re.findall(r'name="([A-Za-z_][\w-]*)"', dialog))
     assert names == {
         "caption_top",
+        "caption_top_from",
+        "caption_top_to",
         "caption_mid",
+        "caption_mid_from",
+        "caption_mid_to",
         "caption_bottom",
+        "caption_bottom_from",
+        "caption_bottom_to",
         "narration_text",
         "narration_voice",
     }
@@ -117,3 +131,25 @@ def test_migration_contract_matches_ui() -> None:
         "(p_payload ? 'media_id') = (p_payload ? 'generation_job_id')"
         in JOB_LOOKUP
     )
+    # Вторая итерация: восемь голосов и настраиваемые окна плашек.
+    voices_migration = (
+        ROOT
+        / "supabase/migrations/202609020003_video_finalization_voices_timings_v1.sql"
+    ).read_text(encoding="utf-8")
+    for voice in (
+        "minimax_lively_girl", "minimax_calm_woman", "minimax_wise_woman",
+        "minimax_deep_voice_man", "minimax_friendly_person", "edge_dmitry",
+    ):
+        assert voice in voices_migration, voice
+    assert "video_finalization_caption_windows_invalid" in voices_migration
+    assert "jsonb_array_length(windows_value) <> 3" in voices_migration
+    # Воркер знает те же голоса и берёт окна из params как абсолютные секунды.
+    worker = (ROOT / "scripts/media_preparation_worker.py").read_text(
+        encoding="utf-8"
+    )
+    assert "FINALIZE_VOICES" in worker
+    for voice in ("Lively_Girl", "Calm_Woman", "Wise_Woman", "Deep_Voice_Man",
+                  "Friendly_Person", "ru-RU-DmitryNeural"):
+        assert voice in worker, voice
+    assert "caption_windows_from_params" in worker
+    assert "finalize_caption_windows_invalid" in worker

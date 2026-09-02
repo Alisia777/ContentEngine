@@ -6786,11 +6786,27 @@ export class CreatorApi {
     ];
     const narration = String(input?.narration_text || "").trim();
     const voice = String(input?.narration_voice || "").trim();
+    const captionWindows = Array.isArray(input?.caption_windows)
+      ? input.caption_windows
+      : null;
+    const windowsValid = captionWindows === null || (
+      captionWindows.length === 3
+      && captionWindows.every((pair) => (
+        Array.isArray(pair) && pair.length === 2
+        && Number.isFinite(pair[0]) && Number.isFinite(pair[1])
+        && pair[0] >= 0 && pair[1] > pair[0] && pair[1] <= 600
+      ))
+    );
     if (
       (!mediaId && !generationJobId)
       || captions.some((text) => !text || text.length > 80)
       || !narration || narration.length > 300
-      || !["minimax_lovely_girl", "edge_svetlana"].includes(voice)
+      || !windowsValid
+      || ![
+        "minimax_lovely_girl", "minimax_lively_girl", "minimax_calm_woman",
+        "minimax_wise_woman", "minimax_deep_voice_man",
+        "minimax_friendly_person", "edge_svetlana", "edge_dmitry",
+      ].includes(voice)
     ) {
       throw new CreatorApiError(
         "Для финализации нужны ролик, три плашки (до 80 знаков каждая), текст диктора (до 300 знаков) и голос из списка.",
@@ -6810,6 +6826,7 @@ export class CreatorApi {
       caption_bottom: captions[2],
       narration_text: narration,
       voice,
+      ...(captionWindows ? { caption_windows: captionWindows } : {}),
     });
     if (
       !data || data.ok !== true
@@ -9374,6 +9391,7 @@ function toFriendlyMessage(error) {
     video_finalization_voice_invalid: "Выбранный голос недоступен. Выберите голос из списка.",
     video_finalization_too_short: "Ролик короче 5 секунд — плашкам не хватит места. Финализируйте ролик подлиннее.",
     video_finalization_media_reference_invalid: "Ролик не распознан. Обновите «Запуски и готовые файлы» и попробуйте снова.",
+    video_finalization_caption_windows_invalid: "Тайминги плашек — три пары секунд, начало каждого окна меньше конца.",
     project_member_grant_payload_invalid: "Не удалось безопасно выдать доступ. Обновите список проекта.",
     project_member_revoke_payload_invalid: "Не удалось безопасно отозвать доступ. Обновите список проекта.",
     project_member_profile_id_invalid: "Не удалось определить участника команды. Обновите список.",

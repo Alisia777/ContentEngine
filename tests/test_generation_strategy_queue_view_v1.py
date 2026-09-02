@@ -291,18 +291,18 @@ def test_view_pins_all_frozen_authorities_and_has_no_side_effect_channel() -> No
     # штампом сборки login-rain.4.
     expected_hashes = {
         RUNTIME_MODULE: "180eb663d25c0b9f51d73f5b1b4a2c254cbd938d1b7df4bf94f406dacc4884d6",
-        QUEUE_MODULE: "d8760c8da4036442f6ef41423e9d56a50561b24abffe154f08a2ded2f52a0a1f",
-        SOURCE_PICKER_MODULE: "048b22270647ef7222a97d21c326c6cf2c3ca2a9efb3ba9108600fb8424308ef",
+        QUEUE_MODULE: "8c8b894d427b85e84161a570f38accf483fc9204759cd81d582d537f3b9b25f2",
+        SOURCE_PICKER_MODULE: "851b973e3f2e73ffa92a5be2bc51837bd82de849ee9cc961799f365b5cb18966",
     }
     for path, expected in expected_hashes.items():
         canonical_bytes = path.read_bytes().replace(b"\r\n", b"\n")
         assert hashlib.sha256(canonical_bytes).hexdigest() == expected
     assert (
-        'from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.53";'
+        'from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.54";'
         in VIEW_SOURCE
     )
     assert (
-        'from "./generation-strategy-queue.js?v=20260826.rebuild-clean.53";'
+        'from "./generation-strategy-queue.js?v=20260826.rebuild-clean.54";'
         in VIEW_SOURCE
     )
     for forbidden in (
