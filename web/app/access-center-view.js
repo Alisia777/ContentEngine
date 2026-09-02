@@ -81,7 +81,7 @@ export function ensureAccessCenterStyles() {
   if (typeof document === "undefined" || document.querySelector("link[data-access-center-styles]")) return;
   const link = document.createElement("link");
   link.rel = "stylesheet";
-  link.href = "./access-center.css?v=20260826.rebuild-clean.54";
+  link.href = "./access-center.css?v=20260826.rebuild-clean.55";
   link.dataset.accessCenterStyles = "true";
   document.head.append(link);
 }

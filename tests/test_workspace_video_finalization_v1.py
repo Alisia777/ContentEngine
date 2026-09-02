@@ -47,6 +47,11 @@ def test_rpc_registry_and_api_method_shape() -> None:
     # Тайминги плашек: либо не заданы (авто), либо три честные пары.
     assert "caption_windows" in method
     assert "pair[1] > pair[0]" in method
+    # Третья итерация: раскладка и звук — опциональные словари.
+    assert "caption_positions" in method
+    assert '["top", "bottom"].includes(slot)' in method
+    assert '["small", "medium", "large"].includes(fontScale)' in method
+    assert '["replace", "duck"].includes(audioMode)' in method
 
 
 def test_archive_card_offers_finalization_for_ready_video_only() -> None:
@@ -89,14 +94,19 @@ def test_dialog_has_no_hidden_required_fields_and_clean_names() -> None:
         "caption_top",
         "caption_top_from",
         "caption_top_to",
+        "caption_top_position",
         "caption_mid",
         "caption_mid_from",
         "caption_mid_to",
+        "caption_mid_position",
         "caption_bottom",
         "caption_bottom_from",
         "caption_bottom_to",
+        "caption_bottom_position",
         "narration_text",
         "narration_voice",
+        "font_scale",
+        "audio_mode",
     }
     # Мина reportValidity: в диалоге нет условно скрываемых required-полей.
     assert "hidden" not in dialog
@@ -110,6 +120,9 @@ def test_named_refusals_translated() -> None:
         "video_finalization_kind_not_generated_video",
         "video_finalization_voice_invalid",
         "video_finalization_too_short",
+        "video_finalization_caption_positions_invalid",
+        "video_finalization_font_scale_invalid",
+        "video_finalization_audio_mode_invalid",
     ):
         assert f"{code}:" in API, code
 
@@ -153,3 +166,23 @@ def test_migration_contract_matches_ui() -> None:
         assert voice in worker, voice
     assert "caption_windows_from_params" in worker
     assert "finalize_caption_windows_invalid" in worker
+    # Третья итерация: раскладка (позиции/шрифт) и режим звука сквозные
+    # с миграцией 0004 и селектами диалога.
+    layout_migration = (
+        ROOT
+        / "supabase/migrations/202609020004_video_finalization_layout_audio_v1.sql"
+    ).read_text(encoding="utf-8")
+    for guard in (
+        "video_finalization_caption_positions_invalid",
+        "video_finalization_font_scale_invalid",
+        "video_finalization_audio_mode_invalid",
+        "jsonb_array_length(positions_value) <> 3",
+        "('small', 'medium', 'large')",
+        "('replace', 'duck')",
+    ):
+        assert guard in layout_migration, guard
+    assert "caption_positions_from_params" in worker
+    assert "FINALIZE_FONT_SCALES" in worker
+    for scale in ('"small"', '"medium"', '"large"'):
+        assert scale in worker, scale
+    assert "amix=inputs=2" in worker  # duck: родная дорожка тихо под голосом

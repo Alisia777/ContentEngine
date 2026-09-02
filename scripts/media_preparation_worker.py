@@ -392,10 +392,26 @@ def probe_audio_seconds(path: str) -> float:
     return float(data.get("format", {}).get("duration", 0) or 0)
 
 
+FINALIZE_FONT_SCALES = {"small": 0.034, "medium": 0.042, "large": 0.052}
+
+
+def caption_positions_from_params(params: dict) -> list[str]:
+    """Позиция каждой плашки: заданная оператором ('top'|'bottom') либо
+    дефолт верх/низ/низ."""
+    custom = params.get("caption_positions")
+    defaults = [position for _s, _e, position in CAPTION_WINDOWS]
+    if isinstance(custom, list) and len(custom) == 3 and all(
+        value in ("top", "bottom") for value in custom
+    ):
+        return list(custom)
+    return defaults
+
+
 def caption_windows_from_params(params: dict, duration: float) -> list[tuple]:
     """Окна показа: заданные оператором абсолютные секунды (уже под конкретный
     ролик, масштабировать нельзя) либо дефолт k = duration / 10. Конец окна
     клампится к длительности, вырожденное окно выбрасывает задание в fail."""
+    positions = caption_positions_from_params(params)
     custom = params.get("caption_windows")
     if isinstance(custom, list) and len(custom) == 3:
         windows = []
@@ -408,19 +424,23 @@ def caption_windows_from_params(params: dict, duration: float) -> list[tuple]:
             end = min(end, max(0.1, duration - 0.05))
             if not (0 <= start < end):
                 raise RuntimeError("finalize_caption_windows_invalid")
-            windows.append((start, end, CAPTION_WINDOWS[index][2]))
+            windows.append((start, end, positions[index]))
         return windows
     scale = max(0.5, duration / 10.0)
     return [
-        (start * scale, end * scale, position)
-        for start, end, position in CAPTION_WINDOWS
+        (start * scale, end * scale, positions[index])
+        for index, (start, end, _default) in enumerate(CAPTION_WINDOWS)
     ]
 
 
 def build_drawtext(captions: list[str], duration: float, height: int,
                    workdir: str, params: dict) -> str:
     """Три плашки через textfile= (никакого экранирования кавычек в -vf)."""
-    font_size = max(24, int(height * 0.042))
+    font_ratio = FINALIZE_FONT_SCALES.get(
+        str(params.get("font_scale") or "medium"),
+        FINALIZE_FONT_SCALES["medium"],
+    )
+    font_size = max(24, int(height * font_ratio))
     filters = []
     windows = caption_windows_from_params(params, duration)
     for index, (start, end, position) in enumerate(windows):
@@ -457,10 +477,23 @@ def finalize_video(source_path: str, output_path: str, job: dict,
     drawtext_chain = build_drawtext(
         captions, duration, facts["height"], workdir, params
     )
+    # Режим звука: replace (родная дорожка глушится) или duck — родной звук
+    # тихо остаётся под голосом. Duck без родной дорожки честно падает в
+    # replace, а не в ошибку amix.
+    audio_mode = str(params.get("audio_mode") or "replace")
+    if audio_mode == "duck" and facts["audio"]:
+        audio_args = [
+            "-filter_complex",
+            "[0:a]volume=0.18[bg];[1:a][bg]amix=inputs=2:duration=first"
+            ":dropout_transition=0[mix]",
+            "-map", "0:v", "-map", "[mix]",
+        ]
+    else:
+        audio_args = ["-map", "0:v", "-map", "1:a"]
     completed = run_tool([
         FFMPEG, "-hide_banner", "-y",
         "-i", source_path, "-i", voice_path,
-        "-map", "0:v", "-map", "1:a",
+        *audio_args,
         "-vf", drawtext_chain,
         "-c:v", "libx264", "-crf", "19", "-pix_fmt", "yuv420p",
         "-preset", "veryfast", "-movflags", "+faststart",
@@ -478,6 +511,10 @@ def finalize_video(source_path: str, output_path: str, job: dict,
             "captions": captions,
             "voice": voice,
             "tts_provider": tts_provider,
+            "audio_mode": audio_mode if facts["audio"] or audio_mode != "duck"
+            else "replace",
+            "font_scale": str(params.get("font_scale") or "medium"),
+            "caption_positions": caption_positions_from_params(params),
             "caption_windows": [
                 [round(start, 2), round(end, 2)]
                 for start, end, _position in caption_windows_from_params(

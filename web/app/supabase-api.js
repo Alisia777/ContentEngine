@@ -6797,11 +6797,25 @@ export class CreatorApi {
         && pair[0] >= 0 && pair[1] > pair[0] && pair[1] <= 600
       ))
     );
+    // Раскладка и звук: опциональные словари третьей итерации; отсутствие
+    // ключа = дефолт воркера (верх/низ/низ, medium, replace).
+    const captionPositions = Array.isArray(input?.caption_positions)
+      ? input.caption_positions
+      : null;
+    const positionsValid = captionPositions === null || (
+      captionPositions.length === 3
+      && captionPositions.every((slot) => ["top", "bottom"].includes(slot))
+    );
+    const fontScale = String(input?.font_scale || "").trim();
+    const audioMode = String(input?.audio_mode || "").trim();
     if (
       (!mediaId && !generationJobId)
       || captions.some((text) => !text || text.length > 80)
       || !narration || narration.length > 300
       || !windowsValid
+      || !positionsValid
+      || (fontScale && !["small", "medium", "large"].includes(fontScale))
+      || (audioMode && !["replace", "duck"].includes(audioMode))
       || ![
         "minimax_lovely_girl", "minimax_lively_girl", "minimax_calm_woman",
         "minimax_wise_woman", "minimax_deep_voice_man",
@@ -6827,6 +6841,9 @@ export class CreatorApi {
       narration_text: narration,
       voice,
       ...(captionWindows ? { caption_windows: captionWindows } : {}),
+      ...(captionPositions ? { caption_positions: captionPositions } : {}),
+      ...(fontScale ? { font_scale: fontScale } : {}),
+      ...(audioMode ? { audio_mode: audioMode } : {}),
     });
     if (
       !data || data.ok !== true
@@ -9392,6 +9409,9 @@ function toFriendlyMessage(error) {
     video_finalization_too_short: "Ролик короче 5 секунд — плашкам не хватит места. Финализируйте ролик подлиннее.",
     video_finalization_media_reference_invalid: "Ролик не распознан. Обновите «Запуски и готовые файлы» и попробуйте снова.",
     video_finalization_caption_windows_invalid: "Тайминги плашек — три пары секунд, начало каждого окна меньше конца.",
+    video_finalization_caption_positions_invalid: "Позиции плашек — три значения «верх» или «низ».",
+    video_finalization_font_scale_invalid: "Размер плашек — мелкий, средний или крупный.",
+    video_finalization_audio_mode_invalid: "Режим звука — «убрать» или «оставить тихо под голосом».",
     project_member_grant_payload_invalid: "Не удалось безопасно выдать доступ. Обновите список проекта.",
     project_member_revoke_payload_invalid: "Не удалось безопасно отозвать доступ. Обновите список проекта.",
     project_member_profile_id_invalid: "Не удалось определить участника команды. Обновите список.",
