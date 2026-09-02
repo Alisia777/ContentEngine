@@ -80,6 +80,26 @@
       }
       .toast.show { display: block; }
       footer { margin-top: 28px; text-align: center; color: var(--muted); font-size: .75rem; }
+      .tabs { display: flex; gap: 8px; margin-top: 14px; }
+      .tabs button { flex: 1; }
+      .tabs button.active { background: var(--accent); border-color: var(--accent); color: #171204; font-weight: 600; }
+      .intake-card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; margin-top: 16px; padding: 14px; }
+      .intake-card h2 { font-size: .95rem; margin: 0 0 8px; }
+      .intake-card label { display: block; margin-top: 10px; font-size: .82rem; color: var(--muted); }
+      .intake-card input[type="text"], .intake-card textarea {
+        width: 100%; font: inherit; border-radius: 10px; margin-top: 4px;
+        border: 1px solid var(--line); background: #10141c; color: var(--ink);
+        padding: 9px 11px;
+      }
+      .intake-card textarea { min-height: 64px; resize: vertical; }
+      .option-line { display: flex; gap: 8px; align-items: flex-start; margin-top: 12px; font-size: .82rem; color: var(--muted); }
+      .option-line input { margin-top: 3px; }
+      .file-row { display: flex; justify-content: space-between; gap: 8px; font-size: .8rem; margin-top: 6px; color: var(--muted); }
+      .file-row .ok { color: var(--ok); }
+      .file-row .err { color: var(--warn); }
+      .brief-status { border-left: 3px solid var(--line); padding: 6px 10px; margin-top: 8px; font-size: .82rem; }
+      .brief-status.accepted { border-color: var(--ok); }
+      .brief-status.returned { border-color: var(--warn); }
     </style>
   </head>
   <body>
@@ -89,14 +109,19 @@
         <p id="review-subtitle"></p>
       </header>
       <div id="review-state" class="state"><strong>Загружаем ролики…</strong>Это займёт пару секунд.</div>
+      <div class="tabs" id="review-tabs" hidden>
+        <button type="button" id="tab-videos" class="active">Ролики</button>
+        <button type="button" id="tab-intake">Материалы и бриф</button>
+      </div>
       <div id="review-list"></div>
+      <div id="intake-panel" hidden></div>
       <footer id="review-footer" hidden>
         Ссылки на видео действуют 15 минут — если ролик перестал играть,
         просто обновите страницу.
       </footer>
     </div>
     <div class="toast" id="review-toast" role="status"></div>
-    <script src="./config.js?v=20260826.rebuild-clean.58"></script>
-    <script src="./review.js?v=20260826.rebuild-clean.58"></script>
+    <script src="./config.js?v=20260826.rebuild-clean.59"></script>
+    <script src="./review.js?v=20260826.rebuild-clean.59"></script>
   </body>
 </html>

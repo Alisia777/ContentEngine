@@ -16,6 +16,10 @@
 
   var stateNode = document.getElementById("review-state");
   var listNode = document.getElementById("review-list");
+  var tabsNode = document.getElementById("review-tabs");
+  var tabVideos = document.getElementById("tab-videos");
+  var tabIntake = document.getElementById("tab-intake");
+  var intakePanel = document.getElementById("intake-panel");
   var headerNode = document.getElementById("review-header");
   var titleNode = document.getElementById("review-title");
   var subtitleNode = document.getElementById("review-subtitle");
@@ -229,6 +233,204 @@
     return card;
   }
 
+  function uploadOneFile(token, file) {
+    return api({
+      action: "intake_upload_init",
+      token: token,
+      original_filename: String(file.name || "file").slice(0, 255),
+      mime_type: String(file.type || ""),
+      size_bytes: file.size,
+      rights_confirmed: true,
+      client_request_id: crypto.randomUUID(),
+    }).then(function (init) {
+      if (!init || init.ok !== true || !init.signed_url) {
+        throw new Error((init && init.message) || "upload_init_failed");
+      }
+      return fetch(init.signed_url, {
+        method: "PUT",
+        headers: { "content-type": String(file.type || "application/octet-stream") },
+        body: file,
+      }).then(function (put) {
+        if (!put.ok) throw new Error("upload_put_failed");
+        return true;
+      });
+    });
+  }
+
+  function renderIntake(token, result) {
+    intakePanel.replaceChildren();
+
+    var card = document.createElement("div");
+    card.className = "intake-card";
+    var heading = document.createElement("h2");
+    heading.textContent = "Бриф и материалы для команды";
+    card.append(heading);
+
+    var briefs = Array.isArray(result.intake_briefs)
+      ? result.intake_briefs
+      : [];
+    briefs.forEach(function (brief) {
+      var line = document.createElement("div");
+      line.className = "brief-status " + String(brief.status || "");
+      var label = brief.status === "accepted"
+        ? "принят в работу"
+        : brief.status === "returned"
+          ? "возвращён"
+          : "на рассмотрении";
+      line.textContent = "Бриф «" + String(brief.brief_product || "")
+        + "» — " + label
+        + (brief.operator_comment
+          ? ". Комментарий команды: " + String(brief.operator_comment)
+          : "");
+      card.append(line);
+    });
+
+    function fieldBlock(labelText, control) {
+      var label = document.createElement("label");
+      label.append(document.createTextNode(labelText), control);
+      return label;
+    }
+    var productInput = document.createElement("input");
+    productInput.type = "text";
+    productInput.maxLength = 180;
+    productInput.placeholder = "Например: Байкальский пробиотик для животных";
+    var audienceInput = document.createElement("textarea");
+    audienceInput.maxLength = 600;
+    audienceInput.placeholder = "Кто покупатель: владельцы кошек и собак, которые…";
+    var toneInput = document.createElement("input");
+    toneInput.type = "text";
+    toneInput.maxLength = 400;
+    toneInput.placeholder = "Например: тёплый, заботливый, без агрессивных продаж";
+    var restrictionsInput = document.createElement("textarea");
+    restrictionsInput.maxLength = 800;
+    restrictionsInput.placeholder = "Чего в роликах быть не должно (необязательно)";
+    var wishesInput = document.createElement("textarea");
+    wishesInput.maxLength = 1200;
+    wishesInput.placeholder = "Пожелания: сюжеты, акценты, примеры (необязательно)";
+
+    var fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.multiple = true;
+    fileInput.accept = "image/jpeg,image/png,image/webp,video/mp4";
+    var fileList = document.createElement("div");
+    fileInput.addEventListener("change", function () {
+      fileList.replaceChildren();
+      Array.from(fileInput.files || []).forEach(function (file) {
+        var row = document.createElement("div");
+        row.className = "file-row";
+        var nameSpan = document.createElement("span");
+        nameSpan.textContent = file.name;
+        var sizeSpan = document.createElement("span");
+        sizeSpan.textContent = Math.ceil(file.size / 1048576) + " МБ";
+        if (file.size > 52428800) {
+          sizeSpan.textContent += " — больше 50 МБ, не уйдёт";
+          sizeSpan.className = "err";
+        }
+        row.append(nameSpan, sizeSpan);
+        fileList.append(row);
+      });
+    });
+
+    var rightsLine = document.createElement("label");
+    rightsLine.className = "option-line";
+    var rightsBox = document.createElement("input");
+    rightsBox.type = "checkbox";
+    var rightsText = document.createElement("span");
+    rightsText.textContent =
+      "Подтверждаю: у меня есть права на загружаемые фото и видео "
+      + "(это мой товар и мои материалы).";
+    rightsLine.append(rightsBox, rightsText);
+
+    var submitButton = document.createElement("button");
+    submitButton.className = "primary";
+    submitButton.type = "button";
+    submitButton.style.marginTop = "14px";
+    submitButton.textContent = "Отправить бриф и файлы команде";
+
+    submitButton.addEventListener("click", function () {
+      if (busy) return;
+      var product = productInput.value.trim();
+      var audience = audienceInput.value.trim();
+      var tone = toneInput.value.trim();
+      if (product.length < 2 || audience.length < 3 || tone.length < 3) {
+        toast("Заполните товар, аудиторию и тон — это основа брифа.");
+        return;
+      }
+      var files = Array.from(fileInput.files || []).filter(function (file) {
+        return file.size <= 52428800;
+      });
+      if (files.length && !rightsBox.checked) {
+        toast("Отметьте подтверждение прав на материалы.");
+        return;
+      }
+      busy = true;
+      submitButton.disabled = true;
+      submitButton.textContent = "Отправляем…";
+      var chain = Promise.resolve();
+      files.forEach(function (file) {
+        chain = chain.then(function () {
+          submitButton.textContent = "Загружаем: " + file.name;
+          return uploadOneFile(token, file);
+        });
+      });
+      chain.then(function () {
+        submitButton.textContent = "Отправляем бриф…";
+        return api({
+          action: "intake_brief",
+          token: token,
+          brief_product: product,
+          brief_audience: audience,
+          brief_tone: tone,
+          brief_restrictions: restrictionsInput.value.trim() || null,
+          brief_wishes: wishesInput.value.trim() || null,
+          client_request_id: crypto.randomUUID(),
+        });
+      }).then(function (result2) {
+        busy = false;
+        if (result2 && result2.ok === true) {
+          toast("Бриф и материалы отправлены. Команда получила уведомление.");
+          load(token);
+          return;
+        }
+        submitButton.disabled = false;
+        submitButton.textContent = "Отправить бриф и файлы команде";
+        toast((result2 && result2.message) || "Не получилось отправить бриф.");
+      }).catch(function () {
+        busy = false;
+        submitButton.disabled = false;
+        submitButton.textContent = "Отправить бриф и файлы команде";
+        toast("Не удалось загрузить файлы. Проверьте интернет и попробуйте ещё раз.");
+      });
+    });
+
+    card.append(
+      fieldBlock("Товар *", productInput),
+      fieldBlock("Кто покупатель *", audienceInput),
+      fieldBlock("Тон роликов *", toneInput),
+      fieldBlock("Ограничения", restrictionsInput),
+      fieldBlock("Пожелания", wishesInput),
+      fieldBlock("Фото товара и свои видео (до 50 МБ файл)", fileInput),
+      fileList,
+      rightsLine,
+      submitButton,
+    );
+    var note = document.createElement("p");
+    note.className = "note";
+    note.textContent =
+      "Материалы попадают команде на проверку; в работу их принимает оператор.";
+    card.append(note);
+    intakePanel.append(card);
+  }
+
+  function showTab(which) {
+    tabVideos.classList.toggle("active", which === "videos");
+    tabIntake.classList.toggle("active", which === "intake");
+    listNode.hidden = which !== "videos";
+    intakePanel.hidden = which !== "intake";
+  }
+  tabVideos.addEventListener("click", function () { showTab("videos"); });
+  tabIntake.addEventListener("click", function () { showTab("intake"); });
+
   function load(token) {
     api({ action: "view", token: token }).then(function (result) {
       if (!result || result.ok !== true) {
@@ -256,16 +458,34 @@
         : "";
       listNode.replaceChildren();
       var items = Array.isArray(result.items) ? result.items : [];
-      if (!items.length) {
+      var intakeOn = result.intake_enabled === true;
+      if (!items.length && !intakeOn) {
         showState(
           "Роликов пока нет",
           "Команда добавит их в ближайшее время.",
         );
         return;
       }
+      if (!items.length) {
+        var emptyNote = document.createElement("p");
+        emptyNote.className = "note";
+        emptyNote.style.textAlign = "center";
+        emptyNote.textContent =
+          "Роликов пока нет — начните с вкладки «Материалы и бриф».";
+        listNode.append(emptyNote);
+      }
       items.forEach(function (item) {
         listNode.append(renderItem(token, item));
       });
+      if (intakeOn) {
+        tabsNode.hidden = false;
+        renderIntake(token, result);
+        showTab(items.length ? "videos" : "intake");
+      } else {
+        tabsNode.hidden = true;
+        intakePanel.hidden = true;
+        listNode.hidden = false;
+      }
     }).catch(function () {
       showState(
         "Не удалось загрузить",

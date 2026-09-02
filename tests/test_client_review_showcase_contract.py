@@ -140,6 +140,48 @@ def test_spa_issue_dialog_and_api_methods() -> None:
     assert "review.html#t=" in APP
 
 
+def test_stage2_client_intake_contract() -> None:
+    intake = (
+        ROOT / "supabase/migrations/202609030014_client_intake_v1.sql"
+    ).read_text(encoding="utf-8")
+    intake_rpcs = (
+        ROOT
+        / "supabase/migrations/202609030015_client_intake_public_rpcs_v1.sql"
+    ).read_text(encoding="utf-8")
+    # Схема: FORCE RLS, поля брифа только с префиксом brief_, права
+    # обязательны на уровне CHECK, лимит файла 50 МБ.
+    assert "force row level security" in intake
+    assert "rights_confirmed boolean not null default false check (rights_confirmed)" in intake
+    assert "size_bytes between 1 and 52428800" in intake
+    assert "brief_product" in intake and "brief_audience" in intake
+    assert '"name"' not in intake and "'name'" not in intake.replace(
+        "policyname", ""
+    ).replace("proname", "").replace("relname", "").replace("nspname", "")
+    # Системные RPC: суточные лимиты, whitelist типов, анти-энумерация,
+    # файл идёт мимо edge по подписанному upload-URL.
+    assert "uploads_today >= 20" in intake_rpcs
+    assert "briefs_today >= 5" in intake_rpcs
+    assert "'image/jpeg', 'image/png', 'image/webp', 'video/mp4'" in intake_rpcs
+    assert intake_rpcs.count("client_review_not_found") >= 3
+    assert "client_intake_rights_required" in intake_rpcs
+    assert "client-intake/" in intake_rpcs
+    assert "notification_payload_sensitive_v491" in intake_rpcs
+    assert "'client_intake_brief'" in intake_rpcs
+    # Edge: intake-действия + подписанный upload-URL.
+    assert '"intake_upload_init"' in EDGE.replace("'", '"')
+    assert "createSignedUploadUrl" in EDGE
+    assert "payload.rights_confirmed !== true" in EDGE
+    # Клиентская страница: вкладка, чекбокс прав, прямой PUT в storage.
+    assert "Материалы и бриф" in PAGE
+    assert "intake_upload_init" in PAGE_JS
+    assert '"PUT"' in PAGE_JS
+    assert "rightsBox.checked" in PAGE_JS
+    # SPA: тумблер ввода и решения по брифу.
+    assert 'data-action="toggle-client-intake"' in APP
+    assert 'data-action="decide-client-intake-brief"' in APP
+    assert 'configureClientReviewIntake: "creator_configure_client_review_intake"' in API
+
+
 def test_operator_regulations_live_in_academy() -> None:
     # Решение владельца 03.09: регламент оператора — курс академии,
     # а не отдельный док. Сид идемпотентен, аттестация из трёх вопросов.

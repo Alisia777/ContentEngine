@@ -13,9 +13,9 @@ import {
   normalizeContentEngineEmbeddedWindowRoute,
   readContentEngineEmbeddedWindowCommand,
   readContentEngineEmbeddedWindowRequest,
-} from "./workspace-embedded-window-contract.js?v=20260826.rebuild-clean.58";
+} from "./workspace-embedded-window-contract.js?v=20260826.rebuild-clean.59";
 
-const BUILD = "20260826.rebuild-clean.58";
+const BUILD = "20260826.rebuild-clean.59";
 
 function embeddedRequest(windowLike = globalThis.window) {
   if (!windowLike) return null;

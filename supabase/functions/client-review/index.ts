@@ -44,9 +44,25 @@ type ContentEngineDatabase = {
         Args: { p_payload: Json };
         Returns: Json;
       };
+      system_client_intake_upload_init: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
+      system_client_intake_submit_brief: {
+        Args: { p_payload: Json };
+        Returns: Json;
+      };
     };
   };
 };
+
+const INTAKE_BUCKET = "contentengine-private";
+const INTAKE_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "video/mp4",
+]);
 
 function responseHeaders(request: Request): Headers {
   const origin = request.headers.get("origin") ?? "";
@@ -382,6 +398,129 @@ const clientReview = withSupabase<ContentEngineDatabase>({
       version: "client-review-decide-v1",
       replayed: data.replayed === true,
       decision: stringOrNull(data.decision, 32),
+    });
+  }
+
+  if (action === "intake_upload_init") {
+    const allowedKeys = new Set([
+      "action",
+      "token",
+      "original_filename",
+      "mime_type",
+      "size_bytes",
+      "rights_confirmed",
+      "client_request_id",
+    ]);
+    if (Object.keys(payload).some((key) => !allowedKeys.has(key))) {
+      return json(request, { ok: false, code: "payload_fields_invalid" }, 400);
+    }
+    const requestId = stringOrNull(payload.client_request_id, 64);
+    const mimeType = stringOrNull(payload.mime_type, 64) ?? "";
+    const sizeBytes = typeof payload.size_bytes === "number"
+      ? Math.floor(payload.size_bytes)
+      : 0;
+    if (
+      requestId === null || !UUID_PATTERN.test(requestId) ||
+      !INTAKE_MIME_TYPES.has(mimeType) ||
+      sizeBytes < 1 || sizeBytes > 52_428_800 ||
+      payload.rights_confirmed !== true
+    ) {
+      return json(request, { ok: false, code: "invalid_payload" }, 400);
+    }
+    const { data, error } = await context.supabaseAdmin.rpc(
+      "system_client_intake_upload_init",
+      {
+        p_payload: {
+          token_hash: tokenHash,
+          client_key_hash: callerHash,
+          original_filename: stringOrNull(payload.original_filename, 255) ??
+            "file",
+          mime_type: mimeType,
+          size_bytes: sizeBytes,
+          rights_confirmed: true,
+          client_request_id: requestId,
+        },
+      },
+    );
+    if (error !== null || !isRecord(data)) {
+      return json(request, { ok: false, code: "review_unavailable" }, 503);
+    }
+    if (data.ok !== true) return refusal(request, data);
+    const upload = isRecord(data.upload) ? data.upload : {};
+    const objectName = stringOrNull(upload.object_name, 1024);
+    if (objectName === null) {
+      return json(request, { ok: false, code: "review_unavailable" }, 503);
+    }
+    // Подписанный upload-URL: файл идёт в storage напрямую, минуя edge.
+    const { data: signed, error: signError } = await context.supabaseAdmin
+      .storage.from(INTAKE_BUCKET)
+      .createSignedUploadUrl(objectName);
+    if (signError !== null || !isRecord(signed)) {
+      return json(request, { ok: false, code: "review_unavailable" }, 503);
+    }
+    return json(request, {
+      ok: true,
+      version: "client-intake-v1",
+      replayed: data.replayed === true,
+      upload_id: upload.id ?? null,
+      signed_url: signed.signedUrl ?? null,
+      upload_token: signed.token ?? null,
+      object_name: objectName,
+    });
+  }
+
+  if (action === "intake_brief") {
+    const allowedKeys = new Set([
+      "action",
+      "token",
+      "brief_product",
+      "brief_audience",
+      "brief_tone",
+      "brief_restrictions",
+      "brief_wishes",
+      "client_request_id",
+    ]);
+    if (Object.keys(payload).some((key) => !allowedKeys.has(key))) {
+      return json(request, { ok: false, code: "payload_fields_invalid" }, 400);
+    }
+    const requestId = stringOrNull(payload.client_request_id, 64);
+    if (requestId === null || !UUID_PATTERN.test(requestId)) {
+      return json(request, { ok: false, code: "invalid_payload" }, 400);
+    }
+    const { data, error } = await context.supabaseAdmin.rpc(
+      "system_client_intake_submit_brief",
+      {
+        p_payload: {
+          token_hash: tokenHash,
+          client_key_hash: callerHash,
+          brief_product: stringOrNull(payload.brief_product, 180),
+          brief_audience: stringOrNull(payload.brief_audience, 600),
+          brief_tone: stringOrNull(payload.brief_tone, 400),
+          brief_restrictions: stringOrNull(payload.brief_restrictions, 800),
+          brief_wishes: stringOrNull(payload.brief_wishes, 1200),
+          client_request_id: requestId,
+        },
+      },
+    );
+    if (error !== null || !isRecord(data)) {
+      const message = error?.message ?? "";
+      if (message.includes("client_intake_brief_invalid")) {
+        return json(request, {
+          ok: false,
+          code: "client_intake_brief_invalid",
+          message:
+            "Проверьте бриф: товар (2–180), аудитория (3–600), тон (3–400) — " +
+            "и не вставляйте пароли или ключи.",
+        }, 400);
+      }
+      return json(request, { ok: false, code: "review_unavailable" }, 503);
+    }
+    if (data.ok !== true) return refusal(request, data);
+    return json(request, {
+      ok: true,
+      version: "client-intake-v1",
+      replayed: data.replayed === true,
+      brief: isRecord(data.brief) ? data.brief : null,
     });
   }
 

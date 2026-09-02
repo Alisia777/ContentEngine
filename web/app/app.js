@@ -3,12 +3,12 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260826.rebuild-clean.58";
+} from "./supabase-api.js?v=20260826.rebuild-clean.59";
 import {
   adminPeopleMarkup,
   normalizeAdminSnapshot,
   normalizeAdminView,
-} from "./admin-people-view.js?v=20260826.rebuild-clean.58";
+} from "./admin-people-view.js?v=20260826.rebuild-clean.59";
 import {
   clearExactYoutubeMediaHandoff,
   exactYoutubeRegisteredMediaId,
@@ -16,12 +16,12 @@ import {
   isExactYoutubeMp4,
   readExactYoutubeMediaHandoff,
   updateExactYoutubeMediaHandoffProgress,
-} from "./exact-youtube-media-handoff.js?v=20260826.rebuild-clean.58";
+} from "./exact-youtube-media-handoff.js?v=20260826.rebuild-clean.59";
 import {
   captureVerifiedPrivateVideoBlob,
   exactYoutubeResearchFailureRecovery,
   resolveExactYoutubeResearchCaptureMedia,
-} from "./exact-youtube-research-capture.js?v=20260826.rebuild-clean.58";
+} from "./exact-youtube-research-capture.js?v=20260826.rebuild-clean.59";
 import {
   approvedGenerationSpecContext,
   generationSpecApprovalReviewDecision,
@@ -34,21 +34,21 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
-} from "./generation-spec.js?v=20260826.rebuild-clean.58";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260826.rebuild-clean.58";
-import { generationStrategyRequiredSourceCount } from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.58";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.58";
+} from "./generation-spec.js?v=20260826.rebuild-clean.59";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260826.rebuild-clean.59";
+import { generationStrategyRequiredSourceCount } from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.59";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.59";
 import {
   normalizeWorkspaceInternalTarget,
   resolveWorkspaceCommand,
-} from "./workspace-command-registry.js?v=20260826.rebuild-clean.58";
+} from "./workspace-command-registry.js?v=20260826.rebuild-clean.59";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
   mergeMediaFileSelection,
   mediaFileValidationError as mediaUploadFileValidationError,
   mediaUploadWorkerCount,
-} from "./media-upload-queue.js?v=20260826.rebuild-clean.58";
+} from "./media-upload-queue.js?v=20260826.rebuild-clean.59";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -56,39 +56,39 @@ import {
   REQUIRED_MODULE_CODES,
   SIMPLE_WORKSPACE_TAB_KEYS,
   WORKSPACE_TABS,
-} from "./catalog.js?v=20260826.rebuild-clean.58";
+} from "./catalog.js?v=20260826.rebuild-clean.59";
 import {
   ACCOUNT_LAUNCH_PATH,
   accountLaunchCenterMarkup,
   accountLaunchGuideMarkup,
   accountLaunchSlugFromPath,
   evaluateAdvertisingAnswers,
-} from "./account-launch-view.js?v=20260826.rebuild-clean.58";
+} from "./account-launch-view.js?v=20260826.rebuild-clean.59";
 import {
   managerDashboardMarkup,
   managerOperationalHealthMarkup,
-} from "./manager-dashboard-view.js?v=20260826.rebuild-clean.58";
+} from "./manager-dashboard-view.js?v=20260826.rebuild-clean.59";
 import {
   generationCampaignSelectionState,
   generationSpendAllowsMinor,
   generationSpendSnapshotMarkup,
   managerGenerationSpendMarkup,
   normalizeGenerationSpendOverview,
-} from "./generation-spend-view.js?v=20260826.rebuild-clean.58";
+} from "./generation-spend-view.js?v=20260826.rebuild-clean.59";
 import {
   generationProviderReadinessPreflights,
   normalizeGenerationProviderPreflight,
-} from "./generation-provider-readiness.js?v=20260826.rebuild-clean.58";
+} from "./generation-provider-readiness.js?v=20260826.rebuild-clean.59";
 import {
   generationModelAcceptanceMarkup,
   normalizeGenerationModelAcceptance,
-} from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.58";
+} from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.59";
 import {
   accessCenterMarkup,
   ensureAccessCenterStyles,
   normalizeAccessCenterEmail,
   normalizeAccessCenterResult,
-} from "./access-center-view.js?v=20260826.rebuild-clean.58";
+} from "./access-center-view.js?v=20260826.rebuild-clean.59";
 import {
   applyResearchMarketCategoryResolution,
   applyResearchOutcomeLearningMutation,
@@ -110,7 +110,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260826.rebuild-clean.58";
+} from "./product-research-view.js?v=20260826.rebuild-clean.59";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -121,7 +121,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260826.rebuild-clean.58";
+} from "./ai-learning-control-room.js?v=20260826.rebuild-clean.59";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -137,15 +137,15 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260826.rebuild-clean.58";
+} from "./content-generation-handoff.js?v=20260826.rebuild-clean.59";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
-} from "./generation-quality-training.js?v=20260826.rebuild-clean.58";
+} from "./generation-quality-training.js?v=20260826.rebuild-clean.59";
 import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,
-} from "./generation-form-readiness.js?v=20260826.rebuild-clean.58";
+} from "./generation-form-readiness.js?v=20260826.rebuild-clean.59";
 import {
   GENERATION_STRATEGY_RUNTIME_ACTIONS,
   createGenerationStrategyRuntimeFingerprint,
@@ -159,7 +159,7 @@ import {
   invalidateGenerationStrategyRuntimeState,
   normalizeGenerationStrategyProbeResponse,
   reduceGenerationStrategyRuntimeState,
-} from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.58";
+} from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.59";
 import {
   createGenerationStrategyQueue,
   generationStrategyQueueAggregateReview,
@@ -168,33 +168,33 @@ import {
   planGenerationStrategyQueueFreeWork,
   planGenerationStrategyQueueSequentialStarts,
   updateGenerationStrategyQueueRow,
-} from "./generation-strategy-queue.js?v=20260826.rebuild-clean.58";
+} from "./generation-strategy-queue.js?v=20260826.rebuild-clean.59";
 import {
   renderGenerationStrategyQueueView,
-} from "./generation-strategy-queue-view.js?v=20260826.rebuild-clean.58";
+} from "./generation-strategy-queue-view.js?v=20260826.rebuild-clean.59";
 import {
   buildGenerationStrategySpecApprovalRequest,
   buildGenerationStrategySpecPrepareRequest,
   generationStrategySpecSafeProjection,
   normalizeGenerationStrategySpecControlResponse,
   normalizeGenerationStrategySpecPrepareResponse,
-} from "./generation-strategy-spec.js?v=20260826.rebuild-clean.58";
+} from "./generation-strategy-spec.js?v=20260826.rebuild-clean.59";
 import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
   normalizeGenerationVideoReferenceContext,
-} from "./generation-video-reference.js?v=20260826.rebuild-clean.58";
+} from "./generation-video-reference.js?v=20260826.rebuild-clean.59";
 import {
   buildGenerationFormDraft,
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260826.rebuild-clean.58";
+} from "./generation-form-draft.js?v=20260826.rebuild-clean.59";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
   resolveGenerationExpectedProductMatch,
-} from "./generation-ai-research-working-draft.js?v=20260826.rebuild-clean.58";
+} from "./generation-ai-research-working-draft.js?v=20260826.rebuild-clean.59";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -206,7 +206,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260826.rebuild-clean.58";
+} from "./generation-autopilot.js?v=20260826.rebuild-clean.59";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -228,14 +228,14 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260826.rebuild-clean.58";
+} from "./content-review-view.js?v=20260826.rebuild-clean.59";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
   createFirstShiftFullState,
   firstShiftFullScenarioMarkup,
   reduceFirstShiftFullState,
-} from "./first-shift-full-scenario.js?v=20260826.rebuild-clean.58";
+} from "./first-shift-full-scenario.js?v=20260826.rebuild-clean.59";
 import {
   GENERATION_ARCHIVE_PAGE_SIZE,
   GENERATION_VISIBLE_CAP,
@@ -250,7 +250,7 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260826.rebuild-clean.58";
+} from "./portal-experience.js?v=20260826.rebuild-clean.59";
 import {
   isWorkspaceSmartFolderId,
   normalizeWorkspaceBoard,
@@ -258,7 +258,7 @@ import {
   workspaceBoardItemKey,
   workspaceBoardPaginationState,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260826.rebuild-clean.58";
+} from "./workspace-board-view.js?v=20260826.rebuild-clean.59";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -270,7 +270,7 @@ import {
   syncTrainingWalkthroughStatus,
   trainingInteractiveMarkup,
   trainingWalkthroughStorageKey,
-} from "./training-interactive.js?v=20260826.rebuild-clean.58";
+} from "./training-interactive.js?v=20260826.rebuild-clean.59";
 import {
   LEARNING_TRACKS,
   achievementMarkup,
@@ -287,16 +287,16 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260826.rebuild-clean.58";
+} from "./training-journey.js?v=20260826.rebuild-clean.59";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
   trainingPlatformSimulatorsMarkup,
-} from "./training-platform-simulators.js?v=20260826.rebuild-clean.58";
+} from "./training-platform-simulators.js?v=20260826.rebuild-clean.59";
 import {
   bindTrainingMediaCards,
   trainingMediaCardsMarkup,
-} from "./training-media-cards.js?v=20260826.rebuild-clean.58";
+} from "./training-media-cards.js?v=20260826.rebuild-clean.59";
 import {
   normalizeTrainingPracticalProject,
   normalizeTrainingPracticalReviews,
@@ -306,7 +306,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260826.rebuild-clean.58";
+} from "./training-practical-review.js?v=20260826.rebuild-clean.59";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -325,7 +325,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260826.rebuild-clean.58";
+} from "./my-work-view.js?v=20260826.rebuild-clean.59";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -336,8 +336,8 @@ const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
   ),
 );
 const MEDIA_UPLOAD_CONCURRENCY = DEFAULT_MEDIA_UPLOAD_CONCURRENCY;
-const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260826.rebuild-clean.58";
-const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260826.rebuild-clean.58";
+const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260826.rebuild-clean.59";
+const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260826.rebuild-clean.59";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
 const MAX_MOCK_BATCH_SIZE = Math.min(50, Math.max(1, Number(CONFIG.MAX_BATCH_SIZE) || 50));
@@ -9326,7 +9326,14 @@ function openClientReviewLinksDialog({ campaignId, campaignName }) {
           ${(link.items || []).map((item) => `
             <p class="tiny">Ролик ${escapeHtml(String(item.position))}: ${escapeHtml(decisionText(item.last_decision?.decision))}${item.last_decision?.comment ? ` — «${escapeHtml(item.last_decision.comment)}»` : ""}</p>
           `).join("")}
-          ${link.status === "active" ? `<button class="btn btn-danger btn-small" type="button" data-action="revoke-client-review-link" data-link-id="${escapeHtml(link.id)}">Отозвать ссылку</button>` : ""}
+          ${link.status === "active" ? `
+            <div class="inline-actions">
+              <button class="btn btn-danger btn-small" type="button" data-action="revoke-client-review-link" data-link-id="${escapeHtml(link.id)}">Отозвать ссылку</button>
+              <button class="btn btn-secondary btn-small" type="button" data-action="toggle-client-intake" data-link-id="${escapeHtml(link.id)}" data-enable="${link.intake_enabled ? "false" : "true"}">${link.intake_enabled ? "Выключить клиентский ввод" : "Включить клиентский ввод"}</button>
+              <button class="btn btn-ghost btn-small" type="button" data-action="load-client-intake" data-link-id="${escapeHtml(link.id)}">Брифы и файлы клиента</button>
+            </div>
+            <div data-client-intake-box="${escapeHtml(link.id)}"></div>
+          ` : ""}
         </div>
       `).join("");
     } catch (error) {
@@ -24326,6 +24333,124 @@ async function handleClick(event) {
     } catch (error) {
       control.disabled = false;
       toast(`Не удалось отозвать: ${actionErrorMessage(error)}`, "error");
+    }
+    return;
+  }
+
+  if (action === "toggle-client-intake") {
+    control.disabled = true;
+    try {
+      await state.api.configureClientReviewIntake({
+        link_id: String(control.dataset.linkId || ""),
+        intake_enabled: control.dataset.enable === "true",
+      });
+      toast(
+        control.dataset.enable === "true"
+          ? "Клиентский ввод включён: у клиента появилась вкладка «Материалы и бриф»."
+          : "Клиентский ввод выключен.",
+        "success",
+      );
+      control.closest("dialog")?.dispatchEvent(
+        new CustomEvent("client-review-refresh"),
+      );
+    } catch (error) {
+      control.disabled = false;
+      toast(`Не удалось переключить: ${actionErrorMessage(error)}`, "error");
+    }
+    return;
+  }
+
+  if (action === "load-client-intake") {
+    const linkId = String(control.dataset.linkId || "");
+    const box = control.closest("dialog")?.querySelector(
+      `[data-client-intake-box="${CSS.escape(linkId)}"]`,
+    );
+    if (!box) return;
+    control.disabled = true;
+    box.innerHTML = `<p class="muted tiny">Загружаем брифы и файлы…</p>`;
+    try {
+      const data = await state.api.listClientIntake({ link_id: linkId });
+      const uploads = data.uploads || [];
+      const urls = uploads.length
+        ? await state.api.signedPrivateObjectUrls(
+          uploads.map((upload) => upload.object_name),
+        )
+        : new Map();
+      const briefs = data.briefs || [];
+      box.innerHTML = `
+        ${briefs.length ? briefs.map((brief) => `
+          <div class="callout" style="margin-top:8px">
+            <strong>Бриф: ${escapeHtml(brief.brief_product)}</strong>
+            <span class="badge">${escapeHtml(
+              brief.status === "accepted"
+                ? "принят в работу"
+                : brief.status === "returned"
+                  ? "возвращён"
+                  : "на рассмотрении",
+            )}</span>
+            <p class="tiny">Аудитория: ${escapeHtml(brief.brief_audience)}</p>
+            <p class="tiny">Тон: ${escapeHtml(brief.brief_tone)}</p>
+            ${brief.brief_restrictions ? `<p class="tiny">Ограничения: ${escapeHtml(brief.brief_restrictions)}</p>` : ""}
+            ${brief.brief_wishes ? `<p class="tiny">Пожелания: ${escapeHtml(brief.brief_wishes)}</p>` : ""}
+            ${brief.status === "submitted" ? `
+              <div class="inline-actions">
+                <button class="btn btn-primary btn-small" type="button" data-action="decide-client-intake-brief" data-brief-id="${escapeHtml(brief.id)}" data-link-id="${escapeHtml(linkId)}" data-decision="accepted">Принять в работу</button>
+                <button class="btn btn-secondary btn-small" type="button" data-action="decide-client-intake-brief" data-brief-id="${escapeHtml(brief.id)}" data-link-id="${escapeHtml(linkId)}" data-decision="returned">Вернуть с комментарием</button>
+              </div>
+            ` : brief.operator_comment ? `<p class="tiny muted">Комментарий команды: ${escapeHtml(brief.operator_comment)}</p>` : ""}
+          </div>
+        `).join("") : `<p class="muted tiny" style="margin-top:8px">Брифов пока нет.</p>`}
+        ${uploads.length ? `
+          <p class="eyebrow" style="margin-top:10px">Файлы клиента</p>
+          ${uploads.map((upload) => `
+            <p class="tiny">
+              ${urls.get(upload.object_name)
+                ? `<a href="${escapeHtml(urls.get(upload.object_name))}" target="_blank" rel="noopener noreferrer">${escapeHtml(upload.original_filename)}</a>`
+                : escapeHtml(upload.original_filename)}
+              · ${escapeHtml(String(Math.ceil(Number(upload.size_bytes || 0) / 1048576)))} МБ
+              · права подтверждены клиентом
+            </p>
+          `).join("")}
+        ` : ""}
+      `;
+    } catch (error) {
+      box.innerHTML = `<p class="muted tiny">Не удалось загрузить: ${escapeHtml(actionErrorMessage(error))}</p>`;
+    }
+    control.disabled = false;
+    return;
+  }
+
+  if (action === "decide-client-intake-brief") {
+    const decision = String(control.dataset.decision || "");
+    let comment = "";
+    if (decision === "returned") {
+      comment = String(
+        window.prompt("Комментарий клиенту: что доработать в брифе?") || "",
+      ).trim();
+      if (comment.length < 3) {
+        toast("Для возврата нужен комментарий клиенту.", "error");
+        return;
+      }
+    }
+    control.disabled = true;
+    try {
+      await state.api.decideClientIntakeBrief({
+        brief_id: String(control.dataset.briefId || ""),
+        decision,
+        comment,
+      });
+      toast(
+        decision === "accepted"
+          ? "Бриф принят в работу. Клиент увидит статус на своей странице."
+          : "Бриф возвращён клиенту с комментарием.",
+        "success",
+      );
+      control.closest("dialog")?.querySelector(
+        `[data-action="load-client-intake"][data-link-id="${CSS.escape(String(control.dataset.linkId || ""))}"]`,
+      )?.click();
+    } catch (error) {
+      control.disabled = false;
+      toast(`Решение не записано: ${actionErrorMessage(error)}`, "error");
     }
     return;
   }

@@ -81,6 +81,9 @@ export const RPC = Object.freeze({
   revokeClientReviewLink: "creator_revoke_client_review_link",
   listClientReviewLinks: "creator_list_client_review_links",
   listCampaignReviewCandidates: "creator_list_campaign_review_candidates",
+  configureClientReviewIntake: "creator_configure_client_review_intake",
+  listClientIntake: "creator_list_client_intake",
+  decideClientIntakeBrief: "creator_decide_client_intake_brief",
   publishGenerationResult: "creator_publish_generation_result",
   rejectGenerationResult: "creator_reject_generation_result",
   teamAccounts: "creator_team_accounts",
@@ -6943,6 +6946,55 @@ export class CreatorApi {
     return data;
   }
 
+  // Ступень 2: клиентский ввод («Материалы и бриф» на том же токене).
+  async configureClientReviewIntake(input) {
+    const data = await this.call(RPC.configureClientReviewIntake, {
+      organization_id: String(this.organizationId || ""),
+      link_id: String(input?.link_id || "").trim().toLowerCase(),
+      intake_enabled: input?.intake_enabled === true,
+    });
+    if (!data || data.ok !== true) {
+      throw new CreatorApiError("Витрина ответила в неизвестной форме.");
+    }
+    return data;
+  }
+
+  async listClientIntake(input) {
+    const data = await this.call(RPC.listClientIntake, {
+      organization_id: String(this.organizationId || ""),
+      link_id: String(input?.link_id || "").trim().toLowerCase(),
+    });
+    if (
+      !data || data.ok !== true
+      || !Array.isArray(data.briefs) || !Array.isArray(data.uploads)
+    ) {
+      throw new CreatorApiError("Витрина ответила в неизвестной форме.");
+    }
+    return data;
+  }
+
+  async decideClientIntakeBrief(input) {
+    const decision = String(input?.decision || "").trim();
+    const comment = String(input?.comment || "").trim();
+    if (!["accepted", "returned"].includes(decision)
+      || (decision === "returned" && comment.length < 3)) {
+      throw new CreatorApiError(
+        "Для возврата брифа нужен комментарий клиенту (от 3 знаков).",
+        { code: "client_intake_decision_invalid" },
+      );
+    }
+    const data = await this.call(RPC.decideClientIntakeBrief, {
+      organization_id: String(this.organizationId || ""),
+      brief_id: String(input?.brief_id || "").trim().toLowerCase(),
+      decision,
+      ...(comment ? { comment } : {}),
+    });
+    if (!data || data.ok !== true) {
+      throw new CreatorApiError("Витрина ответила в неизвестной форме.");
+    }
+    return data;
+  }
+
   // «Одобрить и разместить» готовый результат: явное подтверждение полного
   // просмотра + выданный аккаунт + ERID. Создаёт задачу размещения и строку
   // placements; финальную ссылку подтверждает confirmPlacement.
@@ -9506,6 +9558,9 @@ function toFriendlyMessage(error) {
     client_review_media_not_accepted: "У ролика нет принятой QA-проверки. Отметьте кураторскую ответственность или проведите ролик через QA.",
     client_review_ttl_invalid: "Срок ссылки — от 1 до 90 дней.",
     client_review_link_not_found: "Ссылка не найдена. Обновите список ссылок кампании.",
+    client_intake_decision_invalid: "Решение по брифу — «принять» или «вернуть с комментарием».",
+    client_intake_comment_required: "Для возврата брифа нужен комментарий клиенту.",
+    client_intake_brief_not_found: "Бриф не найден. Обновите список ссылок.",
     project_member_grant_payload_invalid: "Не удалось безопасно выдать доступ. Обновите список проекта.",
     project_member_revoke_payload_invalid: "Не удалось безопасно отозвать доступ. Обновите список проекта.",
     project_member_profile_id_invalid: "Не удалось определить участника команды. Обновите список.",
