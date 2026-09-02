@@ -1,0 +1,24 @@
+# Воркер медиа-подготовки на VPS: тот же образ и код, что локально, но без
+# веб-зеркал (8767/8768 остаются на стенде Сергея). Код монтируется из
+# клона репо — обновление = git pull + restart (pip/apt — rebuild образа).
+# Запуск: docker compose -f docker-compose.vps.yml up -d --build
+services:
+  media-preparation-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+    command: ["python", "scripts/media_preparation_worker.py"]
+    restart: unless-stopped
+    environment:
+      SUPABASE_URL: "https://iyckwryrucqrxwlowxow.supabase.co"
+      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-}"
+      MEDIA_WORKER_POLL_SECONDS: "3"
+      QVF_FFMPEG_PATH: ffmpeg
+      QVF_FFPROBE_PATH: ffprobe
+      # Опциональный ключ fal для платного голоса MiniMax в финализации;
+      # пустой = маршрут выключен, работает бесплатный edge-tts.
+      FAL_KEY: "${FAL_KEY:-}"
+      # Dead-man-switch healthchecks.io; пустой = пинг выключен (no-op).
+      HEALTHCHECKS_MEDIA_WORKER_URL: "${HEALTHCHECKS_MEDIA_WORKER_URL:-}"
+    volumes:
+      - .:/app
