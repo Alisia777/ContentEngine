@@ -82,5 +82,8 @@ services:
       MEDIA_WORKER_POLL_SECONDS: "3"
       QVF_FFMPEG_PATH: ffmpeg
       QVF_FFPROBE_PATH: ffprobe
+      # Опциональный ключ fal для платного голоса MiniMax в финализации;
+      # пустой = маршрут выключен, работает бесплатный edge-tts.
+      FAL_KEY: "${FAL_KEY:-}"
     volumes:
       - .:/app

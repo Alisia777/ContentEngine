@@ -57,6 +57,48 @@ def test_queue_is_gated_and_system_rpcs_are_service_role_only() -> None:
     assert "'spend_action_started', false" in QUEUE
 
 
+def test_finalize_video_handler_contract() -> None:
+    """«Финализация» (202609020001): ветка воркера, TTS-цепочка и порядок
+    kind-диспетчеризации — finalize уходит своим complete, неизвестный kind
+    падает громко, а не едет по clean_master-пути."""
+    assert 'if job["kind"] == "finalize_video":' in WORKER
+    assert 'if job["kind"] != "clean_master":' in WORKER
+    assert "unknown_job_kind" in WORKER
+    # Путь результата — из params постановки, suggested-путь клина чужой.
+    assert '"output_object_name"' in WORKER
+    assert "system_complete_video_finalization" in WORKER
+    # TTS: бесплатный edge-tts модулем + платный MiniMax с фолбэком.
+    assert "ru-RU-SvetlanaNeural" in WORKER
+    assert '"-m", "edge_tts"' in WORKER
+    assert "queue.fal.run/fal-ai/minimax/speech-02-hd" in WORKER
+    assert "falling back to edge-tts" in WORKER
+    # Хвостовая тишина срезается, звук исходника глушится маппингом дорожек.
+    assert "areverse,silenceremove" in WORKER
+    assert '"-map", "0:v", "-map", "1:a"' in WORKER
+    # Плашки: кириллический шрифт файлом, тексты через textfile= (никакого
+    # экранирования кавычек в -vf).
+    assert "DejaVuSans-Bold.ttf" in WORKER
+    assert "textfile=" in WORKER
+    # Retry-безопасная заливка детерминированного имени.
+    assert "upsert=True" in WORKER
+    # Ключ fal опционален и пробрасывается компоузом; шрифт зафиксирован apt.
+    assert 'FAL_KEY: "${FAL_KEY:-}"' in COMPOSE
+    dockerfile = (ROOT / "Dockerfile.local").read_text(encoding="utf-8")
+    assert "fonts-dejavu-core" in dockerfile
+    requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+    assert "edge-tts==" in requirements
+
+
+def test_finalize_caption_windows_scale_with_duration() -> None:
+    """Окна плашек масштабируются k = duration/10: на 15-секундном ролике
+    первое окно — (0.45, 4.8)."""
+    assert "CAPTION_WINDOWS = ((0.3, 3.2" in WORKER
+    scale = 15.0 / 10.0
+    start, end = 0.3 * scale, 3.2 * scale
+    assert (round(start, 2), round(end, 2)) == (0.45, 4.8)
+    assert "duration / 10.0" in WORKER
+
+
 def test_clean_master_registers_derived_source_with_lineage() -> None:
     # Производный файл — полноценный source_video с ролью и родословной:
     # его можно выбирать в «Копии»/«Создании» как обычный исходник.
@@ -85,9 +127,13 @@ def test_workspace_media_items_carry_preparation_facts() -> None:
 
 
 def test_worker_pipeline_is_stdlib_ffmpeg_and_bounded() -> None:
-    # stdlib-only: без pip-зависимостей воркер живёт в образе репо.
+    # stdlib-only для сети: без библиотеки requests воркер живёт в образе
+    # репо (edge-tts — единственный pip и зовётся подпроцессом, не импортом;
+    # слово «requests» в URL fal-очереди — не библиотека).
     assert "import urllib.request" in WORKER
-    assert "requests" not in WORKER.replace("urllib.request", "")
+    assert "import requests" not in WORKER
+    assert "from requests" not in WORKER
+    assert "import edge_tts" not in WORKER
     # Анализ: probe + рамка + статичные края + эвристика записи экрана.
     assert "cropdetect" in WORKER
     assert "freezedetect" in WORKER

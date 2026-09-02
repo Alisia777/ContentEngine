@@ -84,7 +84,11 @@ def download(bucket: str, object_name: str, target_path: str) -> None:
             target.write(chunk)
 
 
-def upload(bucket: str, object_name: str, source_path: str) -> None:
+def upload(
+    bucket: str, object_name: str, source_path: str, upsert: bool = False
+) -> None:
+    # upsert=True нужен финализации: имя результата детерминировано job_id,
+    # и retry после успешной заливки, но упавшего complete, получал бы 409.
     with open(source_path, "rb") as source:
         body = source.read()
     request = urllib.request.Request(
@@ -94,7 +98,7 @@ def upload(bucket: str, object_name: str, source_path: str) -> None:
             "apikey": SERVICE_KEY,
             "Authorization": f"Bearer {SERVICE_KEY}",
             "Content-Type": "video/mp4",
-            "x-upsert": "false",
+            "x-upsert": "true" if upsert else "false",
         },
         method="POST",
     )
@@ -252,6 +256,185 @@ def clean_master(path: str, output_path: str, job: dict) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# «Финализация» готового ролика (kind=finalize_video, миграция 202609020001):
+# родной звук глушится, поверх — TTS-озвучка и три drawtext-плашки. Тайминги
+# MVP калиброваны от 10-секундного ролика и масштабируются пропорционально.
+# ---------------------------------------------------------------------------
+FAL_KEY = os.environ.get("FAL_KEY", "")
+FINALIZE_FONT = os.environ.get(
+    "FINALIZE_FONT_PATH",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+)
+CAPTION_WINDOWS = ((0.3, 3.2, "top"), (3.6, 7.0, "bottom"), (7.3, 9.9, "bottom"))
+
+
+def synthesize_tts(text: str, voice: str, workdir: str) -> tuple[str, str]:
+    """Возвращает (путь к сырому аудио, кто озвучил). Платный MiniMax через
+    fal — только по явному выбору голоса и при наличии ключа; любой его отказ
+    (включая боевой лок TOP_UP) тихо откатывается на бесплатный edge-tts."""
+    raw_path = os.path.join(workdir, "voice-raw.mp3")
+    if voice == "minimax_lovely_girl" and FAL_KEY:
+        try:
+            body = json.dumps({
+                "text": text,
+                "voice_setting": {"voice_id": "Lovely_Girl", "speed": 1.05},
+                "language_boost": "Russian",
+            }).encode("utf-8")
+            request = urllib.request.Request(
+                "https://queue.fal.run/fal-ai/minimax/speech-02-hd",
+                data=body,
+                headers={
+                    "Authorization": f"Key {FAL_KEY}",
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(request, timeout=60) as response:
+                submitted = json.loads(response.read().decode("utf-8"))
+            request_id = submitted["request_id"]
+            deadline = time.time() + 120
+            while time.time() < deadline:
+                status_request = urllib.request.Request(
+                    "https://queue.fal.run/fal-ai/minimax/requests/"
+                    f"{request_id}/status",
+                    headers={"Authorization": f"Key {FAL_KEY}"},
+                )
+                with urllib.request.urlopen(status_request, timeout=60) as sr:
+                    status = json.loads(sr.read().decode("utf-8"))
+                if status.get("status") == "COMPLETED":
+                    break
+                time.sleep(2)
+            result_request = urllib.request.Request(
+                f"https://queue.fal.run/fal-ai/minimax/requests/{request_id}",
+                headers={"Authorization": f"Key {FAL_KEY}"},
+            )
+            with urllib.request.urlopen(result_request, timeout=60) as rr:
+                result = json.loads(rr.read().decode("utf-8"))
+            audio_url = result["audio"]["url"]
+            with urllib.request.urlopen(audio_url, timeout=120) as audio, open(
+                raw_path, "wb"
+            ) as target:
+                target.write(audio.read())
+            return raw_path, "minimax_lovely_girl"
+        except Exception as error:  # noqa: BLE001 — платный путь не обязателен
+            log(f"minimax tts failed, falling back to edge-tts: {error}")
+    completed = run_tool([
+        sys.executable, "-m", "edge_tts",
+        "--voice", "ru-RU-SvetlanaNeural",
+        "--rate", "+10%",
+        "--text", text,
+        "--write-media", raw_path,
+    ], timeout=180)
+    if completed.returncode != 0 or not os.path.exists(raw_path):
+        raise RuntimeError(f"edge_tts_failed: {completed.stderr[:300]}")
+    return raw_path, "edge_svetlana"
+
+
+def fit_voice(raw_path: str, workdir: str, target_seconds: float) -> str:
+    """Срез хвостовой тишины и мягкая подгонка длительности под ролик."""
+    trimmed_path = os.path.join(workdir, "voice-trimmed.wav")
+    completed = run_tool([
+        FFMPEG, "-hide_banner", "-y", "-i", raw_path,
+        "-af",
+        "areverse,silenceremove=start_periods=1:start_threshold=-45dB,areverse",
+        trimmed_path,
+    ])
+    if completed.returncode != 0 or not os.path.exists(trimmed_path):
+        raise RuntimeError(f"voice_trim_failed: {completed.stderr[:300]}")
+    voice_seconds = probe_audio_seconds(trimmed_path)
+    if voice_seconds <= target_seconds:
+        return trimmed_path
+    # atempo клампится диапазоном фильтра; остаток страхует -t на сборке.
+    tempo = min(2.0, max(1.0, voice_seconds / target_seconds))
+    fitted_path = os.path.join(workdir, "voice-fitted.wav")
+    completed = run_tool([
+        FFMPEG, "-hide_banner", "-y", "-i", trimmed_path,
+        "-af", f"atempo={tempo:.4f}", fitted_path,
+    ])
+    if completed.returncode != 0 or not os.path.exists(fitted_path):
+        raise RuntimeError(f"voice_fit_failed: {completed.stderr[:300]}")
+    return fitted_path
+
+
+def probe_audio_seconds(path: str) -> float:
+    completed = run_tool([
+        FFPROBE, "-v", "error", "-print_format", "json", "-show_format", path,
+    ])
+    if completed.returncode != 0:
+        raise RuntimeError(f"ffprobe_failed: {completed.stderr[:300]}")
+    data = json.loads(completed.stdout or "{}")
+    return float(data.get("format", {}).get("duration", 0) or 0)
+
+
+def build_drawtext(captions: list[str], duration: float, height: int,
+                   workdir: str) -> str:
+    """Три плашки через textfile= (никакого экранирования кавычек в -vf);
+    окна масштабируются k = duration / 10."""
+    scale = max(0.5, duration / 10.0)
+    font_size = max(24, int(height * 0.042))
+    filters = []
+    for index, (start, end, position) in enumerate(CAPTION_WINDOWS):
+        text_path = os.path.join(workdir, f"caption{index}.txt")
+        with open(text_path, "w", encoding="utf-8") as target:
+            target.write(captions[index])
+        y_expr = "h*0.08" if position == "top" else "h-text_h-h*0.10"
+        filters.append(
+            f"drawtext=fontfile={FINALIZE_FONT}:textfile={text_path}"
+            f":fontsize={font_size}:fontcolor=white"
+            ":box=1:boxcolor=black@0.5:boxborderw=14"
+            f":x=(w-text_w)/2:y={y_expr}"
+            f":enable='between(t,{start * scale:.2f},{end * scale:.2f})'"
+        )
+    return ",".join(filters)
+
+
+def finalize_video(source_path: str, output_path: str, job: dict,
+                   workdir: str) -> dict:
+    params = job.get("params") or {}
+    captions = [
+        str(params.get("caption_top") or "").strip()[:120],
+        str(params.get("caption_mid") or "").strip()[:120],
+        str(params.get("caption_bottom") or "").strip()[:120],
+    ]
+    narration = str(params.get("narration_text") or "").strip()
+    voice = str(params.get("voice") or "edge_svetlana").strip()
+    if not narration or not all(captions):
+        raise RuntimeError("finalize_params_incomplete")
+    facts = probe(source_path)
+    duration = facts["duration_seconds"]
+    raw_voice, tts_provider = synthesize_tts(narration, voice, workdir)
+    voice_path = fit_voice(raw_voice, workdir, max(1.0, duration - 0.2))
+    drawtext_chain = build_drawtext(
+        captions, duration, facts["height"], workdir
+    )
+    completed = run_tool([
+        FFMPEG, "-hide_banner", "-y",
+        "-i", source_path, "-i", voice_path,
+        "-map", "0:v", "-map", "1:a",
+        "-vf", drawtext_chain,
+        "-c:v", "libx264", "-crf", "19", "-pix_fmt", "yuv420p",
+        "-preset", "veryfast", "-movflags", "+faststart",
+        "-c:a", "aac", "-b:a", "160k",
+        "-t", str(duration),
+        output_path,
+    ], timeout=540)
+    if completed.returncode != 0 or not os.path.exists(output_path):
+        raise RuntimeError(f"finalize_ffmpeg_failed: {completed.stderr[-300:]}")
+    if os.path.getsize(output_path) > MAX_OUTPUT_BYTES:
+        raise RuntimeError("finalize_exceeds_50mb")
+    out_facts = probe(output_path)
+    return {
+        "applied": {
+            "captions": captions,
+            "voice": voice,
+            "tts_provider": tts_provider,
+            "caption_scale": round(max(0.5, duration / 10.0), 3),
+        },
+        **out_facts,
+    }
+
+
 def sha256_of(path: str) -> str:
     digest = hashlib.sha256()
     with open(path, "rb") as source:
@@ -276,6 +459,36 @@ def handle(job: dict) -> None:
             })
             log(f"job {job_id} analyzed: {json.dumps(result)[:200]}")
             return
+        if job["kind"] == "finalize_video":
+            # Путь результата приходит из params постановки: claim для любого
+            # kind предлагает suggested-путь клина ('/sources/clean/…'), и для
+            # финализации он заведомо чужой.
+            output_object_name = str(
+                (job.get("params") or {}).get("output_object_name") or ""
+            )
+            if not output_object_name:
+                raise RuntimeError("finalize_output_object_name_missing")
+            output_path = os.path.join(workdir, "final.mp4")
+            result = finalize_video(source_path, output_path, job, workdir)
+            rpc("system_heartbeat_media_preparation", {
+                "job_id": job_id, "worker_id": WORKER_ID,
+            })
+            upload(job["bucket"], output_object_name, output_path, upsert=True)
+            rpc("system_complete_video_finalization", {
+                "job_id": job_id,
+                "worker_id": WORKER_ID,
+                "object_name": output_object_name,
+                "sha256": sha256_of(output_path),
+                "size_bytes": os.path.getsize(output_path),
+                "duration_seconds": result.get("duration_seconds"),
+                "width": result.get("width"),
+                "height": result.get("height"),
+                "result": result,
+            })
+            log(f"job {job_id} finalized video ready")
+            return
+        if job["kind"] != "clean_master":
+            raise RuntimeError(f"unknown_job_kind: {job['kind']}")
         output_path = os.path.join(workdir, "clean.mp4")
         result = clean_master(source_path, output_path, job)
         rpc("system_heartbeat_media_preparation", {

@@ -3,12 +3,12 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260826.rebuild-clean.50";
+} from "./supabase-api.js?v=20260826.rebuild-clean.53";
 import {
   adminPeopleMarkup,
   normalizeAdminSnapshot,
   normalizeAdminView,
-} from "./admin-people-view.js?v=20260826.rebuild-clean.50";
+} from "./admin-people-view.js?v=20260826.rebuild-clean.53";
 import {
   clearExactYoutubeMediaHandoff,
   exactYoutubeRegisteredMediaId,
@@ -16,12 +16,12 @@ import {
   isExactYoutubeMp4,
   readExactYoutubeMediaHandoff,
   updateExactYoutubeMediaHandoffProgress,
-} from "./exact-youtube-media-handoff.js?v=20260826.rebuild-clean.50";
+} from "./exact-youtube-media-handoff.js?v=20260826.rebuild-clean.53";
 import {
   captureVerifiedPrivateVideoBlob,
   exactYoutubeResearchFailureRecovery,
   resolveExactYoutubeResearchCaptureMedia,
-} from "./exact-youtube-research-capture.js?v=20260826.rebuild-clean.50";
+} from "./exact-youtube-research-capture.js?v=20260826.rebuild-clean.53";
 import {
   approvedGenerationSpecContext,
   generationSpecApprovalReviewDecision,
@@ -34,21 +34,21 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
-} from "./generation-spec.js?v=20260826.rebuild-clean.50";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260826.rebuild-clean.50";
-import { generationStrategyRequiredSourceCount } from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.50";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.50";
+} from "./generation-spec.js?v=20260826.rebuild-clean.53";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260826.rebuild-clean.53";
+import { generationStrategyRequiredSourceCount } from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.53";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.53";
 import {
   normalizeWorkspaceInternalTarget,
   resolveWorkspaceCommand,
-} from "./workspace-command-registry.js?v=20260826.rebuild-clean.50";
+} from "./workspace-command-registry.js?v=20260826.rebuild-clean.53";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
   mergeMediaFileSelection,
   mediaFileValidationError as mediaUploadFileValidationError,
   mediaUploadWorkerCount,
-} from "./media-upload-queue.js?v=20260826.rebuild-clean.50";
+} from "./media-upload-queue.js?v=20260826.rebuild-clean.53";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -56,39 +56,39 @@ import {
   REQUIRED_MODULE_CODES,
   SIMPLE_WORKSPACE_TAB_KEYS,
   WORKSPACE_TABS,
-} from "./catalog.js?v=20260826.rebuild-clean.50";
+} from "./catalog.js?v=20260826.rebuild-clean.53";
 import {
   ACCOUNT_LAUNCH_PATH,
   accountLaunchCenterMarkup,
   accountLaunchGuideMarkup,
   accountLaunchSlugFromPath,
   evaluateAdvertisingAnswers,
-} from "./account-launch-view.js?v=20260826.rebuild-clean.50";
+} from "./account-launch-view.js?v=20260826.rebuild-clean.53";
 import {
   managerDashboardMarkup,
   managerOperationalHealthMarkup,
-} from "./manager-dashboard-view.js?v=20260826.rebuild-clean.50";
+} from "./manager-dashboard-view.js?v=20260826.rebuild-clean.53";
 import {
   generationCampaignSelectionState,
   generationSpendAllowsMinor,
   generationSpendSnapshotMarkup,
   managerGenerationSpendMarkup,
   normalizeGenerationSpendOverview,
-} from "./generation-spend-view.js?v=20260826.rebuild-clean.50";
+} from "./generation-spend-view.js?v=20260826.rebuild-clean.53";
 import {
   generationProviderReadinessPreflights,
   normalizeGenerationProviderPreflight,
-} from "./generation-provider-readiness.js?v=20260826.rebuild-clean.50";
+} from "./generation-provider-readiness.js?v=20260826.rebuild-clean.53";
 import {
   generationModelAcceptanceMarkup,
   normalizeGenerationModelAcceptance,
-} from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.50";
+} from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.53";
 import {
   accessCenterMarkup,
   ensureAccessCenterStyles,
   normalizeAccessCenterEmail,
   normalizeAccessCenterResult,
-} from "./access-center-view.js?v=20260826.rebuild-clean.50";
+} from "./access-center-view.js?v=20260826.rebuild-clean.53";
 import {
   applyResearchMarketCategoryResolution,
   applyResearchOutcomeLearningMutation,
@@ -110,7 +110,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260826.rebuild-clean.50";
+} from "./product-research-view.js?v=20260826.rebuild-clean.53";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -121,7 +121,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260826.rebuild-clean.50";
+} from "./ai-learning-control-room.js?v=20260826.rebuild-clean.53";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -137,15 +137,15 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260826.rebuild-clean.50";
+} from "./content-generation-handoff.js?v=20260826.rebuild-clean.53";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
-} from "./generation-quality-training.js?v=20260826.rebuild-clean.50";
+} from "./generation-quality-training.js?v=20260826.rebuild-clean.53";
 import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,
-} from "./generation-form-readiness.js?v=20260826.rebuild-clean.50";
+} from "./generation-form-readiness.js?v=20260826.rebuild-clean.53";
 import {
   GENERATION_STRATEGY_RUNTIME_ACTIONS,
   createGenerationStrategyRuntimeFingerprint,
@@ -159,7 +159,7 @@ import {
   invalidateGenerationStrategyRuntimeState,
   normalizeGenerationStrategyProbeResponse,
   reduceGenerationStrategyRuntimeState,
-} from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.50";
+} from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.53";
 import {
   createGenerationStrategyQueue,
   generationStrategyQueueAggregateReview,
@@ -168,33 +168,33 @@ import {
   planGenerationStrategyQueueFreeWork,
   planGenerationStrategyQueueSequentialStarts,
   updateGenerationStrategyQueueRow,
-} from "./generation-strategy-queue.js?v=20260826.rebuild-clean.50";
+} from "./generation-strategy-queue.js?v=20260826.rebuild-clean.53";
 import {
   renderGenerationStrategyQueueView,
-} from "./generation-strategy-queue-view.js?v=20260826.rebuild-clean.50";
+} from "./generation-strategy-queue-view.js?v=20260826.rebuild-clean.53";
 import {
   buildGenerationStrategySpecApprovalRequest,
   buildGenerationStrategySpecPrepareRequest,
   generationStrategySpecSafeProjection,
   normalizeGenerationStrategySpecControlResponse,
   normalizeGenerationStrategySpecPrepareResponse,
-} from "./generation-strategy-spec.js?v=20260826.rebuild-clean.50";
+} from "./generation-strategy-spec.js?v=20260826.rebuild-clean.53";
 import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
   normalizeGenerationVideoReferenceContext,
-} from "./generation-video-reference.js?v=20260826.rebuild-clean.50";
+} from "./generation-video-reference.js?v=20260826.rebuild-clean.53";
 import {
   buildGenerationFormDraft,
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260826.rebuild-clean.50";
+} from "./generation-form-draft.js?v=20260826.rebuild-clean.53";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
   resolveGenerationExpectedProductMatch,
-} from "./generation-ai-research-working-draft.js?v=20260826.rebuild-clean.50";
+} from "./generation-ai-research-working-draft.js?v=20260826.rebuild-clean.53";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -206,7 +206,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260826.rebuild-clean.50";
+} from "./generation-autopilot.js?v=20260826.rebuild-clean.53";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -228,14 +228,14 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260826.rebuild-clean.50";
+} from "./content-review-view.js?v=20260826.rebuild-clean.53";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
   createFirstShiftFullState,
   firstShiftFullScenarioMarkup,
   reduceFirstShiftFullState,
-} from "./first-shift-full-scenario.js?v=20260826.rebuild-clean.50";
+} from "./first-shift-full-scenario.js?v=20260826.rebuild-clean.53";
 import {
   GENERATION_ARCHIVE_PAGE_SIZE,
   GENERATION_VISIBLE_CAP,
@@ -250,7 +250,7 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260826.rebuild-clean.50";
+} from "./portal-experience.js?v=20260826.rebuild-clean.53";
 import {
   isWorkspaceSmartFolderId,
   normalizeWorkspaceBoard,
@@ -258,7 +258,7 @@ import {
   workspaceBoardItemKey,
   workspaceBoardPaginationState,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260826.rebuild-clean.50";
+} from "./workspace-board-view.js?v=20260826.rebuild-clean.53";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -270,7 +270,7 @@ import {
   syncTrainingWalkthroughStatus,
   trainingInteractiveMarkup,
   trainingWalkthroughStorageKey,
-} from "./training-interactive.js?v=20260826.rebuild-clean.50";
+} from "./training-interactive.js?v=20260826.rebuild-clean.53";
 import {
   LEARNING_TRACKS,
   achievementMarkup,
@@ -287,16 +287,16 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260826.rebuild-clean.50";
+} from "./training-journey.js?v=20260826.rebuild-clean.53";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
   trainingPlatformSimulatorsMarkup,
-} from "./training-platform-simulators.js?v=20260826.rebuild-clean.50";
+} from "./training-platform-simulators.js?v=20260826.rebuild-clean.53";
 import {
   bindTrainingMediaCards,
   trainingMediaCardsMarkup,
-} from "./training-media-cards.js?v=20260826.rebuild-clean.50";
+} from "./training-media-cards.js?v=20260826.rebuild-clean.53";
 import {
   normalizeTrainingPracticalProject,
   normalizeTrainingPracticalReviews,
@@ -306,7 +306,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260826.rebuild-clean.50";
+} from "./training-practical-review.js?v=20260826.rebuild-clean.53";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -325,7 +325,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260826.rebuild-clean.50";
+} from "./my-work-view.js?v=20260826.rebuild-clean.53";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -336,8 +336,8 @@ const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
   ),
 );
 const MEDIA_UPLOAD_CONCURRENCY = DEFAULT_MEDIA_UPLOAD_CONCURRENCY;
-const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260826.rebuild-clean.50";
-const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260826.rebuild-clean.50";
+const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260826.rebuild-clean.53";
+const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260826.rebuild-clean.53";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
 const MAX_MOCK_BATCH_SIZE = Math.min(50, Math.max(1, Number(CONFIG.MAX_BATCH_SIZE) || 50));
@@ -9172,6 +9172,84 @@ function openRejectResultDialog({ projectId, mediaId, mediaTitle = "" }) {
   dialog.showModal();
 }
 
+// «Финализация» готового ролика: три плашки + текст диктора, локальный
+// воркер соберёт MP4 (без денег и провайдеров). Диалог императивный, как у
+// публикации: перерисовки раздела не стирают недописанную форму. Никаких
+// условно скрываемых required-полей — мина reportValidity.
+function openVideoFinalizationDialog({ projectId, mediaId, generationJobId = "" }) {
+  document.querySelector("dialog[data-workspace-video-finalization-dialog]")?.remove();
+  const dialog = document.createElement("dialog");
+  dialog.dataset.workspaceVideoFinalizationDialog = "";
+  dialog.className = "workspace-publish-dialog";
+  dialog.innerHTML = `
+    <form method="dialog" class="workspace-publish-dialog__form" data-video-finalization-form>
+      <h3>Финализация ролика</h3>
+      <p class="muted">Воркер заглушит родной звук, наложит озвучку и три плашки и положит готовый файл рядом с оригиналом. Тайминги плашек растягиваются по длительности ролика.</p>
+      <label class="field">
+        <span>Плашка 1 — хук (верх, первые секунды) *</span>
+        <input name="caption_top" required maxlength="80" placeholder="Кот опять бегает в лоток?" autocomplete="off" />
+      </label>
+      <label class="field">
+        <span>Плашка 2 — выгода (низ, середина) *</span>
+        <input name="caption_mid" required maxlength="80" placeholder="Натуральный состав — здоровое пищеварение" autocomplete="off" />
+      </label>
+      <label class="field">
+        <span>Плашка 3 — призыв (низ, финал) *</span>
+        <input name="caption_bottom" required maxlength="80" placeholder="Попробуйте! Ссылка в профиле" autocomplete="off" />
+      </label>
+      <label class="field">
+        <span>Текст диктора *</span>
+        <textarea name="narration_text" required maxlength="300" rows="3" placeholder="Что скажет голос за кадром. Уложится в хронометраж автоматически."></textarea>
+      </label>
+      <label class="field">
+        <span>Голос</span>
+        <select name="narration_voice">
+          <option value="minimax_lovely_girl">Женский · MiniMax (живой, нужен ключ fal)</option>
+          <option value="edge_svetlana">Женский · Светлана (бесплатный)</option>
+        </select>
+        <small class="field-hint">Если ключ fal не настроен, воркер сам откатится на бесплатный голос.</small>
+      </label>
+      <div class="inline-actions">
+        <button class="btn btn-primary" type="submit" value="enqueue">Поставить в очередь</button>
+        <button class="btn btn-secondary" type="submit" value="cancel" formnovalidate>Отмена</button>
+      </div>
+    </form>`;
+  document.body.append(dialog);
+  const form = dialog.querySelector("[data-video-finalization-form]");
+  form.addEventListener("submit", async (event) => {
+    const submitter = event.submitter;
+    if (!submitter || submitter.value !== "enqueue") return;
+    event.preventDefault();
+    if (!form.reportValidity()) return;
+    submitter.disabled = true;
+    try {
+      const result = await state.api.enqueueVideoFinalization({
+        project_id: projectId,
+        media_id: mediaId,
+        generation_job_id: generationJobId,
+        caption_top: String(form.elements.caption_top?.value || ""),
+        caption_mid: String(form.elements.caption_mid?.value || ""),
+        caption_bottom: String(form.elements.caption_bottom?.value || ""),
+        narration_text: String(form.elements.narration_text?.value || ""),
+        narration_voice: String(form.elements.narration_voice?.value || ""),
+      });
+      dialog.close();
+      dialog.remove();
+      toast(
+        result?.already_enqueued
+          ? "Этот ролик уже в очереди финализации. Готовый файл появится рядом с оригиналом."
+          : "Финализация поставлена в очередь. Готовый файл появится рядом с оригиналом через 1–2 минуты.",
+        "success",
+      );
+    } catch (error) {
+      submitter.disabled = false;
+      toast(`Финализация не поставлена в очередь: ${actionErrorMessage(error)}`, "error");
+    }
+  });
+  dialog.addEventListener("close", () => dialog.remove());
+  dialog.showModal();
+}
+
 // «Запланировать публикацию»: наряд очереди авторазмещения (фаза 1).
 // Аккаунт и ролик очередь выводит из самого размещения — форма спрашивает
 // только время выхода, маркировку и подпись. Диалог императивный (<dialog>
@@ -15256,6 +15334,7 @@ function generationStrategyArchiveMarkup(details) {
         </dl>
       </details>
       ${details.jobId ? `<button class="btn btn-secondary btn-small" type="button" data-action="repeat-generation-strategy" data-job-id="${escapeHtml(details.jobId)}">Повторить стратегию</button>` : ""}
+      ${details.jobId && ["succeeded", "completed"].includes(String(strategy.status || details.status || "").toLowerCase()) ? `<button class="btn btn-secondary btn-small" type="button" data-action="open-video-finalization" data-media-id="" data-generation-job-id="${escapeHtml(details.jobId)}">Финализация · плашки и озвучка</button>` : ""}
       <small>Исходники будут проверены заново; права, цена и платное подтверждение не переносятся.</small>
     </section>
   `;
@@ -16078,8 +16157,24 @@ function generationPassportLinkMarkup(details) {
   return `<div class="generation-result-actions"><a class="btn btn-secondary btn-small" href="${escapeHtml(href)}" data-generation-passport-link>Открыть паспорт</a></div>`;
 }
 
+// «Финализация» готового ролика: наряд локального воркера (TTS + плашки),
+// денег и провайдеров нет. Кнопка — только на готовом платном видео (не
+// фото) с валидным UUID output_media_id, тем же гейтом, что технический QA.
+function generationFinalizationMarkup(details) {
+  // Архивная проекция стратегий не отдаёт output_media_id — тогда ролик
+  // называется нарядом генерации, и сервер сам найдёт готовый файл по
+  // metadata.generation_job_id (миграция 202609020002).
+  const mediaId = String(details.outputMediaId || "").trim().toLowerCase();
+  const jobId = String(details.jobId || "").trim().toLowerCase();
+  const mediaRef = contentReviewUuid(mediaId) ? mediaId : "";
+  const jobRef = !mediaRef && contentReviewUuid(jobId) ? jobId : "";
+  if (details.photo || (!mediaRef && !jobRef)) return "";
+  if (!["succeeded", "completed"].includes(details.status)) return "";
+  return `<div class="generation-result-actions"><button class="btn btn-secondary btn-small" type="button" data-action="open-video-finalization" data-media-id="${escapeHtml(mediaRef)}" data-generation-job-id="${escapeHtml(jobRef)}">Финализация</button></div>`;
+}
+
 function generationActionsMarkup(details) {
-  return generationActionsCoreMarkup(details) + generationPassportLinkMarkup(details);
+  return generationActionsCoreMarkup(details) + generationPassportLinkMarkup(details) + generationFinalizationMarkup(details);
 }
 
 function generationActionsCoreMarkup(details) {
@@ -23912,6 +24007,17 @@ async function handleClick(event) {
       placementId: String(control.dataset.placementId || ""),
       placementTitle: String(control.dataset.placementTitle || ""),
       placementPlatform: String(control.dataset.placementPlatform || ""),
+    });
+    return;
+  }
+
+  if (action === "open-video-finalization") {
+    const projectId = requireWorkspaceProjectId();
+    if (!projectId) return;
+    openVideoFinalizationDialog({
+      projectId,
+      mediaId: String(control.dataset.mediaId || ""),
+      generationJobId: String(control.dataset.generationJobId || ""),
     });
     return;
   }

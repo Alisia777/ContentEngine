@@ -76,6 +76,7 @@ export const RPC = Object.freeze({
   adminAccountOwnership: "creator_admin_account_ownership",
   publishingAccounts: "creator_publishing_accounts",
   enqueuePublishingJob: "creator_enqueue_publishing_job",
+  enqueueVideoFinalization: "creator_enqueue_video_finalization",
   publishGenerationResult: "creator_publish_generation_result",
   rejectGenerationResult: "creator_reject_generation_result",
   teamAccounts: "creator_team_accounts",
@@ -6769,6 +6770,57 @@ export class CreatorApi {
     return data;
   }
 
+  // «Финализация» готового ролика: наряд локального воркера сборки MP4
+  // (TTS-озвучка + drawtext-плашки), денег и провайдеров нет. Нарочно мимо
+  // mutate(): идемпотентность серверная — одно активное задание на ролик
+  // (partial-индекс очереди), повтор возвращает already_enqueued: true.
+  async enqueueVideoFinalization(input) {
+    const projectId = requiredProjectId(input?.project_id ?? input?.projectId);
+    const mediaId = String(input?.media_id || "").trim().toLowerCase();
+    const generationJobId = String(input?.generation_job_id || "")
+      .trim().toLowerCase();
+    const captions = [
+      String(input?.caption_top || "").trim(),
+      String(input?.caption_mid || "").trim(),
+      String(input?.caption_bottom || "").trim(),
+    ];
+    const narration = String(input?.narration_text || "").trim();
+    const voice = String(input?.narration_voice || "").trim();
+    if (
+      (!mediaId && !generationJobId)
+      || captions.some((text) => !text || text.length > 80)
+      || !narration || narration.length > 300
+      || !["minimax_lovely_girl", "edge_svetlana"].includes(voice)
+    ) {
+      throw new CreatorApiError(
+        "Для финализации нужны ролик, три плашки (до 80 знаков каждая), текст диктора (до 300 знаков) и голос из списка.",
+        { code: "video_finalization_payload_invalid" },
+      );
+    }
+    // Сервер принимает РОВНО ОДИН способ назвать ролик: media_id, а когда
+    // архив его не отдал — generation_job_id (поиск по metadata наряда).
+    const data = await this.call(RPC.enqueueVideoFinalization, {
+      organization_id: String(this.organizationId || ""),
+      project_id: projectId,
+      ...(mediaId
+        ? { media_id: mediaId }
+        : { generation_job_id: generationJobId }),
+      caption_top: captions[0],
+      caption_mid: captions[1],
+      caption_bottom: captions[2],
+      narration_text: narration,
+      voice,
+    });
+    if (
+      !data || data.ok !== true
+      || data.version !== "video-finalization-enqueue-v1"
+      || !data.job || typeof data.job !== "object"
+    ) {
+      throw new CreatorApiError("Очередь финализации ответила в неизвестной форме.");
+    }
+    return data;
+  }
+
   // «Одобрить и разместить» готовый результат: явное подтверждение полного
   // просмотра + выданный аккаунт + ERID. Создаёт задачу размещения и строку
   // placements; финальную ссылку подтверждает confirmPlacement.
@@ -9316,6 +9368,12 @@ function toFriendlyMessage(error) {
     publishing_enqueue_media_mismatch: "Указанный ролик не совпадает с привязанным к размещению.",
     ord_provider_invalid: "Название ОРД — от 2 до 80 знаков.",
     contract_ref_invalid: "Реквизит договора — от 2 до 180 знаков.",
+    video_finalization_payload_invalid: "Проверьте плашки (до 80 знаков), текст диктора (до 300 знаков) и голос из списка.",
+    video_finalization_media_not_found: "Ролик не найден или ещё не готов. Обновите «Запуски и готовые файлы».",
+    video_finalization_kind_not_generated_video: "Финализируются только готовые ролики генерации.",
+    video_finalization_voice_invalid: "Выбранный голос недоступен. Выберите голос из списка.",
+    video_finalization_too_short: "Ролик короче 5 секунд — плашкам не хватит места. Финализируйте ролик подлиннее.",
+    video_finalization_media_reference_invalid: "Ролик не распознан. Обновите «Запуски и готовые файлы» и попробуйте снова.",
     project_member_grant_payload_invalid: "Не удалось безопасно выдать доступ. Обновите список проекта.",
     project_member_revoke_payload_invalid: "Не удалось безопасно отозвать доступ. Обновите список проекта.",
     project_member_profile_id_invalid: "Не удалось определить участника команды. Обновите список.",
