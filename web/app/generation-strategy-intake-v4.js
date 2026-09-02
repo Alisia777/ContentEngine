@@ -25,7 +25,7 @@ const HANDOFF_VERSION = "generation-intake-mp4-v4";
 const DIRECT_MP4_ATTACHMENT_RPC =
   "contentengine_attach_generation_direct_mp4";
 const STYLE_HREF = new URL(
-  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.56",
+  "./generation-strategy-intake-v4.css?v=20260826.rebuild-clean.57",
   import.meta.url,
 ).href;
 // Советчик ИИ-центра по движку грузится отдельно и лениво: экран обязан
@@ -33,7 +33,7 @@ const STYLE_HREF = new URL(
 // модуль подъехал, открытый каскад перерисовывается уже с советом.
 let adviseGenerationEngine = null;
 const ENGINE_ADVISOR_READY = import(
-  "./generation-engine-advisor.js?v=20260826.rebuild-clean.56"
+  "./generation-engine-advisor.js?v=20260826.rebuild-clean.57"
 ).then((module) => {
   if (typeof module?.adviseGenerationEngine === "function") {
     adviseGenerationEngine = module.adviseGenerationEngine;
@@ -9343,6 +9343,60 @@ async function uploadStrategySources(form) {
   }
 }
 
+// «Дуэт» выведен из витрины (03.09): единственный маршрут heygen выключен в
+// реестре, сервер платный старт не подпишет. Форма обязана говорить это ДО
+// подготовки, а не отказом после неё. Гейт срабатывает только на явном
+// «маршруты отданы и все выключены»: пустой или не загруженный реестр не
+// блокирует (правило guided-слоя — отсутствие реестра не приговор).
+function duetRoutesAllDisabled() {
+  const raw = guidedEngineRoutes("avatar_video");
+  const routes = raw.length ? raw : engineRouteCache("avatar_video").routes;
+  return Array.isArray(routes)
+    && routes.length > 0
+    && !routes.some((route) => route?.enabled === true);
+}
+
+function syncDuetAvailabilityGate(state) {
+  const panel = state.shell?.querySelector?.(
+    '[data-generation-intake-panel="avatar_video"]',
+  );
+  if (!panel) return;
+  if (!guidedEngineRoutes("avatar_video").length
+    && engineRouteCache("avatar_video").status === "idle") {
+    ensureEngineRoutes("avatar_video").then(() => {
+      if (panel.isConnected) syncDuetAvailabilityGate(state);
+    });
+  }
+  const gated = duetRoutesAllDisabled();
+  let note = panel.querySelector("[data-duet-route-gate]");
+  if (gated && !note) {
+    note = el("div", "generation-intake-v4__gate-note");
+    note.dataset.duetRouteGate = "true";
+    note.append(
+      el("strong", "", "Формат «Дуэт» в подготовке. "),
+      el(
+        "span",
+        "",
+        "Маршрут генерации выключен: формат не прошёл боевую перепроверку "
+          + "после обновления интеграции. «Копия» и «Создание» работают в "
+          + "обычном режиме.",
+      ),
+    );
+    panel.prepend(note);
+  } else if (!gated && note) {
+    note.remove();
+  }
+  // При гейте кнопки глушатся принудительно; без гейта их состоянием
+  // управляет собственная логика формы (prepare и так disabled до цены).
+  if (gated) {
+    ["generation-intake-analyze-avatar", "generation-intake-prepare-avatar"]
+      .forEach((action) => {
+        const control = panel.querySelector(`[data-action="${action}"]`);
+        if (control) control.disabled = true;
+      });
+  }
+}
+
 function setRoute(form, state, route) {
   if (!DEFAULT_BRIEF_TEMPLATES[route] && route !== "strategy_video") return;
   if (state.busy && state.busyRoute && state.busyRoute !== route) {
@@ -9415,6 +9469,7 @@ function setRoute(form, state, route) {
     // загружаются…», а нативное required-поле кампании оставалось пустым.
     syncCompactCampaignControl(form, state);
     syncExpressPriceButton(state);
+    syncDuetAvailabilityGate(state);
   }
   if (route === "strategy_video") {
     syncCompactCampaignControl(form, state, "strategy_video");

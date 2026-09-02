@@ -1,0 +1,54 @@
+"""«Дуэт» выведен из витрины (03.09): маршрут heygen выключен, форма честна.
+
+Пины источников: миграция 202609030004 глушит единственный маршрут и
+проверяет денежный замок поведением; отдельная форма «Дуэта» показывает
+заглушку «в подготовке» и глушит кнопки, не дожидаясь серверного отказа;
+стратегия ОСТАЁТСЯ в каталоге (контракт «ровно три стратегии» не тронут).
+"""
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+MIGRATION = (
+    ROOT / "supabase/migrations/202609030004_duet_route_disabled_v1.sql"
+).read_text(encoding="utf-8")
+INTAKE = (
+    ROOT / "web/app/generation-strategy-intake-v4.js"
+).read_text(encoding="utf-8")
+API = (ROOT / "web/app/supabase-api.js").read_text(encoding="utf-8")
+
+
+def test_migration_disables_single_route_and_keeps_guard() -> None:
+    assert "set enabled = false" in MIGRATION
+    assert "strategy_id = 'viral_avatar_ugc'" in MIGRATION
+    assert "provider = 'heygen'" in MIGRATION
+    # Проверка поведением: гвард платного старта и отсутствие живых маршрутов.
+    assert "generation_strategy_executable_route_exists" in MIGRATION
+    assert "duet_route_still_enabled" in MIGRATION
+    assert "generation_strategy_no_executable_route" in MIGRATION
+    # Стратегию из каталога не удаляем — только маршрут.
+    assert "delete" not in MIGRATION.lower()
+
+
+def test_intake_panel_gates_duet_honestly() -> None:
+    # Гейт срабатывает только на явном «маршруты отданы и все выключены».
+    gate = INTAKE.split("function duetRoutesAllDisabled()", 1)[1]
+    gate = gate.split("function setRoute(", 1)[0]
+    assert "routes.length > 0" in gate
+    assert "route?.enabled === true" in gate
+    assert "data-duet-route-gate" in gate
+    assert "Формат «Дуэт» в подготовке" in gate
+    # Кнопки глушатся принудительно только при гейте; без гейта их
+    # состоянием управляет собственная логика формы.
+    assert "generation-intake-analyze-avatar" in gate
+    assert "generation-intake-prepare-avatar" in gate
+    # Вызов в ветке переключения на «Дуэт» (setRoute, else-if).
+    avatar_branch = INTAKE.split(
+        '} else if (route === "avatar_video") {', 1
+    )[1][:600]
+    assert "syncDuetAvailabilityGate(state)" in avatar_branch
+
+
+def test_catalog_contract_still_three_strategies() -> None:
+    # Контракт каталога требует ровно три стратегии — скрытие «Дуэта»
+    # реализовано маршрутом, а не выпиливанием стратегии.
+    assert "catalog.strategies.length !== 3" in API
