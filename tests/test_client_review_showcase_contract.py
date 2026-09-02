@@ -138,3 +138,25 @@ def test_spa_issue_dialog_and_api_methods() -> None:
     # Ссылка показывается один раз, с честным текстом.
     assert "Повторно показать её нельзя" in APP
     assert "review.html#t=" in APP
+
+
+def test_operator_regulations_live_in_academy() -> None:
+    # Решение владельца 03.09: регламент оператора — курс академии,
+    # а не отдельный док. Сид идемпотентен, аттестация из трёх вопросов.
+    course = (
+        ROOT
+        / "supabase/migrations/202609030013_training_client_review_course.sql"
+    ).read_text(encoding="utf-8")
+    assert "'client_review_showcase'" in course
+    assert "on conflict (code) do update" in course
+    for lesson in (
+        "issue_link", "curator_responsibility", "token_safety",
+        "react_to_decisions", "revoke_and_hygiene",
+    ):
+        assert f'"{lesson}"' in course, lesson
+    # Ключевые правила регламента закреплены текстом уроков.
+    assert "РОВНО один раз" in course
+    assert "полного просмотра" in course
+    assert "Немедленно отозвать" in course
+    assert "оператор вручную по правовому чек-листу" in course
+    assert "client_review_course_shape_invalid" in course
