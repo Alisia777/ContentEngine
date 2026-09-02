@@ -1,15 +1,19 @@
-"""«Дуэт» выведен из витрины (03.09): маршрут heygen выключен, форма честна.
+"""Гейт «Дуэта»: страховка формы + история выключения/включения маршрута.
 
-Пины источников: миграция 202609030004 глушит единственный маршрут и
-проверяет денежный замок поведением; отдельная форма «Дуэта» показывает
-заглушку «в подготовке» и глушит кнопки, не дожидаясь серверного отказа;
-стратегия ОСТАЁТСЯ в каталоге (контракт «ровно три стратегии» не тронут).
+03.09 маршрут heygen выключался (202609030004) и в тот же день включён
+обратно решением владельца (202609030005): «Дуэт» — одна из трёх стратегий
+витрины. Гейт формы остаётся в коде как страховка: срабатывает ТОЛЬКО
+когда реестр отдал маршруты и все выключены; при живом маршруте заглушки
+нет. Стратегия всегда остаётся в каталоге («ровно три стратегии»).
 """
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = (
     ROOT / "supabase/migrations/202609030004_duet_route_disabled_v1.sql"
+).read_text(encoding="utf-8")
+REENABLE = (
+    ROOT / "supabase/migrations/202609030005_duet_route_reenabled_v1.sql"
 ).read_text(encoding="utf-8")
 INTAKE = (
     ROOT / "web/app/generation-strategy-intake-v4.js"
@@ -27,6 +31,12 @@ def test_migration_disables_single_route_and_keeps_guard() -> None:
     assert "generation_strategy_no_executable_route" in MIGRATION
     # Стратегию из каталога не удаляем — только маршрут.
     assert "delete" not in MIGRATION.lower()
+    # Финальное состояние: маршрут включён обратно (решение владельца),
+    # verify поведением подтверждает живой executable-маршрут.
+    assert "set enabled = true" in REENABLE
+    assert "strategy_id = 'viral_avatar_ugc'" in REENABLE
+    assert "duet_route_still_disabled" in REENABLE
+    assert REENABLE.index("202609030005") > 0
 
 
 def test_intake_panel_gates_duet_honestly() -> None:
