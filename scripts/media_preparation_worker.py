@@ -290,7 +290,11 @@ def synthesize_tts(text: str, voice: str, workdir: str) -> tuple[str, str]:
     provider, voice_id, edge_fallback = FINALIZE_VOICES.get(
         voice, FINALIZE_VOICES["edge_svetlana"]
     )
-    if provider == "minimax" and FAL_KEY:
+    # Один повтор платного пути: докер-сеть эпизодически роняет TLS-хендшейк
+    # (боевой случай 02.09), и без повтора честный ключ уезжал в фолбэк.
+    for attempt in range(2):
+        if provider != "minimax" or not FAL_KEY:
+            break
         try:
             body = json.dumps({
                 "text": text,
@@ -334,6 +338,10 @@ def synthesize_tts(text: str, voice: str, workdir: str) -> tuple[str, str]:
                 target.write(audio.read())
             return raw_path, voice
         except Exception as error:  # noqa: BLE001 — платный путь не обязателен
+            if attempt == 0:
+                log(f"minimax tts attempt 1 failed, retrying: {error}")
+                time.sleep(2)
+                continue
             log(f"minimax tts failed, falling back to edge-tts: {error}")
     edge_voice = voice_id if provider == "edge" else edge_fallback
     completed = run_tool([
