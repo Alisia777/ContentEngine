@@ -85,5 +85,7 @@ services:
       # Опциональный ключ fal для платного голоса MiniMax в финализации;
       # пустой = маршрут выключен, работает бесплатный edge-tts.
       FAL_KEY: "${FAL_KEY:-}"
+      # Dead-man-switch healthchecks.io; пустой = пинг выключен (no-op).
+      HEALTHCHECKS_MEDIA_WORKER_URL: "${HEALTHCHECKS_MEDIA_WORKER_URL:-}"
     volumes:
       - .:/app

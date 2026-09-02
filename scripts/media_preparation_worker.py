@@ -44,10 +44,31 @@ POLL_SECONDS = max(1, int(os.environ.get("MEDIA_WORKER_POLL_SECONDS", "3")))
 FFMPEG = os.environ.get("QVF_FFMPEG_PATH", "ffmpeg")
 FFPROBE = os.environ.get("QVF_FFPROBE_PATH", "ffprobe")
 MAX_OUTPUT_BYTES = 52_428_800
+# Dead-man-switch: пустой env = полный no-op. Пинг шлётся после успешного
+# claim-запроса (и на пустой очереди тоже) — сигналит «воркер жив И
+# дотягивается до Supabase», а не просто «процесс запущен».
+HEALTHCHECK_URL = os.environ.get("HEALTHCHECKS_MEDIA_WORKER_URL", "").strip()
+HEALTHCHECK_MIN_INTERVAL = 60.0
+_last_healthcheck_ping = 0.0
 
 
 def log(message: str) -> None:
     print(f"[media-worker {WORKER_ID}] {message}", flush=True)
+
+
+def ping_healthcheck() -> None:
+    global _last_healthcheck_ping
+    if not HEALTHCHECK_URL:
+        return
+    now = time.monotonic()
+    if now - _last_healthcheck_ping < HEALTHCHECK_MIN_INTERVAL:
+        return
+    _last_healthcheck_ping = now
+    try:
+        with urllib.request.urlopen(HEALTHCHECK_URL, timeout=10):
+            pass
+    except Exception as error:  # noqa: BLE001 — мониторинг не роняет воркер
+        log(f"healthcheck ping failed: {error}")
 
 
 def rpc(name: str, payload: dict) -> dict:
@@ -610,6 +631,7 @@ def main() -> int:
             claimed = rpc("system_claim_media_preparation", {
                 "worker_id": WORKER_ID,
             })
+            ping_healthcheck()
             job = claimed.get("job")
             if not job:
                 time.sleep(POLL_SECONDS)

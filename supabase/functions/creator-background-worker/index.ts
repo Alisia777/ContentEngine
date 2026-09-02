@@ -2292,6 +2292,22 @@ const creatorBackgroundWorker = withSupabase<Database>({
         notification,
       }, 503);
     }
+    if (!hasFailure) {
+      // Dead-man-switch: пинг только при полностью успешном батче — молчание
+      // чека ловит и умерший cron, и серию failed-ранов. Пустой секрет =
+      // no-op; сбой пинга не меняет ответ (мониторинг отделён от работы).
+      const healthcheckUrl =
+        (Deno.env.get("HEALTHCHECKS_BACKGROUND_WORKER_URL") ?? "").trim();
+      if (healthcheckUrl) {
+        try {
+          await fetch(healthcheckUrl, {
+            signal: AbortSignal.timeout(5000),
+          });
+        } catch {
+          // мониторинг не влияет на итог батча
+        }
+      }
+    }
     return json({
       ok: !hasFailure,
       code: hasFailure ? "background_batch_incomplete" : undefined,
