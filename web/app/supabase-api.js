@@ -77,6 +77,10 @@ export const RPC = Object.freeze({
   publishingAccounts: "creator_publishing_accounts",
   enqueuePublishingJob: "creator_enqueue_publishing_job",
   enqueueVideoFinalization: "creator_enqueue_video_finalization",
+  issueClientReviewLink: "creator_issue_client_review_link",
+  revokeClientReviewLink: "creator_revoke_client_review_link",
+  listClientReviewLinks: "creator_list_client_review_links",
+  listCampaignReviewCandidates: "creator_list_campaign_review_candidates",
   publishGenerationResult: "creator_publish_generation_result",
   rejectGenerationResult: "creator_reject_generation_result",
   teamAccounts: "creator_team_accounts",
@@ -6855,6 +6859,90 @@ export class CreatorApi {
     return data;
   }
 
+  // Витрина согласования (ступень 1): выдача токен-ссылки клиенту. Токен
+  // возвращается РОВНО один раз — повтор по idempotency_key честно отвечает
+  // replayed:true без токена (восстановить нельзя, только отозвать и выдать
+  // новую). Идемпотентность серверная, метод мимо mutate().
+  async issueClientReviewLink(input) {
+    const campaignId = String(input?.campaign_id || "").trim().toLowerCase();
+    const clientLabel = String(input?.client_label || "").trim();
+    const mediaIds = Array.isArray(input?.media_ids)
+      ? input.media_ids.map((value) => String(value || "").trim().toLowerCase())
+        .filter(Boolean)
+      : [];
+    const ttlDays = Number(input?.ttl_days || 14);
+    if (
+      !campaignId
+      || clientLabel.length < 2 || clientLabel.length > 120
+      || !mediaIds.length || mediaIds.length > 50
+      || !Number.isInteger(ttlDays) || ttlDays < 1 || ttlDays > 90
+    ) {
+      throw new CreatorApiError(
+        "Для ссылки клиенту нужны кампания, подпись (2–120 знаков) и хотя бы один ролик.",
+        { code: "client_review_payload_invalid" },
+      );
+    }
+    const data = await this.call(RPC.issueClientReviewLink, {
+      organization_id: String(this.organizationId || ""),
+      campaign_id: campaignId,
+      client_label: clientLabel,
+      media_ids: mediaIds,
+      curator_attested: input?.curator_attested === true,
+      ttl_days: ttlDays,
+      idempotency_key: String(
+        input?.idempotency_key || `client-review-${crypto.randomUUID()}`,
+      ),
+    });
+    if (
+      !data || data.ok !== true
+      || data.version !== "client-review-links-v1"
+      || !data.link || typeof data.link !== "object"
+    ) {
+      throw new CreatorApiError("Витрина ответила в неизвестной форме.");
+    }
+    return data;
+  }
+
+  async revokeClientReviewLink(input) {
+    const linkId = String(input?.link_id || "").trim().toLowerCase();
+    if (!linkId) {
+      throw new CreatorApiError(
+        "Не удалось определить ссылку для отзыва.",
+        { code: "client_review_payload_invalid" },
+      );
+    }
+    const data = await this.call(RPC.revokeClientReviewLink, {
+      organization_id: String(this.organizationId || ""),
+      link_id: linkId,
+    });
+    if (!data || data.ok !== true) {
+      throw new CreatorApiError("Витрина ответила в неизвестной форме.");
+    }
+    return data;
+  }
+
+  async listClientReviewLinks(input) {
+    const data = await this.call(RPC.listClientReviewLinks, {
+      organization_id: String(this.organizationId || ""),
+      campaign_id: String(input?.campaign_id || "").trim().toLowerCase(),
+    });
+    if (!data || data.ok !== true || !Array.isArray(data.links)) {
+      throw new CreatorApiError("Витрина ответила в неизвестной форме.");
+    }
+    return data;
+  }
+
+  async listCampaignReviewCandidates(input) {
+    const data = await this.call(RPC.listCampaignReviewCandidates, {
+      organization_id: String(this.organizationId || ""),
+      campaign_id: String(input?.campaign_id || "").trim().toLowerCase(),
+    });
+    if (!data || data.ok !== true || !Array.isArray(data.candidates)) {
+      throw new CreatorApiError("Витрина ответила в неизвестной форме.");
+    }
+    return data;
+  }
+
   // «Одобрить и разместить» готовый результат: явное подтверждение полного
   // просмотра + выданный аккаунт + ERID. Создаёт задачу размещения и строку
   // placements; финальную ссылку подтверждает confirmPlacement.
@@ -9412,6 +9500,12 @@ function toFriendlyMessage(error) {
     video_finalization_caption_positions_invalid: "Позиции плашек — три значения «верх» или «низ».",
     video_finalization_font_scale_invalid: "Размер плашек — мелкий, средний или крупный.",
     video_finalization_audio_mode_invalid: "Режим звука — «убрать» или «оставить тихо под голосом».",
+    client_review_campaign_not_found: "Кампания не найдена или не активна. Обновите экран бюджета.",
+    client_review_media_ids_invalid: "Выберите от 1 до 50 роликов для витрины.",
+    client_review_media_not_reviewable: "В ссылку попадают только готовые ролики генерации и финализации.",
+    client_review_media_not_accepted: "У ролика нет принятой QA-проверки. Отметьте кураторскую ответственность или проведите ролик через QA.",
+    client_review_ttl_invalid: "Срок ссылки — от 1 до 90 дней.",
+    client_review_link_not_found: "Ссылка не найдена. Обновите список ссылок кампании.",
     project_member_grant_payload_invalid: "Не удалось безопасно выдать доступ. Обновите список проекта.",
     project_member_revoke_payload_invalid: "Не удалось безопасно отозвать доступ. Обновите список проекта.",
     project_member_profile_id_invalid: "Не удалось определить участника команды. Обновите список.",

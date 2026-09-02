@@ -72,3 +72,69 @@ def test_public_rpcs_are_anti_enumeration() -> None:
     assert "to service_role" in PUBLIC_RPCS
     # Верификация поведением на фейковом токене.
     assert "client_review_view_enumeration_leak" in PUBLIC_RPCS
+
+
+EDGE = (
+    ROOT / "supabase/functions/client-review/index.ts"
+).read_text(encoding="utf-8")
+PAGE = (ROOT / "web/app/review.html").read_text(encoding="utf-8")
+PAGE_JS = (ROOT / "web/app/review.js").read_text(encoding="utf-8")
+APP = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
+API = (ROOT / "web/app/supabase-api.js").read_text(encoding="utf-8")
+SPEND_VIEW = (
+    ROOT / "web/app/generation-spend-view.js"
+).read_text(encoding="utf-8")
+
+
+def test_edge_boundary_contract() -> None:
+    # Паттерн-чек токена ДО похода в БД; origin переезжает через env.
+    assert "REVIEW_TOKEN_PATTERN" in EDGE
+    assert 'Deno.env.get("PUBLIC_APP_URL")' in EDGE
+    assert "hardliver1.github.io" in EDGE
+    assert "SIGNED_URL_TTL_SECONDS = 900" in EDGE
+    assert "createSignedUrls" in EDGE
+    # HMAC-ключ клиента, а не сырой IP.
+    assert "clientKeyHash" in EDGE
+    assert "readBoundedStream" in EDGE
+
+
+def test_review_page_is_light_and_hash_tokened() -> None:
+    # Токен в hash, не в query; страница без SPA-бутстрапа.
+    assert "#t=" in PAGE_JS or "[#&]t=" in PAGE_JS
+    assert "location.hash" in PAGE_JS
+    assert "workspace-os" not in PAGE
+    assert "app.js" not in PAGE
+    assert "config.js" in PAGE
+    # CSP: скрипты только свои, медиа — supabase.
+    assert "script-src 'self'" in PAGE
+    assert "media-src https://*.supabase.co" in PAGE
+    # Идемпотентность решения на каждый клик.
+    assert "crypto.randomUUID()" in PAGE_JS
+    # DOM строится безопасно: чужие строки не идут в innerHTML
+    # (в комментарии слово допустимо, присваивание — нет).
+    assert ".innerHTML =" not in PAGE_JS
+    assert ".innerHTML=" not in PAGE_JS
+    # Гейт публичного артефакта: никаких localhost-литералов.
+    assert "127.0.0.1" not in PAGE and "localhost" not in PAGE
+    assert "127.0.0.1" not in PAGE_JS and "localhost" not in PAGE_JS
+
+
+def test_spa_issue_dialog_and_api_methods() -> None:
+    for rpc in (
+        'issueClientReviewLink: "creator_issue_client_review_link"',
+        'revokeClientReviewLink: "creator_revoke_client_review_link"',
+        'listClientReviewLinks: "creator_list_client_review_links"',
+        'listCampaignReviewCandidates:'
+        ' "creator_list_campaign_review_candidates"',
+    ):
+        assert rpc in API, rpc
+    assert 'data.version !== "client-review-links-v1"' in API
+    # Кнопки на карточке кампании; диалоги и ветки кликов.
+    assert 'data-action="open-client-review-issue"' in SPEND_VIEW
+    assert 'data-action="open-client-review-links"' in SPEND_VIEW
+    assert "function openClientReviewIssueDialog(" in APP
+    assert "function openClientReviewLinksDialog(" in APP
+    assert 'action === "revoke-client-review-link"' in APP
+    # Ссылка показывается один раз, с честным текстом.
+    assert "Повторно показать её нельзя" in APP
+    assert "review.html#t=" in APP

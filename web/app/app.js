@@ -3,12 +3,12 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260826.rebuild-clean.57";
+} from "./supabase-api.js?v=20260826.rebuild-clean.58";
 import {
   adminPeopleMarkup,
   normalizeAdminSnapshot,
   normalizeAdminView,
-} from "./admin-people-view.js?v=20260826.rebuild-clean.57";
+} from "./admin-people-view.js?v=20260826.rebuild-clean.58";
 import {
   clearExactYoutubeMediaHandoff,
   exactYoutubeRegisteredMediaId,
@@ -16,12 +16,12 @@ import {
   isExactYoutubeMp4,
   readExactYoutubeMediaHandoff,
   updateExactYoutubeMediaHandoffProgress,
-} from "./exact-youtube-media-handoff.js?v=20260826.rebuild-clean.57";
+} from "./exact-youtube-media-handoff.js?v=20260826.rebuild-clean.58";
 import {
   captureVerifiedPrivateVideoBlob,
   exactYoutubeResearchFailureRecovery,
   resolveExactYoutubeResearchCaptureMedia,
-} from "./exact-youtube-research-capture.js?v=20260826.rebuild-clean.57";
+} from "./exact-youtube-research-capture.js?v=20260826.rebuild-clean.58";
 import {
   approvedGenerationSpecContext,
   generationSpecApprovalReviewDecision,
@@ -34,21 +34,21 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
-} from "./generation-spec.js?v=20260826.rebuild-clean.57";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260826.rebuild-clean.57";
-import { generationStrategyRequiredSourceCount } from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.57";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.57";
+} from "./generation-spec.js?v=20260826.rebuild-clean.58";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260826.rebuild-clean.58";
+import { generationStrategyRequiredSourceCount } from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.58";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.58";
 import {
   normalizeWorkspaceInternalTarget,
   resolveWorkspaceCommand,
-} from "./workspace-command-registry.js?v=20260826.rebuild-clean.57";
+} from "./workspace-command-registry.js?v=20260826.rebuild-clean.58";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
   mergeMediaFileSelection,
   mediaFileValidationError as mediaUploadFileValidationError,
   mediaUploadWorkerCount,
-} from "./media-upload-queue.js?v=20260826.rebuild-clean.57";
+} from "./media-upload-queue.js?v=20260826.rebuild-clean.58";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -56,39 +56,39 @@ import {
   REQUIRED_MODULE_CODES,
   SIMPLE_WORKSPACE_TAB_KEYS,
   WORKSPACE_TABS,
-} from "./catalog.js?v=20260826.rebuild-clean.57";
+} from "./catalog.js?v=20260826.rebuild-clean.58";
 import {
   ACCOUNT_LAUNCH_PATH,
   accountLaunchCenterMarkup,
   accountLaunchGuideMarkup,
   accountLaunchSlugFromPath,
   evaluateAdvertisingAnswers,
-} from "./account-launch-view.js?v=20260826.rebuild-clean.57";
+} from "./account-launch-view.js?v=20260826.rebuild-clean.58";
 import {
   managerDashboardMarkup,
   managerOperationalHealthMarkup,
-} from "./manager-dashboard-view.js?v=20260826.rebuild-clean.57";
+} from "./manager-dashboard-view.js?v=20260826.rebuild-clean.58";
 import {
   generationCampaignSelectionState,
   generationSpendAllowsMinor,
   generationSpendSnapshotMarkup,
   managerGenerationSpendMarkup,
   normalizeGenerationSpendOverview,
-} from "./generation-spend-view.js?v=20260826.rebuild-clean.57";
+} from "./generation-spend-view.js?v=20260826.rebuild-clean.58";
 import {
   generationProviderReadinessPreflights,
   normalizeGenerationProviderPreflight,
-} from "./generation-provider-readiness.js?v=20260826.rebuild-clean.57";
+} from "./generation-provider-readiness.js?v=20260826.rebuild-clean.58";
 import {
   generationModelAcceptanceMarkup,
   normalizeGenerationModelAcceptance,
-} from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.57";
+} from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.58";
 import {
   accessCenterMarkup,
   ensureAccessCenterStyles,
   normalizeAccessCenterEmail,
   normalizeAccessCenterResult,
-} from "./access-center-view.js?v=20260826.rebuild-clean.57";
+} from "./access-center-view.js?v=20260826.rebuild-clean.58";
 import {
   applyResearchMarketCategoryResolution,
   applyResearchOutcomeLearningMutation,
@@ -110,7 +110,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260826.rebuild-clean.57";
+} from "./product-research-view.js?v=20260826.rebuild-clean.58";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -121,7 +121,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260826.rebuild-clean.57";
+} from "./ai-learning-control-room.js?v=20260826.rebuild-clean.58";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -137,15 +137,15 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260826.rebuild-clean.57";
+} from "./content-generation-handoff.js?v=20260826.rebuild-clean.58";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
-} from "./generation-quality-training.js?v=20260826.rebuild-clean.57";
+} from "./generation-quality-training.js?v=20260826.rebuild-clean.58";
 import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,
-} from "./generation-form-readiness.js?v=20260826.rebuild-clean.57";
+} from "./generation-form-readiness.js?v=20260826.rebuild-clean.58";
 import {
   GENERATION_STRATEGY_RUNTIME_ACTIONS,
   createGenerationStrategyRuntimeFingerprint,
@@ -159,7 +159,7 @@ import {
   invalidateGenerationStrategyRuntimeState,
   normalizeGenerationStrategyProbeResponse,
   reduceGenerationStrategyRuntimeState,
-} from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.57";
+} from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.58";
 import {
   createGenerationStrategyQueue,
   generationStrategyQueueAggregateReview,
@@ -168,33 +168,33 @@ import {
   planGenerationStrategyQueueFreeWork,
   planGenerationStrategyQueueSequentialStarts,
   updateGenerationStrategyQueueRow,
-} from "./generation-strategy-queue.js?v=20260826.rebuild-clean.57";
+} from "./generation-strategy-queue.js?v=20260826.rebuild-clean.58";
 import {
   renderGenerationStrategyQueueView,
-} from "./generation-strategy-queue-view.js?v=20260826.rebuild-clean.57";
+} from "./generation-strategy-queue-view.js?v=20260826.rebuild-clean.58";
 import {
   buildGenerationStrategySpecApprovalRequest,
   buildGenerationStrategySpecPrepareRequest,
   generationStrategySpecSafeProjection,
   normalizeGenerationStrategySpecControlResponse,
   normalizeGenerationStrategySpecPrepareResponse,
-} from "./generation-strategy-spec.js?v=20260826.rebuild-clean.57";
+} from "./generation-strategy-spec.js?v=20260826.rebuild-clean.58";
 import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
   normalizeGenerationVideoReferenceContext,
-} from "./generation-video-reference.js?v=20260826.rebuild-clean.57";
+} from "./generation-video-reference.js?v=20260826.rebuild-clean.58";
 import {
   buildGenerationFormDraft,
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260826.rebuild-clean.57";
+} from "./generation-form-draft.js?v=20260826.rebuild-clean.58";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
   resolveGenerationExpectedProductMatch,
-} from "./generation-ai-research-working-draft.js?v=20260826.rebuild-clean.57";
+} from "./generation-ai-research-working-draft.js?v=20260826.rebuild-clean.58";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -206,7 +206,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260826.rebuild-clean.57";
+} from "./generation-autopilot.js?v=20260826.rebuild-clean.58";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -228,14 +228,14 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260826.rebuild-clean.57";
+} from "./content-review-view.js?v=20260826.rebuild-clean.58";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
   createFirstShiftFullState,
   firstShiftFullScenarioMarkup,
   reduceFirstShiftFullState,
-} from "./first-shift-full-scenario.js?v=20260826.rebuild-clean.57";
+} from "./first-shift-full-scenario.js?v=20260826.rebuild-clean.58";
 import {
   GENERATION_ARCHIVE_PAGE_SIZE,
   GENERATION_VISIBLE_CAP,
@@ -250,7 +250,7 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260826.rebuild-clean.57";
+} from "./portal-experience.js?v=20260826.rebuild-clean.58";
 import {
   isWorkspaceSmartFolderId,
   normalizeWorkspaceBoard,
@@ -258,7 +258,7 @@ import {
   workspaceBoardItemKey,
   workspaceBoardPaginationState,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260826.rebuild-clean.57";
+} from "./workspace-board-view.js?v=20260826.rebuild-clean.58";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -270,7 +270,7 @@ import {
   syncTrainingWalkthroughStatus,
   trainingInteractiveMarkup,
   trainingWalkthroughStorageKey,
-} from "./training-interactive.js?v=20260826.rebuild-clean.57";
+} from "./training-interactive.js?v=20260826.rebuild-clean.58";
 import {
   LEARNING_TRACKS,
   achievementMarkup,
@@ -287,16 +287,16 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260826.rebuild-clean.57";
+} from "./training-journey.js?v=20260826.rebuild-clean.58";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
   trainingPlatformSimulatorsMarkup,
-} from "./training-platform-simulators.js?v=20260826.rebuild-clean.57";
+} from "./training-platform-simulators.js?v=20260826.rebuild-clean.58";
 import {
   bindTrainingMediaCards,
   trainingMediaCardsMarkup,
-} from "./training-media-cards.js?v=20260826.rebuild-clean.57";
+} from "./training-media-cards.js?v=20260826.rebuild-clean.58";
 import {
   normalizeTrainingPracticalProject,
   normalizeTrainingPracticalReviews,
@@ -306,7 +306,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260826.rebuild-clean.57";
+} from "./training-practical-review.js?v=20260826.rebuild-clean.58";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -325,7 +325,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260826.rebuild-clean.57";
+} from "./my-work-view.js?v=20260826.rebuild-clean.58";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -336,8 +336,8 @@ const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
   ),
 );
 const MEDIA_UPLOAD_CONCURRENCY = DEFAULT_MEDIA_UPLOAD_CONCURRENCY;
-const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260826.rebuild-clean.57";
-const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260826.rebuild-clean.57";
+const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260826.rebuild-clean.58";
+const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260826.rebuild-clean.58";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
 const MAX_MOCK_BATCH_SIZE = Math.min(50, Math.max(1, Number(CONFIG.MAX_BATCH_SIZE) || 50));
@@ -9168,6 +9168,174 @@ function openRejectResultDialog({ projectId, mediaId, mediaTitle = "" }) {
       toast(`Отказ не записан: ${actionErrorMessage(error)}`, "error");
     }
   });
+  dialog.addEventListener("close", () => dialog.remove());
+  dialog.showModal();
+}
+
+// Витрина согласования (ступень 1): выдача токен-ссылки клиенту. Диалог
+// императивный (<dialog>); токен показывается РОВНО один раз — сервер по
+// replay его не возвращает. Имена полей — вне DOM-clobbering-сета.
+function clientReviewPageUrl(token) {
+  const base = window.location.origin
+    + window.location.pathname.replace(/[^/]*$/, "");
+  return `${base}review.html#t=${token}`;
+}
+
+function openClientReviewIssueDialog({ campaignId, campaignName }) {
+  document.querySelector("dialog[data-client-review-issue-dialog]")?.remove();
+  const dialog = document.createElement("dialog");
+  dialog.dataset.clientReviewIssueDialog = "true";
+  dialog.className = "workspace-dialog";
+  dialog.innerHTML = `
+    <form method="dialog" class="form-stack" data-client-review-issue-form novalidate>
+      <h3>Ссылка клиенту · ${escapeHtml(campaignName || "Кампания")}</h3>
+      <p class="tiny muted">Клиент откроет страницу без входа: посмотрит ролики, примет или вернёт с комментарием, попросит публикацию. Ссылка показывается один раз.</p>
+      <div data-client-review-candidates><p class="muted tiny">Загружаем ролики кампании…</p></div>
+      <label class="field"><span>Подпись для клиента *</span><input name="client_label" required minlength="2" maxlength="120" autocomplete="off" placeholder="Например: БАСТИОН · сентябрь" /></label>
+      <label class="field"><span>Срок действия</span><select name="ttl_days"><option value="14">14 дней</option><option value="7">7 дней</option><option value="30">30 дней</option></select></label>
+      <label class="option" data-client-review-attest hidden>
+        <input type="checkbox" name="curator_attested" value="on" />
+        <span><strong>Беру кураторскую ответственность за ролики без QA-проверки</strong><br /><small class="muted">У части выбранных роликов нет принятого QA-решения. Без отметки они в ссылку не попадут.</small></span>
+      </label>
+      <div data-client-review-result hidden></div>
+      <div class="inline-actions">
+        <button class="btn btn-primary" type="submit" value="issue">Создать ссылку</button>
+        <button class="btn btn-secondary" type="submit" value="cancel" formnovalidate>Закрыть</button>
+      </div>
+    </form>`;
+  document.body.append(dialog);
+  const form = dialog.querySelector("[data-client-review-issue-form]");
+  const candidatesNode = dialog.querySelector("[data-client-review-candidates]");
+  const attestNode = dialog.querySelector("[data-client-review-attest]");
+  const resultNode = dialog.querySelector("[data-client-review-result]");
+
+  state.api.listCampaignReviewCandidates({ campaign_id: campaignId })
+    .then((data) => {
+      const candidates = data.candidates || [];
+      if (!candidates.length) {
+        candidatesNode.innerHTML = `<p class="muted tiny">У кампании пока нет готовых роликов. Запустите генерацию и вернитесь.</p>`;
+        return;
+      }
+      candidatesNode.innerHTML = `
+        <p class="eyebrow">Ролики в ссылку</p>
+        ${candidates.map((item) => `
+          <label class="option">
+            <input type="checkbox" data-client-review-media value="${escapeHtml(item.media_object_id)}" data-qa="${escapeHtml(item.qa_status || "none")}" />
+            <span>${escapeHtml(item.original_filename || item.media_object_id)}
+              <small class="muted"> · ${item.qa_status === "approved" ? "QA принят" : "без QA-проверки"}${item.duration_seconds ? ` · ${escapeHtml(String(item.duration_seconds))} c` : ""}</small></span>
+          </label>
+        `).join("")}
+      `;
+      const syncAttest = () => {
+        const needsAttest = Array.from(
+          candidatesNode.querySelectorAll("[data-client-review-media]:checked"),
+        ).some((box) => box.dataset.qa !== "approved");
+        attestNode.hidden = !needsAttest;
+      };
+      candidatesNode.addEventListener("change", syncAttest);
+    })
+    .catch((error) => {
+      candidatesNode.innerHTML = `<p class="muted tiny">Не удалось загрузить ролики: ${escapeHtml(actionErrorMessage(error))}</p>`;
+    });
+
+  form.addEventListener("submit", async (event) => {
+    const submitter = event.submitter;
+    if (!submitter || submitter.value !== "issue") return;
+    event.preventDefault();
+    if (!form.reportValidity()) return;
+    const mediaIds = Array.from(
+      candidatesNode.querySelectorAll("[data-client-review-media]:checked"),
+    ).map((box) => String(box.value));
+    if (!mediaIds.length) {
+      toast("Отметьте хотя бы один ролик для клиента.", "error");
+      return;
+    }
+    submitter.disabled = true;
+    try {
+      const result = await state.api.issueClientReviewLink({
+        campaign_id: campaignId,
+        client_label: String(form.elements.client_label?.value || ""),
+        media_ids: mediaIds,
+        curator_attested: form.elements.curator_attested?.checked === true,
+        ttl_days: Number(form.elements.ttl_days?.value || 14),
+      });
+      const token = String(result?.link?.token || "");
+      if (!token) {
+        toast("Ссылка уже выдавалась. Отзовите старую и создайте новую.", "error");
+        submitter.disabled = false;
+        return;
+      }
+      const url = clientReviewPageUrl(token);
+      resultNode.hidden = false;
+      resultNode.innerHTML = `
+        <div class="callout">
+          <strong>Ссылка готова — скопируйте сейчас</strong>
+          <p class="tiny muted">Повторно показать её нельзя: только отозвать и выдать новую.</p>
+          <p class="tiny" style="word-break:break-all" data-client-review-url>${escapeHtml(url)}</p>
+          <button class="btn btn-secondary btn-small" type="button" data-action="copy-client-review-url" data-url="${escapeHtml(url)}">Скопировать ссылку</button>
+        </div>`;
+      submitter.hidden = true;
+    } catch (error) {
+      submitter.disabled = false;
+      toast(`Ссылка не создана: ${actionErrorMessage(error)}`, "error");
+    }
+  });
+  dialog.addEventListener("close", () => dialog.remove());
+  dialog.showModal();
+}
+
+function openClientReviewLinksDialog({ campaignId, campaignName }) {
+  document.querySelector("dialog[data-client-review-links-dialog]")?.remove();
+  const dialog = document.createElement("dialog");
+  dialog.dataset.clientReviewLinksDialog = "true";
+  dialog.className = "workspace-dialog";
+  dialog.innerHTML = `
+    <div class="form-stack">
+      <h3>Ссылки клиента · ${escapeHtml(campaignName || "Кампания")}</h3>
+      <div data-client-review-links-list><p class="muted tiny">Загружаем…</p></div>
+      <div class="inline-actions">
+        <button class="btn btn-secondary" type="button" data-action="close-client-review-links">Закрыть</button>
+      </div>
+    </div>`;
+  document.body.append(dialog);
+  const listNode = dialog.querySelector("[data-client-review-links-list]");
+
+  const decisionText = (decision) => (
+    decision === "accepted"
+      ? "принят"
+      : decision === "returned"
+        ? "возвращён"
+        : decision === "publish_requested"
+          ? "просит публикацию"
+          : "без решения"
+  );
+  const render = async () => {
+    try {
+      const data = await state.api.listClientReviewLinks({
+        campaign_id: campaignId,
+      });
+      const links = data.links || [];
+      if (!links.length) {
+        listNode.innerHTML = `<p class="muted tiny">Ссылок ещё не выдавали.</p>`;
+        return;
+      }
+      listNode.innerHTML = links.map((link) => `
+        <div class="callout" data-client-review-link="${escapeHtml(link.id)}">
+          <strong>${escapeHtml(link.client_label || "Без подписи")}</strong>
+          <p class="tiny muted">Статус: ${escapeHtml(link.status)} · до ${escapeHtml(formatDate(link.expires_at, true))} · просмотров ${escapeHtml(String(link.view_count))}/${escapeHtml(String(link.view_limit))}</p>
+          ${(link.items || []).map((item) => `
+            <p class="tiny">Ролик ${escapeHtml(String(item.position))}: ${escapeHtml(decisionText(item.last_decision?.decision))}${item.last_decision?.comment ? ` — «${escapeHtml(item.last_decision.comment)}»` : ""}</p>
+          `).join("")}
+          ${link.status === "active" ? `<button class="btn btn-danger btn-small" type="button" data-action="revoke-client-review-link" data-link-id="${escapeHtml(link.id)}">Отозвать ссылку</button>` : ""}
+        </div>
+      `).join("");
+    } catch (error) {
+      listNode.innerHTML = `<p class="muted tiny">Не удалось загрузить: ${escapeHtml(actionErrorMessage(error))}</p>`;
+    }
+  };
+  dialog.dataset.clientReviewRefresh = "pending";
+  dialog.addEventListener("client-review-refresh", render);
+  render();
   dialog.addEventListener("close", () => dialog.remove());
   dialog.showModal();
 }
@@ -24111,6 +24279,54 @@ async function handleClick(event) {
       mediaId: String(control.dataset.mediaId || ""),
       generationJobId: String(control.dataset.generationJobId || ""),
     });
+    return;
+  }
+
+  if (action === "open-client-review-issue") {
+    openClientReviewIssueDialog({
+      campaignId: String(control.dataset.campaignId || ""),
+      campaignName: String(control.dataset.campaignName || ""),
+    });
+    return;
+  }
+
+  if (action === "open-client-review-links") {
+    openClientReviewLinksDialog({
+      campaignId: String(control.dataset.campaignId || ""),
+      campaignName: String(control.dataset.campaignName || ""),
+    });
+    return;
+  }
+
+  if (action === "copy-client-review-url") {
+    try {
+      await navigator.clipboard.writeText(String(control.dataset.url || ""));
+      toast("Ссылка скопирована. Отправьте её клиенту.", "success");
+    } catch {
+      toast("Скопируйте ссылку вручную — буфер обмена недоступен.", "error");
+    }
+    return;
+  }
+
+  if (action === "close-client-review-links") {
+    control.closest("dialog")?.close();
+    return;
+  }
+
+  if (action === "revoke-client-review-link") {
+    control.disabled = true;
+    try {
+      await state.api.revokeClientReviewLink({
+        link_id: String(control.dataset.linkId || ""),
+      });
+      toast("Ссылка отозвана: клиент больше не откроет витрину.", "success");
+      control.closest("dialog")?.dispatchEvent(
+        new CustomEvent("client-review-refresh"),
+      );
+    } catch (error) {
+      control.disabled = false;
+      toast(`Не удалось отозвать: ${actionErrorMessage(error)}`, "error");
+    }
     return;
   }
 

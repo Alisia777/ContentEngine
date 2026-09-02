@@ -405,6 +405,12 @@ function campaignSpendMarkup(overview, {
       ` : mode === "campaigns" ? `<p class="manager-spend-message manager-spend-message-error" role="alert">Активных кампаний пока нет. До создания кампании платные запуски закрыты.</p>` : ""}
       ${canEdit && !overview.policy.present ? `<p class="manager-spend-message" role="status">Сначала сохраните общий бюджет команды. После этого можно создавать и настраивать кампании.</p>` : ""}
       ${canEdit && mode === "campaign" && selectedCampaign ? `<div class="manager-spend-campaign-editors">${generationCampaignPolicyForm(selectedCampaign, { saving, disabled: campaignControlsDisabled })}</div>` : ""}
+      ${mode === "campaign" && selectedCampaign ? `
+        <div class="inline-actions" style="margin-top:12px">
+          <button class="btn btn-secondary btn-small" type="button" data-action="open-client-review-issue" data-campaign-id="${escapeHtml(selectedCampaign.id)}" data-campaign-name="${escapeHtml(selectedCampaign.name || "Кампания")}">Ссылка клиенту · витрина согласования</button>
+          <button class="btn btn-ghost btn-small" type="button" data-action="open-client-review-links" data-campaign-id="${escapeHtml(selectedCampaign.id)}" data-campaign-name="${escapeHtml(selectedCampaign.name || "Кампания")}">Ссылки и решения клиента</button>
+        </div>
+      ` : ""}
       ${mode === "campaign" && !selectedCampaign ? `<p class="manager-spend-message manager-spend-message-error" role="alert">Кампания не найдена. Вернитесь в список и выберите доступную запись.</p>` : ""}
       ${createForm}
     </section>
