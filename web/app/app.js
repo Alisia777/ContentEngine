@@ -3,12 +3,12 @@ import {
   CreatorApiError,
   mediaKindRequiresProduct,
   PRODUCT_RESEARCH_PLATFORMS,
-} from "./supabase-api.js?v=20260826.rebuild-clean.55";
+} from "./supabase-api.js?v=20260826.rebuild-clean.56";
 import {
   adminPeopleMarkup,
   normalizeAdminSnapshot,
   normalizeAdminView,
-} from "./admin-people-view.js?v=20260826.rebuild-clean.55";
+} from "./admin-people-view.js?v=20260826.rebuild-clean.56";
 import {
   clearExactYoutubeMediaHandoff,
   exactYoutubeRegisteredMediaId,
@@ -16,12 +16,12 @@ import {
   isExactYoutubeMp4,
   readExactYoutubeMediaHandoff,
   updateExactYoutubeMediaHandoffProgress,
-} from "./exact-youtube-media-handoff.js?v=20260826.rebuild-clean.55";
+} from "./exact-youtube-media-handoff.js?v=20260826.rebuild-clean.56";
 import {
   captureVerifiedPrivateVideoBlob,
   exactYoutubeResearchFailureRecovery,
   resolveExactYoutubeResearchCaptureMedia,
-} from "./exact-youtube-research-capture.js?v=20260826.rebuild-clean.55";
+} from "./exact-youtube-research-capture.js?v=20260826.rebuild-clean.56";
 import {
   approvedGenerationSpecContext,
   generationSpecApprovalReviewDecision,
@@ -34,21 +34,21 @@ import {
   normalizeGenerationSpecEnvelope,
   normalizeGenerationSpecContext,
   normalizeGenerationSpecScope,
-} from "./generation-spec.js?v=20260826.rebuild-clean.55";
-import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260826.rebuild-clean.55";
-import { generationStrategyRequiredSourceCount } from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.55";
-import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.55";
+} from "./generation-spec.js?v=20260826.rebuild-clean.56";
+import { patchWorkspaceContent } from "./workspace-dom-patch.js?v=20260826.rebuild-clean.56";
+import { generationStrategyRequiredSourceCount } from "./generation-strategy-source-picker.js?v=20260826.rebuild-clean.56";
+import { workspaceActionDescriptor, workspaceActionKey } from "./workspace-action-key.js?v=20260826.rebuild-clean.56";
 import {
   normalizeWorkspaceInternalTarget,
   resolveWorkspaceCommand,
-} from "./workspace-command-registry.js?v=20260826.rebuild-clean.55";
+} from "./workspace-command-registry.js?v=20260826.rebuild-clean.56";
 import {
   DEFAULT_MEDIA_UPLOAD_BATCH_LIMIT,
   DEFAULT_MEDIA_UPLOAD_CONCURRENCY,
   mergeMediaFileSelection,
   mediaFileValidationError as mediaUploadFileValidationError,
   mediaUploadWorkerCount,
-} from "./media-upload-queue.js?v=20260826.rebuild-clean.55";
+} from "./media-upload-queue.js?v=20260826.rebuild-clean.56";
 import {
   FINAL_EXAM_CODE,
   NAVIGATION_MODES,
@@ -56,39 +56,39 @@ import {
   REQUIRED_MODULE_CODES,
   SIMPLE_WORKSPACE_TAB_KEYS,
   WORKSPACE_TABS,
-} from "./catalog.js?v=20260826.rebuild-clean.55";
+} from "./catalog.js?v=20260826.rebuild-clean.56";
 import {
   ACCOUNT_LAUNCH_PATH,
   accountLaunchCenterMarkup,
   accountLaunchGuideMarkup,
   accountLaunchSlugFromPath,
   evaluateAdvertisingAnswers,
-} from "./account-launch-view.js?v=20260826.rebuild-clean.55";
+} from "./account-launch-view.js?v=20260826.rebuild-clean.56";
 import {
   managerDashboardMarkup,
   managerOperationalHealthMarkup,
-} from "./manager-dashboard-view.js?v=20260826.rebuild-clean.55";
+} from "./manager-dashboard-view.js?v=20260826.rebuild-clean.56";
 import {
   generationCampaignSelectionState,
   generationSpendAllowsMinor,
   generationSpendSnapshotMarkup,
   managerGenerationSpendMarkup,
   normalizeGenerationSpendOverview,
-} from "./generation-spend-view.js?v=20260826.rebuild-clean.55";
+} from "./generation-spend-view.js?v=20260826.rebuild-clean.56";
 import {
   generationProviderReadinessPreflights,
   normalizeGenerationProviderPreflight,
-} from "./generation-provider-readiness.js?v=20260826.rebuild-clean.55";
+} from "./generation-provider-readiness.js?v=20260826.rebuild-clean.56";
 import {
   generationModelAcceptanceMarkup,
   normalizeGenerationModelAcceptance,
-} from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.55";
+} from "./generation-model-acceptance-view.js?v=20260826.rebuild-clean.56";
 import {
   accessCenterMarkup,
   ensureAccessCenterStyles,
   normalizeAccessCenterEmail,
   normalizeAccessCenterResult,
-} from "./access-center-view.js?v=20260826.rebuild-clean.55";
+} from "./access-center-view.js?v=20260826.rebuild-clean.56";
 import {
   applyResearchMarketCategoryResolution,
   applyResearchOutcomeLearningMutation,
@@ -110,7 +110,7 @@ import {
   productResearchStatusKind,
   readProductResearchBrief,
   researchCategoryLearningMarkup,
-} from "./product-research-view.js?v=20260826.rebuild-clean.55";
+} from "./product-research-view.js?v=20260826.rebuild-clean.56";
 import {
   AI_PRODUCT_CATEGORIES,
   aiHistoricalCaseFilter,
@@ -121,7 +121,7 @@ import {
   applyAiLearningControlRoomMutation,
   normalizeAiLearningControlRoom,
   normalizeAiLearningMarketScopeIndex,
-} from "./ai-learning-control-room.js?v=20260826.rebuild-clean.55";
+} from "./ai-learning-control-room.js?v=20260826.rebuild-clean.56";
 import {
   AI_RESEARCH_HUMAN_INTENT_MARKER,
   AI_RESEARCH_PROVIDER_FRAGMENT_VERSION,
@@ -137,15 +137,15 @@ import {
   normalizeGenerationLearningPolicy,
   normalizeGenerationRepairPolicy,
   parseContentGenerationHandoff,
-} from "./content-generation-handoff.js?v=20260826.rebuild-clean.55";
+} from "./content-generation-handoff.js?v=20260826.rebuild-clean.56";
 import {
   generationQualityTrainingRecommendation,
   targetedGenerationQualityLesson,
-} from "./generation-quality-training.js?v=20260826.rebuild-clean.55";
+} from "./generation-quality-training.js?v=20260826.rebuild-clean.56";
 import {
   evaluateGenerationFormReadiness,
   generationReadinessMarkup,
-} from "./generation-form-readiness.js?v=20260826.rebuild-clean.55";
+} from "./generation-form-readiness.js?v=20260826.rebuild-clean.56";
 import {
   GENERATION_STRATEGY_RUNTIME_ACTIONS,
   createGenerationStrategyRuntimeFingerprint,
@@ -159,7 +159,7 @@ import {
   invalidateGenerationStrategyRuntimeState,
   normalizeGenerationStrategyProbeResponse,
   reduceGenerationStrategyRuntimeState,
-} from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.55";
+} from "./generation-strategy-runtime.js?v=20260826.rebuild-clean.56";
 import {
   createGenerationStrategyQueue,
   generationStrategyQueueAggregateReview,
@@ -168,33 +168,33 @@ import {
   planGenerationStrategyQueueFreeWork,
   planGenerationStrategyQueueSequentialStarts,
   updateGenerationStrategyQueueRow,
-} from "./generation-strategy-queue.js?v=20260826.rebuild-clean.55";
+} from "./generation-strategy-queue.js?v=20260826.rebuild-clean.56";
 import {
   renderGenerationStrategyQueueView,
-} from "./generation-strategy-queue-view.js?v=20260826.rebuild-clean.55";
+} from "./generation-strategy-queue-view.js?v=20260826.rebuild-clean.56";
 import {
   buildGenerationStrategySpecApprovalRequest,
   buildGenerationStrategySpecPrepareRequest,
   generationStrategySpecSafeProjection,
   normalizeGenerationStrategySpecControlResponse,
   normalizeGenerationStrategySpecPrepareResponse,
-} from "./generation-strategy-spec.js?v=20260826.rebuild-clean.55";
+} from "./generation-strategy-spec.js?v=20260826.rebuild-clean.56";
 import {
   generationVideoReferencePromptFragment,
   normalizeGenerationVideoReference,
   normalizeGenerationVideoReferenceContext,
-} from "./generation-video-reference.js?v=20260826.rebuild-clean.55";
+} from "./generation-video-reference.js?v=20260826.rebuild-clean.56";
 import {
   buildGenerationFormDraft,
   GENERATION_FORM_DRAFT_MAX_AGE_MS,
   GENERATION_FORM_DRAFT_VERSION,
   normalizeGenerationFormDraft,
-} from "./generation-form-draft.js?v=20260826.rebuild-clean.55";
+} from "./generation-form-draft.js?v=20260826.rebuild-clean.56";
 import {
   readGenerationAiResearchWorkingDraft,
   resolveGenerationAiResearchProductIdentity,
   resolveGenerationExpectedProductMatch,
-} from "./generation-ai-research-working-draft.js?v=20260826.rebuild-clean.55";
+} from "./generation-ai-research-working-draft.js?v=20260826.rebuild-clean.56";
 import {
   chooseInitialGenerationMedia,
   generationLearningRetryDelay,
@@ -206,7 +206,7 @@ import {
   resolveHandoffGenerationMode,
   resolveGenerationLearningFallback,
   resolveGenerationPlatform,
-} from "./generation-autopilot.js?v=20260826.rebuild-clean.55";
+} from "./generation-autopilot.js?v=20260826.rebuild-clean.56";
 import {
   buildContentReviewFrameFiles,
   captureContentReviewEvidence,
@@ -228,14 +228,14 @@ import {
   syncContentReviewSafeZoneStage,
   syncContentReviewFormVisibility,
   validateGeneratedVideoSoundAssessment,
-} from "./content-review-view.js?v=20260826.rebuild-clean.55";
+} from "./content-review-view.js?v=20260826.rebuild-clean.56";
 import {
   FIRST_SHIFT_FULL_ACTIONS,
   FIRST_SHIFT_FULL_SCENARIO,
   createFirstShiftFullState,
   firstShiftFullScenarioMarkup,
   reduceFirstShiftFullState,
-} from "./first-shift-full-scenario.js?v=20260826.rebuild-clean.55";
+} from "./first-shift-full-scenario.js?v=20260826.rebuild-clean.56";
 import {
   GENERATION_ARCHIVE_PAGE_SIZE,
   GENERATION_VISIBLE_CAP,
@@ -250,7 +250,7 @@ import {
   normalizeGenerationFilters,
   normalizePortalTheme,
   persistPortalThemePreference,
-} from "./portal-experience.js?v=20260826.rebuild-clean.55";
+} from "./portal-experience.js?v=20260826.rebuild-clean.56";
 import {
   isWorkspaceSmartFolderId,
   normalizeWorkspaceBoard,
@@ -258,7 +258,7 @@ import {
   workspaceBoardItemKey,
   workspaceBoardPaginationState,
   workspaceBoardMarkup,
-} from "./workspace-board-view.js?v=20260826.rebuild-clean.55";
+} from "./workspace-board-view.js?v=20260826.rebuild-clean.56";
 import {
   evaluateTrainingPractice,
   normalizeInteractiveWalkthroughs,
@@ -270,7 +270,7 @@ import {
   syncTrainingWalkthroughStatus,
   trainingInteractiveMarkup,
   trainingWalkthroughStorageKey,
-} from "./training-interactive.js?v=20260826.rebuild-clean.55";
+} from "./training-interactive.js?v=20260826.rebuild-clean.56";
 import {
   LEARNING_TRACKS,
   achievementMarkup,
@@ -287,16 +287,16 @@ import {
   reduceLessonJourney,
   roleAwareLessonPath,
   shouldCelebrateCourse,
-} from "./training-journey.js?v=20260826.rebuild-clean.55";
+} from "./training-journey.js?v=20260826.rebuild-clean.56";
 import {
   bindTrainingPlatformSimulators,
   syncPlatformSimulatorWalkthroughDOM,
   trainingPlatformSimulatorsMarkup,
-} from "./training-platform-simulators.js?v=20260826.rebuild-clean.55";
+} from "./training-platform-simulators.js?v=20260826.rebuild-clean.56";
 import {
   bindTrainingMediaCards,
   trainingMediaCardsMarkup,
-} from "./training-media-cards.js?v=20260826.rebuild-clean.55";
+} from "./training-media-cards.js?v=20260826.rebuild-clean.56";
 import {
   normalizeTrainingPracticalProject,
   normalizeTrainingPracticalReviews,
@@ -306,7 +306,7 @@ import {
   trainingPracticalGateSnapshot,
   trainingPracticalProjectMarkup,
   trainingPracticalReviewQueueMarkup,
-} from "./training-practical-review.js?v=20260826.rebuild-clean.55";
+} from "./training-practical-review.js?v=20260826.rebuild-clean.56";
 
 const DEDICATED_PLATFORM_WALKTHROUGH_IDS = new Set([
   "platform_publish_instagram",
@@ -325,7 +325,7 @@ import {
   normalizeSavedWorkViews,
   notificationCenterMarkup,
   readMyWorkFilters,
-} from "./my-work-view.js?v=20260826.rebuild-clean.55";
+} from "./my-work-view.js?v=20260826.rebuild-clean.56";
 
 const CONFIG = Object.freeze({ ...(window.CONTENTENGINE_CONFIG || {}) });
 const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
@@ -336,8 +336,8 @@ const MEDIA_UPLOAD_BATCH_LIMIT = Math.max(
   ),
 );
 const MEDIA_UPLOAD_CONCURRENCY = DEFAULT_MEDIA_UPLOAD_CONCURRENCY;
-const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260826.rebuild-clean.55";
-const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260826.rebuild-clean.55";
+const SUPABASE_SDK_URL = "./vendor/supabase-js-2.57.4.js?v=20260826.rebuild-clean.56";
+const ACCOUNT_VISUAL_MODULE_URL = "./account-launch-visual-examples.js?v=20260826.rebuild-clean.56";
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
 const MAX_MOCK_BATCH_SIZE = Math.min(50, Math.max(1, Number(CONFIG.MAX_BATCH_SIZE) || 50));
@@ -19237,10 +19237,17 @@ function placementCard(item) {
       ${actionable ? `
         <div class="callout">
           <strong>Публикация по расписанию</strong>
-          <p class="tiny muted">Портал поставит ролик в очередь авторазмещения и соберёт подпись с маркировкой сам. ${item.scheduled_at ? `Сейчас в расписании: ${formatDate(item.scheduled_at, true)}.` : "Время выхода выберете в форме."}</p>
-          <div class="inline-actions">
-            <button class="btn btn-secondary btn-small" type="button" data-action="open-publishing-schedule" data-placement-id="${escapeHtml(item.id || item.placement_id || "")}" data-placement-title="${escapeHtml(item.title || item.product_name || "")}" data-placement-platform="${escapeHtml(item.platform || item.destination || "")}">Запланировать публикацию</button>
-          </div>
+          ${canManageTeam() ? `
+            <p class="tiny muted">Портал поставит ролик в очередь авторазмещения и соберёт подпись с маркировкой сам. ${item.scheduled_at ? `Сейчас в расписании: ${formatDate(item.scheduled_at, true)}.` : "Время выхода выберете в форме."} <span class="badge">боевой прогон</span></p>
+            <div class="inline-actions">
+              <button class="btn btn-secondary btn-small" type="button" data-action="open-publishing-schedule" data-placement-id="${escapeHtml(item.id || item.placement_id || "")}" data-placement-title="${escapeHtml(item.title || item.product_name || "")}" data-placement-platform="${escapeHtml(item.platform || item.destination || "")}">Запланировать публикацию</button>
+            </div>
+          ` : `
+            <p class="tiny muted">Очередь авторазмещения ещё не прошла боевую приёмку — публикуем вручную по чек-листу задачи. Кнопка включится после первого доведённого до конца прогона.</p>
+            <div class="inline-actions">
+              <button class="btn btn-secondary btn-small" type="button" disabled>Запланировать публикацию</button>
+            </div>
+          `}
         </div>
       ` : ""}
       ${complete ? alertMarkup(`Публикация подтверждена: ${item.final_url || "ссылка сохранена"}`, "success") : actionable && trackingReady ? `
@@ -24076,6 +24083,15 @@ async function handleClick(event) {
   }
 
   if (action === "open-publishing-schedule") {
+    // Гейт боевой приёмки: очередь ни разу не доведена до published —
+    // до первого зелёного прогона наряд ставит только owner/admin.
+    if (!canManageTeam()) {
+      toast(
+        "Очередь авторазмещения ещё не прошла боевую приёмку — публикуем вручную по чек-листу задачи.",
+        "info",
+      );
+      return;
+    }
     const projectId = requireWorkspaceProjectId();
     if (!projectId) return;
     openPublishingScheduleDialog({
@@ -39912,8 +39928,12 @@ async function submitMedia(form) {
   }
   const exactSourceMatchConfirmed =
     values.get("media_matches_registered_source") === "on";
-  if (exactIntent.active && values.get("rights_confirmed") !== "on") {
-    toast("Подтвердите право команды использовать выбранный MP4.", "error");
+  // Аттестация прав обязательна для ЛЮБОЙ загрузки (форма с novalidate —
+  // required сам не сработает); сервер требует rights_confirmed:true, и он
+  // обязан приходить из живого чекбокса, а не из хардкода.
+  const rightsConfirmed = values.get("rights_confirmed") === "on";
+  if (!rightsConfirmed) {
+    toast("Подтвердите право команды использовать загружаемые материалы.", "error");
     form.elements.rights_confirmed?.focus();
     return;
   }
@@ -40071,7 +40091,7 @@ async function submitMedia(form) {
             sha256,
             kind,
             ...productIdentity,
-            rights_confirmed: true,
+            rights_confirmed: rightsConfirmed,
           });
           mediaRegistered = true;
           if (exactIntent.active) {

@@ -104,7 +104,11 @@ function acceptanceCatalog(source, catalogSnapshot) {
   const canonical = Array.isArray(catalogSnapshot?.models)
     ? catalogSnapshot.models
     : [];
-  const rows = canonical.length ? canonical : Array.isArray(source.models) ? source.models : [];
+  // Union, не подмена: серверный каталог приёмки может знать идентичности
+  // (рецепты стратегий), которых ещё нет в edge-снимке — иначе они
+  // исчезали бы из панели после загрузки edge-каталога.
+  const sourceRows = Array.isArray(source.models) ? source.models : [];
+  const rows = canonical.length ? [...canonical, ...sourceRows] : sourceRows;
   const seen = new Set();
   return rows.flatMap((entry) => {
     const provider = safeText(entry?.provider || source.provider || "runway").toLowerCase();

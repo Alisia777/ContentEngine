@@ -66,6 +66,18 @@ export function normalizeGenerationSpendOverview(value = {}) {
   const campaigns = Array.isArray(source.campaigns)
     ? source.campaigns.map(normalizeCampaign).filter(Boolean)
     : [];
+  // «Потрачено на брак»: срез по failed-нарядам приезжает тем же RPC
+  // (обёртка generation-failed-spend-v1); отсутствие ключа — старый сервер.
+  const failedSource = objectValue(source.failed_spend) || {};
+  const failedSpend = {
+    present: failedSource.version === "generation-failed-spend-v1",
+    dayMinor: minorValue(failedSource.day_minor),
+    monthMinor: minorValue(failedSource.month_minor),
+    allTimeMinor: minorValue(failedSource.all_time_minor),
+    sharePercent: Number.isFinite(Number(failedSource.share_percent))
+      ? Number(failedSource.share_percent)
+      : null,
+  };
 
   return {
     ok: source.ok === true,
@@ -77,6 +89,7 @@ export function normalizeGenerationSpendOverview(value = {}) {
     day,
     month,
     campaigns,
+    failedSpend,
   };
 }
 
@@ -241,6 +254,9 @@ export function managerGenerationSpendMarkup(state = {}, {
         ${spendPeriodMarkup("Сегодня", overview.day, overview.policy.dailyLimitMinor)}
         ${spendPeriodMarkup("Этот месяц", overview.month, overview.policy.monthlyLimitMinor)}
         <div class="manager-spend-limit"><small>Один запуск</small><strong>${formatUsd(overview.policy.perRequestLimitMinor)}</strong><span>максимальный резерв</span></div>
+        ${overview.failedSpend?.present ? `
+          <div class="manager-spend-limit"><small>Потрачено на брак</small><strong>${formatUsd(overview.failedSpend.monthMinor ?? 0)}</strong><span>за месяц · всего ${formatUsd(overview.failedSpend.allTimeMinor ?? 0)}${overview.failedSpend.sharePercent !== null ? ` (${escapeHtml(String(overview.failedSpend.sharePercent))}% всех трат)` : ""}</span></div>
+        ` : ""}
       </div>
       ${spendView === "policy" ? controls : ""}
       ${spendView === "policy" ? "" : campaignSpendMarkup(overview, {
