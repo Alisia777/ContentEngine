@@ -84,6 +84,7 @@ export const RPC = Object.freeze({
   configureClientReviewIntake: "creator_configure_client_review_intake",
   listClientIntake: "creator_list_client_intake",
   decideClientIntakeBrief: "creator_decide_client_intake_brief",
+  appendClientReviewLinkItems: "creator_append_client_review_link_items",
   publishGenerationResult: "creator_publish_generation_result",
   rejectGenerationResult: "creator_reject_generation_result",
   teamAccounts: "creator_team_accounts",
@@ -6941,6 +6942,32 @@ export class CreatorApi {
       campaign_id: String(input?.campaign_id || "").trim().toLowerCase(),
     });
     if (!data || data.ok !== true || !Array.isArray(data.candidates)) {
+      throw new CreatorApiError("Витрина ответила в неизвестной форме.");
+    }
+    return data;
+  }
+
+  // До-добавление роликов в живую ссылку: клиент видит новые по той же
+  // ссылке (фидбек первого прогона: «а дальше роликов нет»).
+  async appendClientReviewLinkItems(input) {
+    const linkId = String(input?.link_id || "").trim().toLowerCase();
+    const mediaIds = Array.isArray(input?.media_ids)
+      ? input.media_ids.map((value) => String(value || "").trim().toLowerCase())
+        .filter(Boolean)
+      : [];
+    if (!linkId || !mediaIds.length || mediaIds.length > 50) {
+      throw new CreatorApiError(
+        "Выберите от 1 до 50 роликов для добавления в ссылку.",
+        { code: "client_review_media_ids_invalid" },
+      );
+    }
+    const data = await this.call(RPC.appendClientReviewLinkItems, {
+      organization_id: String(this.organizationId || ""),
+      link_id: linkId,
+      media_ids: mediaIds,
+      curator_attested: input?.curator_attested === true,
+    });
+    if (!data || data.ok !== true) {
       throw new CreatorApiError("Витрина ответила в неизвестной форме.");
     }
     return data;

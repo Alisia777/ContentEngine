@@ -62,7 +62,12 @@
       }
       button.primary { background: var(--ok); border-color: var(--ok); color: #08120c; font-weight: 600; }
       button.ghost { background: transparent; }
-      button.accent { background: var(--accent); border-color: var(--accent); color: #171204; font-weight: 600; }
+      button.accent { background: var(--accent); border-color: var(--accent); color: #171204; font-weight: 600; flex-basis: 100%; }
+      .all-done {
+        border: 1px solid var(--ok); border-radius: 12px; margin-top: 16px;
+        padding: 12px 14px; font-size: .85rem; color: var(--ok);
+        background: rgba(87, 184, 124, .08);
+      }
       button:disabled { opacity: .5; cursor: default; }
       textarea {
         width: 100%; font: inherit; border-radius: 10px; margin-top: 10px;
@@ -121,7 +126,7 @@
       </footer>
     </div>
     <div class="toast" id="review-toast" role="status"></div>
-    <script src="./config.js?v=20260826.rebuild-clean.59"></script>
-    <script src="./review.js?v=20260826.rebuild-clean.59"></script>
+    <script src="./config.js?v=20260826.rebuild-clean.60"></script>
+    <script src="./review.js?v=20260826.rebuild-clean.60"></script>
   </body>
 </html>

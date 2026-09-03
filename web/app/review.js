@@ -453,9 +453,16 @@
       titleNode.textContent = result.campaign_name
         ? "Ролики: " + result.campaign_name
         : "Согласование роликов";
-      subtitleNode.textContent = result.client_label
+      var allItems = Array.isArray(result.items) ? result.items : [];
+      var decidedCount = allItems.filter(function (item) {
+        return item.last_decision && item.last_decision.decision;
+      }).length;
+      subtitleNode.textContent = (result.client_label
         ? "Для: " + result.client_label
-        : "";
+        : "")
+        + (allItems.length
+          ? " · решения: " + decidedCount + " из " + allItems.length
+          : "");
       listNode.replaceChildren();
       var items = Array.isArray(result.items) ? result.items : [];
       var intakeOn = result.intake_enabled === true;
@@ -473,6 +480,14 @@
         emptyNote.textContent =
           "Роликов пока нет — начните с вкладки «Материалы и бриф».";
         listNode.append(emptyNote);
+      }
+      if (items.length && decidedCount === items.length) {
+        var allDone = document.createElement("div");
+        allDone.className = "all-done";
+        allDone.textContent =
+          "Все ролики просмотрены — команда получила ваши решения. "
+          + "Новые ролики появятся по этой же ссылке, мы сообщим.";
+        listNode.append(allDone);
       }
       items.forEach(function (item) {
         listNode.append(renderItem(token, item));
