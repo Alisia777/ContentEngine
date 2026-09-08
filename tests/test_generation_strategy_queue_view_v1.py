@@ -290,7 +290,7 @@ def test_view_pins_all_frozen_authorities_and_has_no_side_effect_channel() -> No
     # «файл ×3» и читались как поломка. Пины очереди/runtime сдвинуты только
     # штампом сборки login-rain.4.
     expected_hashes = {
-        RUNTIME_MODULE: "180eb663d25c0b9f51d73f5b1b4a2c254cbd938d1b7df4bf94f406dacc4884d6",
+        RUNTIME_MODULE: "dae362ecda818a1d94f17d119837448a2c82f70dc27fa82c419e9627f018eb67",
         QUEUE_MODULE: "8ad63abf9e5fa68cf01cd6db381704b758e609d012bd727f8d72e33831ae2bec",
         SOURCE_PICKER_MODULE: "256289d6695113750155ec0ce5e23c5ed7be33325385b54e65f7ec5750465fc0",
     }

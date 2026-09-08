@@ -331,6 +331,7 @@ const GENERATION_STRATEGY_SHA256_PATTERN = /^[0-9a-f]{64}$/u;
 const GENERATION_STRATEGY_BIND_OPTIONAL_KEYS = Object.freeze([
   "engine",
   "duet_presenter_id",
+  "duet_layout",
 ]);
 const GENERATION_STRATEGY_REQUEST_KEYS = Object.freeze({
   strategy_catalog: Object.freeze([
@@ -8167,6 +8168,10 @@ function assertGenerationStrategyRuntimeRequest(action, request, organizationId)
     && request
     && typeof request === "object"
     && Object.prototype.hasOwnProperty.call(request, "engine");
+  const bindWithLayout = action === "strategy_bind"
+    && request
+    && typeof request === "object"
+    && Object.prototype.hasOwnProperty.call(request, "duet_layout");
   const bindWithPresenter = action === "strategy_bind"
     && request
     && typeof request === "object"
@@ -8304,6 +8309,30 @@ function assertGenerationStrategyRuntimeRequest(action, request, organizationId)
     // разошёлся бы с реестром на первой же архивации.
     || (bindWithPresenter
       && !generationStrategyExactUuid(request.duet_presenter_id))
+    // Раскладка врезки: три поля, закрытые наборы значений, ширина 20-50.
+    // Браузер проверяет форму, чтобы неполный выбор не ушёл в запрос; правило
+    // при этом принадлежит базе и повторено здесь как отражение, а не как
+    // второй источник.
+    || (bindWithLayout && (
+      !request.duet_layout
+      || typeof request.duet_layout !== "object"
+      || Array.isArray(request.duet_layout)
+      || !hasExactObjectKeys(request.duet_layout, [
+        "corner",
+        "shape",
+        "widthPercent",
+      ])
+      || !new Set([
+        "bottom_left",
+        "bottom_right",
+        "top_left",
+        "top_right",
+      ]).has(String(request.duet_layout.corner || ""))
+      || !new Set(["cutout", "window"]).has(String(request.duet_layout.shape || ""))
+      || !Number.isSafeInteger(request.duet_layout.widthPercent)
+      || request.duet_layout.widthPercent < 20
+      || request.duet_layout.widthPercent > 50
+    ))
     || (hasSpendConfirmation && (
       typeof request.spend_confirmation !== "string"
       // Провайдер стоит в самой строке подтверждения, и нижняя граница

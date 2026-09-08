@@ -31593,6 +31593,12 @@ function generationStrategyRuntimeContextForApprovedSpec(
   // ключа нет вовсе.
   const duetPresenterId = globalThis.ContentEngineGenerationGuidedV4
     ?.getDuetPresenterChoice?.() || null;
+  // Раскладка врезки под этот ролик. До 08.09.2026 три регулятора в панели
+  // были декорацией: значение доезжало до передачи и там умирало, а платный
+  // ролик собирался по карточке ведущего. Теперь выбор оператора доходит до
+  // привязки и подписывается вместе с ценой.
+  const duetLayout = globalThis.ContentEngineGenerationGuidedV4
+    ?.getDuetLayoutChoice?.() || null;
   return {
     organization_id: organizationId,
     project_id: String(projectId).toLowerCase(),
@@ -31602,6 +31608,7 @@ function generationStrategyRuntimeContextForApprovedSpec(
     generation_strategy: selection,
     ...(engine === null ? {} : { engine }),
     ...(duetPresenterId === null ? {} : { duet_presenter_id: duetPresenterId }),
+    ...(duetLayout === null ? {} : { duet_layout: duetLayout }),
   };
 }
 

@@ -924,6 +924,10 @@ type GenerationStrategyBindPayload = {
   // держит база (202608230008), и второго его источника здесь заводить нельзя:
   // разойдясь, они дали бы отказ, который невозможно объяснить оператору.
   duet_presenter_id?: string;
+  // Раскладка врезки, выбранная оператором ПОД ЭТОТ РОЛИК. Отсутствие ключа —
+  // не «раскладки нет», а «оставить ту, что записана у ведущего»: именно так
+  // работали все прежние запуски, и снимок у них не меняется.
+  duet_layout?: { corner: string; shape: string; widthPercent: number };
 };
 type GenerationStrategyMediaProbePayload = {
   action: "strategy_media_probe";
@@ -2229,10 +2233,12 @@ function readGenerationStrategyBindPayload(
   const withEngine = isRecord(value) && Object.hasOwn(value, "engine");
   const withPresenter = isRecord(value) &&
     Object.hasOwn(value, "duet_presenter_id");
+  const withLayout = isRecord(value) && Object.hasOwn(value, "duet_layout");
   const keys = [
     ...baseKeys,
     ...(withEngine ? ["engine"] : []),
     ...(withPresenter ? ["duet_presenter_id"] : []),
+    ...(withLayout ? ["duet_layout"] : []),
   ] as const;
   if (
     !hasExactKeys(value, keys) || value.action !== "strategy_bind" ||
@@ -2275,6 +2281,23 @@ function readGenerationStrategyBindPayload(
     ? (value as Record<string, unknown>).duet_presenter_id
     : null;
   if (withPresenter && !isUuid(duetPresenterId)) return null;
+  // Раскладка: три поля и ничего сверх. Значения повторяют ограничения таблицы
+  // ведущих — те же четыре угла, те же два вида, та же ширина 20-50. Это не
+  // второй источник правила, а его отражение на границе: пустить сюда мусор
+  // значило бы получить отказ в базе уже после разбора полезной нагрузки.
+  const duetLayoutRaw = withLayout
+    ? (value as Record<string, unknown>).duet_layout
+    : null;
+  const duetLayoutValid = !withLayout || (
+    isRecord(duetLayoutRaw) &&
+    hasExactKeys(duetLayoutRaw, ["corner", "shape", "widthPercent"]) &&
+    new Set(["bottom_left", "bottom_right", "top_left", "top_right"]).has(
+      String(duetLayoutRaw.corner || ""),
+    ) &&
+    new Set(["cutout", "window"]).has(String(duetLayoutRaw.shape || "")) &&
+    isIntegerInRange(duetLayoutRaw.widthPercent, 20, 50)
+  );
+  if (!duetLayoutValid) return null;
   return {
     action: "strategy_bind",
     organization_id: value.organization_id,
@@ -2287,6 +2310,15 @@ function readGenerationStrategyBindPayload(
     idempotency_key: value.idempotency_key,
     ...(engine === null ? {} : { engine }),
     ...(withPresenter ? { duet_presenter_id: duetPresenterId as string } : {}),
+    ...(withLayout
+      ? {
+        duet_layout: duetLayoutRaw as {
+          corner: string;
+          shape: string;
+          widthPercent: number;
+        },
+      }
+      : {}),
   };
 }
 
@@ -7986,6 +8018,11 @@ async function handleCreatorGenerate(
             ...(strategyBindPayload.duet_presenter_id === undefined
               ? {}
               : { duet_presenter_id: strategyBindPayload.duet_presenter_id }),
+            ...(strategyBindPayload.duet_layout === undefined
+              ? {}
+              : {
+                duet_layout: strategyBindPayload.duet_layout as unknown as Json,
+              }),
           },
         },
       );

@@ -152,7 +152,21 @@ const CONTEXT_KEYS_WITH_ENGINE = Object.freeze([...CONTEXT_KEYS, "engine"]);
 // собирается из него, пересечённого с тем, что пришло, поэтому чужой ключ
 // по-прежнему отвергается. Отдельный замороженный список на каждое сочетание
 // (движок, ведущий, оба) разошёлся бы с остальными на первой же правке.
-const CONTEXT_OPTIONAL_KEYS = Object.freeze(["engine", "duet_presenter_id"]);
+const CONTEXT_OPTIONAL_KEYS = Object.freeze([
+  "engine",
+  "duet_presenter_id",
+  "duet_layout",
+]);
+// Допустимая раскладка врезки. Те же четыре угла, два вида и ширина 20-50,
+// что в ограничениях таблицы ведущих и в проверке привязки: браузер
+// отражает правило, а не заводит своё.
+const DUET_LAYOUT_CORNERS = Object.freeze([
+  "bottom_left",
+  "bottom_right",
+  "top_left",
+  "top_right",
+]);
+const DUET_LAYOUT_SHAPES = Object.freeze(["cutout", "window"]);
 const ENGINE_KEYS = Object.freeze(["provider", "model_key"]);
 const SELECTION_COMMON_KEYS = Object.freeze([
   "version",
@@ -866,12 +880,42 @@ function normalizeRuntimeEngine(value) {
   };
 }
 
+// Раскладка врезки: ровно три поля, значения из закрытых наборов, ширина
+// целым числом 20-50. Половина раскладки — это не «почти раскладка», а запрос,
+// по которому нельзя собрать кадр, поэтому неполное значение здесь отказ.
+function normalizeDuetLayout(value) {
+  const source = exactObject(
+    value,
+    ["corner", "shape", "widthPercent"],
+    "context.duet_layout",
+  );
+  const corner = requiredText(source.corner, "context.duet_layout.corner", 32);
+  const shape = requiredText(source.shape, "context.duet_layout.shape", 32);
+  if (!DUET_LAYOUT_CORNERS.includes(corner)) {
+    throw new RuntimeContractError("value_unsupported", "context.duet_layout.corner");
+  }
+  if (!DUET_LAYOUT_SHAPES.includes(shape)) {
+    throw new RuntimeContractError("value_unsupported", "context.duet_layout.shape");
+  }
+  return {
+    corner,
+    shape,
+    widthPercent: safeInteger(
+      source.widthPercent,
+      "context.duet_layout.widthPercent",
+      20,
+      50,
+    ),
+  };
+}
+
 function normalizeRuntimeContext(value) {
   const present = CONTEXT_OPTIONAL_KEYS.filter((key) =>
     isPlainObject(value) && Object.prototype.hasOwnProperty.call(value, key)
   );
   const withEngine = present.includes("engine");
   const withPresenter = present.includes("duet_presenter_id");
+  const withLayout = present.includes("duet_layout");
   const source = exactObject(
     value,
     present.length === 0 ? CONTEXT_KEYS : [...CONTEXT_KEYS, ...present],
@@ -883,6 +927,11 @@ function normalizeRuntimeContext(value) {
   // прежнего.
   const duetPresenterId = withPresenter
     ? requiredUuid(source.duet_presenter_id, "context.duet_presenter_id")
+    : null;
+  // Раскладка входит в ОТПЕЧАТОК запуска: сменить угол врезки после
+  // подтверждения цены — это другой ролик, а не подробность прежнего.
+  const duetLayout = withLayout
+    ? normalizeDuetLayout(source.duet_layout)
     : null;
   return {
     organization_id: requiredUuid(source.organization_id, "context.organization_id"),
@@ -897,6 +946,7 @@ function normalizeRuntimeContext(value) {
     ...(duetPresenterId === null
       ? {}
       : { duet_presenter_id: duetPresenterId }),
+    ...(duetLayout === null ? {} : { duet_layout: duetLayout }),
   };
 }
 
@@ -2599,6 +2649,9 @@ export function generationStrategyRuntimeBindRequest(raw, idempotencyKey) {
       // Ведущий «Дуэта» — так же по наличию поля. Сервер требует его у дуэта и
       // ЗАПРЕЩАЕТ остальным стратегиям: подписанный ведущий у «Копии» означал
       // бы подписанный факт, которого в запросе к провайдеру не будет.
+      ...(context.duet_layout === undefined
+        ? {}
+        : { duet_layout: context.duet_layout }),
       ...(context.duet_presenter_id === undefined
         ? {}
         : { duet_presenter_id: context.duet_presenter_id }),

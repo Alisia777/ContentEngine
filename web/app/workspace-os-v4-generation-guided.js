@@ -5786,6 +5786,41 @@ window.ContentEngineGenerationGuidedV4 = Object.freeze({
       ? raw
       : null;
   },
+  // Раскладка врезки, выбранная оператором ПОД ЭТОТ РОЛИК. Отдаётся только
+  // когда все три поля заполнены осмысленно: половина раскладки — это не
+  // «почти раскладка», а запрос, по которому нельзя собрать кадр. Ничего не
+  // выбрано — ключа нет, и сервер подписывает раскладку из карточки ведущего,
+  // ровно как делал до 08.09.2026.
+  getDuetLayoutChoice(form = runtime.form) {
+    if (!form?.isConnected) return null;
+    const strategyId = String(
+      form.elements?.generation_strategy_id?.value || "",
+    ).trim();
+    if (strategyId !== "viral_avatar_ugc") return null;
+    const corner = String(
+      form.elements?.generation_intake_duet_corner?.value || "",
+    ).trim();
+    const shape = String(
+      form.elements?.generation_intake_duet_shape?.value || "",
+    ).trim();
+    const widthPercent = Number.parseInt(
+      String(form.elements?.generation_intake_duet_width?.value || ""),
+      10,
+    );
+    const cornerKnown = new Set([
+      "bottom_left",
+      "bottom_right",
+      "top_left",
+      "top_right",
+    ]).has(corner);
+    const shapeKnown = new Set(["cutout", "window"]).has(shape);
+    const widthKnown = Number.isSafeInteger(widthPercent)
+      && widthPercent >= 20
+      && widthPercent <= 50;
+    return cornerKnown && shapeKnown && widthKnown
+      ? Object.freeze({ corner, shape, widthPercent })
+      : null;
+  },
   // Ведущий и товар «Дуэта» читаются из полей формы одинаково; товар нужен
   // подготовке ТЗ (контракт PREPARE_INPUT_KEYS_WITH_PRODUCT) явным полем.
   getDuetProductChoice(form = runtime.form) {
